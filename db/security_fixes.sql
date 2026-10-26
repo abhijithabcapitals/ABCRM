@@ -87,6 +87,29 @@ end $$;
 alter default privileges in schema public revoke execute on functions from public, anon;
 
 
+-- ── 5. Members can call the automation engine's internals directly ───
+-- The SECURITY DEFINER _abcap_* helpers (set_field, clone_to, run, …)
+-- bypass RLS and were callable via /rest/v1/rpc by any signed-in user.
+-- They are only ever invoked by triggers and other SECURITY DEFINER
+-- functions, which don't need the caller to hold EXECUTE, so the app and
+-- automations keep working. Verified on a copy: task history, automation
+-- notifications and every app RPC still work as a signed-in user, and a
+-- direct _abcap_set_field call is denied.
+
+do $$
+declare f record;
+begin
+  for f in
+    select p.oid::regprocedure as sig
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname like '\_abcap\_%' and p.prosecdef
+  loop
+    execute format('revoke execute on function %s from public, anon, authenticated', f.sig);
+    execute format('grant execute on function %s to service_role', f.sig);
+  end loop;
+end $$;
+
+
 -- ── NOT changed here (needs a decision) ──────────────────────────────
 -- * Most tables carry an "Authenticated users full access" policy, which
 --   overrides the admin-only policies next to it (policies are OR-ed). In
@@ -95,4 +118,5 @@ alter default privileges in schema public revoke execute on functions from publi
 --   create and edit tasks), so tightening it means deciding per table what
 --   members may do, then changing app code to match.
 -- * reassign_assignee, ceo_overview and run_date_based_automations have no
---   admin check inside, so any signed-in member can call them.
+--   admin check inside, so any signed-in member can call them (the app
+--   calls the first two, so they can't simply be revoked).
