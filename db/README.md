@@ -4,6 +4,25 @@ SQL you run manually in the **Supabase SQL editor** (Dashboard → SQL Editor �
 
 ## Files
 
+### `00_base_schema.sql` — full structure of the live database
+
+Mirror of production (tables, constraints, indexes, all functions,
+triggers, RLS policies, storage buckets, realtime, cron jobs — no data),
+generated from the live project on 2026-10-26. Run it on a **new, empty**
+project to get a working copy; never on the live one. It reproduces the
+live security gaps — apply `security_fixes.sql` afterwards.
+
+### `security_fixes.sql` — recommended RLS / permission fixes (not yet applied)
+
+Closes the gaps found in the 2026-10-26 audit (members can promote
+themselves to admin, edit access rules, read queued emails; logged-out
+visitors can call database functions). Review and test before running live.
+
+### `tools/export_live_schema.sql` — read-only structure export
+
+Run in the SQL editor and download the CSV as `db/live_schema_export.csv`
+(git-ignored) to refresh `00_base_schema.sql` after schema changes.
+
 ### `phase3_automations_engine.sql` — Automations execution engine (Phase 3)
 
 Makes the automation rules built in the app UI actually fire. Runs entirely

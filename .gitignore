@@ -24,6 +24,9 @@ dist-ssr
 *.sw?
 .env
 
+# Live schema export (cron job commands can contain webhook secrets)
+db/live_schema_export*
+
 # Claude Code local tooling (not needed for the app)
 .claude/
 CLAUDE.md
