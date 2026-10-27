@@ -1,8 +1,8 @@
 # AB Capital Workspace
 
-Internal workspace for AB Capital Services FZC — built with React, Supabase, and Vite. Deployed on Vercel.
+Internal workspace for AB Capital Services FZC — built with React, Supabase, and Vite. Temporarily hosted on GitHub Pages; Vercel remains configured for the custom domain.
 
-🔗 **Live app:** https://ab-capital-crm-dashboard.vercel.app
+🔗 **GitHub Pages app:** https://abhijithabcapitals.github.io/ABCRM/
 
 ---
 
@@ -114,7 +114,28 @@ Open `http://localhost:5173`
 
 ## Deployment
 
-Deployed on Vercel. Every push to `main` branch auto-deploys.
+### GitHub Pages (temporary)
+
+The `Deploy to GitHub Pages` workflow publishes the Vite app whenever changes
+are pushed to `main`. In GitHub, add these repository Actions secrets under
+**Settings → Secrets and variables → Actions**:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY` (the public anon/publishable key, never a service-role key)
+
+The workflow builds the app at `/ABCRM/` and deploys the `dist` directory. Set
+the Supabase Auth **Site URL** to `https://abhijithabcapitals.github.io/ABCRM/`
+and add that URL to **Redirect URLs**. The workflow enables GitHub Pages using
+the Actions deployment source. The first deployment is available at the URL
+above once the Actions run succeeds. When moving to the custom domain, update
+the Supabase Site URL and redirect list as described below.
+
+GitHub Pages serves a public website. The CRM still requires login, and
+Supabase Row Level Security must remain enabled and correctly configured.
+
+### Vercel (custom domain)
+
+The project is also configured for Vercel. Every push to `main` can auto-deploy there.
 
 **Manual deploy:**
 
@@ -129,6 +150,26 @@ Vercel picks it up automatically within 60 seconds.
 **Environment variables required in Vercel dashboard:**
 VITE_SUPABASE_URL
 VITE_SUPABASE_ANON_KEY
+
+### Connect the CRM domain
+
+The CRM frontend is a static Vite app and can be served by Vercel; Supabase
+continues to provide the database, authentication, and file storage.
+
+1. In Vercel, open this project’s **Settings → Domains** and add
+   `crm.abcapital.ae`.
+2. At the DNS provider for `abcapital.ae`, add or update only the `crm`
+   record using the exact record type and target Vercel shows for this project.
+   Do not change the domain’s MX records or other email-related DNS records.
+3. In Supabase **Authentication → URL Configuration**, set the Site URL to
+   `https://crm.abcapital.ae` and ensure it is included in the allowed redirect
+   URLs.
+4. Redeploy the `send-automation-emails` Supabase Edge Function so its email
+   links use the custom domain.
+5. Wait for Vercel to confirm the domain is configured and test sign-in,
+   navigation, and file access on the custom domain.
+6. Only after the custom domain works, remove the old CRM site files from
+   Hostinger. Keep any unrelated website, email, and DNS configuration there.
 
 ---
 
@@ -145,7 +186,7 @@ where email = 'their@email.com';
 ```
 
 4. Share login credentials with them on WhatsApp
-5. They log in at https://ab-capital-crm-dashboard.vercel.app
+5. They log in at https://abhijithabcapitals.github.io/ABCRM/
 
 ---
 

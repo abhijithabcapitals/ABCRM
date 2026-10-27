@@ -26,7 +26,7 @@ const cors = {
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-const APP_URL = "https://ab-capital-crm-dashboard.vercel.app";
+const APP_URL = "https://abhijithabcapitals.github.io/ABCRM/";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
