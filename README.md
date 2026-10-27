@@ -72,6 +72,32 @@ abcapital-workspace/
 
 ---
 
+## Accounting client directory
+
+The accounting database lives in the separate `acct` schema of the existing
+CRM Supabase project. The CRM directory is visible only to signed-in CRM
+admins. Database access is read-only from the browser; Supabase row-level
+security also blocks anonymous users and CRM members.
+
+To install the accounting database, run the source files from
+`D:\Abhijith Projects\DataBase\Accounting\database` in the Supabase SQL Editor
+in the order documented in that folder's README. Then run
+[`db/accounting_clients_security.sql`](./db/accounting_clients_security.sql)
+in the same SQL Editor. Do not expose the `acct` schema until that security
+script has completed successfully. In Supabase API settings, add `acct` to
+the exposed schemas; the migration grants schema access only to authenticated
+users and row access only to CRM admins. Re-run the security script after any
+later schema changes that add accounting tables or views.
+
+After enabling the schema, sign in as a CRM admin and open **Accounting** in
+the sidebar. The browser reads only the client directory fields needed for
+that list. Do not put a Supabase service-role key or database password in
+`.env`, frontend code, or chat. The file registry scan is not part of this
+setup: it would upload file names and paths, so review and authorize that
+separately before running it against Supabase.
+
+---
+
 ## Roles
 
 | Role     | Access                                             |
