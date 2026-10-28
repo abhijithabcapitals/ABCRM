@@ -1,0 +1,17 @@
+{
+  "name": "template-module",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Freezone quotation templates (.docx) with field definitions, edit history and document generation. Extracted from ABCapitalCRMDashboard.",
+  "main": "index.js",
+  "peerDependencies": {
+    "@supabase/supabase-js": "^2.106.2",
+    "docxtemplater": "^3.69.3",
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1",
+    "pizzip": "^3.2.0",
+    "react": "^19.2.6",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,0 +1,179 @@
+{
+    "version":  "0.1.0",
+    "updated":  "2026-10-28",
+    "orchestrator":  {
+                         "id":  "AGT-00-ORCHESTRATOR",
+                         "role":  "Routes tasks, enforces permissions, coordinates handoffs, tracks results",
+                         "status":  "specification"
+                     },
+    "agents":  [
+                   {
+                       "id":  "AGT-01-CLIENT",
+                       "name":  "Client Agent",
+                       "folder":  "01_Client_Agent",
+                       "group":  "Client \u0026 Support",
+                       "mission":  "Own the client master record and lifecycle: onboarding, profile, contacts, engagements, status, and offboarding.",
+                       "owns":  [
+                                    "clients",
+                                    "client_contacts",
+                                    "engagements",
+                                    "client_lifecycle_events"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-02-ACCOUNTING",
+                       "name":  "Accounting Agent",
+                       "folder":  "02_Accounting_Agent",
+                       "group":  "Finance \u0026 Assurance",
+                       "mission":  "Maintain the books for each client engagement: invoices, receipts, payables, journals, and reconciliations.",
+                       "owns":  [
+                                    "invoices",
+                                    "invoice_lines",
+                                    "payments_received",
+                                    "payables",
+                                    "journal_entries",
+                                    "reconciliations"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-03-TAX",
+                       "name":  "Tax Agent",
+                       "folder":  "03_Tax_Agent",
+                       "group":  "Finance \u0026 Assurance",
+                       "mission":  "Calculate tax positions and track filing obligations and deadlines per client and jurisdiction.",
+                       "owns":  [
+                                    "tax_rules",
+                                    "tax_obligations",
+                                    "tax_computations",
+                                    "filing_calendar"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-04-AUDIT",
+                       "name":  "Audit Agent",
+                       "folder":  "04_Audit_Agent",
+                       "group":  "Finance \u0026 Assurance",
+                       "mission":  "Provide independent checks over records and other agents\u0027 actions, and report findings.",
+                       "owns":  [
+                                    "audit_findings",
+                                    "audit_samples",
+                                    "audit_workpapers"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-05-BIZDEV",
+                       "name":  "Business Development Agent",
+                       "folder":  "05_Business_Development_Agent",
+                       "group":  "Growth \u0026 People",
+                       "mission":  "Manage leads, opportunities, and the sales pipeline until a lead becomes a client.",
+                       "owns":  [
+                                    "leads",
+                                    "opportunities",
+                                    "proposals",
+                                    "pipeline_activities"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-06-SOCIAL",
+                       "name":  "Social Media Agent",
+                       "folder":  "06_Social_Media_Agent",
+                       "group":  "Growth \u0026 People",
+                       "mission":  "Plan, draft, schedule, and measure content and campaigns across configured social channels.",
+                       "owns":  [
+                                    "content_calendar",
+                                    "social_posts",
+                                    "campaigns",
+                                    "social_metrics"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-07-DOCUMENT",
+                       "name":  "Document Agent",
+                       "folder":  "07_Document_Agent",
+                       "group":  "Technology \u0026 Records",
+                       "mission":  "Manage client documents in OneDrive and their metadata in SQL: filing, naming, versioning, retention, and retrieval.",
+                       "owns":  [
+                                    "documents",
+                                    "document_versions",
+                                    "retention_policies",
+                                    "folder_map"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-08-SUPPORT",
+                       "name":  "Support Agent",
+                       "folder":  "08_Support_Agent",
+                       "group":  "Client \u0026 Support",
+                       "mission":  "Handle client issues and requests through tickets, from intake to resolution.",
+                       "owns":  [
+                                    "tickets",
+                                    "ticket_messages",
+                                    "knowledge_base",
+                                    "sla_policies"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-09-SECURITY",
+                       "name":  "Security Agent",
+                       "folder":  "09_Security_Agent",
+                       "group":  "Technology \u0026 Records",
+                       "mission":  "Monitor access, enforce security controls, and manage security incidents across the CRM, SQL, and OneDrive.",
+                       "owns":  [
+                                    "security_incidents",
+                                    "access_reviews",
+                                    "permission_matrix",
+                                    "security_alerts"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-10-HR",
+                       "name":  "Human Resource Agent",
+                       "folder":  "10_Human_Resource_Agent",
+                       "group":  "Growth \u0026 People",
+                       "mission":  "Support employee records and HR workflows: onboarding, leave, reviews, and offboarding.",
+                       "owns":  [
+                                    "employees",
+                                    "leave_records",
+                                    "training_records",
+                                    "hr_cases"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-11-PERSONAL",
+                       "name":  "Personal Agent",
+                       "folder":  "11_Personal_Agent",
+                       "group":  "Client \u0026 Support",
+                       "mission":  "Help the owner with personal tasks, calendar, reminders, and productivity, kept separate from business data.",
+                       "owns":  [
+                                    "personal_tasks",
+                                    "personal_notes",
+                                    "reminders"
+                                ],
+                       "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-12-IT",
+                       "name":  "IT Agent",
+                       "folder":  "12_IT_Agent",
+                       "group":  "Technology \u0026 Records",
+                       "mission":  "Maintain CRM code, integrations, and infrastructure: SQL schema, OneDrive connector, agent runtime, and deployments.",
+                       "owns":  [
+                                    "schema_migrations",
+                                    "integration_config (non-secret)",
+                                    "job_runs",
+                                    "agent_registry"
+                                ],
+                       "status":  "specification"
+                   }
+               ]
+}

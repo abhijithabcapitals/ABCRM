@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "columns": [
+    "Client ID", "Client Legal Name", "Trade Name", "Entity Type", "Company Registration Number",
+    "Trade License Number", "License Issuing Authority", "License Issue Date", "License Expiry Date", "Jurisdiction",
+    "Emirate", "Establishment Date", "Main Business Activity", "Secondary Activities", "Industry",
+    "Business Model Summary", "Website", "General Email", "General Phone", "Registered Address",
+    "Office Address", "Number of Employees", "Number of Branches", "B2B/B2C", "UAE Sales",
+    "International Sales", "Imports", "Exports", "E-commerce", "Payment Gateways",
+    "POS", "Cash Transactions", "Primary Contact", "Finance Contact", "Tax Contact",
+    "Audit Contact", "Authorized Signatory", "Contact Details", "Shareholders", "Ownership Structure",
+    "UBO", "UBO Percentage", "UBO Documentation Status", "Services Provided", "VAT Registered",
+    "TRN", "VAT Registration Date", "VAT Effective Date", "VAT Filing Frequency", "VAT Tax Period",
+    "VAT Return Due Date", "VAT Penalties", "VAT Issues", "Corporate Tax Registered", "CT Registration Number",
+    "CT Registration Date", "CT Tax Period", "Financial Year", "CT Return Due Date", "CT Return Status",
+    "CT Tax Payable", "CT Tax Paid", "CT Penalties", "Small Business Relief", "Free Zone Person",
+    "Qualifying Free Zone Person", "Tax Group", "Tax Group Parent", "Related Parties", "Transfer Pricing Applicable",
+    "Transfer Pricing Documentation", "Accounting Software", "Accounting Start Date", "Financial Year Start", "Financial Year End",
+    "Monthly Closing Deadline", "Bookkeeping Status", "Opening Balances Available", "Trial Balance Available", "General Ledger Available",
+    "Chart of Accounts Available", "Accounting Backup Available", "Bank Accounts", "Bank Statement Status", "Bank Reconciliation Status",
+    "Payroll Applicable", "Employee Count", "Payroll Frequency", "WPS Applicable", "Payroll Software",
+    "Audit Required", "Audit Period", "Previous Auditor", "Previous Audit Report", "Audit Issues",
+    "Previous Accountant", "Previous Advisor", "Handover Status", "Corporate Documents Status", "Identity Documents Status",
+    "Tax Documents Status", "Financial Documents Status", "Engagement Letter Status", "Service Agreement Status", "Engagement Start Date",
+    "Engagement End Date", "Renewal Date", "Monthly Fee", "Annual Fee", "Billing Frequency",
+    "Payment Terms", "Outstanding Amount", "Overdue Amount", "Payment Status", "Risk Level",
+    "Risk Reason", "Compliance Flags", "Onboarding Status", "Onboarding Completion %", "Missing Information",
+    "Items Requiring Review", "Business Notes", "Accounting Notes", "Tax Notes", "Audit Notes",
+    "Management Notes", "Important Instructions", "Account Manager", "Accountant", "Tax Specialist",
+    "Auditor", "Reviewer", "Last Updated", "Onboarding Completed Date"
+  ],
+  "docStatuses": ["Received", "Missing", "Under Review", "Expired", "Not Applicable"],
+  "stages": [
+    {
+      "id": "company", "title": "Company Information",
+      "intro": "Let's start with the company details exactly as shown on the trade license.",
+      "fields": [
+        { "col": "Client Legal Name", "type": "text", "req": true, "ask": "What is the exact legal name shown on the trade license?" },
+        { "col": "Trade Name", "type": "text", "ask": "Does the company trade under a different name?" },
+        { "col": "Entity Type", "type": "select", "req": true, "opts": ["LLC", "FZ-LLC", "FZE", "Sole Establishment", "Civil Company", "Branch", "Holding Company", "Partnership", "Other"] },
+        { "col": "Company Registration Number", "type": "text" },
+        { "col": "Trade License Number", "type": "text", "req": true },
+        { "col": "License Issuing Authority", "type": "text", "req": true, "suggest": ["Dubai DET", "Abu Dhabi ADDED", "Sharjah SEDD", "Ajman DED", "RAK DED", "Fujairah DED", "UAQ DED", "DMCC", "JAFZA", "DIFC", "ADGM", "DAFZA", "Dubai South", "Meydan Free Zone", "IFZA", "RAKEZ", "SAIF Zone", "SHAMS", "Ajman Free Zone", "KEZAD"] },
+        { "col": "License Issue Date", "type": "date" },
+        { "col": "License Expiry Date", "type": "date", "req": true },
+        { "col": "Jurisdiction", "type": "select", "req": true, "opts": ["Mainland", "Free Zone", "Offshore", "Foreign Entity", "Other"] },
+        { "col": "Emirate", "type": "select", "req": true, "opts": ["Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Ras Al Khaimah", "Fujairah", "Umm Al Quwain", "Other"] },
+        { "col": "Establishment Date", "type": "date" },
+        { "col": "Website", "type": "url" },
+        { "col": "General Email", "type": "email", "req": true },
+        { "col": "General Phone", "type": "phone", "req": true },
+        { "col": "Registered Address", "type": "textarea", "req": true },
+        { "col": "Office Address", "type": "textarea" }
+      ]
+    },
+    {
+      "id": "contacts", "title": "Contacts",
+      "intro": "Who should we work with at the client? Tick each person's roles; the role columns are filled from these.",
+      "fields": [
+        { "col": "Contact Details", "type": "list", "req": true, "item": "contact",
+          "sub": [
+            { "key": "Name", "label": "Full name", "type": "text" },
+            { "key": "Designation", "type": "text" },
+            { "key": "Department", "type": "text" },
+            { "key": "Email", "type": "email" },
+            { "key": "Mobile", "type": "phone" },
+            { "key": "WhatsApp", "type": "phone" },
+            { "key": "Prefers", "label": "Preferred method", "type": "select", "opts": ["Email", "Phone", "WhatsApp", "Other"] },
+            { "key": "Roles", "type": "multi", "opts": ["Primary", "Finance", "Tax", "Audit", "Authorized Signatory", "Document Signatory"] }
+          ] },
+        { "col": "Primary Contact", "type": "derived", "from": "Contact Details", "role": "Primary", "req": true },
+        { "col": "Finance Contact", "type": "derived", "from": "Contact Details", "role": "Finance" },
+        { "col": "Tax Contact", "type": "derived", "from": "Contact Details", "role": "Tax" },
+        { "col": "Audit Contact", "type": "derived", "from": "Contact Details", "role": "Audit" },
+        { "col": "Authorized Signatory", "type": "derived", "from": "Contact Details", "role": "Authorized Signatory", "req": true }
+      ]
+    },
+    {
+      "id": "ownership", "title": "Ownership / UBO",
+      "intro": "Record shareholders and beneficial owners separately - a shareholder is not automatically the UBO.",
+      "fields": [
+        { "col": "Shareholders", "type": "list", "req": true, "item": "shareholder",
+          "sub": [
+            { "key": "Name", "label": "Shareholder name", "type": "text" },
+            { "key": "Ownership", "label": "Ownership %", "type": "percent" },
+            { "key": "Nationality", "label": "Nationality / country", "type": "text" },
+            { "key": "Type", "type": "select", "opts": ["Individual", "Corporate"] }
+          ] },
+        { "col": "Ownership Structure", "type": "textarea", "hint": "Describe the chain, including any corporate parent." },
+        { "col": "UBO", "type": "list", "req": true, "item": "UBO",
+          "sub": [
+            { "key": "Name", "label": "UBO name", "type": "text" },
+            { "key": "Nationality", "type": "text" },
+            { "key": "Basis", "type": "select", "opts": ["Ownership", "Control", "Other"] }
+          ] },
+        { "col": "UBO Percentage", "type": "text", "req": true, "hint": "e.g. John Smith - 60%" },
+        { "col": "UBO Documentation Status", "type": "select", "req": true, "opts": ["Received", "Missing", "Under Review", "Expired", "Verification Required", "Not Applicable"] }
+      ]
+    },
+    {
+      "id": "business", "title": "Business Activities",
+      "intro": "How does the client earn revenue and operate? Describe only what the client has told you.",
+      "fields": [
+        { "col": "Main Business Activity", "type": "text", "req": true },
+        { "col": "Secondary Activities", "type": "textarea" },
+        { "col": "Industry", "type": "text", "req": true, "suggest": ["Trading", "Retail", "E-commerce", "Manufacturing", "Construction", "Real Estate", "Hospitality", "Food & Beverage", "Professional Services", "IT / Software", "Logistics", "Healthcare", "Education", "Financial Services", "Media & Marketing", "Holding / Investment", "Oil & Gas", "Other"] },
+        { "col": "Business Model Summary", "type": "textarea", "req": true, "hint": "Never invent this. Example: Imports electronics from China and sells mainly to UAE distributors; about 20% export sales." },
+        { "col": "B2B/B2C", "type": "select", "req": true, "opts": ["B2B", "B2C", "Both"] },
+        { "col": "Number of Employees", "type": "number" },
+        { "col": "Number of Branches", "type": "number" },
+        { "col": "UAE Sales", "type": "yesno" },
+        { "col": "International Sales", "type": "yesno" },
+        { "col": "Imports", "type": "yesno" },
+        { "col": "Exports", "type": "yesno" },
+        { "col": "E-commerce", "type": "yesno", "hint": "Include marketplace sales (Amazon, Noon...) in Business Notes." },
+        { "col": "Payment Gateways", "type": "text", "hint": "e.g. Stripe; Network International; Tabby" },
+        { "col": "POS", "type": "yesno" },
+        { "col": "Cash Transactions", "type": "yesno" }
+      ]
+    },
+    {
+      "id": "services", "title": "Services Required",
+      "intro": "Which services will the firm provide?",
+      "fields": [
+        { "col": "Services Provided", "type": "multi", "req": true, "opts": ["Bookkeeping", "Accounting", "VAT Registration", "VAT Return Filing", "Corporate Tax Registration", "Corporate Tax Return", "Corporate Tax Advisory", "Tax Planning", "Financial Statements", "Audit", "Review", "Internal Audit", "Payroll", "WPS", "Management Accounts", "Budgeting", "Cash Flow Reporting", "ESR/Related Compliance", "UBO Compliance", "AML/KYC Compliance", "Accounting Software Setup", "ERP Support", "Company Formation", "Company Closure/Liquidation", "VAT Deregistration", "Tax Deregistration", "Other Advisory"] }
+      ]
+    },
+    {
+      "id": "vat", "title": "VAT",
+      "intro": "Record the VAT position as the client states it. If an obligation looks possible, flag VAT Review Required instead of concluding.",
+      "fields": [
+        { "col": "VAT Registered", "type": "yesno", "req": true },
+        { "col": "TRN", "type": "text", "req": true, "when": { "col": "VAT Registered", "eq": "Yes" }, "hint": "15 digits, from the VAT certificate. Never infer." },
+        { "col": "VAT Registration Date", "type": "date", "req": true, "when": { "col": "VAT Registered", "eq": "Yes" } },
+        { "col": "VAT Effective Date", "type": "date", "when": { "col": "VAT Registered", "eq": "Yes" } },
+        { "col": "VAT Filing Frequency", "type": "select", "req": true, "opts": ["Monthly", "Quarterly", "Other"], "when": { "col": "VAT Registered", "eq": "Yes" } },
+        { "col": "VAT Tax Period", "type": "text", "req": true, "when": { "col": "VAT Registered", "eq": "Yes" }, "hint": "As per the certificate, e.g. Feb-Apr / May-Jul / Aug-Oct / Nov-Jan" },
+        { "col": "VAT Return Due Date", "type": "date", "when": { "col": "VAT Registered", "eq": "Yes" }, "hint": "Next return due date, only if confirmed from the FTA portal or certificate." },
+        { "col": "VAT Penalties", "type": "textarea" },
+        { "col": "VAT Issues", "type": "textarea", "hint": "Outstanding issues, missing returns, certificate availability, deregistration need." }
+      ]
+    },
+    {
+      "id": "ct", "title": "Corporate Tax",
+      "intro": "Anything that needs professional interpretation (relief, QFZP, groups, transfer pricing) can be marked Review Required.",
+      "fields": [
+        { "col": "Corporate Tax Registered", "type": "yesno", "req": true },
+        { "col": "CT Registration Number", "type": "text", "req": true, "when": { "col": "Corporate Tax Registered", "eq": "Yes" }, "hint": "CT TRN from the registration certificate. Never infer." },
+        { "col": "CT Registration Date", "type": "date", "when": { "col": "Corporate Tax Registered", "eq": "Yes" } },
+        { "col": "CT Tax Period", "type": "text", "req": true, "when": { "col": "Corporate Tax Registered", "eq": "Yes" }, "hint": "e.g. 01/01/2025 - 31/12/2025" },
+        { "col": "Financial Year", "type": "text", "req": true, "hint": "e.g. 01/01 - 31/12" },
+        { "col": "CT Return Due Date", "type": "date", "when": { "col": "Corporate Tax Registered", "eq": "Yes" } },
+        { "col": "CT Return Status", "type": "select", "opts": ["Not Yet Due", "In Progress", "Filed", "Overdue", "Review Required"], "when": { "col": "Corporate Tax Registered", "eq": "Yes" } },
+        { "col": "CT Tax Payable", "type": "money", "when": { "col": "Corporate Tax Registered", "eq": "Yes" } },
+        { "col": "CT Tax Paid", "type": "money", "when": { "col": "Corporate Tax Registered", "eq": "Yes" } },
+        { "col": "CT Penalties", "type": "textarea" },
+        { "col": "Small Business Relief", "type": "select", "opts": ["Elected", "Not Elected", "Review Required"] },
+        { "col": "Free Zone Person", "type": "yesno" },
+        { "col": "Qualifying Free Zone Person", "type": "select", "opts": ["Yes", "No", "Review Required"], "when": { "col": "Free Zone Person", "eq": "Yes" } },
+        { "col": "Tax Group", "type": "select", "opts": ["Member", "Not a Member", "Review Required"] },
+        { "col": "Tax Group Parent", "type": "text", "when": { "col": "Tax Group", "eq": "Member" } },
+        { "col": "Related Parties", "type": "textarea" },
+        { "col": "Transfer Pricing Applicable", "type": "select", "opts": ["Yes", "No", "Review Required"] },
+        { "col": "Transfer Pricing Documentation", "type": "select", "opts": ["Prepared", "In Progress", "Not Prepared", "Not Required", "Review Required"], "when": { "col": "Transfer Pricing Applicable", "ne": "No" } }
+      ]
+    },
+    {
+      "id": "accounting", "title": "Accounting / Bookkeeping",
+      "intro": "Never record passwords. For system access record only the access status in Accounting Notes (Access Required / Access Received).",
+      "fields": [
+        { "col": "Accounting Software", "type": "select", "req": true, "opts": ["QuickBooks", "Xero", "Zoho Books", "Tally", "Sage", "ERP", "Excel", "None", "Other"] },
+        { "col": "Accounting Start Date", "type": "date" },
+        { "col": "Financial Year Start", "type": "date", "req": true },
+        { "col": "Financial Year End", "type": "date", "req": true },
+        { "col": "Monthly Closing Deadline", "type": "text", "hint": "e.g. 10th of the following month" },
+        { "col": "Bookkeeping Status", "type": "select", "req": true, "opts": ["Up to Date", "Behind", "Catch-up Required", "Not Started"] },
+        { "col": "Opening Balances Available", "type": "yesno" },
+        { "col": "Trial Balance Available", "type": "yesno" },
+        { "col": "General Ledger Available", "type": "yesno" },
+        { "col": "Chart of Accounts Available", "type": "yesno" },
+        { "col": "Accounting Backup Available", "type": "yesno" }
+      ]
+    },
+    {
+      "id": "banking", "title": "Banking",
+      "intro": "Store only the last 4 digits of each IBAN. Never store online-banking credentials.",
+      "fields": [
+        { "col": "Bank Accounts", "type": "list", "req": true, "item": "bank account",
+          "sub": [
+            { "key": "Bank", "type": "text" },
+            { "key": "Currency", "type": "text", "default": "AED" },
+            { "key": "Type", "label": "Account type", "type": "select", "opts": ["Current", "Savings", "Call", "Fixed Deposit", "Escrow", "Other"] },
+            { "key": "IBAN last 4", "type": "last4" },
+            { "key": "Bank Feed", "type": "select", "opts": ["Yes", "No"] }
+          ] },
+        { "col": "Bank Statement Status", "type": "select", "req": true, "opts": ["Received", "Partially Received", "Missing", "Under Review"] },
+        { "col": "Bank Reconciliation Status", "type": "select", "opts": ["Up to Date", "Behind", "Not Started"] }
+      ]
+    },
+    {
+      "id": "payroll", "title": "Payroll",
+      "intro": "If payroll does not apply, answer No and the remaining payroll fields become N/A.",
+      "fields": [
+        { "col": "Payroll Applicable", "type": "yesno", "req": true },
+        { "col": "Employee Count", "type": "number", "req": true, "when": { "col": "Payroll Applicable", "eq": "Yes" } },
+        { "col": "Payroll Frequency", "type": "select", "req": true, "opts": ["Monthly", "Bi-weekly", "Weekly", "Other"], "when": { "col": "Payroll Applicable", "eq": "Yes" } },
+        { "col": "WPS Applicable", "type": "yesno", "req": true, "when": { "col": "Payroll Applicable", "eq": "Yes" } },
+        { "col": "Payroll Software", "type": "text", "when": { "col": "Payroll Applicable", "eq": "Yes" } }
+      ]
+    },
+    {
+      "id": "audit", "title": "Audit",
+      "intro": "If audit is not required, answer No and the audit fields become N/A.",
+      "fields": [
+        { "col": "Audit Required", "type": "select", "req": true, "opts": ["Yes", "No", "Review Required"] },
+        { "col": "Audit Period", "type": "text", "req": true, "when": { "col": "Audit Required", "eq": "Yes" }, "hint": "e.g. FY 01/01/2025 - 31/12/2025" },
+        { "col": "Previous Auditor", "type": "text", "when": { "col": "Audit Required", "ne": "No" } },
+        { "col": "Previous Audit Report", "type": "select", "opts": ["Received", "Missing", "Under Review", "First Audit"], "when": { "col": "Audit Required", "ne": "No" } },
+        { "col": "Audit Issues", "type": "textarea", "when": { "col": "Audit Required", "ne": "No" }, "hint": "Management letter points, adjustments, outstanding issues, expected completion date, confirmations needed." }
+      ]
+    },
+    {
+      "id": "documents", "title": "Documents & Handover",
+      "intro": "Set a status for every document. Documents marked Missing are listed under Missing Information automatically.",
+      "fields": [
+        { "col": "Previous Accountant", "type": "text" },
+        { "col": "Previous Advisor", "type": "text", "hint": "Previous accounting firm / tax agent and contact." },
+        { "col": "Handover Status", "type": "select", "opts": ["Not Started", "Requested", "In Progress", "Completed", "Not Applicable"] },
+        { "col": "Corporate Documents Status", "type": "docs", "req": true, "docs": ["Trade License", "Certificate of Incorporation", "MOA", "AOA", "Share Certificate", "Lease Agreement", "Establishment Card", "Chamber Certificate", "Corporate Structure"] },
+        { "col": "Identity Documents Status", "type": "docs", "req": true, "docs": ["Passport", "Emirates ID", "Visa", "UBO Documents", "Authorized Signatory Documents"] },
+        { "col": "Tax Documents Status", "type": "docs", "req": true, "docs": ["VAT Certificate", "VAT Registration", "Corporate Tax Registration", "CT Certificate", "Previous VAT Returns", "Previous CT Returns", "Tax Correspondence"] },
+        { "col": "Financial Documents Status", "type": "docs", "req": true, "docs": ["Trial Balance", "General Ledger", "Balance Sheet", "Profit & Loss", "Bank Statements", "Receivables Report", "Payables Report", "Fixed Asset Register", "Inventory Report"] }
+      ]
+    },
+    {
+      "id": "engagement", "title": "Engagement & Billing",
+      "intro": "Record agreed terms only. Never guess fees.",
+      "fields": [
+        { "col": "Engagement Letter Status", "type": "select", "req": true, "opts": ["Signed", "Sent - Awaiting Signature", "Draft", "Not Started"] },
+        { "col": "Service Agreement Status", "type": "select", "opts": ["Signed", "Sent - Awaiting Signature", "Draft", "Not Started", "Not Required"] },
+        { "col": "Engagement Start Date", "type": "date", "req": true },
+        { "col": "Engagement End Date", "type": "date" },
+        { "col": "Renewal Date", "type": "date" },
+        { "col": "Monthly Fee", "type": "money" },
+        { "col": "Annual Fee", "type": "money" },
+        { "col": "Billing Frequency", "type": "select", "req": true, "opts": ["Monthly", "Quarterly", "Half-yearly", "Annually", "One-time", "Other"] },
+        { "col": "Payment Terms", "type": "text", "req": true, "hint": "e.g. 30 days from invoice; 50% advance" },
+        { "col": "Outstanding Amount", "type": "money" },
+        { "col": "Overdue Amount", "type": "money" },
+        { "col": "Payment Status", "type": "select", "opts": ["Not Yet Invoiced", "Current", "Partially Paid", "Overdue", "Paid"] }
+      ]
+    },
+    {
+      "id": "risk", "title": "Risk & Compliance",
+      "intro": "Compliance flags are for professional review only - they do not conclude that an obligation exists.",
+      "fields": [
+        { "col": "Risk Level", "type": "select", "req": true, "opts": ["Low", "Medium", "High", "Review Required"] },
+        { "col": "Risk Reason", "type": "textarea", "riskFactors": ["Missing documents", "Previous tax penalties", "Poor accounting records", "Unclear ownership", "Related-party transactions", "International transactions", "Significant cash transactions", "Late filing history", "Complex business structure", "Incomplete previous records"] },
+        { "col": "Compliance Flags", "type": "multi", "opts": ["VAT Registration Review", "VAT Deregistration Review", "Corporate Tax Registration Review", "Corporate Tax Return Review", "Free Zone Tax Analysis", "Related Party Transactions", "Transfer Pricing Review", "Tax Group Review", "International Transactions", "Import/Export", "Payroll/WPS", "Audit", "UBO Review", "AML/KYC Review", "Other Compliance Review"] },
+        { "col": "Onboarding Status", "type": "select", "req": true, "opts": ["New", "Information Collection", "KYC Pending", "Documents Pending", "Documents Under Review", "Accounting Handover Pending", "Tax Setup Pending", "System Setup Pending", "Onboarding Review", "Active Client", "On Hold", "Closed"] },
+        { "col": "Items Requiring Review", "type": "review", "hint": "Your own review items, one per line. Validation flags and fields marked Verify are added automatically." },
+        { "col": "Account Manager", "type": "text", "group": "Team" },
+        { "col": "Accountant", "type": "text", "group": "Team" },
+        { "col": "Tax Specialist", "type": "text", "group": "Team" },
+        { "col": "Auditor", "type": "text", "group": "Team" },
+        { "col": "Reviewer", "type": "text", "group": "Team" },
+        { "col": "Business Notes", "type": "textarea", "group": "Notes" },
+        { "col": "Accounting Notes", "type": "textarea", "group": "Notes" },
+        { "col": "Tax Notes", "type": "textarea", "group": "Notes" },
+        { "col": "Audit Notes", "type": "textarea", "group": "Notes" },
+        { "col": "Management Notes", "type": "textarea", "group": "Notes" },
+        { "col": "Important Instructions", "type": "textarea", "group": "Notes" }
+      ]
+    }
+  ],
+  "auto": ["Client ID", "Onboarding Completion %", "Missing Information", "Last Updated", "Onboarding Completed Date"]
+}

@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client Module</title>
+<style>
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --ink: #17212b; --muted: #5d6b78; --line: #dde3e9;
+  --navy: #1f3a4d; --navy-2: #2b4f68; --accent: #0f766e; --accent-soft: #e3f3f1;
+  --amber: #a15c07; --amber-soft: #fdf3e2; --red: #b42318; --red-soft: #fdecea; --green: #127a3f; --green-soft: #e6f4ec;
+  --radius: 8px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+button, input, select, textarea { font: inherit; color: inherit; }
+header.top { background: var(--navy); color: #fff; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+header.top h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+header.top .sub { color: #b9c9d6; font-size: 12.5px; }
+header.top .sp { flex: 1; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 7px 13px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: #b8c3cd; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: #0c625b; }
+.btn.primary:disabled { background: #9fb9b6; border-color: #9fb9b6; cursor: not-allowed; }
+.btn.ghost { background: transparent; border-color: rgba(255,255,255,.35); color: #fff; }
+.btn.small { padding: 3px 9px; font-size: 12.5px; }
+.btn.danger { color: var(--red); }
+main { padding: 20px 24px 60px; max-width: 1440px; margin: 0 auto; }
+
+/* list view */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.stat b { display: block; font-size: 22px; font-weight: 600; }
+.stat span { color: var(--muted); font-size: 12.5px; }
+.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.toolbar input[type=search] { flex: 1; min-width: 220px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.toolbar select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.tablewrap { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
+table.grid { width: 100%; border-collapse: collapse; }
+table.grid th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: #fafbfc; white-space: nowrap; }
+table.grid td { padding: 9px 12px; border-bottom: 1px solid #eef1f4; vertical-align: top; }
+table.grid tbody tr.click { cursor: pointer; }
+table.grid tbody tr.click:hover { background: #f5f9fb; }
+.empty { padding: 40px; text-align: center; color: var(--muted); }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: #eef1f4; white-space: nowrap; }
+.pill.green { background: var(--green-soft); color: var(--green); }
+.pill.amber { background: var(--amber-soft); color: var(--amber); }
+.pill.red { background: var(--red-soft); color: var(--red); }
+.bar { width: 90px; height: 6px; background: #e7ecf0; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.muted { color: var(--muted); }
+.mono { font-family: Consolas, monospace; font-size: 12.5px; white-space: nowrap; }
+
+/* editor */
+.editor { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 20px; align-items: start; }
+.editor > section { min-width: 0; }
+.steps { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px; position: sticky; top: 12px; }
+.step { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 6px; cursor: pointer; }
+.step:hover { background: #f2f5f7; }
+.step.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.step .n { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px; background: #e7ecf0; color: var(--muted); flex: none; font-weight: 600; }
+.step.done .n { background: var(--green); color: #fff; }
+.step.part .n { background: #f6d9a8; color: var(--amber); }
+.step .t { flex: 1; }
+.step .c { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+.ehead { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+.ehead h2 { margin: 0; font-size: 19px; font-weight: 600; }
+.ehead .id { color: var(--muted); }
+.ehead .sp { flex: 1; }
+.score { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 4px 12px 4px 5px; }
+.ring { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 10.5px; font-weight: 700; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+.panel h3 { margin: 0 0 4px; font-size: 16px; }
+.intro { color: var(--muted); margin: 0 0 16px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px 18px; }
+.field { min-width: 0; }
+.field.wide { grid-column: 1 / -1; }
+.field.off { opacity: .55; }
+.fh { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.fh label { font-weight: 600; font-size: 13px; }
+.fh .req { color: var(--red); }
+.fh .sp { flex: 1; }
+.chip { white-space: nowrap; flex: none; border: 1px solid var(--line); background: #fff; border-radius: 10px; font-size: 11px; padding: 0 7px; cursor: pointer; color: var(--muted); line-height: 18px; }
+.chip:hover { border-color: #aab6c1; }
+.chip.on { background: var(--navy); border-color: var(--navy); color: #fff; }
+.chip.vr.on { background: var(--amber); border-color: var(--amber); }
+.ask { color: var(--muted); font-size: 12.5px; margin: -2px 0 5px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.field input[type=text], .field input[type=email], .field input[type=tel], .field input[type=url], .field input[type=number], .field input[type=date], .field select, .field textarea {
+  width: 100%; padding: 7px 9px; border: 1px solid #cfd7de; border-radius: 6px; background: #fff; }
+.field textarea { min-height: 64px; resize: vertical; }
+.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid #9ad3cc; border-color: var(--accent); }
+.seg { display: flex; flex-wrap: wrap; gap: 5px; }
+.seg button { border: 1px solid #cfd7de; background: #fff; border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+.seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg.small button { padding: 2px 8px; font-size: 12px; }
+.state { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px dashed #c3ccd4; border-radius: 6px; color: var(--muted); }
+.na-note { padding: 7px 10px; border: 1px dashed #d4dbe1; border-radius: 6px; color: var(--muted); font-size: 12.5px; }
+.derived { padding: 7px 10px; background: #f6f8fa; border-radius: 6px; }
+.money { display: flex; gap: 6px; }
+.money select { width: 90px !important; flex: none; }
+table.sub { width: 100%; border-collapse: collapse; }
+table.sub th { text-align: left; font-size: 11.5px; color: var(--muted); font-weight: 600; padding: 3px 5px; }
+table.sub td { padding: 3px 5px; vertical-align: top; }
+table.sub input, table.sub select { width: 100%; padding: 5px 7px; border: 1px solid #cfd7de; border-radius: 5px; background: #fff; min-width: 70px; }
+.docs td { padding: 4px 6px; border-bottom: 1px solid #f0f2f4; }
+.docs td:first-child { width: 230px; }
+.navbar { display: flex; gap: 8px; margin-top: 16px; align-items: center; }
+.navbar .sp { flex: 1; }
+.note { font-size: 12px; color: var(--muted); }
+.box { border-radius: var(--radius); padding: 11px 14px; margin-bottom: 14px; }
+.box.red { background: var(--red-soft); color: var(--red); }
+.box.amber { background: var(--amber-soft); color: #7a4605; }
+.box.green { background: var(--green-soft); color: var(--green); }
+.box ul { margin: 6px 0 0; padding-left: 18px; }
+.summary { display: grid; grid-template-columns: 200px 1fr; gap: 6px 16px; margin: 6px 0 16px; }
+.summary dt { color: var(--muted); }
+.summary dd { margin: 0; font-weight: 500; }
+.twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.twocol h4 { margin: 0 0 6px; font-size: 13.5px; }
+.twocol ul { margin: 0; padding-left: 18px; }
+details { margin: 10px 0; }
+summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.confirm { display: flex; gap: 9px; align-items: flex-start; padding: 12px 14px; background: #f6f8fa; border-radius: var(--radius); margin: 14px 0; }
+.toast { position: fixed; bottom: 18px; right: 18px; background: var(--navy); color: #fff; padding: 10px 16px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.2); max-width: 460px; z-index: 9; }
+.toast a { color: #9ee6dc; }
+/* documents */
+.drop { border: 2px dashed #b8c6d1; border-radius: var(--radius); padding: 22px; text-align: center; color: var(--muted); background: #fafcfd; cursor: pointer; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.drop b { color: var(--ink); }
+.files td { vertical-align: middle; }
+.files select { padding: 4px 6px; border: 1px solid #cfd7de; border-radius: 5px; background: #fff; max-width: 210px; }
+.conf { font-size: 11px; padding: 0 6px; border-radius: 8px; white-space: nowrap; }
+.conf.high { background: var(--green-soft); color: var(--green); }
+.conf.medium { background: var(--amber-soft); color: var(--amber); }
+.conf.low { background: var(--red-soft); color: var(--red); }
+.sugg td { vertical-align: top; }
+.sugg tr.conflict td { background: #fffaf0; }
+.sugg tr.applied td { color: var(--muted); }
+.sugg .ev { color: var(--muted); font-size: 11.5px; max-width: 360px; }
+.sugg .cur { color: var(--muted); font-size: 12px; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid #c3ccd4; border-top-color: var(--accent); border-radius: 50%; animation: sp 0.8s linear infinite; vertical-align: -2px; }
+@keyframes sp { to { transform: rotate(360deg); } }
+.row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+@media (max-width: 860px) {
+  .editor { grid-template-columns: 1fr; }
+  .steps { position: static; display: flex; overflow-x: auto; }
+  .step .t, .step .c { display: none; }
+  .twocol, .summary { grid-template-columns: 1fr; }
+  main { padding: 14px 16px 60px; }
+  header.top .sub { display: none; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div><h1>Client Module</h1><div class="sub">UAE accounting &amp; tax consultancy &middot; client onboarding &middot; documents auto-fill the interview &middot; one client = one row</div></div>
+  <div class="sp"></div>
+  <button class="btn ghost" id="btnList">All clients</button>
+  <button class="btn primary" id="btnNew">+ New client</button>
+</header>
+<main id="app"></main>
+
+<script>
+'use strict';
+const DASH = '–', PART = ' ' + DASH + ' ';
+const NP = 'Not Provided', NA = 'N/A', VR = 'Provided ' + DASH + ' Verification Required', VRS = ' (' + VR + ')';
+const WIDE = new Set(['textarea', 'list', 'docs', 'multi', 'review']);
+const S = { schema: null, fields: {}, clients: [], stats: {}, view: 'list', id: null, rec: {}, stage: 0,
+            preview: null, dirty: false, manualReview: '', history: [], lists: {}, filter: { q: '', status: '' }, saved: null, dupOverride: false,
+            batch: null, files: [], uploading: 0, picks: {}, plan: null, docs: { filed: [], waiting: [] }, ai: null, aiBusy: false };
+const FRESH = () => ({ batch: null, files: [], uploading: 0, picks: {}, plan: null, docs: { filed: [], waiting: [] }, aiBusy: false });
+const app = document.getElementById('app');
+
+// ---------- helpers ----------
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') e.className = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (k === 'value') e.value = v;
+    else if (k === 'checked') e.checked = !!v;
+    else e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kids.flat(Infinity)) { if (k == null || k === false) continue; e.append(k.nodeType ? k : document.createTextNode(String(k))); }
+  return e;
+}
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  let j; try { j = await r.json(); } catch { throw new Error('Bad response from server (' + r.status + ')'); }
+  if (!r.ok && !j.duplicates && !j.errors) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+function toast(html, ms = 5000) {
+  const t = h('div', { class: 'toast' }); t.innerHTML = html; document.body.append(t);
+  setTimeout(() => t.remove(), ms);
+}
+const unknown = v => !v || v === NP || v === VR;
+const plain = v => { v = v || ''; if (v === VR) return ''; return v.endsWith(VRS) ? v.slice(0, -VRS.length) : v; };
+function parseCell(v) {
+  v = v || '';
+  if (v === NP) return { m: 'NP', v: '', vr: false };
+  if (v === NA) return { m: 'NA', v: '', vr: false };
+  if (v === VR) return { m: '', v: '', vr: true };
+  if (v.endsWith(VRS)) return { m: '', v: v.slice(0, -VRS.length), vr: true };
+  return { m: '', v, vr: false };
+}
+function buildCell(p) { if (p.m === 'NP') return NP; if (p.m === 'NA') return NA; if (p.vr) return p.v ? p.v + VRS : VR; return p.v; }
+const getP = col => parseCell(S.rec[col]);
+function setV(col, v) { const p = getP(col); p.v = v; p.m = ''; S.rec[col] = buildCell(p); touch(); }
+const clean = s => String(s || '').replace(/;/g, ',').replace(/\s[–-]\s/g, '-').replace(/[\r\n]+/g, ' ').trim();
+const isoToUae = s => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
+const uaeToIso = s => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+const uaeToDate = s => { const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(plain(s)); return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null; };
+const splitCell = v => (unknown(v) || v === NA) ? [] : plain(v).split(';').map(x => x.trim()).filter(Boolean);
+
+function cellToList(v, f) {
+  return splitCell(v).map(item => {
+    const parts = item.split(/\s[–-]\s/);
+    const o = { [f.sub[0].key]: parts[0].trim() };
+    for (const p of parts.slice(1)) { const i = p.indexOf(':'); if (i > 0) o[p.slice(0, i).trim()] = p.slice(i + 1).trim(); }
+    return o;
+  });
+}
+function listToCell(items, f) {
+  return items.map(it => {
+    const first = clean(it[f.sub[0].key]);
+    const rest = f.sub.slice(1).map(s => { const v = clean(it[s.key]); return v ? `${s.key}: ${v}` : null; }).filter(Boolean);
+    if (!first && !rest.length) return null;
+    return [first || 'Unnamed', ...rest].join(PART);
+  }).filter(Boolean).join('; ');
+}
+function cellToDocs(v) { const o = {}; for (const it of splitCell(v)) { const i = it.lastIndexOf(':'); if (i > 0) o[it.slice(0, i).trim()] = it.slice(i + 1).trim(); } return o; }
+const docsToCell = (o, f) => f.docs.filter(d => o[d]).map(d => `${d}: ${o[d]}`).join('; ');
+function parseMoney(v) { const m = /^([A-Z]{3})\s+(-?[\d,]*\.?\d*)$/.exec(v || ''); return m ? { cur: m[1], amt: m[2].replace(/,/g, '') } : { cur: 'AED', amt: v ? v.replace(/[^\d.\-]/g, '') : '' }; }
+const fmtMoney = (cur, amt) => amt === '' || isNaN(+amt) ? '' : `${cur} ${(+amt).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function applies(f) {
+  if (!f.when) return true;
+  const v = plain(S.rec[f.when.col]);
+  if (f.when.eq) return v === f.when.eq;
+  if (f.when.ne) return !unknown(v) && v !== NA && v !== f.when.ne;
+  return true;
+}
+function contacts() { return cellToList(S.rec['Contact Details'], S.fields['Contact Details']); }
+function derivedNames(f) { return contacts().filter(c => (c.Roles || '').split('/').includes(f.role)).map(c => c.Name).join('; '); }
+function known(f) {
+  const v = S.rec[f.col];
+  if (f.type === 'docs') { const o = cellToDocs(v); return f.docs.every(d => o[d]); }
+  if (f.type === 'derived') return !!derivedNames(f) || !unknown(v);
+  return !unknown(v);
+}
+function stageProgress(st) {
+  const req = st.fields.filter(f => f.req && applies(f));
+  return { total: req.length, done: req.filter(known).length };
+}
+
+// ---------- data ----------
+async function loadSchema() {
+  S.schema = await api('/api/schema');
+  for (const st of S.schema.stages) for (const f of st.fields) S.fields[f.col] = f;
+  S.schema.stages.unshift({ id: 'docs', title: 'Documents', fields: [] });
+  S.schema.stages.push({ id: 'review', title: 'Final Review', fields: [] });
+  try { S.ai = await api('/api/ai-status'); } catch { S.ai = null; }
+}
+async function loadClients() { const j = await api('/api/clients'); S.clients = j.clients || []; S.stats = j.stats || {}; S.masterFile = j.masterFile; S.storageRoot = j.storageRoot; }
+
+function confirmLeave() { return !S.dirty || confirm('You have unsaved changes for this client. Discard them?'); }
+window.addEventListener('beforeunload', e => { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+async function showList() {
+  if (S.view === 'editor' && !confirmLeave()) return;
+  S.view = 'list'; S.dirty = false;
+  await loadClients(); renderList();
+}
+function newClient() {
+  if (S.view === 'editor' && !confirmLeave()) return;
+  Object.assign(S, { view: 'editor', id: null, rec: {}, stage: 0, preview: null, dirty: false, manualReview: '', history: [], lists: {}, saved: null, dupOverride: false }, FRESH());
+  renderEditor(); refreshPreview();
+}
+async function openClient(id) {
+  if (S.view === 'editor' && !confirmLeave()) return;
+  const j = await api('/api/clients/' + encodeURIComponent(id));
+  Object.assign(S, { view: 'editor', id, rec: { ...j.record }, stage: 1, preview: null, dirty: false, manualReview: (j.manualReview || []).join('\n'), history: j.history || [], lists: {}, saved: null, dupOverride: false }, FRESH());
+  S.docs = j.documents || { filed: [], waiting: [] };
+  renderEditor(); refreshPreview();
+}
+
+let pvTimer = null;
+function touch() { S.dirty = true; S.saved = null; clearTimeout(pvTimer); pvTimer = setTimeout(refreshPreview, 500); renderSteps(); renderDerived(); }
+function payload() { return { ...S.rec, 'Items Requiring Review': S.manualReview }; }
+async function refreshPreview() {
+  try { S.preview = await api('/api/preview', { record: payload(), clientId: S.id }); }
+  catch (e) { S.preview = { errors: [e.message], missing: [], review: [], changes: [], duplicates: [], score: 0, record: {} }; }
+  renderScore();
+  if (currentStage().id === 'review') renderStage();
+}
+const currentStage = () => S.schema.stages[S.stage];
+
+// ---------- list view ----------
+function statusPill(s) {
+  const cls = s === 'Active Client' ? 'green' : (s === 'On Hold' || s === 'Closed') ? '' : 'amber';
+  return h('span', { class: 'pill ' + cls }, s || NP);
+}
+function riskPill(r) { return h('span', { class: 'pill ' + (r === 'High' ? 'red' : r === 'Review Required' ? 'amber' : r === 'Low' ? 'green' : '') }, r || NP); }
+function scoreBar(p) { const n = parseInt(p) || 0; return h('span', {}, h('span', { class: 'bar' }, h('i', { style: `width:${n}%` })), n + '%'); }
+
+function renderList() {
+  const st = S.stats;
+  const q = S.filter.q.toLowerCase();
+  const rows = S.clients.filter(c => (!S.filter.status || c['Onboarding Status'] === S.filter.status) &&
+    (!q || ['Client ID', 'Client Legal Name', 'Trade Name', 'Trade License Number', 'TRN', 'CT Registration Number', 'General Email', 'Primary Contact']
+      .some(k => (c[k] || '').toLowerCase().includes(q))));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const statuses = S.fields['Onboarding Status'].opts;
+  const tbody = h('tbody', {}, rows.map(c => {
+    const exp = uaeToDate(c['License Expiry Date']);
+    return h('tr', { class: 'click', onclick: () => openClient(c['Client ID']) },
+      h('td', { class: 'mono' }, c['Client ID']),
+      h('td', {}, h('b', {}, c['Client Legal Name']), c['Trade Name'] && !unknown(c['Trade Name']) && c['Trade Name'] !== NA ? h('div', { class: 'muted' }, c['Trade Name']) : null),
+      h('td', {}, [c['Emirate'], c['Jurisdiction']].filter(x => x && !unknown(x)).join(' · ') || NP),
+      h('td', { style: 'max-width:260px' }, splitCell(c['Services Provided']).join(', ') || NP),
+      h('td', {}, statusPill(c['Onboarding Status'])),
+      h('td', {}, scoreBar(c['Onboarding Completion %'])),
+      h('td', {}, riskPill(c['Risk Level'])),
+      h('td', { class: exp && exp < today ? 'pill red' : '' }, plain(c['License Expiry Date']) || NP),
+      h('td', { class: 'muted' }, c['Last Updated']));
+  }));
+  app.replaceChildren(
+    h('div', { class: 'stats' },
+      [['Clients', st.total], ['Active', st.active], ['Onboarding in progress', st.pending], ['High risk / review', st.highRisk], ['Average completion', (st.avgScore || 0) + '%'], ['Licences expired / ≤30 days', st.licExpiring]]
+        .map(([l, v]) => h('div', { class: 'stat' }, h('b', {}, v ?? 0), h('span', {}, l)))),
+    h('div', { class: 'toolbar' },
+      h('input', { type: 'search', placeholder: 'Search name, ID, licence, TRN, email…', value: S.filter.q, oninput: e => { S.filter.q = e.target.value; renderListKeepFocus(); } }),
+      h('select', { onchange: e => { S.filter.status = e.target.value; renderList(); } },
+        h('option', { value: '' }, 'All statuses'), statuses.map(s => h('option', { value: s, selected: S.filter.status === s }, s))),
+      h('button', { class: 'btn', onclick: exportXlsx }, 'Export to Excel'),
+      h('a', { class: 'btn', href: '/download/csv', style: 'text-decoration:none' }, 'Download CSV')),
+    h('div', { class: 'tablewrap' }, rows.length ? h('table', { class: 'grid' },
+      h('thead', {}, h('tr', {}, ['Client ID', 'Client', 'Emirate · Jurisdiction', 'Services', 'Status', 'Completion', 'Risk', 'Licence expiry', 'Updated'].map(t => h('th', {}, t)))), tbody)
+      : h('div', { class: 'empty' }, S.clients.length ? 'No clients match the filter.' : 'No clients yet. Click “+ New client” to start an onboarding interview.')),
+    h('p', { class: 'note' }, 'Master database: ', h('span', { class: 'mono' }, S.masterFile || ''), ' · one client per row · 134 fixed columns'));
+}
+function renderListKeepFocus() { const pos = document.activeElement?.selectionStart; renderList(); const i = app.querySelector('input[type=search]'); i.focus(); if (pos != null) i.setSelectionRange(pos, pos); }
+async function exportXlsx() {
+  toast('Exporting to Excel…', 2500);
+  try { const j = await api('/api/export', {}); toast(`Saved <span class="mono">${j.path}</span> · <a href="/download/xlsx">download</a>`, 8000); }
+  catch (e) { toast('Export failed: ' + e.message, 8000); }
+}
+
+// ---------- editor ----------
+function renderEditor() {
+  const name = plain(S.rec['Client Legal Name']) || 'New client';
+  app.replaceChildren(
+    h('div', { class: 'ehead' },
+      h('h2', { id: 'ename' }, name), h('span', { class: 'id mono' }, S.id || 'Client ID assigned on save'),
+      h('div', { class: 'sp' }), h('div', { class: 'score', id: 'score' })),
+    h('div', { class: 'editor' }, h('nav', { class: 'steps', id: 'steps' }), h('section', { id: 'stage' })));
+  renderSteps(); renderScore(); renderStage();
+}
+function renderSteps() {
+  const nav = document.getElementById('steps'); if (!nav) return;
+  nav.replaceChildren(...S.schema.stages.map((st, i) => {
+    const p = stageProgress(st);
+    const cls = st.id === 'review' ? '' : p.total && p.done === p.total ? 'done' : p.done ? 'part' : '';
+    return h('div', { class: `step ${cls} ${i === S.stage ? 'on' : ''}`, onclick: () => goStage(i) },
+      h('span', { class: 'n' }, i + 1), h('span', { class: 't' }, st.title), st.id !== 'review' && p.total ? h('span', { class: 'c' }, `${p.done}/${p.total}`) : null);
+  }));
+  const n = document.getElementById('ename'); if (n) n.textContent = plain(S.rec['Client Legal Name']) || 'New client';
+}
+function renderScore() {
+  const el = document.getElementById('score'); if (!el) return;
+  const p = S.preview; const n = p ? p.score : 0;
+  const col = n >= 90 ? 'var(--green)' : n >= 70 ? 'var(--accent)' : n >= 50 ? 'var(--amber)' : 'var(--red)';
+  el.replaceChildren(h('span', { class: 'ring', style: `background:conic-gradient(${col} ${n * 3.6}deg,#e7ecf0 0);` }, h('span', { style: 'background:#fff;border-radius:50%;width:22px;height:22px;display:grid;place-items:center' }, n)),
+    h('span', {}, h('b', {}, p ? p.band : '…'), h('span', { class: 'muted' }, p ? ` · ${p.missing.length} missing · ${p.review.length} to review` : '')));
+}
+function goStage(i) { S.stage = Math.max(0, Math.min(S.schema.stages.length - 1, i)); S.lists = {}; renderSteps(); renderStage(); window.scrollTo(0, 0); if (currentStage().id === 'review') refreshPreview(); if (currentStage().id === 'docs') docsChanged(); }
+
+function renderStage() {
+  const st = currentStage();
+  const sec = document.getElementById('stage'); if (!sec) return;
+  if (st.id === 'review') { sec.replaceChildren(renderReview()); return; }
+  if (st.id === 'docs') { sec.replaceChildren(renderDocs()); return; }
+  const groups = {};
+  const main = h('div', { class: 'fields' });
+  for (const f of st.fields) {
+    const box = fieldBox(f);
+    if (f.group) { (groups[f.group] ||= h('div', { class: 'fields' })).append(box); } else main.append(box);
+  }
+  sec.replaceChildren(h('div', { class: 'panel' },
+    h('h3', {}, `Stage ${S.stage + 1} · ${st.title}`), h('p', { class: 'intro' }, st.intro || ''), main,
+    Object.entries(groups).map(([g, el]) => [h('h3', { style: 'margin:22px 0 10px' }, g), el]),
+    h('div', { class: 'navbar' },
+      S.stage > 0 ? h('button', { class: 'btn', onclick: () => goStage(S.stage - 1) }, '← Back') : null,
+      h('span', { class: 'note' }, 'Leave a field empty if not asked yet. Use “Not provided” / “N/A” to record an answer; “Verify” marks it Provided – Verification Required.'),
+      h('div', { class: 'sp' }),
+      h('button', { class: 'btn', onclick: () => goStage(S.schema.stages.length - 1) }, 'Review & save'),
+      h('button', { class: 'btn primary', onclick: () => goStage(S.stage + 1) }, 'Next →'))));
+}
+
+function fieldBox(f) {
+  const ok = applies(f);
+  const p = getP(f.col);
+  const box = h('div', { class: 'field' + (WIDE.has(f.type) ? ' wide' : '') + (ok ? '' : ' off'), 'data-col': f.col });
+  const chips = [];
+  if (ok && !['derived', 'review'].includes(f.type)) {
+    const set = m => { const q = getP(f.col); q.m = q.m === m ? '' : m; if (q.m) q.vr = false; S.rec[f.col] = buildCell(q); delete S.lists[f.col]; touch(); renderStage(); };
+    chips.push(h('button', { class: 'chip' + (p.m === 'NP' ? ' on' : ''), title: 'Record as Not Provided', onclick: () => set('NP') }, 'Not provided'));
+    chips.push(h('button', { class: 'chip' + (p.m === 'NA' ? ' on' : ''), title: 'Does not apply to this client', onclick: () => set('NA') }, 'N/A'));
+    chips.push(h('button', { class: 'chip vr' + (p.vr ? ' on' : ''), title: 'Provided by the client but needs verification', onclick: () => { const q = getP(f.col); q.vr = !q.vr; q.m = ''; S.rec[f.col] = buildCell(q); touch(); renderStage(); } }, 'Verify'));
+  }
+  box.append(h('div', { class: 'fh' }, h('label', {}, f.col), f.req && ok ? h('span', { class: 'req', title: 'Required for onboarding completion' }, '*') : null, h('span', { class: 'sp' }), chips));
+  if (!ok) {
+    const cond = f.when.eq ? `= ${f.when.eq}` : `is answered and not ${f.when.ne}`;
+    box.append(h('div', { class: 'na-note' }, `N/A — applies only when ${f.when.col} ${cond}.`));
+    return box;
+  }
+  if (f.ask) box.append(h('div', { class: 'ask' }, f.ask));
+  if (p.m && f.type !== 'derived') {
+    box.append(h('div', { class: 'state' }, p.m === 'NP' ? 'Recorded as Not Provided' : 'Recorded as N/A (not applicable)'));
+  } else {
+    box.append(widget(f, p));
+  }
+  if (p.vr && !p.m) box.append(h('div', { class: 'hint', style: 'color:var(--amber)' }, 'Marked: Provided – Verification Required'));
+  if (f.hint) box.append(h('div', { class: 'hint' }, f.hint));
+  return box;
+}
+
+function seg(opts, cur, onpick, small) {
+  return h('div', { class: 'seg' + (small ? ' small' : '') }, opts.map(o => h('button', { type: 'button', class: o === cur ? 'on' : '', onclick: () => onpick(o === cur ? '' : o) }, o)));
+}
+function widget(f, p) {
+  const col = f.col;
+  const rerender = v => { setV(col, v); renderStage(); };
+  switch (f.type) {
+    case 'textarea': {
+      const ta = h('textarea', { value: p.v, oninput: e => setV(col, e.target.value) });
+      return f.riskFactors ? h('div', {}, ta, riskFactors(f)) : ta;
+    }
+    case 'date': return h('input', { type: 'date', value: uaeToIso(p.v), onchange: e => setV(col, isoToUae(e.target.value)) });
+    case 'yesno': return seg(['Yes', 'No'], p.v, rerender);
+    case 'select':
+      if (f.opts.length <= 6) return seg(f.opts, p.v, rerender);
+      return h('select', { onchange: e => rerender(e.target.value) }, h('option', { value: '' }, '— select —'), f.opts.map(o => h('option', { value: o, selected: o === p.v }, o)),
+        p.v && !f.opts.includes(p.v) ? h('option', { value: p.v, selected: true }, p.v) : null);
+    case 'multi': {
+      const sel = splitCell(p.v);
+      return h('div', { class: 'seg' }, f.opts.map(o => h('button', { type: 'button', class: sel.includes(o) ? 'on' : '', onclick: () => {
+        const cur = splitCell(getP(col).v); const nx = cur.includes(o) ? cur.filter(x => x !== o) : [...cur, o];
+        rerender(f.opts.filter(x => nx.includes(x)).concat(nx.filter(x => !f.opts.includes(x))).join('; '));
+      } }, o)));
+    }
+    case 'money': {
+      const m = parseMoney(p.v);
+      const cur = h('select', {}, ['AED', 'USD', 'EUR', 'GBP', 'SAR', 'INR'].map(c => h('option', { selected: c === m.cur }, c)));
+      const amt = h('input', { type: 'number', step: '0.01', value: m.amt, placeholder: '0.00' });
+      const upd = () => setV(col, fmtMoney(cur.value, amt.value));
+      cur.onchange = upd; amt.oninput = upd;
+      return h('div', { class: 'money' }, cur, amt);
+    }
+    case 'list': return listWidget(f);
+    case 'docs': return docsWidget(f, p);
+    case 'derived': return h('div', { class: 'derived', 'data-derived': col }, derivedText(f));
+    case 'review': return reviewWidget();
+    default: {
+      const type = { email: 'email', phone: 'tel', url: 'url', number: 'number' }[f.type] || 'text';
+      const attrs = { type, value: p.v, oninput: e => setV(col, e.target.value) };
+      if (f.suggest) attrs.list = 'dl-' + col.replace(/\W/g, '');
+      const inp = h('input', attrs);
+      return f.suggest ? h('div', {}, inp, h('datalist', { id: attrs.list }, f.suggest.map(s => h('option', { value: s })))) : inp;
+    }
+  }
+}
+function riskFactors(f) {
+  return h('div', { style: 'margin-top:6px' }, h('div', { class: 'hint' }, 'Add a factor to the reason:'),
+    seg(f.riskFactors, null, o => { const cur = getP(f.col).v; const parts = cur ? cur.split(';').map(x => x.trim()).filter(Boolean) : []; if (!parts.includes(o)) parts.push(o); setV(f.col, parts.join('; ')); renderStage(); }, true));
+}
+function derivedText(f) {
+  const names = derivedNames(f);
+  if (names) return names;
+  const stored = plain(S.rec[f.col]);
+  return stored && !unknown(S.rec[f.col]) ? stored + ' (stored)' : h('span', { class: 'muted' }, `No contact has the “${f.role}” role yet.`);
+}
+function renderDerived() { document.querySelectorAll('[data-derived]').forEach(el => { el.replaceChildren(derivedText(S.fields[el.dataset.derived])); }); }
+
+function listWidget(f) {
+  const col = f.col;
+  const items = S.lists[col] ||= cellToList(getP(col).v, f);
+  const write = () => setV(col, listToCell(items, f));
+  const cell = (it, s) => {
+    const v = it[s.key] || '';
+    const up = val => { it[s.key] = val; write(); };
+    if (s.type === 'select') return h('select', { onchange: e => up(e.target.value) }, h('option', { value: '' }, '—'), s.opts.map(o => h('option', { selected: o === v }, o)));
+    if (s.type === 'multi') {
+      const sel = v ? v.split('/') : [];
+      return h('div', { class: 'seg small' }, s.opts.map(o => h('button', { type: 'button', class: sel.includes(o) ? 'on' : '', onclick: () => {
+        const nx = sel.includes(o) ? sel.filter(x => x !== o) : [...sel, o]; up(s.opts.filter(x => nx.includes(x)).join('/')); renderStage();
+      } }, o)));
+    }
+    if (s.type === 'percent') return h('input', { type: 'number', step: '0.01', min: 0, max: 100, value: v.replace('%', ''), oninput: e => up(e.target.value === '' ? '' : e.target.value + '%') });
+    if (s.type === 'last4') return h('input', { type: 'text', maxlength: 4, inputmode: 'numeric', value: v, placeholder: '1234', oninput: e => { e.target.value = e.target.value.replace(/\D/g, ''); up(e.target.value); } });
+    const type = { email: 'email', phone: 'tel' }[s.type] || 'text';
+    return h('input', { type, value: v, placeholder: s.default || '', oninput: e => up(e.target.value) });
+  };
+  const multiSub = f.sub.find(s => s.type === 'multi');
+  const flatSubs = f.sub.filter(s => s !== multiSub);
+  const rows = items.map((it, i) => [
+    h('tr', {}, flatSubs.map(s => h('td', {}, cell(it, s))), h('td', {}, h('button', { class: 'btn small danger', title: 'Remove', onclick: () => { items.splice(i, 1); write(); renderStage(); } }, '✕'))),
+    multiSub ? h('tr', {}, h('td', { colspan: flatSubs.length + 1, style: 'padding-bottom:10px;border-bottom:1px solid #eef1f4' }, h('span', { class: 'hint' }, multiSub.key + ': '), cell(it, multiSub))) : null]);
+  return h('div', {},
+    items.length ? h('table', { class: 'sub' }, h('thead', {}, h('tr', {}, flatSubs.map(s => h('th', {}, s.label || s.key)), h('th', {}))), h('tbody', {}, rows)) : h('div', { class: 'muted', style: 'margin-bottom:6px' }, `No ${f.item} recorded yet.`),
+    h('button', { class: 'btn small', style: 'margin-top:6px', onclick: () => { const o = {}; f.sub.forEach(s => { if (s.default) o[s.key] = s.default; }); items.push(o); renderStage(); } }, `+ Add ${f.item}`));
+}
+function docsWidget(f, p) {
+  const st = cellToDocs(p.v);
+  const opts = S.schema.docStatuses;
+  return h('table', { class: 'docs' }, h('tbody', {}, f.docs.map(d => h('tr', {},
+    h('td', {}, d), h('td', {}, seg(opts, st[d], v => { const o = cellToDocs(getP(f.col).v); if (v) o[d] = v; else delete o[d]; setV(f.col, docsToCell(o, f)); renderStage(); }, true))))),
+    h('tfoot', {}, h('tr', {}, h('td', {}), h('td', {}, h('button', { class: 'btn small', onclick: () => { const o = cellToDocs(getP(f.col).v); f.docs.forEach(d => { if (!o[d]) o[d] = 'Missing'; }); setV(f.col, docsToCell(o, f)); renderStage(); } }, 'Mark all unset as Missing')))));
+}
+function reviewWidget() {
+  const auto = S.preview?.autoReview || [];
+  return h('div', {},
+    h('textarea', { value: S.manualReview, placeholder: 'One review item per line, e.g. Free Zone status', oninput: e => { S.manualReview = e.target.value; touch(); } }),
+    auto.length ? h('div', { class: 'hint' }, 'Added automatically: ' + auto.join('; ')) : null);
+}
+
+// ---------- documents: Document Module pipeline (upload → validation → OCR → classify → extract → confidence → CRM plan → review → filing) ----------
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const STAGE_LABEL = { upload: 'Upload', validation: 'Virus / file check', ocr: 'OCR', classification: 'Classification', extraction: 'Extraction',
+  confidence: 'Confidence', review: 'Review', organization: 'Filing' };
+const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+async function ensureBatch() {
+  if (!S.batch) { const j = await api('/api/batches', { clientId: S.id || '' }); S.batch = j.batch; }
+  return S.batch;
+}
+async function refreshPlan() {
+  if (!S.batch || !S.files.length) { S.plan = null; return; }
+  try { S.plan = await api(`/api/batches/${S.batch}/plan`, { record: payload() }); } catch (e) { S.plan = null; toast(esc(e.message)); }
+}
+async function docsChanged() { await refreshPlan(); if (currentStage().id === 'docs') renderStage(); }
+async function uploadFiles(list) {
+  const files = [...list]; if (!files.length) return;
+  await ensureBatch();
+  S.uploading += files.length; renderStage();
+  await Promise.all(files.map(async file => {
+    const fd = new FormData(); fd.append('file', file, file.name);
+    try {
+      const r = await fetch(`/api/batches/${S.batch}/files`, { method: 'POST', body: fd });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Upload failed');
+      S.files.push(j);
+    } catch (e) { toast(esc(e.message), 8000); }
+    finally { S.uploading--; renderStage(); }
+  }));
+  S.dirty = true; await docsChanged();
+}
+async function fileAction(f, path, body) {
+  try { Object.assign(f, await api(`/api/batches/${S.batch}/files/${f.id}/${path}`, body)); await docsChanged(); }
+  catch (e) { toast(esc(e.message), 7000); }
+}
+async function removeFile(f) {
+  try { await fetch(`/api/batches/${S.batch}/files/${f.id}`, { method: 'DELETE' }); S.files = S.files.filter(x => x !== f); await docsChanged(); }
+  catch (e) { toast(esc(e.message)); }
+}
+async function aiExtract() {
+  const n = S.files.filter(f => !f.sensitive && f.method !== 'none').length;
+  const a = S.ai || {};
+  if (!confirm(`AI extraction sends the extracted TEXT of ${n} document(s) to Claude (Anthropic) to find more fields.\n` +
+    `Credential files are never sent. Cost cap for this run: $${(a.capPerCall || 0).toFixed(2)} ` +
+    `(this month so far: $${(a.spentThisMonth || 0).toFixed(2)} of $${(a.monthlyBudget || 0).toFixed(2)}).\n` +
+    `Everything the AI finds is marked for verification.\n\nContinue?`)) return;
+  S.aiBusy = true; renderStage();
+  try {
+    const j = await api(`/api/batches/${S.batch}/ai-extract`, {});
+    S.files = j.docs; toast(`AI extraction done · cost $${(+j.cost || 0).toFixed(4)}`);
+    try { S.ai = await api('/api/ai-status'); } catch { }
+  } catch (e) { toast('AI extraction: ' + esc(e.message), 9000); }
+  finally { S.aiBusy = false; await docsChanged(); }
+}
+
+const pickKey = u => u.kind === 'field' ? 'f:' + u.target : u.kind === 'row' ? 'r:' + u.target + ':' + JSON.stringify(u.item) : 'c:' + u.target;
+function defaultPick(u) {
+  if (u.decision !== 'apply') return u.kind === 'field' ? '' : false;
+  return u.kind === 'field' ? norm(u.options[0].value) : true;
+}
+const pickOf = u => { const k = pickKey(u); if (!(k in S.picks)) S.picks[k] = defaultPick(u); return S.picks[k]; };
+const decisionPill = u => h('span', { class: 'conf ' + (u.decision === 'apply' ? 'high' : u.decision === 'review' ? 'medium' : '') },
+  u.decision === 'apply' ? 'ready' : u.decision === 'review' ? 'review' : 'recorded');
+
+function renderDocs() {
+  const reading = S.uploading > 0;
+  const plan = S.plan || { updates: [], people: [] };
+  const input = h('input', { type: 'file', multiple: true, style: 'display:none', accept: '.pdf,.jpg,.jpeg,.png,.docx,.xlsx,.xls,.csv,.txt,.zip,.doc', onchange: e => uploadFiles(e.target.files) });
+  const drop = h('div', { class: 'drop', onclick: () => input.click(),
+    ondragover: e => { e.preventDefault(); drop.classList.add('over'); }, ondragleave: () => drop.classList.remove('over'),
+    ondrop: e => { e.preventDefault(); drop.classList.remove('over'); uploadFiles(e.dataTransfer.files); } },
+    h('b', {}, 'Drop the client’s documents here'), ' or click to choose files',
+    h('div', { class: 'hint' }, 'Each file is checked (type, signature, archive safety, Windows Defender virus scan), read (file text or Windows OCR), classified and its details extracted, all on this PC.'));
+
+  const typeSel = f => h('select', { disabled: f.sensitive, onchange: e => fileAction(f, 'type', { docType: e.target.value }) },
+    f.sensitive ? h('option', {}, 'Credentials (Secrets)') : null,
+    (S.schema.docTypes || []).map(t => h('option', { value: t.id, selected: t.id === f.doc_type }, t.label)));
+  const needsPeriod = f => (f.category === 'Financials' || f.doc_type === 'BankStatement') && !f.month;
+  const periodInputs = f => {
+    const y = h('input', { type: 'number', placeholder: 'Year', value: f.year || '', style: 'width:72px;padding:3px 5px' });
+    const m = h('select', {}, h('option', { value: '' }, 'Month'), MONTHS.map((n, i) => h('option', { value: i + 1, selected: f.month === i + 1 }, n)));
+    return h('span', { style: 'display:inline-flex;gap:4px' }, y, m, h('button', { class: 'btn small', onclick: () => fileAction(f, 'period', { year: +y.value, month: +m.value }) }, 'Set'));
+  };
+  const stageLog = f => h('details', { style: 'margin:4px 0 0' }, h('summary', { style: 'font-weight:400;font-size:12px' }, 'Pipeline log'),
+    h('table', { class: 'sub' }, h('tbody', {}, (f.stages || []).map(s => h('tr', {},
+      h('td', {}, h('span', { class: 'conf ' + (s.status === 'ok' ? 'high' : s.status === 'fail' ? 'low' : 'medium') }, s.status)),
+      h('td', { style: 'white-space:nowrap' }, STAGE_LABEL[s.stage] || s.stage), h('td', { class: 'muted', style: 'font-size:12px' }, s.detail, ` · ${s.ms} ms`))))));
+  const fileTable = S.files.length ? h('div', { class: 'tablewrap', style: 'margin-top:12px' }, h('table', { class: 'grid files' },
+    h('thead', {}, h('tr', {}, ['File', 'Detected as', 'Folder', 'Status', 'Found', ''].map(t => h('th', {}, t)))),
+    h('tbody', {}, S.files.map(f => h('tr', {},
+      h('td', {}, h('b', {}, f.name), h('div', { class: 'muted', style: 'font-size:12px' }, Math.round(f.size / 1024) + ' KB · ' +
+        ({ 'text-layer': 'file text', ocr: 'Windows OCR', none: 'no text' }[f.method] || f.method) + (f.ai ? ' + AI' : '') + ' · virus scan: ' + f.scan), stageLog(f)),
+      h('td', {}, typeSel(f), ' ', h('span', { class: 'conf ' + (f.classification_confidence || 'low') }, f.classification_confidence || '')),
+      h('td', {}, f.category, needsPeriod(f) ? h('div', { style: 'margin-top:4px' }, periodInputs(f)) : f.year ? h('div', { class: 'muted' }, (f.month ? MONTHS[f.month - 1] + ' ' : '') + f.year) : null),
+      h('td', {}, f.filed ? h('span', { class: 'pill green' }, 'filed') : f.review && f.review.length
+        ? [h('span', { class: 'pill amber' }, 'needs review'), h('ul', { style: 'margin:4px 0 0;padding-left:16px;font-size:12px' }, f.review.map(r => h('li', {}, r)))]
+        : h('span', { class: 'pill green' }, 'ready')),
+      h('td', { style: 'min-width:220px;max-width:340px;font-size:12.5px' }, (f.extraction || {}).summary || '', (f.extraction?.facts || []).length ? h('div', { class: 'muted', style: 'font-size:12px' }, f.extraction.facts.map(x => x.join(': ')).join(' · ')) : null),
+      h('td', {}, f.filed ? null : h('button', { class: 'btn small danger', title: 'Remove from this upload', onclick: () => removeFile(f) }, '✕'))))))) : null;
+
+  // proposed CRM updates
+  const trs = [];
+  const srcList = srcs => srcs.map(s => h('div', {}, h('b', {}, s.file), s.engine === 'ai' ? ' (AI)' : '', ': “', s.evidence, '”', (s.notes || []).length ? h('span', { class: 'muted' }, ` — ${s.notes.join(', ')}`) : null));
+  for (const u of plan.updates) {
+    const pk = pickKey(u); const cur = pickOf(u); const done = u.decision === 'already';
+    const why = u.reasons.length ? h('div', { style: 'color:var(--amber);font-size:12px' }, u.reasons.join(' · ')) : null;
+    const stage = S.schema.stages[stageOf(u.target)]?.title || '';
+    if (u.kind === 'field') {
+      u.options.forEach((o, i) => trs.push(h('tr', { class: (u.conflict ? 'conflict ' : '') + (done ? 'applied' : '') },
+        h('td', {}, done ? '✓' : h('input', { type: u.conflict ? 'radio' : 'checkbox', name: pk, checked: cur === norm(o.value),
+          onchange: e => { S.picks[pk] = e.target.checked ? norm(o.value) : ''; renderStage(); } })),
+        i === 0 ? h('td', { rowspan: u.options.length }, h('b', {}, u.target), h('div', { class: 'muted', style: 'font-size:11.5px' }, stage), decisionPill(u), why) : null,
+        h('td', {}, o.value, ' ', h('span', { class: 'conf ' + o.confidence }, o.confidence)),
+        i === 0 ? h('td', { rowspan: u.options.length, class: 'cur' }, unknown(u.current) ? (u.current || '—') : plain(u.current)) : null,
+        h('td', { class: 'ev' }, srcList(o.sources)))));
+    } else if (u.kind === 'row') {
+      trs.push(h('tr', { class: done ? 'applied' : '' },
+        h('td', {}, done ? '✓' : h('input', { type: 'checkbox', checked: !!cur, onchange: e => { S.picks[pk] = e.target.checked; renderStage(); } })),
+        h('td', {}, h('b', {}, u.target), h('div', { class: 'muted', style: 'font-size:11.5px' }, 'adds a row'), decisionPill(u), why),
+        h('td', { colspan: 2 }, Object.entries(u.item).map(([k, v]) => `${k}: ${v}`).join(' · '), ' ', h('span', { class: 'conf ' + u.confidence }, u.confidence)),
+        h('td', { class: 'ev' }, srcList(u.sources))));
+    } else {
+      trs.push(h('tr', { class: done ? 'applied' : '' },
+        h('td', {}, done ? '✓' : h('input', { type: 'checkbox', checked: !!cur, onchange: e => { S.picks[pk] = e.target.checked; renderStage(); } })),
+        h('td', {}, h('b', {}, u.target), decisionPill(u), why),
+        h('td', { colspan: 2 }, Object.entries(u.items).map(([d, st]) => `${d}: ${st}`).join('; ')), h('td', { class: 'ev' }, 'From the documents uploaded')));
+    }
+  }
+  const open = plan.updates.filter(u => u.decision !== 'already');
+  const nPick = open.filter(u => pickOf(u)).length;
+  const nReview = open.filter(u => u.decision === 'review').length;
+  const peopleBox = plan.people.length ? h('div', { style: 'margin-top:14px' }, h('h4', { style: 'margin:0 0 6px' }, 'People found in the documents'),
+    h('p', { class: 'note', style: 'margin:0 0 6px' }, 'Their role is not assumed. Add each person where they belong: a shareholder is not automatically the UBO.'),
+    h('table', { class: 'sub' }, h('tbody', {}, plan.people.map(p => h('tr', {},
+      h('td', {}, h('b', {}, p.name), p.nationality ? ` · ${p.nationality}` : '', h('span', { class: 'muted' }, ` — ${p.source}, ${p.file}`)),
+      h('td', {}, ['Contact Details', 'Shareholders', 'UBO'].map(col => h('button', { class: 'btn small', style: 'margin-right:4px', onclick: () => addPerson(col, p) },
+        '+ ' + ({ 'Contact Details': 'Contact', Shareholders: 'Shareholder', UBO: 'UBO' }[col]))))))))) : null;
+
+  const aiOk = S.ai && S.ai.enabled;
+  return h('div', { class: 'panel' },
+    h('h3', {}, 'Stage 1 · Documents'),
+    h('p', { class: 'intro' }, 'Start a new client from their documents. The Document Module checks, reads, classifies and extracts each file on this PC and proposes updates to the interview. “Ready” updates (printed on an official document, no conflict, field empty) are pre-ticked; anything needing review is left for you. Values below high confidence are saved as “Provided – Verification Required”. Files are filed into the DataBase service folders when the client is saved.'),
+    input, drop,
+    reading ? h('div', { class: 'row-actions' }, h('span', { class: 'spin' }), ` Checking and reading ${S.uploading} file(s)…`) : null,
+    fileTable,
+    S.files.length ? h('div', { class: 'row-actions' },
+      h('button', { class: 'btn', disabled: !aiOk || S.aiBusy || reading, title: aiOk ? '' : 'Claude Code CLI not found or AI disabled in config.json', onclick: aiExtract },
+        S.aiBusy ? [h('span', { class: 'spin' }), ' AI extraction running…'] : 'AI extraction (find more fields)'),
+      h('span', { class: 'note' }, aiOk ? `Optional, paid: sends document text (never credential files) to Claude · cap $${S.ai.capPerCall.toFixed(2)} per run · $${S.ai.spentThisMonth.toFixed(2)} of $${S.ai.monthlyBudget.toFixed(2)} used this month` : 'AI extraction unavailable on this PC.')) : null,
+    plan.updates.length ? h('div', { style: 'margin-top:16px' },
+      h('h4', { style: 'margin:0 0 6px' }, `Proposed updates — ${open.length} open, ${nReview} need your review`),
+      h('div', { class: 'tablewrap' }, h('table', { class: 'grid sugg' },
+        h('thead', {}, h('tr', {}, ['', 'Field', 'Found in documents', 'Currently recorded', 'Evidence'].map(t => h('th', {}, t)))),
+        h('tbody', {}, trs))),
+      h('div', { class: 'row-actions' },
+        h('button', { class: 'btn primary', disabled: !nPick, onclick: applyPlan }, `Apply selected (${nPick})`),
+        h('span', { class: 'note' }, 'Nothing is overwritten unless you tick it. Conflicting values are never chosen for you.'))) : null,
+    peopleBox,
+    (S.docs.filed.length || S.docs.waiting.length) ? h('details', { open: !S.files.length }, h('summary', {}, `Documents on file for this client (${S.docs.filed.length})` + (S.docs.waiting.length ? ` · ${S.docs.waiting.length} waiting to be filed` : '')),
+      h('div', { class: 'tablewrap', style: 'margin-top:8px' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, ['Filed', 'Type', 'Category', 'Original name', 'Stored as'].map(t => h('th', {}, t)))),
+        h('tbody', {}, S.docs.filed.map(d => h('tr', { title: d.Folders }, h('td', { class: 'mono' }, d.Timestamp), h('td', {}, d['Document Type']), h('td', {}, d.Category), h('td', {}, d['Original Name']), h('td', { class: 'mono' }, d['Stored As']))),
+          S.docs.waiting.map(d => h('tr', {}, h('td', { class: 'muted' }, 'waiting'), h('td', {}, d.label), h('td', {}), h('td', {}, d.name), h('td', { class: 'muted' }, 'filed on next save'))))))) : null,
+    h('div', { class: 'navbar' }, h('span', { class: 'note' }, S.files.length ? `${S.files.length} file(s) in this upload · filed on save` : 'You can also skip this step and fill the interview by hand.'),
+      h('div', { class: 'sp' }), h('button', { class: 'btn primary', onclick: () => goStage(1) }, 'Next →')));
+}
+function stageOf(col) { return S.schema.stages.findIndex(st => st.fields.some(f => f.col === col)); }
+
+async function applyPlan() {
+  let n = 0;
+  for (const u of (S.plan?.updates || [])) {
+    if (u.decision === 'already') continue;
+    const pk = pickOf(u); if (!pk) continue;
+    const f = S.fields[u.target]; if (!f) continue;
+    if (u.kind === 'field') {
+      const o = u.options.find(x => norm(x.value) === pk); if (!o) continue;
+      S.rec[u.target] = o.confidence === 'high' ? o.value : o.value + VRS;
+    } else if (u.kind === 'row') {
+      const items = cellToList(getP(u.target).v, f); items.push({ ...u.item }); S.rec[u.target] = listToCell(items, f);
+    } else {
+      const o = cellToDocs(getP(u.target).v);
+      for (const [d, st] of Object.entries(u.items)) if (!o[d] || o[d] === 'Missing') o[d] = st;
+      S.rec[u.target] = docsToCell(o, f);
+    }
+    n++;
+  }
+  S.lists = {}; S.picks = {}; touch();
+  toast(`${n} update(s) applied to the interview. Lower-confidence values are marked “Verify”.`);
+  await docsChanged();
+}
+function addPerson(col, p) {
+  const f = S.fields[col]; const items = cellToList(getP(col).v, f);
+  if (items.some(x => norm(x.Name) === norm(p.name))) { toast(`${esc(p.name)} is already in ${col}.`); return; }
+  const item = { Name: p.name }; if (p.nationality && f.sub.some(s => s.key === 'Nationality')) item.Nationality = p.nationality;
+  items.push(item); S.rec[col] = listToCell(items, f); S.lists = {}; touch(); renderStage();
+  toast(`${esc(p.name)} added to ${col}. Complete the row in its stage.`);
+}
+
+// ---------- final review ----------
+function renderReview() {
+  const p = S.preview;
+  if (!p) return h('div', { class: 'panel' }, 'Preparing review…');
+  const r = p.record || {};
+  const v = c => r[c] || NP;
+  const vat = v('VAT Registered') === 'Yes' ? `Registered · TRN ${v('TRN')}` : v('VAT Registered') === 'No' ? 'Not registered' : v('VAT Registered');
+  const ct = v('Corporate Tax Registered') === 'Yes' ? `Registered · ${v('CT Registration Number')}` : v('Corporate Tax Registered') === 'No' ? 'Not registered' : v('Corporate Tax Registered');
+  const sum = [['Legal Name', v('Client Legal Name')], ['Trade License', v('Trade License Number')], ['Jurisdiction', [v('Emirate'), v('Jurisdiction')].join(' · ')],
+    ['Entity Type', v('Entity Type')], ['Industry', v('Industry')], ['Services', splitCell(r['Services Provided']).join('; ') || NP], ['VAT', vat], ['Corporate Tax', ct],
+    ['Accounting Software', v('Accounting Software')], ['Audit', v('Audit Required') === 'Yes' ? `Required · ${v('Audit Period')}` : v('Audit Required')],
+    ['Risk Level', v('Risk Level')], ['Onboarding Status', v('Onboarding Status')], ['Completion', `${p.score}% · ${p.band}`]];
+  const blocked = p.errors.length > 0;
+  const isNew = !S.id;
+  const dups = isNew ? (p.duplicates || []) : [];
+  const btn = h('button', { class: 'btn primary', disabled: true, onclick: save }, isNew ? 'Save to master database' : 'Save changes');
+  const unfiled = S.files.filter(f => !f.filed);
+  const cb = h('input', { type: 'checkbox', id: 'cnf', onchange: e => { btn.disabled = blocked || !e.target.checked || (dups.length && !S.dupOverride) || (!isNew && !p.changes.length && !unfiled.length); } });
+  const services = splitCell(r['Services Provided']);
+  const list = (items, empty) => items.length ? h('ul', {}, items.map(x => h('li', {}, x))) : h('div', { class: 'muted' }, empty);
+  return h('div', { class: 'panel' },
+    S.saved ? savedBox() : null,
+    h('h3', {}, 'Client Onboarding Review'),
+    h('p', { class: 'intro' }, 'Check this summary with the client. Nothing is written to the master database until it is confirmed.'),
+    blocked ? h('div', { class: 'box red' }, h('b', {}, 'Cannot save yet'), h('ul', {}, p.errors.map(e => h('li', {}, e)))) : null,
+    dups.length ? h('div', { class: 'box amber' }, h('b', {}, 'Likely duplicate client — this may already exist in the master database.'),
+      h('ul', {}, dups.map(d => h('li', {}, `${d.id} · ${d.name} — matches on ${d.matches.join(', ')} `, h('button', { class: 'btn small', onclick: () => openClient(d.id) }, 'Open & update that client')))),
+      h('label', { style: 'display:block;margin-top:8px' }, h('input', { type: 'checkbox', checked: S.dupOverride, onchange: e => { S.dupOverride = e.target.checked; renderStage(); } }), ' This is a different legal entity — create a new client anyway (explicit instruction).')) : null,
+    h('dl', { class: 'summary' }, sum.map(([k, x]) => [h('dt', {}, k), h('dd', {}, x)])),
+    unfiled.length ? h('div', { class: 'box ' + (services.length ? 'green' : 'amber'), style: 'color:var(--ink)' },
+      h('b', {}, `${unfiled.length} document(s) will be filed on save`),
+      h('div', {}, services.length ? 'Copied into each selected service’s client folder under ' + (S.storageRoot || 'the DataBase folder') + ', sorted into Company Documents, KYC, Bank Statements, Financials, Proposals, Secrets or Others.'
+        : 'No service is selected yet, so the documents stay in the inbox and are filed on a later save once services are chosen.')) : null,
+    h('div', { class: 'twocol' },
+      h('div', {}, h('h4', {}, `Missing Information (${p.missing.length})`), list(p.missing, 'Nothing missing.')),
+      h('div', {}, h('h4', {}, `Items Requiring Review (${p.review.length})`), list(p.review, 'No review items.'))),
+    !isNew ? h('div', {}, h('h4', { style: 'margin:0 0 6px' }, `Changes to save (${p.changes.length})`),
+      p.changes.length ? h('div', { class: 'tablewrap' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, ['Field', 'Current', 'New'].map(t => h('th', {}, t)))),
+        h('tbody', {}, p.changes.map(c => h('tr', {}, h('td', {}, c.field), h('td', { class: 'muted' }, c.old), h('td', {}, c.new))))))
+        : h('div', { class: 'muted' }, 'No changes compared with the saved record.')) : null,
+    h('details', {}, h('summary', {}, 'Full row as it will be saved (134 columns)'),
+      h('div', { class: 'tablewrap', style: 'max-height:420px;overflow:auto;margin-top:8px' }, h('table', { class: 'grid' }, h('tbody', {},
+        S.schema.columns.map((c, i) => h('tr', {}, h('td', { class: 'muted', style: 'width:40px' }, i + 1), h('td', { style: 'width:260px' }, c), h('td', {}, r[c] || (c === 'Client ID' ? (S.id || 'assigned on save') : '')))))))),
+    S.history.length ? h('details', {}, h('summary', {}, `Change history (${S.history.length})`),
+      h('div', { class: 'tablewrap', style: 'max-height:320px;overflow:auto;margin-top:8px' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, ['When', 'Action', 'Field', 'Old', 'New', 'User'].map(t => h('th', {}, t)))),
+        h('tbody', {}, S.history.slice().reverse().map(x => h('tr', {}, h('td', { class: 'mono' }, x.Timestamp), h('td', {}, x.Action), h('td', {}, x.Field), h('td', { class: 'muted' }, x.Old), h('td', {}, x.New), h('td', {}, x.User))))))) : null,
+    h('div', { class: 'confirm' }, cb, h('label', { for: 'cnf' }, h('b', {}, 'Please confirm whether this information is correct. '), 'I confirm the client/user has reviewed this information; save it to the master client database.')),
+    h('div', { class: 'navbar' }, h('button', { class: 'btn', onclick: () => goStage(S.stage - 1) }, '← Back'), h('div', { class: 'sp' }), btn));
+}
+function savedBox() {
+  const x = S.saved; const fl = x.filing || { filed: [], held: [], errors: [], folders: [] };
+  return h('div', { class: 'box green' }, h('b', {}, x.created ? 'Client successfully onboarded.' : x.unchanged ? 'Documents filed.' : 'Client record updated.'),
+    h('dl', { class: 'summary', style: 'margin:8px 0 0;color:var(--ink)' },
+      [['Client ID', x.id], ['Client', x.name], ['Status', x.status], ['Onboarding', x.score + '%'], ['Missing', x.missing.join('; ') || 'None'], ['Review Required', x.review.join('; ') || 'None'],
+       ['Documents filed', fl.filed.length ? fl.filed.map(d => `${d.storedAs} (${d.category})`).join('; ') : 'None'],
+       ...(fl.folders.length ? [['Client folders', fl.folders.join('; ')]] : [])]
+        .map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
+    fl.held.length ? h('div', { class: 'box amber', style: 'margin:10px 0 0' }, h('b', {}, 'Not filed yet'), h('ul', {}, fl.held.map(d => h('li', {}, `${d.name}: ${d.reason}`)))) : null,
+    (fl.errors || []).length ? h('div', { class: 'box red', style: 'margin:10px 0 0' }, h('b', {}, 'Filing problem'), h('ul', {}, fl.errors.map(e => h('li', {}, e)))) : null);
+}
+async function save() {
+  try {
+    const j = await api('/api/save', { record: payload(), clientId: S.id, confirmed: true, allowDuplicate: !!S.dupOverride, batch: S.batch });
+    if (!j.ok) {
+      if (j.duplicates && j.duplicates.length) { S.preview.duplicates = j.duplicates; toast('Likely duplicate found — not saved.'); }
+      else toast('Not saved: ' + (j.errors || []).join(' '), 8000);
+      renderStage(); return;
+    }
+    const created = !S.id;
+    const fl = j.filing || { filed: [], held: [], errors: [], folders: [] };
+    if (j.unchanged && !fl.filed.length && !fl.held.length && !(fl.errors || []).length) { toast('No changes to save.'); return; }
+    const res = j.result;
+    S.id = j.id;
+    const fresh = await api('/api/clients/' + encodeURIComponent(j.id));
+    S.rec = { ...fresh.record }; S.manualReview = (fresh.manualReview || []).join('\n'); S.history = fresh.history || [];
+    S.docs = fresh.documents || { filed: [], waiting: [] };
+    S.dirty = false; S.dupOverride = false; S.lists = {};
+    if (S.batch) { try { S.files = (await api('/api/batches/' + S.batch)).docs; } catch { S.batch = null; S.files = []; } await refreshPlan(); }
+    S.saved = { created, unchanged: !!j.unchanged, id: j.id, name: res.record['Client Legal Name'], status: res.record['Onboarding Status'], score: res.score, missing: res.missing, review: res.review, filing: fl };
+    S.stage = S.schema.stages.length - 1;
+    renderEditor(); await refreshPreview();
+  } catch (e) { toast('Save failed: ' + e.message, 8000); }
+}
+
+// ---------- boot ----------
+document.getElementById('btnList').onclick = showList;
+document.getElementById('btnNew').onclick = newClient;
+(async () => {
+  try { await loadSchema(); await loadClients(); renderList(); }
+  catch (e) { app.replaceChildren(h('div', { class: 'box red' }, 'Could not reach the Client Module server: ' + e.message)); }
+})();
+</script>
+</body>
+</html>

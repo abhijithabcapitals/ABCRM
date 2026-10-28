@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.env.*
+crm-site.zip
+ABCRM
+db/live_schema_export*
+.claude

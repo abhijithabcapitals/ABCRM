@@ -1,0 +1,13 @@
+{
+  "freezone": "IFZA",
+  "usd_rate": 3.6725,
+  "file_name": "IFZA Template.docx",
+  "fields": [
+    { "key": "business_activity", "label": "Business Activity", "type": "text", "fee": false },
+    { "key": "client_name", "label": "Client name", "type": "text", "fee": false },
+    { "key": "quotation_date", "label": "Quotation Date", "type": "date", "fee": false },
+    { "key": "activity", "label": "Activity", "type": "list", "fee": false },
+    { "key": "license_fee", "label": "License fee", "type": "number", "fee": true, "remarks": "Renewed Every Year" },
+    { "key": "visa_fee", "label": "Visa fee", "type": "number", "fee": true, "remarks": "Per visa" }
+  ]
+}
