@@ -14,7 +14,7 @@ class Settings:
     storage_root: Path
     data_dir: Path
     host: str = "127.0.0.1"
-    port: int = 8790
+    port: int = 8792
     max_upload_mb: int = 40
     virus_scan: bool = True
     ai_enabled: bool = True
@@ -22,6 +22,7 @@ class Settings:
     ai_cap_usd: float = 0.10
     ai_monthly_budget_usd: float = 5.0
     service_folders: dict[str, str] = field(default_factory=dict)
+    embed_origins: list[str] = field(default_factory=list)  # CRM pages allowed to show this module in a frame
 
     @classmethod
     def load(cls, path: Path | None = None, **overrides) -> "Settings":
@@ -37,7 +38,7 @@ class Settings:
             storage_root=resolve(raw.get("storageRoot", "storage")),
             data_dir=resolve(raw.get("dataDir", "data")),
             host=raw.get("host", "127.0.0.1"),
-            port=int(raw.get("port", 8790)),
+            port=int(raw.get("port", 8792)),
             max_upload_mb=int(raw.get("maxUploadMb", 40)),
             virus_scan=bool(raw.get("virusScan", True)),
             ai_enabled=bool(ai.get("enabled", True)),
@@ -45,6 +46,7 @@ class Settings:
             ai_cap_usd=float(ai.get("capPerCallUsd", 0.10)),
             ai_monthly_budget_usd=float(ai.get("monthlyBudgetUsd", 5.0)),
             service_folders=dict(raw.get("serviceFolders", {})),
+            embed_origins=[str(o).rstrip("/") for o in raw.get("embedOrigins", [])],
         )
         for k, v in overrides.items():
             setattr(s, k, v)

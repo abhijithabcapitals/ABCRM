@@ -24,7 +24,7 @@ Always flag missing or uncertain information.
 | `..\Document Module` | Shared document pipeline (`docai`): validation + virus scan, OCR, classification, extraction, confidence, review, filing |
 | `config.json` | Storage root (`D:\Abhijith Projects\DataBase`), service folder mapping, AI caps |
 
-Dashboard: `Start-ClientModule.cmd` → http://127.0.0.1:8790.
+Dashboard: `Start-ClientModule.cmd` → http://127.0.0.1:8792.
 
 ## How to save as the agent (Python)
 Never edit `client-master.csv` by hand — always go through the data layer so duplicate checks, validation, backups

@@ -1,4 +1,4 @@
-"""python -m clientmodule [--no-browser]  -> http://127.0.0.1:8790"""
+"""python -m clientmodule [--no-browser]  -> http://127.0.0.1:8792"""
 from __future__ import annotations
 
 import logging

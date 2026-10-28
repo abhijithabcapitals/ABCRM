@@ -8,7 +8,7 @@ Upload a new client's documents first. Their details are checked, read and propo
 
 ## Run it
 
-Double-click `Start-ClientModule.cmd`. It opens <http://127.0.0.1:8790>, which is reachable from this PC only.
+Double-click `Start-ClientModule.cmd`. It opens <http://127.0.0.1:8792>, which is reachable from this PC only.
 
 The launcher uses the shared CRM environment `D:\Abhijith Projects\CRM\.venv` (Python 3.12, packages pinned in `requirements.txt`). A `.venv` inside this folder takes precedence if you create one.
 

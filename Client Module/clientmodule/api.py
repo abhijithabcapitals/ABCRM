@@ -1,5 +1,6 @@
 """Client Module API (FastAPI) for staff on this PC. Listens on 127.0.0.1 only.
 
+    GET  /api/health                     {"app": "client-module"} (CORS for config embedOrigins, used by the CRM)
     GET  /api/schema                     field definitions (stages, options, conditions) + document types
     GET  /api/clients                    all rows + headline stats
     GET  /api/clients/{id}               one row + manual review items + change history + documents
@@ -49,7 +50,10 @@ def create_app(settings: Settings) -> FastAPI:
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        if settings.embed_origins:  # only the listed CRM origins may frame the module
+            response.headers["Content-Security-Policy"] = "frame-ancestors 'self' " + " ".join(settings.embed_origins)
+        else:
+            response.headers["X-Frame-Options"] = "DENY"
         return response
 
     @app.exception_handler(PipelineError)
@@ -71,6 +75,14 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/api/schema")
     def schema():
         return {**master.schema.raw, "docTypes": document_types()}
+
+    @app.get("/api/health")
+    def health(request: Request):  # lets the CRM confirm this module (not another app) is on the port
+        res = JSONResponse({"app": "client-module"})
+        origin = (request.headers.get("origin") or "").rstrip("/")
+        if origin in settings.embed_origins:
+            res.headers["Access-Control-Allow-Origin"] = origin
+        return res
 
     @app.get("/api/ai-status")
     def ai_status():

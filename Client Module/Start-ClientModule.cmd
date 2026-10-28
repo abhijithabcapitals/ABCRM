@@ -1,5 +1,5 @@
 @echo off
-rem Starts the Client Module at http://127.0.0.1:8790 and opens it in your browser. Close this window to stop it.
+rem Starts the Client Module at http://127.0.0.1:8792 and opens it in your browser. Close this window to stop it.
 cd /d "%~dp0"
 rem Uses the shared CRM environment (..\.venv); a .venv inside this folder takes precedence if one is created.
 set "PY=%~dp0.venv\Scripts\python.exe"

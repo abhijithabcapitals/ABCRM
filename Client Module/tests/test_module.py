@@ -163,3 +163,14 @@ def test_rejects_foreign_host_and_bad_ids(env):
     c, _, _ = env
     assert c.get("/api/clients", headers={"host": "evil.example"}).status_code == 403
     assert c.get("/api/batches/..%2F..").status_code in (400, 404)
+
+
+def test_frame_and_health_only_for_crm_origins(tmp_path):
+    crm = "http://localhost:5173"
+    c = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", embed_origins=[crm])))
+    r = c.get("/api/health", headers={"origin": crm})
+    assert r.json() == {"app": "client-module"} and r.headers["access-control-allow-origin"] == crm
+    assert r.headers["content-security-policy"] == f"frame-ancestors 'self' {crm}" and "x-frame-options" not in r.headers
+    assert "access-control-allow-origin" not in c.get("/api/health", headers={"origin": "https://evil.example"}).headers
+    closed = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "e", embed_origins=[])))
+    assert closed.get("/").headers["x-frame-options"] == "DENY"
