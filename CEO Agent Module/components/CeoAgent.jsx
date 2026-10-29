@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // CEO Agent workspace, ported from Agent Module/11_Personal_Agent/CEO Agent.
-// It talks ONLY to the CEO Agent's own Supabase project (schema "ceo"), never
-// to the CRM database, and keeps its own sign-in separate from the CRM's.
+// All its data lives in the "ceo" schema, protected by per-user row-level
+// security. Two ways to connect:
+//   - crmClient: the CRM's Supabase client, when the ceo schema lives in the
+//     CRM project. The CRM sign-in is reused and only "ceo" tables are queried.
+//   - supabaseUrl + publishableKey: a separate CEO project with its own sign-in.
 
 let cachedClient = null;
 function getClient(url, key) {
@@ -19,12 +22,17 @@ function getClient(url, key) {
   return cachedClient.client;
 }
 
-export default function CeoAgent({ supabaseUrl, publishableKey }) {
-  if (!supabaseUrl || !publishableKey) return <SetupCard />;
-  return <Workspace sb={getClient(supabaseUrl, publishableKey)} />;
+export default function CeoAgent({ supabaseUrl, publishableKey, crmClient }) {
+  const shared = useMemo(
+    () => crmClient && { auth: crmClient.auth, from: (table) => crmClient.schema("ceo").from(table) },
+    [crmClient],
+  );
+  if (supabaseUrl && publishableKey) return <Workspace sb={getClient(supabaseUrl, publishableKey)} />;
+  if (shared) return <Workspace sb={shared} sharedSession />;
+  return <SetupCard />;
 }
 
-function Workspace({ sb }) {
+function Workspace({ sb, sharedSession = false }) {
   const [phase, setPhase] = useState("loading"); // loading | signin | mfa | ready | error
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -71,10 +79,10 @@ function Workspace({ sb }) {
           <span className="ceo-mark">CI</span>
           <span>
             <strong>CEO Intelligence</strong>
-            <small>Private executive memory · separate from the CRM database</small>
+            <small>Private executive memory · only you can see your captures</small>
           </span>
         </div>
-        {user && (
+        {user && !sharedSession && (
           <div className="ceo-account">
             <span>{profile?.display_name || user.email}</span>
             <button className="ceo-text-btn" type="button" onClick={signOut}>Sign out</button>
