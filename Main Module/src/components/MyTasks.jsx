@@ -212,7 +212,7 @@ export default function MyTasks({ profile }) {
     <div>
       <div className="page-header">
         <div>
-          <div className="page-title">My Tasks</div>
+          <div className="page-title">Hot Alerts</div>
           <div className="page-subtitle">
             {profile?.full_name} · {tasks.length} task
             {tasks.length !== 1 ? "s" : ""} assigned

@@ -1179,10 +1179,10 @@ export default function Sidebar({
       <div style={{ padding: "8px 0 4px" }}>
         <div className="sidebar-section">Main</div>
         {[
+          { key: "mytasks", Icon: IconMyTasks, label: "Hot Alerts" },
           { key: "dashboard", Icon: IconDashboard, label: "Dashboard" },
           { key: "business-development", Icon: IconBoard, label: "Business Development" },
           { key: "quotations", Icon: IconFile, label: "Quotations" },
-          { key: "mytasks", Icon: IconMyTasks, label: "My Tasks" },
           ...(profile?.role === "admin"
             ? [
                 { key: "clients", Icon: IconClients, label: "Clients" },
