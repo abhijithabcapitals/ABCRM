@@ -13,7 +13,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const DEFAULT_MODEL = "deepseek/deepseek-v4-pro";
+const DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash";
 const MAX_TOOL_ROUNDS = 8;
 const MAX_HISTORY = 30;
 const MAX_MESSAGE_CHARS = 8000;

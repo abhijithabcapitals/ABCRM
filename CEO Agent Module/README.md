@@ -6,7 +6,7 @@ The CRM's **CEO Agent** tab (admins only). It is the user interface of the CEO I
 | Path | Purpose |
 |---|---|
 | `components/CeoAgent.jsx` | Sign-in and TOTP MFA, then a chat with the agent on the left and the dashboard on the right |
-| `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: DeepSeek (`deepseek/deepseek-v4-pro`) via OpenRouter, with tools that save and look up the CEO's items |
+| `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: DeepSeek (`deepseek/deepseek-v4.1-flash`) via OpenRouter, with tools that save and look up the CEO's items |
 | `index.js` | Default export of the page |
 
 ## Chat and dashboard
