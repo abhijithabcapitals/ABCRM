@@ -12,6 +12,7 @@ export default defineConfig({
       '@hot-alerts': fileURLToPath(new URL('../Hot Alerts Module', import.meta.url)),
       '@dashboard': fileURLToPath(new URL('../Dashboard Module', import.meta.url)),
       '@integrations': fileURLToPath(new URL('../Integrations Module', import.meta.url)),
+      '@ceo-agent': fileURLToPath(new URL('../CEO Agent Module', import.meta.url)),
       '@document-generator': fileURLToPath(new URL('../Document Generator', import.meta.url)),
       // The Document Generator lives outside this app folder, so resolve its
       // dependencies from the host app's node_modules.
@@ -23,7 +24,7 @@ export default defineConfig({
       // Lets those modules reuse this app's shared code (charts, Supabase client, helpers).
       '@app': fileURLToPath(new URL('./src', import.meta.url)),
     },
-    // Those folders have no node_modules; resolve React from this app.
-    dedupe: ['react', 'react-dom'],
+    // Those folders have no node_modules; resolve shared packages from this app.
+    dedupe: ['react', 'react-dom', '@supabase/supabase-js'],
   },
 })

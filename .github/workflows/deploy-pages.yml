@@ -47,6 +47,9 @@ jobs:
           GITHUB_PAGES: 'true'
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Optional: CEO Agent's own Supabase project. Empty shows the setup card.
+          VITE_CEO_SUPABASE_URL: ${{ secrets.VITE_CEO_SUPABASE_URL }}
+          VITE_CEO_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_CEO_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
 
       - name: Configure GitHub Pages
