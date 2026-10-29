@@ -1,18 +1,19 @@
 // Supabase Edge Function "ceo-agent": the chat behind the CEO Agent tab.
 //
-// Each message is saved as a capture in ceo.captures, then Claude reads it and
-// uses tools to save structured items (meetings, reminders, tasks, decisions,
-// ideas, risks, people, projects) and to look things up. Every query runs with
+// Each message is saved as a capture in ceo.captures, then the model (DeepSeek
+// via OpenRouter) reads it and uses tools to save structured items (meetings,
+// reminders, tasks, decisions, ideas, risks, people, projects) and to look
+// things up. Every query runs with
 // the caller's JWT, so row-level security limits it to the caller's own ceo
 // rows. Nothing external happens: no emails, invites or reminder delivery.
 //
 // Deploy as Edge Function "ceo-agent" with JWT verification on. Needs the
-// ANTHROPIC_API_KEY secret.
+// OPENROUTER_API_KEY secret; OPENROUTER_MODEL optionally overrides the model.
 
-import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const MODEL = "claude-opus-5-5";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const DEFAULT_MODEL = "deepseek/deepseek-v4-pro";
 const MAX_TOOL_ROUNDS = 8;
 const MAX_HISTORY = 30;
 const MAX_MESSAGE_CHARS = 8000;
@@ -31,7 +32,9 @@ type ItemType = typeof ITEM_TYPES[number];
 
 const nullableString = (description: string) => ({ type: ["string", "null"], description });
 
-const tools: Anthropic.Tool[] = [
+type ToolDef = { name: string; description: string; input_schema: Record<string, unknown> };
+
+const tools: ToolDef[] = [
   {
     name: "save_item",
     description:
@@ -260,12 +263,55 @@ Rules:
 
 Style: concise, warm, direct. Use short paragraphs or bullets. Dates as DD/MM/YYYY and 24-hour times, Dubai time.`;
 
+// OpenAI-style chat types used by OpenRouter.
+type ToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
+type ChatMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+  | { role: "tool"; tool_call_id: string; content: string };
+
+const openRouterTools = tools.map((t) => ({
+  type: "function" as const,
+  function: { name: t.name, description: t.description, parameters: t.input_schema },
+}));
+
+class UpstreamError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+async function chat(apiKey: string, model: string, messages: ChatMessage[]) {
+  const res = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CEO Agent" },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4000,
+      temperature: 0.3,
+      tools: openRouterTools,
+      messages,
+      // Only providers that support tools and do not retain or train on prompts.
+      provider: { require_parameters: true, data_collection: "deny" },
+    }),
+  });
+  // deno-lint-ignore no-explicit-any
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) {
+    throw new UpstreamError(res.ok ? Number(data.error?.code) || 502 : res.status, data.error?.message || `HTTP ${res.status}`);
+  }
+  const choice = data.choices?.[0];
+  if (!choice?.message) throw new UpstreamError(502, "The model returned no message.");
+  return choice as { finish_reason: string; message: { content: string | null; tool_calls?: ToolCall[] } };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Use POST" }, 405);
 
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey) return json({ error: "The CEO Agent is not set up yet: add the ANTHROPIC_API_KEY secret to this Supabase project." }, 500);
+  const apiKey = Deno.env.get("OPENROUTER_API_KEY");
+  if (!apiKey) return json({ error: "The CEO Agent is not set up yet: add the OPENROUTER_API_KEY secret to this Supabase project." }, 500);
+  const model = Deno.env.get("OPENROUTER_MODEL") || DEFAULT_MODEL;
 
   const authHeader = req.headers.get("Authorization") || "";
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
@@ -311,70 +357,51 @@ Deno.serve(async (req) => {
     captureId = existing?.id ?? null;
   }
 
-  const client = new Anthropic({ apiKey });
-  const messages: Anthropic.Beta.BetaMessageParam[] = [...history];
   const system = `${SYSTEM}\n\nCurrent Dubai time: ${dubaiNow()} (UTC+04:00). The CEO's name: ${profile.display_name || "the CEO"}.`;
+  const messages: ChatMessage[] = [{ role: "system", content: system }, ...history];
   const saved: unknown[] = [];
   let changed = false;
 
   try {
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-      const response = await client.beta.messages.create({
-        model: MODEL,
-        max_tokens: 16000,
-        system,
-        tools: tools as Anthropic.Beta.BetaTool[],
-        output_config: { effort: "medium" },
-        betas: ["server-side-fallback-2026-07-01"],
-        // deno-lint-ignore no-explicit-any
-        fallbacks: "default" as any,
-        messages,
-      } as Anthropic.Beta.MessageCreateParamsNonStreaming);
-
-      if (response.stop_reason === "refusal") return json({ reply: "I can't help with that request.", changed, saved });
-      if (response.stop_reason === "pause_turn") {
-        messages.push({ role: "assistant", content: response.content });
-        continue;
+      const { finish_reason, message } = await chat(apiKey, model, messages);
+      const toolCalls = message.tool_calls || [];
+      if (!toolCalls.length) {
+        const cut = finish_reason === "length" ? "\n\n(Reply cut short. Ask me to continue.)" : "";
+        return json({ reply: (message.content || "").trim() + cut || "Done.", changed, saved });
       }
-      const toolUses = response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
-      if (response.stop_reason !== "tool_use" || !toolUses.length) {
-        const reply = response.content
-          .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-          .map((b) => b.text).join("\n").trim();
-        const cut = response.stop_reason === "max_tokens" ? "\n\n(Reply cut short. Ask me to continue.)" : "";
-        return json({ reply: (reply || "Done.") + cut, changed, saved });
-      }
-      messages.push({ role: "assistant", content: response.content });
-      const results = [];
-      for (const t of toolUses) {
-        // deno-lint-ignore no-explicit-any
-        const input = (t.input || {}) as any;
+      messages.push({ role: "assistant", content: message.content, tool_calls: toolCalls });
+      for (const t of toolCalls) {
         let result: unknown;
         try {
-          if (t.name === "save_item") {
+          // deno-lint-ignore no-explicit-any
+          const input = (JSON.parse(t.function.arguments || "{}") || {}) as any;
+          const name = t.function.name;
+          if (name === "save_item") {
             result = await saveItem(db, uid, input, captureId);
             // deno-lint-ignore no-explicit-any
             if ((result as any).saved) { saved.push((result as any).saved); changed = true; }
-          } else if (t.name === "update_status") {
+          } else if (name === "update_status") {
             result = await updateStatus(db, input);
             // deno-lint-ignore no-explicit-any
             if ((result as any).updated) changed = true;
-          } else if (t.name === "search_memory") result = await searchMemory(db, String(input.query || ""));
-          else if (t.name === "get_overview") result = await overview(db);
-          else result = { error: `Unknown tool ${t.name}` };
+          } else if (name === "search_memory") result = await searchMemory(db, String(input.query || ""));
+          else if (name === "get_overview") result = await overview(db);
+          else result = { error: `Unknown tool ${name}` };
         } catch (e) {
           result = { error: (e as Error).message };
         }
-        // deno-lint-ignore no-explicit-any
-        results.push({ type: "tool_result" as const, tool_use_id: t.id, content: JSON.stringify(result), is_error: !!(result as any)?.error });
+        messages.push({ role: "tool", tool_call_id: t.id, content: JSON.stringify(result) });
       }
-      messages.push({ role: "user", content: results });
     }
     return json({ reply: "That took too many steps. Try splitting the request.", changed, saved });
   } catch (e) {
-    if (e instanceof Anthropic.RateLimitError) return json({ error: "The CEO Agent is busy. Try again in a minute." }, 429);
-    if (e instanceof Anthropic.AuthenticationError) return json({ error: "The ANTHROPIC_API_KEY secret is not valid." }, 500);
-    if (e instanceof Anthropic.APIError) return json({ error: `Claude API error: ${e.message}` }, 502);
+    if (e instanceof UpstreamError) {
+      if (e.status === 401 || e.status === 403) return json({ error: "The OPENROUTER_API_KEY secret is not valid." }, 500);
+      if (e.status === 402) return json({ error: "The OpenRouter account is out of credit." }, 502);
+      if (e.status === 429) return json({ error: "The CEO Agent is busy. Try again in a minute." }, 429);
+      return json({ error: `Model API error: ${e.message}` }, 502);
+    }
     return json({ error: `CEO Agent failed: ${(e as Error).message}` }, 500);
   }
 });

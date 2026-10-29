@@ -247,11 +247,55 @@ function Chat({ sb, userId, onChanged }) {
   const [error, setError] = useState("");
   const listRef = useRef(null);
   const keyRef = useRef(crypto.randomUUID());
+  // Talk mode: browser speech-to-text in, spoken reply out.
+  const Recognition = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
+  const spokenRef = useRef(false);
+
+  useEffect(() => () => { recognitionRef.current?.abort(); window.speechSynthesis?.cancel(); }, []);
 
   useEffect(() => {
     try { sessionStorage.setItem(chatStorageKey(userId), JSON.stringify(messages.slice(-60))); } catch { /* storage off */ }
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, userId]);
+
+  function speak(text) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text.replace(/[*_#`]/g, "")));
+  }
+
+  function toggleTalk() {
+    if (listening) { recognitionRef.current?.stop(); return; }
+    window.speechSynthesis?.cancel();
+    setError("");
+    const rec = new Recognition();
+    rec.lang = navigator.language || "en-GB";
+    rec.interimResults = true;
+    rec.continuous = false;
+    let finalText = "";
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+        else interim += e.results[i][0].transcript;
+      }
+      setInput((finalText + interim).trim());
+    };
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed") setError("Microphone access was blocked. Allow it in the browser's address bar to talk.");
+      else if (e.error !== "no-speech" && e.error !== "aborted") setError(`Voice input failed: ${e.error}`);
+    };
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+      if (finalText.trim()) { spokenRef.current = true; send(finalText); }
+    };
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.start();
+  }
 
   async function send(text) {
     const content = (text ?? input).trim();
@@ -269,12 +313,15 @@ function Chat({ sb, userId, onChanged }) {
     if (fnError) {
       try { message = (await fnError.context?.json())?.error || fnError.message; } catch { message = fnError.message; }
     }
+    const wasSpoken = spokenRef.current;
+    spokenRef.current = false;
     if (message || !data?.reply) {
       setError(message || "No reply came back. Try again.");
       return;
     }
     keyRef.current = crypto.randomUUID();
     setMessages([...next, { role: "assistant", content: data.reply, saved: data.saved || [] }]);
+    if (wasSpoken) speak(data.reply);
     if (data.changed) onChanged();
   }
 
@@ -331,12 +378,27 @@ function Chat({ sb, userId, onChanged }) {
           onKeyDown={onKeyDown}
           rows={2}
           maxLength={8000}
-          placeholder="Message the CEO Agent…"
+          placeholder={listening ? "Listening… speak now" : "Message the CEO Agent…"}
           aria-label="Message the CEO Agent"
         />
-        <button className="btn btn-primary" type="submit" disabled={sending || !input.trim()}>Send</button>
+        {Recognition && (
+          <button
+            className={`ceo-talk-btn${listening ? " ceo-talk-on" : ""}`}
+            type="button"
+            onClick={toggleTalk}
+            disabled={sending}
+            aria-pressed={listening}
+            title={listening ? "Stop listening" : "Talk to the CEO Agent"}
+          >
+            <span className="ceo-talk-dot" aria-hidden="true" />{listening ? "Stop" : "Talk"}
+          </button>
+        )}
+        <button className="btn btn-primary" type="submit" disabled={sending || listening || !input.trim()}>Send</button>
       </form>
-      <p className="ceo-chat-note">Private to you. Nothing is sent outside the CRM; reminders show on the dashboard only.</p>
+      <p className="ceo-chat-note">
+        Private to you. Messages go to the AI model (DeepSeek via OpenRouter) to reply; nothing else leaves the CRM.
+        {Recognition && " Talk uses your browser's speech recognition, which may process audio on the browser maker's servers."}
+      </p>
     </section>
   );
 }
@@ -511,6 +573,12 @@ function Styles() {
       .ceo-chat-form { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px; border-top: 1px solid #f0f0f0; }
       .ceo-chat-form textarea { flex: 1; resize: none; font: inherit; font-size: 13.5px; padding: 9px 11px; border: 1px solid #d1d5db; border-radius: 10px; }
       .ceo-chat-note { font-size: 11px; color: #9ca3af; margin: 0; padding: 0 12px 10px; }
+      .ceo-talk-btn { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 13px; border: 1px solid #d1d5db; border-radius: 10px; background: #fff; color: #1f3a4d; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+      .ceo-talk-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .ceo-talk-dot { width: 9px; height: 9px; border-radius: 50%; background: #0f766e; }
+      .ceo-talk-on { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+      .ceo-talk-on .ceo-talk-dot { background: #dc2626; animation: ceo-pulse 1s ease-in-out infinite; }
+      @keyframes ceo-pulse { 50% { opacity: 0.3; } }
       .ceo-dash { display: grid; gap: 14px; }
       .ceo-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
       .ceo-stat { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px 14px; }

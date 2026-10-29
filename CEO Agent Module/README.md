@@ -6,7 +6,7 @@ The CRM's **CEO Agent** tab (admins only). It is the user interface of the CEO I
 | Path | Purpose |
 |---|---|
 | `components/CeoAgent.jsx` | Sign-in and TOTP MFA, then a chat with the agent on the left and the dashboard on the right |
-| `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: Claude (`claude-opus-5-5`) with tools that save and look up the CEO's items |
+| `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: DeepSeek (`deepseek/deepseek-v4-pro`) via OpenRouter, with tools that save and look up the CEO's items |
 | `index.js` | Default export of the page |
 
 ## Chat and dashboard
@@ -23,7 +23,9 @@ The chat itself is kept for the browser session only; the CEO's own messages sta
 
 The function runs with the caller's token, so row-level security limits it to the caller's own rows, and it
 refuses callers without a `ceo.profiles` row or, when `require_mfa` is true, without an `aal2` session.
-Needs the `ANTHROPIC_API_KEY` Edge Function secret. Redeploy after editing `index.ts` as `ceo-agent`.
+Needs the `OPENROUTER_API_KEY` Edge Function secret (optional `OPENROUTER_MODEL` overrides the model). Only providers that support tools and do not retain prompts are used. Redeploy after editing `index.ts` as `ceo-agent`.
+
+The **Talk** button uses the browser's speech recognition (Chrome, Edge, Safari) to dictate a message, sends it when you stop speaking, and reads the reply aloud. It is hidden in browsers without speech recognition.
 
 ## Where the data lives
 
