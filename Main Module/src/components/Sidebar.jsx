@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../supabase";
 import Notifications from "./Notifications";
-import { IconDashboard, IconWiki, IconMyTasks, IconSettings, IconTrash, IconEdit, IconPalette, IconFolderPlus, IconFile, IconClients, IconList, IconPlus, IconCheck } from "./icons";
+import { IconDashboard, IconWiki, IconMyTasks, IconSettings, IconTrash, IconEdit, IconPalette, IconFolderPlus, IconFile, IconClients, IconList, IconPlus, IconCheck, IconBoard } from "./icons";
 
 // Map the emoji used in context-menu configs to the shared SVG icon set.
 // Unmapped values fall back to the original glyph so nothing breaks.
@@ -1180,6 +1180,7 @@ export default function Sidebar({
         <div className="sidebar-section">Main</div>
         {[
           { key: "dashboard", Icon: IconDashboard, label: "Dashboard" },
+          { key: "business-development", Icon: IconBoard, label: "Business Development" },
           { key: "wiki", Icon: IconWiki, label: "Wiki" },
           { key: "quotations", Icon: IconFile, label: "Quotations" },
           { key: "mytasks", Icon: IconMyTasks, label: "My Tasks" },

@@ -13,6 +13,19 @@ The CRM's client database. It sits beside the existing accounting database in `D
 ```
 The rebuild **overwrites** the workbook. Run it only while the workbook holds no real client rows, for example after a schema change.
 
+## Business Development (BD) backend: design stage, kept separate from the UI
+
+The backend for the `Business Development Module` UI, which is still under development and will be linked later. **Nothing has been applied to any CRM database yet.**
+
+| Path | Purpose |
+|---|---|
+| `docs/BD_BACKEND_SPEC.md` | The user's specification, unedited |
+| `docs/BD_MIGRATION_PLAN.md` | What exists in the CRM and what is reused, the rules enforced, **the decisions needed (D1–D6)**, rollout, backup and rollback |
+| `docs/BD_ER_DIAGRAM.md` | ER diagram (Mermaid) |
+| `docs/BD_API_CONTRACT.md` | Endpoints, roles, conventions and dashboard metric definitions |
+| `migrations/bd/001_bd_schema.sql`, `002_bd_seed.sql` | Draft PostgreSQL schema and seed data. They run more than once safely and were tested on a throwaway cluster only. |
+| `SQL Data/BD_Field_Mapping.xlsx` | Every spec field mapped to its database column, plus the BD-to-Client-Master prefill and the reuse decisions. Built by `build_bd_field_mapping.py` |
+
 ## Workbook layout
 
 | Sheet | Rows | Holds |

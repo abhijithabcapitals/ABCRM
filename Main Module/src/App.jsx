@@ -14,6 +14,7 @@ const Settings = lazy(() => import("./components/Settings"));
 const MyTasks = lazy(() => import("./components/MyTasks"));
 const Quotations = lazy(() => import("./components/Quotations"));
 const Clients = lazy(() => import("./components/Clients"));
+const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -483,6 +484,7 @@ export default function App() {
         {view === "mytasks" && <MyTasks profile={profile} />}
         {view === "quotations" && <Quotations profile={profile} />}
         {view === "clients" && <Clients profile={profile} />}
+        {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "tax" && (
           <Clients profile={profile} page="/tax" title="Tax Compliance" subtitle="Tax Agent · VAT, Corporate Tax & renewals" />
         )}

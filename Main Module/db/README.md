@@ -4,6 +4,16 @@ SQL you run manually in the **Supabase SQL editor** (Dashboard → SQL Editor �
 
 ## Files
 
+### `business_development.sql` — Business Development module
+
+Adds the isolated lead, service, activity, follow-up, stage-history, audit, role,
+and onboarding-handover tables plus RLS policies and transactional create/close
+functions. Review the role assignments before running it on the CRM Supabase
+project. Existing CRM admins become BD super admins; other current and newly
+created profiles default to sales executives. Configure broader BD roles only
+for authorized staff. A won lead produces a pending onboarding handover and
+never writes to the Client Master.
+
 ### `00_base_schema.sql` — full structure of the live database
 
 Mirror of production (tables, constraints, indexes, all functions,

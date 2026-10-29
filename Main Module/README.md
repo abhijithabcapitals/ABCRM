@@ -17,6 +17,7 @@ A custom-built internal tool replacing ClickUp and Notion for the AB Capital tea
 - **Custom statuses** — each space can have its own workflow statuses (e.g. Client Discontinued)
 - **My Tasks** — personal view showing all tasks assigned to the logged-in user
 - **Dashboard** — overview of all tasks, spaces, and completion metrics
+- **Business Development** — lead capture, a deal pipeline, discussion history, follow-ups, service budgets, and won-lead handovers
 
 ---
 
@@ -71,6 +72,25 @@ abcapital-workspace/
 | `profiles`          | Team member profiles linked to Supabase auth             |
 
 ---
+
+## Business Development module
+
+The **Business Development** sidebar page is a Supabase-backed lead workspace. It
+includes a dashboard, stage pipeline, lead lists, quick capture, service-level
+budgets, discussion timelines, follow-up queue, source reporting, and won/lost
+workflows.
+
+To enable it, review and run
+[`db/business_development.sql`](./db/business_development.sql) in the Supabase
+SQL Editor. Existing CRM admins are assigned the `super_admin` BD role and other
+profiles default to `sales_executive`; a CRM admin can change module roles in
+`bd_user_roles`. Lead rows are restricted by BD role and ownership in row-level
+security. Do not assign broader roles without approval.
+
+Won leads create a pending onboarding handover. This integration does not create
+or update a Client Master record; complete duplicate checks and client creation
+through the approved Client Module workflow. The module displays a setup message
+until its database migration has been applied.
 
 ## Accounting client directory
 
