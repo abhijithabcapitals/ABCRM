@@ -5,8 +5,25 @@ The CRM's **CEO Agent** tab (admins only). It is the user interface of the CEO I
 
 | Path | Purpose |
 |---|---|
-| `components/CeoAgent.jsx` | Sign-in, TOTP MFA, quick capture (text saved; voice recorded locally only) and recent captures |
+| `components/CeoAgent.jsx` | Sign-in and TOTP MFA, then a chat with the agent on the left and the dashboard on the right |
+| `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: Claude (`claude-opus-5-5`) with tools that save and look up the CEO's items |
 | `index.js` | Default export of the page |
+
+## Chat and dashboard
+
+Every chat message is saved to `ceo.captures`. The agent then saves what it hears as structured items:
+meetings, reminders, tasks, decisions, ideas, risks, people, projects and notes (`ceo.records` plus the
+matching table), and can mark items done or cancelled. It answers questions from `get_overview` and
+`search_memory`. It asks for an exact date before saving a meeting or reminder, and never sends anything
+outside the CRM (no emails, invites or reminder delivery).
+
+The dashboard reads the same tables directly: this week's meetings, open and overdue tasks (tick to complete),
+reminders, recent decisions, ideas and open risks. It refreshes after each reply that saved something.
+The chat itself is kept for the browser session only; the CEO's own messages stay in `ceo.captures`.
+
+The function runs with the caller's token, so row-level security limits it to the caller's own rows, and it
+refuses callers without a `ceo.profiles` row or, when `require_mfa` is true, without an `aal2` session.
+Needs the `ANTHROPIC_API_KEY` Edge Function secret. Redeploy after editing `index.ts` as `ceo-agent`.
 
 ## Where the data lives
 

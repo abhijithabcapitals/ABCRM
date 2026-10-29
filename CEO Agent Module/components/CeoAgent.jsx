@@ -24,7 +24,11 @@ function getClient(url, key) {
 
 export default function CeoAgent({ supabaseUrl, publishableKey, crmClient }) {
   const shared = useMemo(
-    () => crmClient && { auth: crmClient.auth, from: (table) => crmClient.schema("ceo").from(table) },
+    () => crmClient && {
+      auth: crmClient.auth,
+      functions: crmClient.functions,
+      from: (table) => crmClient.schema("ceo").from(table),
+    },
     [crmClient],
   );
   if (supabaseUrl && publishableKey) return <Workspace sb={getClient(supabaseUrl, publishableKey)} />;
@@ -214,192 +218,244 @@ function Mfa({ sb, onDone }) {
 }
 
 function Ready({ sb, userId, timezone }) {
-  const [captures, setCaptures] = useState([]);
-  const [loadError, setLoadError] = useState("");
-
-  const load = useCallback(async () => {
-    const { data, error } = await sb
-      .from("captures")
-      .select("id, input_text, transcript, audio_path, status, created_at, error_message")
-      .order("created_at", { ascending: false })
-      .limit(30);
-    if (error) { setLoadError(error.message); return; }
-    setLoadError("");
-    setCaptures(data || []);
-  }, [sb]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const fmt = useMemo(
-    () => new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: timezone }),
-    [timezone],
-  );
-
+  const [refreshKey, setRefreshKey] = useState(0);
   return (
-    <div className="ceo-grid">
-      <Capture sb={sb} userId={userId} onSaved={load} />
-      <section className="ceo-card">
-        <div className="ceo-section-head">
-          <div>
-            <p className="ceo-eyebrow">RECENT CAPTURES</p>
-            <h2>Your saved thoughts</h2>
-          </div>
-          <span className="ceo-count">{captures.length}</span>
-        </div>
-        {loadError ? (
-          <p className="ceo-notice ceo-error" role="alert">Could not load saved captures: {loadError}</p>
-        ) : !captures.length ? (
-          <div className="ceo-empty">Your saved captures will appear here.</div>
-        ) : (
-          <ul className="ceo-list">
-            {captures.map((c) => (
-              <li key={c.id} className="ceo-row">
-                <div className="ceo-row-copy">
-                  <p>{c.input_text || c.transcript || (c.audio_path ? "Voice recording saved" : "Capture received")}</p>
-                  <time dateTime={c.created_at}>{fmt.format(new Date(c.created_at))}</time>
-                  {c.error_message && <small className="ceo-error-text">{c.error_message}</small>}
-                </div>
-                <span className={`ceo-status ceo-status-${c.status}`}>{c.status.replaceAll("_", " ")}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+    <div className="ceo-split">
+      <Chat sb={sb} userId={userId} onChanged={() => setRefreshKey((k) => k + 1)} />
+      <Dashboard sb={sb} timezone={timezone} refreshKey={refreshKey} />
     </div>
   );
 }
 
-function Capture({ sb, userId, onSaved }) {
-  const [mode, setMode] = useState("text");
-  const [text, setText] = useState("");
-  const [audioFile, setAudioFile] = useState(null);
-  const [recording, setRecording] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
+const SUGGESTIONS = [
+  "What's on my plate this week?",
+  "Meeting with the Ardentax team tomorrow at 11:00 about the Q4 audit",
+  "Remind me on Sunday at 09:00 to review the VAT filings",
+  "We decided to hire two more tax specialists",
+];
+
+function chatStorageKey(userId) {
+  return `ceo-chat-${userId}`;
+}
+
+function Chat({ sb, userId, onChanged }) {
+  const [messages, setMessages] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(chatStorageKey(userId)) || "[]"); } catch { return []; }
+  });
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const recorderRef = useRef(null);
-  const streamRef = useRef(null);
-  const chunksRef = useRef([]);
+  const listRef = useRef(null);
   const keyRef = useRef(crypto.randomUUID());
 
-  useEffect(() => () => {
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-  }, []);
+  useEffect(() => {
+    try { sessionStorage.setItem(chatStorageKey(userId), JSON.stringify(messages.slice(-60))); } catch { /* storage off */ }
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, userId]);
 
-  const resetKey = () => { keyRef.current = crypto.randomUUID(); };
-
-  async function startRecording() {
+  async function send(text) {
+    const content = (text ?? input).trim();
+    if (!content || sending) return;
+    const next = [...messages, { role: "user", content }];
+    setMessages(next);
+    setInput("");
     setError("");
-    setStatus("");
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setError("Voice recording is not supported by this browser.");
+    setSending(true);
+    const { data, error: fnError } = await sb.functions.invoke("ceo-agent", {
+      body: { messages: next.map(({ role, content: c }) => ({ role, content: c })), idempotencyKey: keyRef.current },
+    });
+    setSending(false);
+    let message = data?.error;
+    if (fnError) {
+      try { message = (await fnError.context?.json())?.error || fnError.message; } catch { message = fnError.message; }
+    }
+    if (message || !data?.reply) {
+      setError(message || "No reply came back. Try again.");
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      chunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
-        setAudioFile(new File([blob], `voice-note.${ext}`, { type: blob.type || "audio/webm" }));
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        setRecording(false);
-      };
-      recorder.start();
-      setRecording(true);
-      setAudioFile(null);
-      setText("");
-      resetKey();
-    } catch (cause) {
-      setError(`Could not start recording: ${cause?.message || cause}`);
-    }
+    keyRef.current = crypto.randomUUID();
+    setMessages([...next, { role: "assistant", content: data.reply, saved: data.saved || [] }]);
+    if (data.changed) onChanged();
   }
 
-  function stopRecording() {
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+  function onKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
-  async function save() {
-    const body = text.trim();
-    if (audioFile) {
-      setError("Voice uploads are not enabled yet. Configure an audio retention policy and cleanup worker before storing recordings.");
-      return;
-    }
-    if (!body) { setError("Add a note before saving."); return; }
-    setBusy(true);
+  function clearChat() {
+    setMessages([]);
     setError("");
-    setStatus("");
-    const { error: insertError } = await sb
-      .from("captures")
-      .insert({ user_id: userId, idempotency_key: keyRef.current, input_text: body });
-    let failure = insertError && insertError.code !== "23505" ? insertError : null;
-    if (insertError?.code === "23505") {
-      // Same submission already saved (retry after a network blip): confirm it exists.
-      const { error: lookupError } = await sb
-        .from("captures").select("id").eq("user_id", userId).eq("idempotency_key", keyRef.current).single();
-      failure = lookupError;
-    }
-    setBusy(false);
-    if (failure) { setError(`Could not save the capture: ${failure.message}`); return; }
-    setText("");
-    resetKey();
-    setStatus("Capture saved. Structured extraction is not configured yet.");
-    onSaved();
   }
 
   return (
-    <section className="ceo-card" aria-labelledby="ceo-capture-heading">
-      <div className="ceo-section-head">
+    <section className="ceo-chat" aria-label="Chat with the CEO Agent">
+      <div className="ceo-chat-head">
         <div>
-          <p className="ceo-eyebrow">QUICK CAPTURE</p>
-          <h2 id="ceo-capture-heading">What's on your mind?</h2>
+          <strong>CEO Agent</strong>
+          <small>Tell me meetings, reminders, decisions or ideas. Ask about anything you've saved.</small>
         </div>
-        <div className="ceo-switch" role="group" aria-label="Capture type">
-          <button type="button" aria-pressed={mode === "text"} className={mode === "text" ? "on" : ""} onClick={() => setMode("text")}>Write</button>
-          <button type="button" aria-pressed={mode === "voice"} className={mode === "voice" ? "on" : ""} onClick={() => setMode("voice")}>Voice</button>
-        </div>
+        {messages.length > 0 && <button className="ceo-text-btn" type="button" onClick={clearChat}>New chat</button>}
       </div>
 
-      {mode === "text" ? (
-        <label className="ceo-label">Private note
-          <textarea rows={6} maxLength={20000} value={text} placeholder="A decision, follow-up, idea or commitment…"
-            onChange={(e) => { setText(e.target.value); resetKey(); setError(""); setStatus(""); }} />
-        </label>
-      ) : (
-        <div className="ceo-voice">
-          <p className="ceo-muted">Recording starts only when you press the button. It stays in this page and is not uploaded.</p>
-          {!recording && !audioFile && (
-            <button className="btn" type="button" onClick={startRecording}><span className="ceo-dot" /> Start recording</button>
-          )}
-          {recording && (
-            <button className="btn" type="button" onClick={stopRecording}><span className="ceo-dot ceo-dot-live" /> Stop recording</button>
-          )}
-          {audioFile && (
-            <div className="ceo-audio">
-              <span>{audioFile.name} · {(audioFile.size / 1024).toFixed(0)} KB</span>
-              <button className="ceo-text-btn" type="button" onClick={() => { setAudioFile(null); setStatus(""); resetKey(); }}>Remove</button>
+      <div className="ceo-chat-list" ref={listRef} aria-live="polite">
+        {messages.length === 0 && (
+          <div className="ceo-chat-empty">
+            <p className="ceo-chat-hello">How can I help today?</p>
+            <div className="ceo-chips">
+              {SUGGESTIONS.map((s) => (
+                <button key={s} type="button" className="ceo-chip" onClick={() => send(s)}>{s}</button>
+              ))}
             </div>
-          )}
-          <p className="ceo-note">Voice upload is locked until an audio-retention policy and cleanup worker are configured. Speech-to-text is not configured.</p>
-        </div>
-      )}
-
-      <div className="ceo-actions">
-        <span className="ceo-muted">{mode === "text" ? `${text.length}/20,000` : "Private by default"}</span>
-        <button className="btn btn-primary" type="button" onClick={save}
-          disabled={busy || recording || !text.trim() || Boolean(audioFile)}>
-          {busy ? "Saving…" : "Save capture"}
-        </button>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`ceo-msg ${m.role === "user" ? "ceo-msg-user" : "ceo-msg-bot"}`}>
+            <div className="ceo-msg-body">{m.content}</div>
+            {m.saved?.length > 0 && (
+              <div className="ceo-saved">
+                {m.saved.map((s) => (
+                  <span key={s.id} className="ceo-saved-pill">Saved {s.type}: {s.title}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {sending && <div className="ceo-msg ceo-msg-bot"><div className="ceo-msg-body ceo-typing">Thinking…</div></div>}
+        {error && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
       </div>
-      {status && <p className="ceo-notice ceo-ok" role="status">{status}</p>}
-      {error && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
+
+      <form className="ceo-chat-form" onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          rows={2}
+          maxLength={8000}
+          placeholder="Message the CEO Agent…"
+          aria-label="Message the CEO Agent"
+        />
+        <button className="btn btn-primary" type="submit" disabled={sending || !input.trim()}>Send</button>
+      </form>
+      <p className="ceo-chat-note">Private to you. Nothing is sent outside the CRM; reminders show on the dashboard only.</p>
     </section>
+  );
+}
+
+function Dashboard({ sb, timezone, refreshKey }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    const now = new Date();
+    const weekAhead = new Date(now.getTime() + 7 * 864e5).toISOString();
+    const [meetings, reminders, tasks, decisions, risks, ideas, people, captures] = await Promise.all([
+      sb.from("meetings").select("id, title, starts_at, ends_at, summary").gte("starts_at", now.toISOString()).order("starts_at").limit(8),
+      sb.from("reminders").select("id, title, body, scheduled_at").eq("delivery_status", "scheduled").order("scheduled_at").limit(8),
+      sb.from("tasks").select("id, title, priority, due_at, status").not("status", "in", "(done,cancelled)").order("due_at", { nullsFirst: false }).limit(12),
+      sb.from("decisions").select("id, decision_text, decided_at").eq("status", "active").order("decided_at", { ascending: false }).limit(6),
+      sb.from("risks").select("id, likelihood, impact, mitigation, records(title)").in("status", ["open", "mitigating"]).limit(6),
+      sb.from("ideas").select("id, status, records(title)").in("status", ["captured", "evaluating"]).order("created_at", { ascending: false }).limit(6),
+      sb.from("people").select("id", { count: "exact", head: true }),
+      sb.from("captures").select("id", { count: "exact", head: true }),
+    ]);
+    const firstError = [meetings, reminders, tasks, decisions, risks, ideas].find((r) => r.error)?.error;
+    if (firstError) { setError(firstError.message); return; }
+    setError("");
+    const overdue = (tasks.data || []).filter((t) => t.due_at && t.due_at < now.toISOString()).length;
+    const meetingsWeek = (meetings.data || []).filter((m) => m.starts_at <= weekAhead).length;
+    setData({
+      meetings: meetings.data || [], reminders: reminders.data || [], tasks: tasks.data || [],
+      decisions: decisions.data || [], risks: risks.data || [], ideas: ideas.data || [],
+      stats: { overdue, meetingsWeek, people: people.count || 0, captures: captures.count || 0 },
+    });
+  }, [sb]);
+
+  useEffect(() => { load(); }, [load, refreshKey]);
+
+  const fmt = useMemo(() => new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+  }), [timezone]);
+  const when = (v) => (v ? fmt.format(new Date(v)) : "No date");
+
+  async function completeTask(id) {
+    const { error: err } = await sb.from("tasks").update({ status: "done", completed_at: new Date().toISOString() }).eq("id", id);
+    if (err) setError(err.message); else load();
+  }
+
+  if (error) return <section className="ceo-dash"><p className="ceo-notice ceo-error" role="alert">Could not load the dashboard: {error}</p></section>;
+  if (!data) return <section className="ceo-dash"><p className="ceo-muted">Loading dashboard…</p></section>;
+
+  const nowIso = new Date().toISOString();
+  return (
+    <section className="ceo-dash" aria-label="CEO dashboard">
+      <div className="ceo-stats">
+        <Stat label="Meetings this week" value={data.stats.meetingsWeek} />
+        <Stat label="Open tasks" value={data.tasks.length} />
+        <Stat label="Overdue" value={data.stats.overdue} tone={data.stats.overdue ? "red" : ""} />
+        <Stat label="Reminders" value={data.reminders.length} />
+      </div>
+
+      <div className="ceo-panels">
+        <Panel title="Upcoming meetings" empty="No meetings scheduled. Tell the agent about one.">
+          {data.meetings.map((m) => (
+            <li key={m.id}><b>{m.title}</b><span>{when(m.starts_at)}{m.ends_at ? ` – ${fmt.format(new Date(m.ends_at)).slice(-5)}` : ""}</span>
+              {m.summary && <small>{m.summary}</small>}</li>
+          ))}
+        </Panel>
+        <Panel title="Reminders" empty="No reminders set.">
+          {data.reminders.map((r) => (
+            <li key={r.id}><b>{r.title}</b><span>{when(r.scheduled_at)}</span>{r.body && <small>{r.body}</small>}</li>
+          ))}
+        </Panel>
+        <Panel title="Open tasks" empty="No open tasks.">
+          {data.tasks.map((t) => (
+            <li key={t.id} className="ceo-task">
+              <input type="checkbox" aria-label={`Mark ${t.title} done`} onChange={() => completeTask(t.id)} />
+              <div>
+                <b>{t.title}</b>
+                <span className={t.due_at && t.due_at < nowIso ? "ceo-late" : ""}>
+                  {t.due_at ? `Due ${when(t.due_at)}` : "No due date"}{t.priority !== "normal" ? ` · ${t.priority}` : ""}
+                </span>
+              </div>
+            </li>
+          ))}
+        </Panel>
+        <Panel title="Recent decisions" empty="No decisions recorded.">
+          {data.decisions.map((d) => (<li key={d.id}><b>{d.decision_text}</b><span>{when(d.decided_at)}</span></li>))}
+        </Panel>
+        <Panel title="Ideas" empty="No ideas captured.">
+          {data.ideas.map((i) => (<li key={i.id}><b>{i.records?.title || "Idea"}</b><span>{i.status}</span></li>))}
+        </Panel>
+        <Panel title="Open risks" empty="No open risks.">
+          {data.risks.map((r) => (
+            <li key={r.id}><b>{r.records?.title || "Risk"}</b>
+              <span>{r.likelihood && r.impact ? `Likelihood ${r.likelihood}/5 · Impact ${r.impact}/5` : "Not rated"}</span>
+              {r.mitigation && <small>{r.mitigation}</small>}</li>
+          ))}
+        </Panel>
+      </div>
+      <p className="ceo-chat-note">{data.stats.people} people · {data.stats.captures} notes in memory</p>
+    </section>
+  );
+}
+
+function Stat({ label, value, tone = "" }) {
+  return (
+    <div className={`ceo-stat ${tone ? `ceo-stat-${tone}` : ""}`}>
+      <b>{value}</b>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function Panel({ title, empty, children }) {
+  const items = Array.isArray(children) ? children : [children];
+  const has = items.some(Boolean) && items.flat().length > 0;
+  return (
+    <div className="ceo-panel">
+      <h3>{title}</h3>
+      {has ? <ul>{children}</ul> : <p className="ceo-panel-empty">{empty}</p>}
+    </div>
   );
 }
 
@@ -430,7 +486,52 @@ function SetupCard() {
 function Styles() {
   return (
     <style>{`
-      .ceo-root { max-width: 1100px; }
+      .ceo-root { max-width: 1500px; }
+      .ceo-split { display: grid; grid-template-columns: minmax(340px, 5fr) minmax(0, 7fr); gap: 16px; align-items: start; }
+      .ceo-chat { position: sticky; top: 12px; display: flex; flex-direction: column; height: calc(100vh - 190px); min-height: 480px;
+        background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
+      .ceo-chat-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; }
+      .ceo-chat-head strong { font-size: 14px; }
+      .ceo-chat-head small { display: block; color: #6b7280; font-size: 12px; margin-top: 2px; }
+      .ceo-chat-list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+      .ceo-chat-empty { margin: auto 0; text-align: center; }
+      .ceo-chat-hello { font-size: 20px; font-weight: 600; color: #1f2a30; margin: 0 0 14px; }
+      .ceo-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+      .ceo-chip { background: #f7f7f6; border: 1px solid #e5e7eb; border-radius: 16px; padding: 7px 12px; font-size: 12.5px; color: #374151; cursor: pointer; text-align: left; }
+      .ceo-chip:hover { background: #eef2f1; }
+      .ceo-msg { display: flex; flex-direction: column; max-width: 88%; }
+      .ceo-msg-user { align-self: flex-end; align-items: flex-end; }
+      .ceo-msg-bot { align-self: flex-start; }
+      .ceo-msg-body { padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .ceo-msg-user .ceo-msg-body { background: #1f3a4d; color: #fff; border-bottom-right-radius: 4px; }
+      .ceo-msg-bot .ceo-msg-body { background: #f3f4f6; color: #1f2a30; border-bottom-left-radius: 4px; }
+      .ceo-typing { color: #9ca3af !important; }
+      .ceo-saved { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+      .ceo-saved-pill { font-size: 11px; background: #dcfce7; color: #15803d; border-radius: 10px; padding: 2px 8px; }
+      .ceo-chat-form { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px; border-top: 1px solid #f0f0f0; }
+      .ceo-chat-form textarea { flex: 1; resize: none; font: inherit; font-size: 13.5px; padding: 9px 11px; border: 1px solid #d1d5db; border-radius: 10px; }
+      .ceo-chat-note { font-size: 11px; color: #9ca3af; margin: 0; padding: 0 12px 10px; }
+      .ceo-dash { display: grid; gap: 14px; }
+      .ceo-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+      .ceo-stat { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px 14px; }
+      .ceo-stat b { display: block; font-size: 24px; font-weight: 600; color: #1f2a30; }
+      .ceo-stat span { font-size: 12px; color: #6b7280; }
+      .ceo-stat-red b { color: #b91c1c; }
+      .ceo-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .ceo-panel { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 14px 16px; min-height: 120px; }
+      .ceo-panel h3 { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #6b7280; margin: 0 0 8px; }
+      .ceo-panel ul { list-style: none; margin: 0; padding: 0; display: grid; }
+      .ceo-panel li { padding: 7px 0; border-top: 1px solid #f3f4f6; display: grid; gap: 2px; }
+      .ceo-panel li:first-child { border-top: none; }
+      .ceo-panel li b { font-size: 13px; font-weight: 500; color: #1f2a30; }
+      .ceo-panel li span { font-size: 12px; color: #6b7280; }
+      .ceo-panel li small { font-size: 12px; color: #9ca3af; }
+      .ceo-panel .ceo-task { grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
+      .ceo-panel .ceo-task input { margin-top: 3px; }
+      .ceo-late { color: #b91c1c !important; font-weight: 600; }
+      .ceo-panel-empty { font-size: 12.5px; color: #9ca3af; margin: 8px 0 0; }
+      @media (max-width: 1100px) { .ceo-split { grid-template-columns: 1fr; } .ceo-chat { position: static; height: 560px; } }
+      @media (max-width: 640px) { .ceo-stats, .ceo-panels { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ceo-panels { grid-template-columns: 1fr; } }
       .ceo-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
       .ceo-brand { display: flex; align-items: center; gap: 10px; }
       .ceo-brand small { display: block; color: #6b7280; font-size: 12px; font-weight: 400; }
