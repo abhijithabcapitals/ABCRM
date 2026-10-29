@@ -3,12 +3,15 @@ import {
   DEFAULT_TZ, addDays, addMonths, dayHeading, groupByDay, monthGrid, monthLabel, monthOf, rangeFor,
   timeIn, todayKey, weekdayLabels,
 } from "../logic/dates";
+import EventEditor from "./EventEditor";
 
 // Compact, Teams-style calendar: a small month view with an agenda below it.
 // Data-agnostic: pass plain events and fetch what onRangeChange asks for.
 //
-// events: [{ id, title, start, end?, allDay?, kind?, subtitle?, color? }]  (start/end ISO strings)
-// kinds:  { [kind]: { label, color } } for dots and the legend
+// events: [{ id, title, start, end?, allDay?, kind?, subtitle?, notes?, color? }]  (start/end ISO strings)
+// kinds:  { [kind]: { label, color, hasEnd?, timeOptional? } } for dots, the legend and the editor
+// onSave(draft, original|null) and onDelete(event) make events editable; both may return promises
+// and throw to show an error. draft = { kind, title, notes, start, end }.
 export default function CalendarPanel({
   events = [],
   kinds = {},
@@ -22,10 +25,15 @@ export default function CalendarPanel({
   emptyText = "No upcoming events.",
   onRangeChange,
   onEventClick,
+  onSave,
+  onDelete,
 }) {
   const today = todayKey(timezone);
   const [month, setMonth] = useState(() => monthOf(today));
   const [selected, setSelected] = useState(null); // day key, or null for "upcoming"
+  const [editing, setEditing] = useState(null); // { event } for edit, { event: null } for new
+  const editable = Boolean(onSave);
+  const openEvent = editable ? (e) => setEditing({ event: e }) : onEventClick;
 
   const grid = useMemo(() => monthGrid(month, weekStart), [month, weekStart]);
   const byDay = useMemo(() => groupByDay(events, timezone), [events, timezone]);
@@ -104,7 +112,10 @@ export default function CalendarPanel({
       <div className="cal-agenda">
         <div className="cal-agenda-head">
           <strong>{selected ? dayHeading(selected, timezone) : "Upcoming"}</strong>
-          {selected && <button type="button" className="cal-link" onClick={() => setSelected(null)}>Show upcoming</button>}
+          <span className="cal-agenda-tools">
+            {selected && <button type="button" className="cal-link" onClick={() => setSelected(null)}>Show upcoming</button>}
+            {editable && <button type="button" className="cal-new" onClick={() => setEditing({ event: null })}>+ New</button>}
+          </span>
         </div>
         {error && <p className="cal-error" role="alert">{error}</p>}
         {loading && !events.length && <p className="cal-empty">Loading…</p>}
@@ -115,7 +126,8 @@ export default function CalendarPanel({
           <div key={key} className="cal-agenda-day">
             {!selected && <div className="cal-agenda-date">{dayHeading(key, timezone)}</div>}
             {list.map((e) => (
-              <button key={e.id} type="button" className="cal-event" onClick={() => onEventClick?.(e)} disabled={!onEventClick}>
+              <button key={e.id} type="button" className="cal-event" onClick={() => openEvent?.(e)} disabled={!openEvent}
+                title={editable ? "Edit" : undefined}>
                 <span className="cal-event-time">
                   {e.allDay ? "All day" : timeIn(timezone, e.start)}
                   {!e.allDay && e.end && <small>{timeIn(timezone, e.end)}</small>}
@@ -137,6 +149,18 @@ export default function CalendarPanel({
             <span key={k}><i style={{ background: v.color }} />{v.label}</span>
           ))}
         </div>
+      )}
+
+      {editing && (
+        <EventEditor
+          event={editing.event}
+          defaultDate={selected || today}
+          kinds={kinds}
+          timezone={timezone}
+          onSave={onSave}
+          onDelete={onDelete}
+          onClose={() => setEditing(null)}
+        />
       )}
     </section>
   );
@@ -182,6 +206,24 @@ function CalendarStyles() {
       .cal-event-body small { font-size: 11.5px; color: #9ca3af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .cal-empty { font-size: 12.5px; color: #9ca3af; margin: 4px 0; }
       .cal-error { font-size: 12.5px; color: #b91c1c; background: #fee2e2; border-radius: 6px; padding: 8px 10px; margin: 0; }
+      .cal-agenda-tools { display: flex; gap: 12px; align-items: baseline; }
+      .cal-new { background: none; border: 1px solid #d1d5db; border-radius: 6px; padding: 2px 9px; font-size: 12px; color: #1f2a30; cursor: pointer; }
+      .cal-new:hover { background: #f3f4f6; }
+      .cal-modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+      .cal-modal { background: #fff; border-radius: 12px; width: min(440px, 100%); padding: 18px; display: grid; gap: 12px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25); }
+      .cal-modal-head { display: flex; justify-content: space-between; align-items: center; }
+      .cal-modal-head strong { font-size: 15px; color: #1f2a30; }
+      .cal-x { background: none; border: none; font-size: 22px; line-height: 1; color: #6b7280; cursor: pointer; }
+      .cal-kinds { display: flex; gap: 6px; flex-wrap: wrap; }
+      .cal-kinds button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #e5e7eb; background: #fff; border-radius: 16px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; color: #374151; }
+      .cal-kinds button.on { border-color: var(--accent, #0d7d82); background: #eef7f7; color: #0f5e5a; font-weight: 600; }
+      .cal-kinds i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+      .cal-field { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: #374151; flex: 1; min-width: 0; }
+      .cal-field input, .cal-field textarea { font: inherit; font-size: 13.5px; font-weight: 400; padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 6px; min-width: 0; }
+      .cal-field textarea { resize: vertical; }
+      .cal-row { display: flex; gap: 10px; flex-wrap: wrap; }
+      .cal-modal-actions { display: flex; gap: 8px; align-items: center; }
+      .cal-danger { background: none; border: none; color: #b91c1c; font-size: 13px; cursor: pointer; padding: 0; }
       .cal-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #6b7280; }
       .cal-legend i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
     `}</style>

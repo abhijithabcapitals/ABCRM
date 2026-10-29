@@ -71,6 +71,29 @@ export function timeIn(timezone, value) {
   return new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
 
+// Offset of `timezone` from UTC at instant `ts`, in milliseconds.
+function zoneOffset(ts, timezone) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(ts)).map((x) => [x.type, x.value]));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - ts;
+}
+
+// Wall-clock date ("YYYY-MM-DD") and time ("HH:MM") in `timezone` to an ISO instant.
+export function zonedToIso(date, time, timezone) {
+  const [y, mo, d] = date.split("-").map(Number);
+  const [h, mi] = (time || "00:00").split(":").map(Number);
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  let ts = guess - zoneOffset(guess, timezone);
+  ts = guess - zoneOffset(ts, timezone); // second pass settles DST edges
+  return new Date(ts).toISOString();
+}
+
+// ISO instant to wall-clock { date, time } in `timezone`.
+export function isoToZoned(value, timezone) {
+  return { date: dayKeyIn(timezone, value), time: timeIn(timezone, value) };
+}
+
 // Group events by day key, each day sorted by start.
 export function groupByDay(events, timezone) {
   const out = {};

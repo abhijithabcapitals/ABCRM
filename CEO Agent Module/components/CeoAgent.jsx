@@ -236,7 +236,10 @@ function Ready({ sb, userId, timezone }) {
             onClick={() => setView("inbox")}>Inbox{inbox.unread > 0 && <span className="ceo-badge">{inbox.unread}</span>}</button>
         </div>
         {view === "overview" && <Dashboard sb={sb} timezone={timezone} refreshKey={refreshKey} />}
-        {view === "calendar" && <CalendarView sb={sb} timezone={timezone} refreshKey={refreshKey} />}
+        {view === "calendar" && (
+          <CalendarView sb={sb} userId={userId} timezone={timezone} refreshKey={refreshKey}
+            onChanged={() => setRefreshKey((k) => k + 1)} />
+        )}
         {view === "inbox" && (
           <InboxPanel sb={sb} timezone={timezone} userId={userId}
             onChanged={() => { inbox.refresh(); setRefreshKey((k) => k + 1); }} />
@@ -247,13 +250,16 @@ function Ready({ sb, userId, timezone }) {
 }
 
 const CALENDAR_KINDS = {
-  meeting: { label: "Meeting", color: "#0d7d82" },
+  meeting: { label: "Meeting", color: "#0d7d82", hasEnd: true },
   reminder: { label: "Reminder", color: "#d97706" },
   task: { label: "Task due", color: "#9ca3af" },
 };
 
+const RECORD_TABLE = { meeting: "meetings", task: "tasks" };
+
 // Meetings, reminders and task due dates in the shared Calendar Module.
-function CalendarView({ sb, timezone, refreshKey }) {
+// Edits write straight to the ceo tables (row-level security limits them to the owner).
+function CalendarView({ sb, userId, timezone, refreshKey, onChanged }) {
   const [range, setRange] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -263,23 +269,65 @@ function CalendarView({ sb, timezone, refreshKey }) {
     if (!range) return;
     setLoading(true);
     const [meetings, reminders, tasks] = await Promise.all([
-      sb.from("meetings").select("id, title, starts_at, ends_at, summary").gte("starts_at", range.from).lt("starts_at", range.to).order("starts_at"),
+      sb.from("meetings").select("id, record_id, title, starts_at, ends_at, summary").gte("starts_at", range.from).lt("starts_at", range.to).order("starts_at"),
       sb.from("reminders").select("id, title, body, scheduled_at").eq("delivery_status", "scheduled").gte("scheduled_at", range.from).lt("scheduled_at", range.to).order("scheduled_at"),
-      sb.from("tasks").select("id, title, due_at, status, priority").not("status", "in", "(done,cancelled)").gte("due_at", range.from).lt("due_at", range.to).order("due_at"),
+      sb.from("tasks").select("id, record_id, title, description, due_at, status, priority").not("status", "in", "(done,cancelled)").gte("due_at", range.from).lt("due_at", range.to).order("due_at"),
     ]);
     setLoading(false);
     const firstError = [meetings, reminders, tasks].find((r) => r.error)?.error;
     if (firstError) { setError(firstError.message); return; }
     setError("");
     setEvents([
-      ...(meetings.data || []).map((r) => ({ id: `m-${r.id}`, kind: "meeting", title: r.title, start: r.starts_at, end: r.ends_at, subtitle: r.summary || "Meeting" })),
-      ...(reminders.data || []).map((r) => ({ id: `r-${r.id}`, kind: "reminder", title: r.title, start: r.scheduled_at, subtitle: r.body || "Reminder" })),
-      ...(tasks.data || []).map((r) => ({ id: `t-${r.id}`, kind: "task", title: r.title, start: r.due_at,
-        subtitle: `Task due${r.priority !== "normal" ? ` · ${r.priority}` : ""}` })),
+      ...(meetings.data || []).map((r) => ({ id: `m-${r.id}`, rowId: r.id, recordId: r.record_id, kind: "meeting", title: r.title,
+        start: r.starts_at, end: r.ends_at, notes: r.summary, subtitle: r.summary || "Meeting" })),
+      ...(reminders.data || []).map((r) => ({ id: `r-${r.id}`, rowId: r.id, kind: "reminder", title: r.title,
+        start: r.scheduled_at, notes: r.body, subtitle: r.body || "Reminder" })),
+      ...(tasks.data || []).map((r) => ({ id: `t-${r.id}`, rowId: r.id, recordId: r.record_id, kind: "task", title: r.title,
+        start: r.due_at, notes: r.description, subtitle: `Task due${r.priority !== "normal" ? ` · ${r.priority}` : ""}` })),
     ]);
   }, [sb, range]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
+
+  const check = ({ error: err }) => { if (err) throw new Error(err.message); };
+
+  async function save(draft, original) {
+    const { kind, title, notes, start, end } = draft;
+    const fields = {
+      meeting: { title, starts_at: start, ends_at: end, summary: notes },
+      reminder: { title, body: notes, scheduled_at: start },
+      task: { title, description: notes, due_at: start },
+    }[kind];
+    if (original) {
+      if (kind === "reminder") check(await sb.from("reminders").update(fields).eq("id", original.rowId));
+      else {
+        check(await sb.from(RECORD_TABLE[kind]).update(fields).eq("id", original.rowId));
+        check(await sb.from("records").update({ title, summary: notes }).eq("id", original.recordId));
+      }
+    } else if (kind === "reminder") {
+      check(await sb.from("reminders").insert({ user_id: userId, timezone, channel: "in_app", ...fields }));
+    } else {
+      const { data: rec, error: recErr } = await sb.from("records")
+        .insert({ user_id: userId, record_type: kind, title, summary: notes, attributes: { source: "calendar" } }).select("id").single();
+      if (recErr) throw new Error(recErr.message);
+      const extra = kind === "meeting" ? { timezone, source: "calendar" } : {};
+      const res = await sb.from(RECORD_TABLE[kind]).insert({ user_id: userId, record_id: rec.id, ...fields, ...extra });
+      if (res.error) {
+        await sb.from("records").delete().eq("id", rec.id);
+        throw new Error(res.error.message);
+      }
+    }
+    await load();
+    onChanged?.();
+  }
+
+  async function remove(event) {
+    // Meetings and tasks hang off a record; deleting the record deletes them too.
+    if (event.kind === "reminder") check(await sb.from("reminders").delete().eq("id", event.rowId));
+    else check(await sb.from("records").delete().eq("id", event.recordId));
+    await load();
+    onChanged?.();
+  }
 
   return (
     <CalendarPanel
@@ -289,8 +337,10 @@ function CalendarView({ sb, timezone, refreshKey }) {
       timezone={timezone}
       loading={loading}
       error={error ? `Could not load the calendar: ${error}` : ""}
-      emptyText="Nothing coming up. Tell the agent about a meeting to add it."
+      emptyText="Nothing coming up. Use + New or tell the agent about a meeting."
       onRangeChange={setRange}
+      onSave={save}
+      onDelete={remove}
     />
   );
 }
