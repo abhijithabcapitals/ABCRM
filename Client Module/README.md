@@ -2,7 +2,7 @@
 
 Staff onboarding for AB Capital Services FZE. It combines:
 - the **Client Master** interview: 15 stages, a fixed 134-column master, one client = one row, duplicate checks, validation flags and a completion score;
-- the document handling from **Client Onboarding**, now the shared **Document Module** (`..\Document Module`).
+- the document handling from **Client Onboarding**, now the shared **Document Module** (`..\DOC OCR Module`).
 
 Upload a new client's documents first. Their details are checked, read and proposed for the interview, and the files are filed into the DataBase service folders when the client is saved.
 
@@ -53,7 +53,7 @@ The launcher uses the shared CRM environment `D:\Abhijith Projects\CRM\.venv` (P
 "D:\Abhijith Projects\CRM\.venv\Scripts\python.exe" -m pytest tests
 ```
 
-The tests use temporary folders and the fictional sample documents in `..\Document Module\tests\samples`. They never touch the real master or the DataBase folder.
+The tests use temporary folders and the fictional sample documents in `..\DOC OCR Module\tests\samples`. They never touch the real master or the DataBase folder.
 
 ## Relation to the earlier projects
 

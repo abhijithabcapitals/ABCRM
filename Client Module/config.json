@@ -1,7 +1,7 @@
 {
   "storageRoot": "D:\\Abhijith Projects\\DataBase",
   "dataDir": "data",
-  "documentModule": "../Document Module",
+  "documentModule": "../DOC OCR Module",
   "virusScan": true,
   "host": "127.0.0.1",
   "port": 8792,

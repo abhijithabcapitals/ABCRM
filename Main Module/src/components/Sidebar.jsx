@@ -1182,7 +1182,7 @@ export default function Sidebar({
           { key: "mytasks", Icon: IconMyTasks, label: "Hot Alerts" },
           { key: "dashboard", Icon: IconDashboard, label: "Dashboard" },
           { key: "business-development", Icon: IconBoard, label: "Business Development" },
-          { key: "quotations", Icon: IconFile, label: "Quotations" },
+          { key: "quotations", Icon: IconFile, label: "Document Generator" },
           ...(profile?.role === "admin"
             ? [
                 { key: "clients", Icon: IconClients, label: "Clients" },

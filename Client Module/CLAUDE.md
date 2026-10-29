@@ -22,7 +22,7 @@ Always flag missing or uncertain information.
 | `clientmodule/master.py` | Data layer: duplicate check, validation, completion score, save, Excel export |
 | `clientmodule/documents.py` | Document fields → columns adapter; services → DataBase folders |
 | `clientmodule/tax.py` | Tax Agent (read-only): VAT / Corporate Tax / renewal deadlines from the master → `/tax` page and `/api/tax-compliance`, shown in the CRM's Tax Compliance tab |
-| `..\Document Module` | Shared document pipeline (`docai`): validation + virus scan, OCR, classification, extraction, confidence, review, filing |
+| `..\DOC OCR Module` | Shared document pipeline (`docai`): validation + virus scan, OCR, classification, extraction, confidence, review, filing |
 | `config.json` | Storage root (`D:\Abhijith Projects\DataBase`), service folder mapping, AI caps |
 
 Dashboard: `Start-ClientModule.cmd` → http://127.0.0.1:8792.
@@ -49,7 +49,7 @@ m.export_xlsx()                                      # refresh the Excel copy
 
 ## Documents
 Read documents through the Document Module, never by guessing from file names:
-`python -m docai "<file>"` (from `..\Document Module`) prints the pipeline result (type, fields with evidence and
+`python -m docai "<file>"` (from `..\DOC OCR Module`) prints the pipeline result (type, fields with evidence and
 confidence, review reasons). Apply only values the user confirms; anything below high confidence, read by OCR or
 found by AI is recorded as `Provided – Verification Required`. Conflicting values between documents are shown to the
 user, never resolved by you. Filing into the DataBase folders happens through the dashboard save.

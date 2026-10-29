@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
-DOC_TESTS = ROOT.parent / "Document Module" / "tests"   # shared fictional samples
+DOC_TESTS = ROOT.parent / "DOC OCR Module" / "tests"   # shared fictional samples
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(DOC_TESTS))
 

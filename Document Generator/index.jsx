@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "../supabase";
+import { supabase } from "@app/supabase";
 // Heavy document/spreadsheet libs (pizzip, docxtemplater, xlsx, jszip,
 // file-saver ≈ 500KB) are loaded on demand — only when a doc is generated or an
 // Excel file is parsed — so opening this view stays light.
-import { IconPlus, IconTrash, IconUpload, IconFile, IconClose, IconDownload } from "./icons";
+import { IconPlus, IconTrash, IconUpload, IconFile, IconClose, IconDownload } from "@app/components/icons";
 
 // ── helpers ──
 // Normalize a key on SAVE (collapses runs, trims ends).
@@ -357,7 +357,7 @@ export default function Quotations({ profile }) {
       {/* Header */}
       <div style={{ padding: "22px 40px 0", background: "#fff", borderBottom: "1px solid #ebebeb" }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1a1a1a", margin: 0, letterSpacing: "-0.3px" }}>
-          Quotations
+          Document Generator
         </h1>
         <div style={{ fontSize: 13, color: "#999", marginTop: 4 }}>
           Generate quotation documents from your freezone templates.

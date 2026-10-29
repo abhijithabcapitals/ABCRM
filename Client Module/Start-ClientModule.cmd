@@ -6,7 +6,7 @@ set "PY=%~dp0.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=%~dp0..\.venv\Scripts\python.exe"
 if not exist "%PY%" (
   echo No Python environment found. In the CRM folder run:  python -m venv .venv
-  echo then:  .venv\Scripts\pip install -r "Client Module\requirements.txt" -r "Document Module\requirements.txt"
+  echo then:  .venv\Scripts\pip install -r "Client Module\requirements.txt" -r "DOC OCR Module\requirements.txt"
   pause
   exit /b 1
 )

@@ -12,7 +12,7 @@ const Wiki = lazy(() => import("./components/Wiki"));
 const WhiteboardView = lazy(() => import("./components/Whiteboard"));
 const Settings = lazy(() => import("./components/Settings"));
 const MyTasks = lazy(() => import("./components/MyTasks"));
-const Quotations = lazy(() => import("./components/Quotations"));
+const DocumentGenerator = lazy(() => import("@document-generator"));
 const Clients = lazy(() => import("./components/Clients"));
 const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
 
@@ -482,7 +482,7 @@ export default function App() {
           />
         )}
         {view === "mytasks" && <MyTasks profile={profile} />}
-        {view === "quotations" && <Quotations profile={profile} />}
+        {view === "quotations" && <DocumentGenerator profile={profile} />}
         {view === "clients" && <Clients profile={profile} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "tax" && (

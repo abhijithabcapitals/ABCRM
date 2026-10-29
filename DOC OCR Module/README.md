@@ -1,4 +1,4 @@
-# Document Module (`docai`)
+# DOC OCR Module (`docai`)
 
 Reusable document pipeline for CRM projects. Every uploaded document goes through:
 
@@ -43,7 +43,7 @@ Credential files are stored in `Secrets`, but their text is never kept, returned
 ## Use it in a project
 
 ```python
-import sys; sys.path.insert(0, r"D:\Abhijith Projects\CRM\Document Module")
+import sys; sys.path.insert(0, r"D:\Abhijith Projects\CRM\DOC OCR Module")
 from pathlib import Path
 from docai import CrmAdapter, DocumentPipeline, PipelineConfig
 
