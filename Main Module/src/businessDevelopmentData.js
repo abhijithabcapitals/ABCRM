@@ -1,5 +1,8 @@
 import { supabase } from "./supabase";
 
+// Backend: Database Module/migrations/bd (001 schema, 002 seed, 003 UI functions).
+// Every write goes through a bd_* database function; the lists below mirror the seed names.
+
 export const BD_STAGES = [
   "New Lead",
   "Contact Pending",
@@ -32,27 +35,41 @@ export const BD_SOURCES = [
   "Other",
 ];
 
+// bd_service_catalog: the Client Module "Services Provided" options, plus E-Invoicing Services
 export const BD_SERVICES = [
-  "Accounting",
   "Bookkeeping",
+  "Accounting",
   "VAT Registration",
   "VAT Return Filing",
   "Corporate Tax Registration",
-  "Corporate Tax Return Filing",
-  "Tax Advisory",
+  "Corporate Tax Return",
+  "Corporate Tax Advisory",
+  "Tax Planning",
+  "Financial Statements",
   "Audit",
-  "ESR / Other Compliance",
+  "Review",
+  "Internal Audit",
+  "Payroll",
+  "WPS",
+  "Management Accounts",
+  "Budgeting",
+  "Cash Flow Reporting",
+  "ESR/Related Compliance",
+  "UBO Compliance",
+  "AML/KYC Compliance",
+  "Accounting Software Setup",
+  "ERP Support",
+  "Company Formation",
+  "Company Closure/Liquidation",
+  "VAT Deregistration",
+  "Tax Deregistration",
+  "Other Advisory",
   "E-Invoicing Services",
-  "Company Formation / Corporate Services",
-  "Other",
 ];
 
+// Leads with their services, discussions, follow-ups and handover, already in the shape the screens use
 export async function fetchBusinessDevelopmentLeads() {
-  return supabase
-    .from("bd_leads")
-    .select("*, bd_lead_services(*), bd_lead_activities(*), bd_lead_followups(*), bd_onboarding_handoffs(*)")
-    .order("created_at", { ascending: false })
-    .limit(500);
+  return supabase.rpc("bd_ui_leads", { p_limit: 500 });
 }
 
 export async function fetchBusinessDevelopmentProfiles() {
@@ -83,20 +100,15 @@ export async function completeBusinessDevelopmentFollowup(followupId, completion
 }
 
 export async function createBusinessDevelopmentService(service) {
-  return supabase.from("bd_lead_services").insert(service).select().single();
+  return supabase.rpc("bd_save_service", { p_service: service });
 }
 
 export async function updateBusinessDevelopmentService(serviceId, service) {
-  return supabase.from("bd_lead_services").update(service).eq("id", serviceId).select().single();
+  return supabase.rpc("bd_save_service", { p_service: { ...service, id: serviceId } });
 }
 
 export async function updateBusinessDevelopmentStage(leadId, stage) {
-  return supabase
-    .from("bd_leads")
-    .update({ stage })
-    .eq("id", leadId)
-    .select()
-    .single();
+  return supabase.rpc("bd_change_stage", { p_lead_id: leadId, p_stage: stage });
 }
 
 export async function markBusinessDevelopmentLeadWon(leadId, handover) {

@@ -80,9 +80,10 @@ includes a dashboard, stage pipeline, lead lists, quick capture, service-level
 budgets, discussion timelines, follow-up queue, source reporting, and won/lost
 workflows.
 
-To enable it, review and run
-[`db/business_development.sql`](./db/business_development.sql) in the Supabase
-SQL Editor. Existing CRM admins are assigned the `super_admin` BD role and other
+Its database lives in the Database Module. To enable it, run
+`../Database Module/migrations/bd/001_bd_schema.sql`, `002_bd_seed.sql` and
+`003_bd_ui_api.sql`, in that order, in the Supabase SQL Editor
+(`db/business_development.sql` is retired). Existing CRM admins are assigned the `super_admin` BD role and other
 profiles default to `sales_executive`; a CRM admin can change module roles in
 `bd_user_roles`. Lead rows are restricted by BD role and ownership in row-level
 security. Do not assign broader roles without approval.

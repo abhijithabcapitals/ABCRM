@@ -1,6 +1,6 @@
 # BD backend: migration plan
 
-**Status:** draft. Nothing has been applied to any CRM database. The scripts were tested only on a throwaway local PostgreSQL 17 cluster, which has since been stopped:
+**Status:** decisions answered, scripts tested locally, UI data layer linked. Applied to the CRM Supabase project on 29/10/2026 (see section 5). The scripts were tested only on a throwaway local PostgreSQL 17 cluster, which has since been stopped:
 - `001_bd_schema.sql` and `002_bd_seed.sql` apply cleanly, and running them a second time changes nothing;
 - 12 rule checks behave as specified (results below).
 
@@ -52,27 +52,32 @@ Spec: [BD_BACKEND_SPEC.md](BD_BACKEND_SPEC.md) · ER diagram: [BD_ER_DIAGRAM.md]
 
 The API enforces the rest: stage `required_fields`, generic-placeholder detection, permissions, and source rules (`requires_campaign` / `requires_referrer`). These need the context of the request.
 
-## 4. Decisions needed before applying (your call)
+## 4. Decisions (answered 29/10/2026)
 
-| # | Question | Recommendation |
-|---|---|---|
-| D1 | **Engine:** PostgreSQL, as in the spec and the live CRM, or SQL Server, as in the Agent Module standards? | **PostgreSQL.** |
-| D2 | **Where it runs first.** Option (a): a new, separate local PostgreSQL cluster in `Database Module/SQL Data/pgdata`, on port 5433, database `crm`. It would reuse the portable PG17 binaries but **not** the accounting server on 5432. Option (b): straight into the CRM's Supabase project. | **(a)** for development, then deploy to Supabase when the BD UI is linked. Note: `Main Module/.env` currently points at `pnnakrhfzyxudjaghoxx`, the same Supabase project as the accounting `acct` schema, while `.env.live-backup` points at `kokyhqbsdftyyjirzzvs`. Confirm which project is the live CRM before any Supabase step. |
-| D3 | Stage `progress_weight` is seeded evenly (8.33 … 100); `default_probability` is left empty. | Give the forecast probability per stage. Weighted pipeline shows "not configured" until you do. |
-| D4 | Lead numbers look like `LD-2026-000001`. The sequence continues across years; it does not restart at 1 each year. | Keep, or choose another prefix or format. |
-| D5 | Catalog default billing frequencies (e.g. VAT Return Filing = Quarterly) are placeholders. | Review them in `002_bd_seed.sql`. |
-| D6 | Reporting basis for recurring revenue: monthly equivalent, annualized contract value, or booked. | Annualized contract value for Won Value, with monthly equivalent shown separately. Never mixed. |
+| # | Decision |
+|---|---|
+| D1 | **PostgreSQL.** |
+| D2 | The target is the CRM Supabase project **`pnnakrhfzyxudjaghoxx`**, the one in `Main Module/.env`. That project also holds the accounting `acct` schema, which these scripts do not touch: they only create `public.bd_*` and `public.crm_team*` objects and add two triggers to `public.profiles`. The scripts were tested on a throwaway local PostgreSQL with a Supabase stand-in (`migrations/bd/tests/000_supabase_stub.sql`). |
+| D3 | Stage weights are even; forecast probabilities are left for later. (The UI uses its own client-side probabilities until they're set.) |
+| D4 | Lead numbers look like `LD-YYYY-000001`. |
+| D5 | The catalog billing defaults are placeholders, to review later. |
+| D6 | Won Value is annualized, with the monthly figure shown separately. |
+| D7 | **Schema:** the spec schema. The BD UI's own `Main Module/db/business_development.sql` is retired, and its RPC and RLS layer is ported onto the spec tables as `003_bd_ui_api.sql`. |
+| D8 | **Services:** the 27 Client Module services, plus E-Invoicing Services from the UI. |
+| D9 | **API:** Supabase RPC functions with row-level security, the convention the CRM already uses. They replace the FastAPI service proposed in `BD_API_CONTRACT.md`. The endpoint table there still describes the operations; the function for each one is in the header of `003_bd_ui_api.sql`. |
 
-## 5. Rollout steps (after D1–D6)
+## 5. Rollout steps
 
-1. Create the local CRM cluster (D2a) and a `crm` database. Apply `001`, then `002`.
-2. Build the BD API (`bdapi/`, FastAPI on `127.0.0.1:8793`, like the Client Module on 8792) to the contract.
-3. Write the tests: unit tests per rule, plus one end-to-end run from lead to won to handover to onboarding complete against a temporary database.
-4. Link the BD Module UI to the API.
-5. Supabase deployment, separately approved:
-   - run the same scripts in the live CRM project, skipping the `profiles` stand-in, which already exists there;
-   - add the `quotation_template_id` FK to `public.quotation_templates`;
-   - add RLS policies mirroring `bd_user_roles`.
+1. ✅ `001`, `002` and `003` were written and tested locally. Each script runs twice without changes, `tests/010_ui_api_test.sql` passes 25 of 25, and the Main Module builds.
+2. ✅ The UI data layer (`Main Module/src/businessDevelopmentData.js`) is pointed at the new functions. `BusinessDevelopment.jsx` is unchanged.
+3. ✅ **Applied to Supabase `pnnakrhfzyxudjaghoxx` on 29/10/2026**, as migrations `bd_000_drop_retired_ui_schema`, `bd_001_schema`, `bd_002_seed`, `bd_003_ui_api` and `bd_004_search_path`.
+   - **Before applying:** the retired UI schema had already been applied there (migration `business_development`). Its tables were empty apart from one admin role row, so `000_drop_retired_ui_schema.sql` removed it, after checking it was still empty.
+   - **Checks afterwards:**
+     - 19 tables, all with row-level security; 30 functions, none callable by `anon`; the seed is complete; the CRM admin has the super_admin role; `acct` is untouched.
+     - A signed-in run as the admin (create, service, stage change, won, direct write blocked) passed and was rolled back. The lead and handover sequences were then reset to 1.
+     - Through the public API, anonymous calls are refused and the old tables are gone.
+     - Security advisor: the BD functions' `search_path` warnings were fixed by 004. The remaining BD warning is that signed-in users can execute the SECURITY DEFINER entry points; that is intentional, since each one checks the user's permission itself.
+4. Later: add the `quotation_template_id` FK to `public.quotation_templates`, add UI for the remaining operations (reopen, reschedule, handover completion, quotations, masters), and add a dashboard function with the spec §20 definitions.
 
 ## 6. Backup, rollback and recovery
 

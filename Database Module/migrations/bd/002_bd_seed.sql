@@ -1,9 +1,12 @@
 -- =====================================================================
--- CRM Business Development (BD) backend - seed data          DRAFT 002
+-- CRM Business Development (BD) backend - seed data                002
+-- APPLIED 29/10/2026 to Supabase pnnakrhfzyxudjaghoxx as migration bd_002_seed.
 -- =====================================================================
 -- Sources, stages and lost reasons are the initial records named in
 -- docs/BD_BACKEND_SPEC.md. Services are the Client Module "Services
--- Provided" options with their DataBase folder (Client Module config.json).
+-- Provided" options with their DataBase folder (Client Module config.json),
+-- plus E-Invoicing Services from the BD UI. Display names match the BD UI
+-- wording (stages, sources, lost reasons); codes are the spec's.
 -- Upserts by code, so it is safe to re-run; edits made later in the app to
 -- names / order / active flags are overwritten only for these codes.
 --
@@ -27,7 +30,7 @@ values
   ('WEBSITE',           'Website',           'Organic',  false, false, 110),
   ('LINKEDIN',          'LinkedIn',          'Organic',  false, false, 120),
   ('EMAIL',             'Email',             'Direct',   false, false, 130),
-  ('NETWORKING',        'Networking',        'Direct',   false, false, 140),
+  ('NETWORKING',        'Networking / Event', 'Direct',   false, false, 140),
   ('WALK_IN',           'Walk-in',           'Direct',   false, false, 150),
   ('OTHER',             'Other',             'Other',    false, false, 160)
 on conflict (source_code) do update set
@@ -42,12 +45,12 @@ values
   ('FIRST_CONTACT_ATTEMPTED', 'First Contact Attempted',  3,  25.00, false, '["discussion_logged"]'),
   ('CONTACT_ESTABLISHED',     'Contact Established',      4,  33.33, false, '["discussion_logged"]'),
   ('REQUIREMENT_IDENTIFIED',  'Requirement Identified',   5,  41.67, false, '["service_added"]'),
-  ('QUALIFIED',               'Qualified',                6,  50.00, false, '["service_added"]'),
-  ('PROPOSAL_PREPARATION',    'Proposal Preparation',     7,  58.33, false, '["service_added"]'),
-  ('PROPOSAL_SENT',           'Proposal Sent',            8,  66.67, false, '["quotation_sent"]'),
-  ('NEGOTIATION',             'Negotiation',              9,  75.00, false, '["quotation_sent"]'),
-  ('VERBAL_CONFIRMATION',     'Verbal Confirmation',     10,  83.33, false, '["quotation_sent"]'),
-  ('WON_PENDING_ONBOARDING',  'Won - Pending Onboarding', 11, 91.67, false, '["mark_won_only"]'),
+  ('QUALIFIED',               'Qualified',                6,  50.00, false, '["service_added", "next_step"]'),
+  ('PROPOSAL_PREPARATION',    'Proposal / Quotation Preparation', 7, 58.33, false, '["service_added", "next_step"]'),
+  ('PROPOSAL_SENT',           'Proposal Sent',            8,  66.67, false, '["proposed_fee", "next_step"]'),
+  ('NEGOTIATION',             'Follow-up / Negotiation',  9,  75.00, false, '["proposed_fee", "next_step"]'),
+  ('VERBAL_CONFIRMATION',     'Verbal Confirmation',     10,  83.33, false, '["proposed_fee", "next_step"]'),
+  ('WON_PENDING_ONBOARDING',  'Won — Pending Onboarding', 11, 91.67, false, '["mark_won_only"]'),
   ('ONBOARDING_COMPLETED',    'Onboarding Completed',    12, 100.00, true,  '["complete_onboarding_only"]')
 on conflict (stage_code) do update set
   stage_name = excluded.stage_name, stage_order = excluded.stage_order, progress_weight = excluded.progress_weight,
@@ -59,10 +62,10 @@ values
   ('NO_RESPONSE',           'No Response',           false, 20),
   ('COMPETITOR_SELECTED',   'Competitor Selected',   true,  30),
   ('SERVICE_NOT_REQUIRED',  'Service Not Required',  false, 40),
-  ('BUDGET_UNAVAILABLE',    'Budget Unavailable',    false, 50),
-  ('TIMING_DEFERRED',       'Timing Deferred',       true,  60),
-  ('REQUIREMENTS_NOT_MET',  'Requirements Not Met',  true,  70),
-  ('DUPLICATE_LEAD',        'Duplicate Lead',        true,  80),
+  ('BUDGET_UNAVAILABLE',    'Budget Not Available',  false, 50),
+  ('TIMING_DEFERRED',       'Timing / Deferred',     false, 60),
+  ('REQUIREMENTS_NOT_MET',  'Unable to Meet Requirements', false, 70),
+  ('DUPLICATE_LEAD',        'Duplicate Lead',        false, 80),
   ('OTHER',                 'Other',                 true,  90)
 on conflict (reason_code) do update set
   reason_name = excluded.reason_name, requires_notes = excluded.requires_notes, sort_order = excluded.sort_order;
@@ -95,7 +98,9 @@ values
   ('COMPANY_CLOSURE',         'Company Closure/Liquidation', 'Corporate',      'One-time', '5. Others\Other',             240),
   ('VAT_DEREGISTRATION',      'VAT Deregistration',          'VAT',            'One-time', '3. VAT Clients',              250),
   ('TAX_DEREGISTRATION',      'Tax Deregistration',          'Corporate Tax',  'One-time', '2. Corporate Tax',            260),
-  ('OTHER_ADVISORY',          'Other Advisory',              'Advisory',       null,       '5. Others\Other',             270)
+  ('OTHER_ADVISORY',          'Other Advisory',              'Advisory',       null,       '5. Others\Other',             270),
+  -- extra from the BD UI; not a Client Module service yet, so it has no DataBase folder
+  ('E_INVOICING',             'E-Invoicing Services',        'Compliance',     null,       null,                          280)
 on conflict (service_code) do update set
   service_name = excluded.service_name, service_category = excluded.service_category,
   default_billing_frequency = excluded.default_billing_frequency, database_folder = excluded.database_folder,

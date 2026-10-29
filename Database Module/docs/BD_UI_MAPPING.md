@@ -1,6 +1,11 @@
 # BD UI ↔ BD backend mapping (read-only review, 29/10/2026)
 
-Nothing is wired up and no database has been changed. This review maps the BD UI as it exists today to the Database Module design: [BD_API_CONTRACT.md](BD_API_CONTRACT.md) and `migrations/bd/001_bd_schema.sql`.
+**Update (same day):** the recommended route was approved and carried out:
+- `003_bd_ui_api.sql` holds the functions;
+- the UI data layer now calls them;
+- the old UI schema is retired.
+
+Nothing is applied to Supabase yet. The text below is the original review. It maps the BD UI as it exists today to the Database Module design: [BD_API_CONTRACT.md](BD_API_CONTRACT.md) and `migrations/bd/001_bd_schema.sql`.
 
 ## Where the UI is
 

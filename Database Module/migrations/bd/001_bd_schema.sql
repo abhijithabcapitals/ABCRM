@@ -1,9 +1,9 @@
 -- =====================================================================
--- CRM Business Development (BD) backend - schema            DRAFT 001
+-- CRM Business Development (BD) backend - schema                 001
 -- =====================================================================
 -- Spec: docs/BD_BACKEND_SPEC.md   Plan: docs/BD_MIGRATION_PLAN.md
--- Target: PostgreSQL 15+ (local CRM database first; Supabase later).
--- NOT YET APPLIED to any CRM database. Idempotent: safe to re-run.
+-- Target: PostgreSQL 15+ (the CRM Supabase project).
+-- APPLIED 29/10/2026 to Supabase pnnakrhfzyxudjaghoxx as migration bd_001_schema. Idempotent: safe to re-run.
 --
 -- Reused / stand-in entities (see migration plan section 2):
 --   public.profiles      CRM users. Same shape as the live Supabase table;
@@ -51,12 +51,15 @@ create table if not exists public.crm_team_members (
   primary key (team_id, user_id)
 );
 
--- BD permission per user (the CRM only has profiles.role admin/member)
+-- BD permission per user (the CRM only has profiles.role admin/member). Role set from the BD UI.
 create table if not exists public.bd_user_roles (
-  user_id    uuid primary key references public.profiles(id) on delete cascade,
-  bd_role    varchar(30) not null check (bd_role in ('BD Executive', 'BD Manager', 'Onboarding', 'Viewer', 'Admin')),
+  user_id     uuid primary key references public.profiles(id) on delete cascade,
+  role        varchar(30) not null default 'sales_executive'
+              check (role in ('super_admin', 'bd_manager', 'team_leader', 'sales_executive',
+                              'marketing_executive', 'onboarding_executive', 'management', 'read_only')),
   can_view_commercials boolean not null default true,
-  updated_at timestamptz not null default now()
+  assigned_by uuid references public.profiles(id) on delete set null,
+  updated_at  timestamptz not null default now()
 );
 
 -- ── 1. Masters ───────────────────────────────────────────────────────
@@ -186,6 +189,13 @@ create table if not exists public.bd_leads (
   priority                    varchar(20) not null default 'Normal' check (priority in ('Low', 'Normal', 'High', 'Urgent')),
   initial_service_interest    jsonb,
   initial_discussion_summary  text not null check (length(btrim(initial_discussion_summary)) >= 10),
+  -- quick-capture fields from the BD UI (not in the spec tables)
+  acquired_on                 date not null default (now() at time zone 'Asia/Dubai')::date,  -- may be backdated
+  estimated_budget            numeric(18,2) check (estimated_budget >= 0),
+  budget_currency             char(3) not null default 'AED' check (budget_currency ~ '^[A-Z]{3}$'),
+  internal_notes              text,
+  no_followup_reason          text,
+  duplicate_override          boolean not null default false,   -- creator confirmed a possible duplicate is separate
   case_opened_at              timestamptz not null default now(),
   first_contact_at            timestamptz,
   last_activity_at            timestamptz,
@@ -290,6 +300,8 @@ create table if not exists public.bd_lead_services (
                           check (service_status in ('Identifying', 'Interested', 'Quoted', 'Negotiating', 'Accepted', 'Rejected', 'On Hold')),
   scope_description       text,
   quantity                numeric(12,2) check (quantity > 0),
+  quantity_scope          varchar(255),          -- BD UI free-text quantity / scope
+  quotation_reference     varchar(100),          -- BD UI free-text reference until quotations are recorded
   billing_frequency       varchar(30) check (billing_frequency in ('One-time', 'Monthly', 'Quarterly', 'Annual', 'Other')),
   currency_code           char(3) not null default 'AED' check (currency_code ~ '^[A-Z]{3}$'),
   client_budget_amount    numeric(18,2) check (client_budget_amount >= 0),
@@ -335,12 +347,14 @@ create table if not exists public.bd_discussions (
   lead_service_id       uuid references public.bd_lead_services(id),
   occurred_at           timestamptz not null,
   channel               varchar(30) not null check (channel in ('Call', 'WhatsApp', 'Email', 'Meeting', 'Social', 'Other')),
+  channel_detail        varchar(50),           -- BD UI label, e.g. 'Video Meeting', 'Website / Form'
   direction             varchar(20) not null check (direction in ('Inbound', 'Outbound', 'Internal')),
   contact_person        varchar(255),
-  outcome               varchar(100) not null,
+  outcome               varchar(100),
   requirement_summary   text not null check (btrim(requirement_summary) <> ''),
   discussion_summary    text not null check (length(btrim(discussion_summary)) >= 10),
-  client_interest_level varchar(30) check (client_interest_level in ('Hot', 'Warm', 'Cold', 'Unknown')),
+  services_discussed    text[] not null default '{}',
+  client_interest_level varchar(30),
   objections            text,
   agreed_next_action    text,
   next_followup_at      timestamptz,
@@ -361,8 +375,10 @@ create table if not exists public.bd_followups (
   discussion_id       uuid references public.bd_discussions(id),
   assigned_to_user_id uuid not null references public.profiles(id),
   followup_type       varchar(30) not null check (followup_type in ('Call', 'WhatsApp', 'Email', 'Meeting', 'Other')),
+  channel_detail      varchar(50),           -- BD UI label
   scheduled_at        timestamptz not null,
   objective           text not null check (btrim(objective) <> ''),
+  previous_outcome    text,
   status              varchar(30) not null default 'Scheduled'
                       check (status in ('Scheduled', 'Completed', 'Rescheduled', 'Cancelled')),
   completed_at        timestamptz,
@@ -376,7 +392,7 @@ create table if not exists public.bd_followups (
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now(),
   constraint bd_followups_completed check (status <> 'Completed'
-             or (completed_at is not null and outcome is not null and nullif(btrim(completion_summary), '') is not null))
+             or (completed_at is not null and nullif(btrim(completion_summary), '') is not null))
 );
 
 -- Reschedules, cancellations and completions keep the original schedule
@@ -439,6 +455,9 @@ create table if not exists public.bd_onboarding_handovers (
   accepted_at                 timestamptz,
   completed_at                timestamptz,
   handover_notes              text,
+  confirmation_contact        varchar(255),          -- BD UI: decision-maker who confirmed
+  agreement_reference         varchar(255),          -- BD UI: agreement / quotation reference
+  onboarding_queue            varchar(100),          -- BD UI: queue when no onboarding owner is named
   missing_items               jsonb not null default '[]'::jsonb,
   source_snapshot             jsonb,
   idempotency_key             varchar(100) unique,   -- request key of the Mark Won call that created it
@@ -500,7 +519,8 @@ create index if not exists bd_leads_created_idx      on public.bd_leads (created
 create index if not exists bd_leads_next_fu_idx      on public.bd_leads (next_followup_at) where status = 'Open';
 create index if not exists bd_leads_client_idx       on public.bd_leads (converted_client_id);
 -- duplicate checks (not unique: shared company numbers are legitimate)
-create index if not exists bd_leads_mobile_idx       on public.bd_leads (mobile_normalized);
+-- last 9 digits, so 050 123 4567 and +971 50 123 4567 match
+create index if not exists bd_leads_mobile_idx       on public.bd_leads (right(mobile_normalized, 9));
 create index if not exists bd_leads_email_idx        on public.bd_leads (email_normalized);
 create index if not exists bd_leads_licence_idx      on public.bd_leads (upper(trade_licence_number));
 create index if not exists bd_leads_trn_idx          on public.bd_leads (vat_trn);
