@@ -13,6 +13,13 @@ export default defineConfig({
       '@dashboard': fileURLToPath(new URL('../Dashboard Module', import.meta.url)),
       '@integrations': fileURLToPath(new URL('../Integrations Module', import.meta.url)),
       '@document-generator': fileURLToPath(new URL('../Document Generator', import.meta.url)),
+      // The Document Generator lives outside this app folder, so resolve its
+      // dependencies from the host app's node_modules.
+      'pizzip': fileURLToPath(new URL('./node_modules/pizzip/js/index.js', import.meta.url)),
+      'docxtemplater': fileURLToPath(new URL('./node_modules/docxtemplater/js/docxtemplater.js', import.meta.url)),
+      'jszip': fileURLToPath(new URL('./node_modules/jszip/lib/index.js', import.meta.url)),
+      'file-saver': fileURLToPath(new URL('./node_modules/file-saver/dist/FileSaver.min.js', import.meta.url)),
+      'xlsx': fileURLToPath(new URL('./node_modules/xlsx/xlsx.mjs', import.meta.url)),
       // Lets those modules reuse this app's shared code (charts, Supabase client, helpers).
       '@app': fileURLToPath(new URL('./src', import.meta.url)),
     },
