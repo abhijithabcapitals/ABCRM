@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import SupportChat from "./SupportChat";
 
 // The host app passes its Supabase client and date formatter, so this module
 // has no imports of its own beyond React.
@@ -220,7 +221,8 @@ export default function HotAlerts({ profile, supabase, fmtDate }) {
         </div>
       </div>
 
-      <div className="content-area">
+      <div className="content-area ha-layout">
+        <div className="ha-main">
         {loading ? (
           <div style={{ color: "#aaa", fontSize: 13 }}>
             Loading your tasks...
@@ -249,6 +251,8 @@ export default function HotAlerts({ profile, supabase, fmtDate }) {
             {renderGroup("Done", done, { bg: "#dcfce7", text: "#15803d" })}
           </>
         )}
+        </div>
+        <SupportChat supabase={supabase} />
       </div>
     </div>
   );

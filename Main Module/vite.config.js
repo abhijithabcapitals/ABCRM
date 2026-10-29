@@ -10,6 +10,9 @@ export default defineConfig({
     // Sibling module folders that the app imports directly.
     alias: {
       '@hot-alerts': fileURLToPath(new URL('../Hot Alerts Module', import.meta.url)),
+      '@dashboard': fileURLToPath(new URL('../Dashboard Module', import.meta.url)),
+      // Lets those modules reuse this app's shared code (charts, Supabase client, helpers).
+      '@app': fileURLToPath(new URL('./src', import.meta.url)),
     },
     // Those folders have no node_modules; resolve React from this app.
     dedupe: ['react', 'react-dom'],
