@@ -332,7 +332,7 @@ Deno.serve(async (req) => {
     if (aal !== "aal2") return json({ error: "Verify with your authenticator app first." }, 403);
   }
 
-  let body: { messages?: { role: string; content: string }[]; idempotencyKey?: string };
+  let body: { messages?: { role: string; content: string }[]; idempotencyKey?: string; threadId?: string };
   try {
     body = await req.json();
   } catch {
@@ -357,6 +357,28 @@ Deno.serve(async (req) => {
     captureId = existing?.id ?? null;
   }
 
+  // Chat history: reuse the caller's thread, or start one titled from this message.
+  let threadId: string | null = null;
+  if (body.threadId && /^[0-9a-f-]{36}$/i.test(body.threadId)) {
+    const { data: t } = await db.from("chat_threads").select("id").eq("id", body.threadId).maybeSingle();
+    threadId = t?.id ?? null;
+  }
+  if (!threadId) {
+    const title = last.content.replace(/\s+/g, " ").trim().slice(0, 80) || "New chat";
+    const { data: t } = await db.from("chat_threads").insert({ user_id: uid, title }).select("id").single();
+    threadId = t?.id ?? null;
+  }
+  if (threadId) {
+    await db.from("chat_messages").insert({ user_id: uid, thread_id: threadId, role: "user", content: last.content, capture_id: captureId });
+  }
+  const finish = async (reply: string, savedItems: unknown[], didChange: boolean) => {
+    if (threadId) {
+      await db.from("chat_messages").insert({ user_id: uid, thread_id: threadId, role: "assistant", content: reply.slice(0, 40000), saved: savedItems });
+      await db.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+    }
+    return json({ reply, changed: didChange, saved: savedItems, threadId });
+  };
+
   const system = `${SYSTEM}\n\nCurrent Dubai time: ${dubaiNow()} (UTC+04:00). The CEO's name: ${profile.display_name || "the CEO"}.`;
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...history];
   const saved: unknown[] = [];
@@ -368,7 +390,7 @@ Deno.serve(async (req) => {
       const toolCalls = message.tool_calls || [];
       if (!toolCalls.length) {
         const cut = finish_reason === "length" ? "\n\n(Reply cut short. Ask me to continue.)" : "";
-        return json({ reply: (message.content || "").trim() + cut || "Done.", changed, saved });
+        return await finish(((message.content || "").trim() || "Done.") + cut, saved, changed);
       }
       messages.push({ role: "assistant", content: message.content, tool_calls: toolCalls });
       for (const t of toolCalls) {
@@ -394,7 +416,7 @@ Deno.serve(async (req) => {
         messages.push({ role: "tool", tool_call_id: t.id, content: JSON.stringify(result) });
       }
     }
-    return json({ reply: "That took too many steps. Try splitting the request.", changed, saved });
+    return await finish("That took too many steps. Try splitting the request.", saved, changed);
   } catch (e) {
     if (e instanceof UpstreamError) {
       if (e.status === 401 || e.status === 403) return json({ error: "The OPENROUTER_API_KEY secret is not valid." }, 500);

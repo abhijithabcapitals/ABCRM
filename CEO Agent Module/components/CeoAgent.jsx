@@ -381,6 +381,13 @@ function Chat({ sb, userId, onChanged }) {
   const [error, setError] = useState("");
   const listRef = useRef(null);
   const keyRef = useRef(crypto.randomUUID());
+  // Saved conversations (ceo.chat_threads / ceo.chat_messages).
+  const [threadId, setThreadId] = useState(() => {
+    try { return sessionStorage.getItem(`${chatStorageKey(userId)}-thread`) || null; } catch { return null; }
+  });
+  const [showHistory, setShowHistory] = useState(false);
+  const [threads, setThreads] = useState(null);
+  const [historyError, setHistoryError] = useState("");
   // Talk mode: browser speech-to-text in, spoken reply out.
   const Recognition = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
   const [listening, setListening] = useState(false);
@@ -393,6 +400,39 @@ function Chat({ sb, userId, onChanged }) {
     try { sessionStorage.setItem(chatStorageKey(userId), JSON.stringify(messages.slice(-60))); } catch { /* storage off */ }
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, userId]);
+
+  useEffect(() => {
+    try {
+      const k = `${chatStorageKey(userId)}-thread`;
+      if (threadId) sessionStorage.setItem(k, threadId); else sessionStorage.removeItem(k);
+    } catch { /* storage off */ }
+  }, [threadId, userId]);
+
+  async function openHistory() {
+    setShowHistory(true);
+    setHistoryError("");
+    const { data, error: err } = await sb.from("chat_threads").select("id, title, updated_at").order("updated_at", { ascending: false }).limit(100);
+    if (err) { setHistoryError(err.message); return; }
+    setThreads(data || []);
+  }
+
+  async function openThread(id) {
+    setHistoryError("");
+    const { data, error: err } = await sb.from("chat_messages").select("role, content, saved").eq("thread_id", id).order("created_at").limit(500);
+    if (err) { setHistoryError(err.message); return; }
+    setMessages((data || []).map((m) => ({ role: m.role, content: m.content, saved: m.saved || [] })));
+    setThreadId(id);
+    setShowHistory(false);
+    setError("");
+  }
+
+  async function deleteThread(id) {
+    if (!window.confirm("Delete this conversation? The items it saved stay on the dashboard.")) return;
+    const { error: err } = await sb.from("chat_threads").delete().eq("id", id);
+    if (err) { setHistoryError(err.message); return; }
+    setThreads((list) => (list || []).filter((t) => t.id !== id));
+    if (id === threadId) { setThreadId(null); setMessages([]); }
+  }
 
   function speak(text) {
     if (!window.speechSynthesis) return;
@@ -440,7 +480,7 @@ function Chat({ sb, userId, onChanged }) {
     setError("");
     setSending(true);
     const { data, error: fnError } = await sb.functions.invoke("ceo-agent", {
-      body: { messages: next.map(({ role, content: c }) => ({ role, content: c })), idempotencyKey: keyRef.current },
+      body: { messages: next.map(({ role, content: c }) => ({ role, content: c })), idempotencyKey: keyRef.current, threadId },
     });
     setSending(false);
     let message = data?.error;
@@ -454,6 +494,7 @@ function Chat({ sb, userId, onChanged }) {
       return;
     }
     keyRef.current = crypto.randomUUID();
+    if (data.threadId) setThreadId(data.threadId);
     setMessages([...next, { role: "assistant", content: data.reply, saved: data.saved || [] }]);
     if (wasSpoken) speak(data.reply);
     if (data.changed) onChanged();
@@ -465,8 +506,14 @@ function Chat({ sb, userId, onChanged }) {
 
   function clearChat() {
     setMessages([]);
+    setThreadId(null);
+    setShowHistory(false);
     setError("");
   }
+
+  const historyDate = (v) => new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Dubai",
+  }).format(new Date(v));
 
   return (
     <section className="ceo-chat" aria-label="Chat with the CEO Agent">
@@ -475,9 +522,30 @@ function Chat({ sb, userId, onChanged }) {
           <strong>CEO Agent</strong>
           <small>Tell me meetings, reminders, decisions or ideas. Ask about anything you've saved.</small>
         </div>
-        {messages.length > 0 && <button className="ceo-text-btn" type="button" onClick={clearChat}>New chat</button>}
+        <div className="ceo-chat-actions">
+          <button className="ceo-text-btn" type="button" onClick={() => (showHistory ? setShowHistory(false) : openHistory())}>
+            {showHistory ? "Back to chat" : "History"}
+          </button>
+          {(messages.length > 0 || showHistory) && <button className="ceo-text-btn" type="button" onClick={clearChat}>New chat</button>}
+        </div>
       </div>
 
+      {showHistory ? (
+        <div className="ceo-chat-list ceo-history" aria-label="Past conversations">
+          {historyError && <p className="ceo-notice ceo-error" role="alert">{historyError}</p>}
+          {threads === null && !historyError && <p className="ceo-muted">Loading conversations…</p>}
+          {threads?.length === 0 && <p className="ceo-panel-empty">No saved conversations yet. Chats are saved from now on.</p>}
+          {threads?.map((t) => (
+            <div key={t.id} className={`ceo-thread ${t.id === threadId ? "on" : ""}`}>
+              <button type="button" className="ceo-thread-open" onClick={() => openThread(t.id)}>
+                <b>{t.title}</b>
+                <span>{historyDate(t.updated_at)}</span>
+              </button>
+              <button type="button" className="ceo-text-btn ceo-thread-del" onClick={() => deleteThread(t.id)} aria-label={`Delete ${t.title}`}>Delete</button>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="ceo-chat-list" ref={listRef} aria-live="polite">
         {messages.length === 0 && (
           <div className="ceo-chat-empty">
@@ -504,6 +572,7 @@ function Chat({ sb, userId, onChanged }) {
         {sending && <div className="ceo-msg ceo-msg-bot"><div className="ceo-msg-body ceo-typing">Thinking…</div></div>}
         {error && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
       </div>
+      )}
 
       <form className="ceo-chat-form" onSubmit={(e) => { e.preventDefault(); send(); }}>
         <textarea
@@ -689,6 +758,15 @@ function Styles() {
       .ceo-chat-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; }
       .ceo-chat-head strong { font-size: 14px; }
       .ceo-chat-head small { display: block; color: #6b7280; font-size: 12px; margin-top: 2px; }
+      .ceo-chat-actions { display: flex; gap: 12px; flex-shrink: 0; }
+      .ceo-history { gap: 4px; }
+      .ceo-thread { display: flex; align-items: center; gap: 8px; border-radius: 8px; padding: 2px 6px 2px 0; }
+      .ceo-thread:hover, .ceo-thread.on { background: #f3f4f6; }
+      .ceo-thread-open { flex: 1; min-width: 0; display: grid; gap: 2px; text-align: left; background: none; border: none; padding: 8px 10px; cursor: pointer; font: inherit; }
+      .ceo-thread-open b { font-size: 13px; font-weight: 500; color: #1f2a30; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ceo-thread-open span { font-size: 11.5px; color: #9ca3af; }
+      .ceo-thread-del { font-size: 12px; color: #9ca3af; }
+      .ceo-thread-del:hover { color: #b91c1c; }
       .ceo-chat-list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
       .ceo-chat-empty { margin: auto 0; text-align: center; }
       .ceo-chat-hello { font-size: 20px; font-weight: 600; color: #1f2a30; margin: 0 0 14px; }
