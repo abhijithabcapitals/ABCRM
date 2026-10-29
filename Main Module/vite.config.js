@@ -13,6 +13,7 @@ export default defineConfig({
       '@dashboard': fileURLToPath(new URL('../Dashboard Module', import.meta.url)),
       '@integrations': fileURLToPath(new URL('../Integrations Module', import.meta.url)),
       '@ceo-agent': fileURLToPath(new URL('../CEO Agent Module', import.meta.url)),
+      '@calendar': fileURLToPath(new URL('../Calendar Module', import.meta.url)),
       '@document-generator': fileURLToPath(new URL('../Document Generator', import.meta.url)),
       // The Document Generator lives outside this app folder, so resolve its
       // dependencies from the host app's node_modules.

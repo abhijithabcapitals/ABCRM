@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import CalendarPanel from "@calendar";
 
 // CEO Agent workspace, ported from Agent Module/11_Personal_Agent/CEO Agent.
 // All its data lives in the "ceo" schema, protected by per-user row-level
@@ -238,126 +239,52 @@ function Ready({ sb, userId, timezone }) {
   );
 }
 
-// Calendar day key (YYYY-MM-DD) of an instant, in the CEO's time zone.
-function dayKeyIn(timezone, value) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" })
-    .format(new Date(value));
-}
+const CALENDAR_KINDS = {
+  meeting: { label: "Meeting", color: "#0d7d82" },
+  reminder: { label: "Reminder", color: "#d97706" },
+  task: { label: "Task due", color: "#9ca3af" },
+};
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
+// Meetings, reminders and task due dates in the shared Calendar Module.
 function CalendarView({ sb, timezone, refreshKey }) {
-  const todayKey = dayKeyIn(timezone, Date.now());
-  const [cursor, setCursor] = useState(() => ({ y: +todayKey.slice(0, 4), m: +todayKey.slice(5, 7) }));
-  const [selected, setSelected] = useState(todayKey);
-  const [items, setItems] = useState({});
+  const [range, setRange] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const cells = useMemo(() => {
-    const first = new Date(Date.UTC(cursor.y, cursor.m - 1, 1));
-    const lead = (first.getUTCDay() + 6) % 7; // Monday-first grid
-    const start = new Date(first.getTime() - lead * 864e5);
-    return Array.from({ length: 42 }, (_, i) => {
-      const d = new Date(start.getTime() + i * 864e5);
-      return { key: d.toISOString().slice(0, 10), day: d.getUTCDate(), inMonth: d.getUTCMonth() === cursor.m - 1 };
-    });
-  }, [cursor]);
-
   const load = useCallback(async () => {
-    // Pad by a day each side so items near midnight in Dubai time are included.
-    const from = new Date(new Date(`${cells[0].key}T00:00:00Z`).getTime() - 864e5).toISOString();
-    const to = new Date(new Date(`${cells[41].key}T00:00:00Z`).getTime() + 2 * 864e5).toISOString();
+    if (!range) return;
+    setLoading(true);
     const [meetings, reminders, tasks] = await Promise.all([
-      sb.from("meetings").select("id, title, starts_at, ends_at, summary").gte("starts_at", from).lt("starts_at", to).order("starts_at"),
-      sb.from("reminders").select("id, title, body, scheduled_at").eq("delivery_status", "scheduled").gte("scheduled_at", from).lt("scheduled_at", to).order("scheduled_at"),
-      sb.from("tasks").select("id, title, due_at, status, priority").neq("status", "cancelled").gte("due_at", from).lt("due_at", to).order("due_at"),
+      sb.from("meetings").select("id, title, starts_at, ends_at, summary").gte("starts_at", range.from).lt("starts_at", range.to).order("starts_at"),
+      sb.from("reminders").select("id, title, body, scheduled_at").eq("delivery_status", "scheduled").gte("scheduled_at", range.from).lt("scheduled_at", range.to).order("scheduled_at"),
+      sb.from("tasks").select("id, title, due_at, status, priority").not("status", "in", "(done,cancelled)").gte("due_at", range.from).lt("due_at", range.to).order("due_at"),
     ]);
+    setLoading(false);
     const firstError = [meetings, reminders, tasks].find((r) => r.error)?.error;
     if (firstError) { setError(firstError.message); return; }
     setError("");
-    const byDay = {};
-    const add = (kind, at, row) => { const k = dayKeyIn(timezone, at); (byDay[k] ||= []).push({ kind, at, ...row }); };
-    (meetings.data || []).forEach((r) => add("meeting", r.starts_at, r));
-    (reminders.data || []).forEach((r) => add("reminder", r.scheduled_at, r));
-    (tasks.data || []).forEach((r) => add("task", r.due_at, r));
-    Object.values(byDay).forEach((list) => list.sort((a, b) => a.at.localeCompare(b.at)));
-    setItems(byDay);
-  }, [sb, cells, timezone]);
+    setEvents([
+      ...(meetings.data || []).map((r) => ({ id: `m-${r.id}`, kind: "meeting", title: r.title, start: r.starts_at, end: r.ends_at, subtitle: r.summary || "Meeting" })),
+      ...(reminders.data || []).map((r) => ({ id: `r-${r.id}`, kind: "reminder", title: r.title, start: r.scheduled_at, subtitle: r.body || "Reminder" })),
+      ...(tasks.data || []).map((r) => ({ id: `t-${r.id}`, kind: "task", title: r.title, start: r.due_at,
+        subtitle: `Task due${r.priority !== "normal" ? ` · ${r.priority}` : ""}` })),
+    ]);
+  }, [sb, range]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
 
-  const time = useMemo(() => new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }), [timezone]);
-  const monthLabel = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })
-    .format(new Date(Date.UTC(cursor.y, cursor.m - 1, 1)));
-  const move = (delta) => setCursor(({ y, m }) => {
-    const n = m - 1 + delta;
-    return { y: y + Math.floor(n / 12), m: ((n % 12) + 12) % 12 + 1 };
-  });
-  const goToday = () => { setCursor({ y: +todayKey.slice(0, 4), m: +todayKey.slice(5, 7) }); setSelected(todayKey); };
-  const dayItems = items[selected] || [];
-  const selectedLabel = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })
-    .format(new Date(`${selected}T00:00:00Z`));
-
   return (
-    <section className="ceo-dash" aria-label="Calendar">
-      <div className="ceo-panel ceo-cal">
-        <div className="ceo-cal-head">
-          <h3 className="ceo-cal-title">{monthLabel}</h3>
-          <div className="ceo-cal-nav">
-            <button type="button" className="btn" onClick={() => move(-1)} aria-label="Previous month">‹</button>
-            <button type="button" className="btn" onClick={goToday}>Today</button>
-            <button type="button" className="btn" onClick={() => move(1)} aria-label="Next month">›</button>
-          </div>
-        </div>
-        {error && <p className="ceo-notice ceo-error" role="alert">Could not load the calendar: {error}</p>}
-        <div className="ceo-cal-grid" role="grid">
-          {WEEKDAYS.map((d) => <div key={d} className="ceo-cal-dow" role="columnheader">{d}</div>)}
-          {cells.map((c) => {
-            const list = items[c.key] || [];
-            const cls = ["ceo-cal-cell", c.inMonth ? "" : "ceo-cal-out", c.key === todayKey ? "ceo-cal-today" : "",
-              c.key === selected ? "ceo-cal-sel" : ""].filter(Boolean).join(" ");
-            return (
-              <button key={c.key} type="button" role="gridcell" className={cls} onClick={() => setSelected(c.key)}
-                aria-label={`${c.key}, ${list.length} item${list.length === 1 ? "" : "s"}`}>
-                <span className="ceo-cal-num">{c.day}</span>
-                {list.slice(0, 3).map((it) => (
-                  <span key={`${it.kind}-${it.id}`} className={`ceo-cal-chip ceo-cal-${it.kind}`}>
-                    {it.kind !== "task" && `${time.format(new Date(it.at))} `}{it.title}
-                  </span>
-                ))}
-                {list.length > 3 && <span className="ceo-cal-more">+{list.length - 3} more</span>}
-              </button>
-            );
-          })}
-        </div>
-        <div className="ceo-cal-legend">
-          <span><i className="ceo-cal-meeting" />Meeting</span>
-          <span><i className="ceo-cal-reminder" />Reminder</span>
-          <span><i className="ceo-cal-task" />Task due</span>
-        </div>
-      </div>
-
-      <div className="ceo-panel">
-        <h3>{selectedLabel}</h3>
-        {!dayItems.length ? (
-          <p className="ceo-panel-empty">Nothing on this day. Tell the agent about a meeting to add it.</p>
-        ) : (
-          <ul>
-            {dayItems.map((it) => (
-              <li key={`${it.kind}-${it.id}`}>
-                <b><span className={`ceo-cal-dot ceo-cal-${it.kind}`} />{it.title}</b>
-                <span>
-                  {it.kind === "meeting" && `Meeting · ${time.format(new Date(it.starts_at))}${it.ends_at ? `–${time.format(new Date(it.ends_at))}` : ""}`}
-                  {it.kind === "reminder" && `Reminder · ${time.format(new Date(it.scheduled_at))}`}
-                  {it.kind === "task" && `Task due · ${it.status.replaceAll("_", " ")}${it.priority !== "normal" ? ` · ${it.priority}` : ""}`}
-                </span>
-                {(it.summary || it.body) && <small>{it.summary || it.body}</small>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </section>
+    <CalendarPanel
+      title="Calendar"
+      events={events}
+      kinds={CALENDAR_KINDS}
+      timezone={timezone}
+      loading={loading}
+      error={error ? `Could not load the calendar: ${error}` : ""}
+      emptyText="Nothing coming up. Tell the agent about a meeting to add it."
+      onRangeChange={setRange}
+    />
   );
 }
 
@@ -812,30 +739,6 @@ function Styles() {
       .ceo-panel-empty { font-size: 12.5px; color: #9ca3af; margin: 8px 0 0; }
       .ceo-right { display: grid; gap: 12px; min-width: 0; }
       .ceo-view-switch { justify-self: start; }
-      .ceo-cal-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-      .ceo-panel h3.ceo-cal-title { font-size: 16px; text-transform: none; letter-spacing: 0; color: #1f2a30; margin: 0; }
-      .ceo-cal-nav { display: flex; gap: 6px; }
-      .ceo-cal-nav .btn { padding: 4px 10px; }
-      .ceo-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-      .ceo-cal-dow { font-size: 11px; font-weight: 700; color: #9ca3af; text-align: center; padding: 2px 0 4px; text-transform: uppercase; }
-      .ceo-cal-cell { min-height: 88px; display: flex; flex-direction: column; gap: 2px; align-items: stretch; text-align: left;
-        background: #fafaf9; border: 1px solid #f0f0f0; border-radius: 6px; padding: 4px; cursor: pointer; font: inherit; min-width: 0; }
-      .ceo-cal-cell:hover { border-color: #cbd5e1; }
-      .ceo-cal-out { opacity: 0.45; }
-      .ceo-cal-today .ceo-cal-num { background: #1f3a4d; color: #fff; border-radius: 10px; padding: 0 6px; }
-      .ceo-cal-sel { border-color: var(--accent, #0d7d82); box-shadow: inset 0 0 0 1px var(--accent, #0d7d82); background: #fff; }
-      .ceo-cal-num { font-size: 12px; font-weight: 600; color: #374151; align-self: flex-start; }
-      .ceo-cal-chip { font-size: 10.5px; line-height: 1.3; border-radius: 4px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .ceo-cal-more { font-size: 10.5px; color: #6b7280; }
-      .ceo-cal-chip.ceo-cal-meeting { background: #e0f2f1; color: #0f5e5a; }
-      .ceo-cal-chip.ceo-cal-reminder { background: #fdf3e2; color: #a15c07; }
-      .ceo-cal-chip.ceo-cal-task { background: #eef1f4; color: #4b5563; }
-      .ceo-cal-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11.5px; color: #6b7280; flex-wrap: wrap; }
-      .ceo-cal-legend i, .ceo-cal-dot { display: inline-block; width: 8px; height: 8px; border-radius: 8px; margin-right: 6px; vertical-align: middle; }
-      i.ceo-cal-meeting, .ceo-cal-dot.ceo-cal-meeting { background: #0d7d82; }
-      i.ceo-cal-reminder, .ceo-cal-dot.ceo-cal-reminder { background: #d97706; }
-      i.ceo-cal-task, .ceo-cal-dot.ceo-cal-task { background: #9ca3af; }
-      @media (max-width: 640px) { .ceo-cal-cell { min-height: 56px; } .ceo-cal-chip { display: none; } }
       @media (max-width: 1100px) { .ceo-split { grid-template-columns: 1fr; } .ceo-chat { position: static; height: 560px; } }
       @media (max-width: 640px) { .ceo-stats, .ceo-panels { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ceo-panels { grid-template-columns: 1fr; } }
       .ceo-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
