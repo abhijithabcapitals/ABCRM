@@ -483,6 +483,9 @@ export default function App() {
         {view === "mytasks" && <MyTasks profile={profile} />}
         {view === "quotations" && <Quotations profile={profile} />}
         {view === "clients" && <Clients profile={profile} />}
+        {view === "tax" && (
+          <Clients profile={profile} page="/tax" title="Tax Compliance" subtitle="Tax Agent · VAT, Corporate Tax & renewals" />
+        )}
         {view === "settings" && profile?.role === "admin" && (
           <Settings currentUser={user} profile={profile} spaces={spaces} onAccessChanged={() => fetchAccessRules(profile)} />
         )}

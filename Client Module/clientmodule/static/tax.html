@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tax Compliance</title>
+<style>
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --ink: #17212b; --muted: #5d6b78; --line: #dde3e9;
+  --navy: #1f3a4d; --accent: #0f766e; --accent-soft: #e3f3f1;
+  --amber: #a15c07; --amber-soft: #fdf3e2; --red: #b42318; --red-soft: #fdecea; --green: #127a3f; --green-soft: #e6f4ec;
+  --blue: #1d4f91; --blue-soft: #e8f0fb; --radius: 8px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+button, input, select { font: inherit; color: inherit; }
+header.top { background: var(--navy); color: #fff; padding: 12px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+header.top h1 { font-size: 17px; margin: 0; font-weight: 600; }
+header.top .sub { color: #b9c9d6; font-size: 12.5px; }
+header.top .sp { flex: 1; }
+.btn { border: 1px solid rgba(255,255,255,.35); background: transparent; color: #fff; border-radius: 6px; padding: 6px 13px; cursor: pointer; }
+main { padding: 20px 24px 60px; max-width: 1440px; margin: 0 auto; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; text-align: left; }
+.stat b { display: block; font-size: 22px; font-weight: 600; }
+.stat span { color: var(--muted); font-size: 12.5px; }
+.stat.on { outline: 2px solid var(--accent); }
+.stat.red b { color: var(--red); } .stat.amber b { color: var(--amber); }
+.stat.blue b { color: var(--blue); } .stat.grey b { color: var(--muted); } .stat.green b { color: var(--green); }
+.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.toolbar input[type=search] { flex: 1; min-width: 220px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.toolbar select { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.toolbar label { color: var(--muted); font-size: 13px; display: flex; gap: 5px; align-items: center; }
+.tablewrap { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: #fafbfc; }
+td { padding: 9px 12px; border-bottom: 1px solid #eef1f4; vertical-align: top; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: #eef1f4; white-space: nowrap; }
+.pill.red { background: var(--red-soft); color: var(--red); } .pill.amber { background: var(--amber-soft); color: var(--amber); }
+.pill.green { background: var(--green-soft); color: var(--green); } .pill.blue { background: var(--blue-soft); color: var(--blue); }
+.muted { color: var(--muted); } .small { font-size: 12.5px; }
+.mono { font-family: Consolas, monospace; font-size: 12.5px; white-space: nowrap; }
+.empty { padding: 40px; text-align: center; color: var(--muted); }
+.err { background: var(--red-soft); color: var(--red); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+footer { color: var(--muted); font-size: 12px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Tax Compliance</h1>
+  <span class="sub" id="asof">Loading…</span>
+  <span class="sp"></span>
+  <button class="btn" id="refresh" type="button">Refresh</button>
+</header>
+<main>
+  <div id="error"></div>
+  <div class="stats" id="stats"></div>
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Search client, obligation, specialist…">
+    <select id="cat"><option value="">All categories</option></select>
+    <label><input type="checkbox" id="showDone"> Show done</label>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Status</th><th>Due date</th><th>Days</th><th>Client</th><th>Obligation</th><th>Category</th><th>Tax specialist</th><th>Basis</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <footer id="foot"></footer>
+</main>
+<script>
+const STATUS = {
+  overdue: { label: "Overdue", cls: "red" },
+  due_14: { label: "Due ≤ 14 days", cls: "red" },
+  due_30: { label: "Due ≤ 30 days", cls: "amber" },
+  due_60: { label: "Due ≤ 60 days", cls: "amber" },
+  upcoming: { label: "Upcoming", cls: "blue" },
+  missing: { label: "Missing data", cls: "grey" },
+  review: { label: "To review", cls: "amber" },
+  done: { label: "Done", cls: "green" },
+};
+let data = null, statusFilter = "";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function load() {
+  $("error").innerHTML = "";
+  try {
+    const res = await fetch("/api/tax-compliance", { cache: "no-store" });
+    if (!res.ok) throw new Error(`Server answered ${res.status}`);
+    data = await res.json();
+  } catch (e) {
+    $("error").innerHTML = `<div class="err">Could not load tax compliance: ${esc(e.message)}</div>`;
+    return;
+  }
+  $("asof").textContent = `${data.clientsChecked} client(s) checked · as of ${data.asOf} (Dubai)`;
+  const cats = [...new Set(data.items.map((i) => i.category))].sort();
+  $("cat").innerHTML = '<option value="">All categories</option>' + cats.map((c) => `<option>${esc(c)}</option>`).join("");
+  $("foot").textContent = `Rules: ${data.ruleVersion}. "Computed" dates are estimates from recorded data and FTA rules — confirm them on the FTA portal. Drafts only: a qualified person files every return.`;
+  render();
+}
+
+function render() {
+  const s = data.summary;
+  $("stats").innerHTML = Object.entries(STATUS).map(([k, v]) =>
+    `<button type="button" class="stat ${v.cls}${statusFilter === k ? " on" : ""}" data-k="${k}"><b>${s[k] || 0}</b><span>${v.label}</span></button>`
+  ).join("");
+  document.querySelectorAll(".stat").forEach((b) => b.onclick = () => { statusFilter = statusFilter === b.dataset.k ? "" : b.dataset.k; render(); });
+  const q = $("q").value.trim().toLowerCase(), cat = $("cat").value, showDone = $("showDone").checked;
+  const rows = data.items.filter((i) =>
+    (!statusFilter || i.status === statusFilter) &&
+    (statusFilter === "done" || showDone || i.status !== "done") &&
+    (!cat || i.category === cat) &&
+    (!q || [i.clientName, i.clientId, i.title, i.period, i.taxSpecialist, i.category].join(" ").toLowerCase().includes(q)));
+  if (!data.clientsChecked) {
+    $("rows").innerHTML = '<tr><td colspan="8" class="empty">No clients in the Client Master yet. Onboard clients in the Clients tab; their VAT, Corporate Tax and renewal dates appear here automatically.</td></tr>';
+    return;
+  }
+  if (!rows.length) {
+    $("rows").innerHTML = '<tr><td colspan="8" class="empty">Nothing matches these filters.</td></tr>';
+    return;
+  }
+  $("rows").innerHTML = rows.map((i) => {
+    const st = STATUS[i.status];
+    const days = i.daysLeft == null ? "" : i.daysLeft < 0 ? `${-i.daysLeft} late` : `${i.daysLeft}`;
+    const tags = (i.computed ? ' <span class="pill blue">Computed</span>' : "") + (i.verify ? ' <span class="pill amber">Verify input</span>' : "");
+    return `<tr>
+      <td><span class="pill ${st.cls === "grey" ? "" : st.cls}">${st.label}</span></td>
+      <td class="mono">${esc(i.dueDate) || '<span class="muted">—</span>'}</td>
+      <td class="mono">${esc(days)}</td>
+      <td>${esc(i.clientName)}<div class="muted small mono">${esc(i.clientId)}</div></td>
+      <td>${esc(i.title)}${i.period ? `<div class="muted small">${esc(i.period)}</div>` : ""}</td>
+      <td>${esc(i.category)}</td>
+      <td>${esc(i.taxSpecialist) || '<span class="muted">—</span>'}</td>
+      <td class="small">${esc(i.basis)}${tags}</td>
+    </tr>`;
+  }).join("");
+}
+
+$("refresh").onclick = load;
+$("q").oninput = () => data && render();
+$("cat").onchange = () => data && render();
+$("showDone").onchange = () => data && render();
+load();
+</script>
+</body>
+</html>

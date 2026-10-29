@@ -7,6 +7,9 @@
     POST /api/preview                    {record, clientId} -> completed row, score, flags, duplicates (nothing saved)
     POST /api/save                       {record, clientId, confirmed, allowDuplicate, batch} -> saves ONE row, files documents
     POST /api/export                     regenerate data/Client_Master.xlsx
+  Tax compliance (Tax Agent, read-only):
+    GET  /tax                            Tax Compliance page (embedded in the CRM's Tax Compliance tab)
+    GET  /api/tax-compliance             every VAT / CT / renewal obligation with due date and status
   Documents (Document Module pipeline):
     POST /api/batches                    {clientId} -> new upload batch
     GET  /api/batches/{b}                documents with stage log, review reasons, extraction
@@ -30,6 +33,7 @@ from docai import PipelineError, document_types
 from .config import PACKAGE_DIR, Settings
 from .documents import DocumentService
 from .master import ClientMaster
+from .tax import compliance
 
 log = logging.getLogger("clientmodule")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "testserver"}
@@ -71,6 +75,14 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/", include_in_schema=False)
     def index():
         return FileResponse(PACKAGE_DIR / "static" / "index.html", media_type="text/html")
+
+    @app.get("/tax", include_in_schema=False)
+    def tax_page():
+        return FileResponse(PACKAGE_DIR / "static" / "tax.html", media_type="text/html")
+
+    @app.get("/api/tax-compliance")
+    def tax_compliance():
+        return compliance(master.read())
 
     @app.get("/api/schema")
     def schema():

@@ -1186,6 +1186,7 @@ export default function Sidebar({
           ...(profile?.role === "admin"
             ? [
                 { key: "clients", Icon: IconClients, label: "Clients" },
+                { key: "tax", Icon: IconCheck, label: "Tax Compliance" },
                 { key: "settings", Icon: IconSettings, label: "Settings" },
               ]
             : []),

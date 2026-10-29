@@ -23,7 +23,8 @@ async function probeClientModule() {
   }
 }
 
-export default function Clients({ profile }) {
+// page/title/subtitle let other Client Module pages (e.g. Tax Compliance at /tax) reuse this frame.
+export default function Clients({ profile, page = "/", title = "Clients", subtitle = "Client Master" }) {
   const [status, setStatus] = useState("checking"); // checking | online | offline | other
   const [frameKey, setFrameKey] = useState(0);
   const [attempt, setAttempt] = useState(0);
@@ -64,9 +65,9 @@ export default function Clients({ profile }) {
           background: "#fff",
         }}
       >
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a1a" }}>Clients</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a1a" }}>{title}</div>
         <div style={{ fontSize: 12.5, color: "#6b7280" }}>
-          Client Master · runs locally at {CLIENT_MODULE_URL}
+          {subtitle} · runs locally at {CLIENT_MODULE_URL}
         </div>
         <div style={{ flex: 1 }} />
         <button
@@ -77,7 +78,7 @@ export default function Clients({ profile }) {
         >
           {status === "online" ? "Reload" : "Retry"}
         </button>
-        <a href={CLIENT_MODULE_URL} target="_blank" rel="noreferrer" style={toolbarButton(false)}>
+        <a href={`${CLIENT_MODULE_URL}${page}`} target="_blank" rel="noreferrer" style={toolbarButton(false)}>
           Open in new tab
         </a>
       </div>
@@ -85,8 +86,8 @@ export default function Clients({ profile }) {
       {status === "online" ? (
         <iframe
           key={frameKey}
-          title="Client Module"
-          src={`${CLIENT_MODULE_URL}/`}
+          title={title}
+          src={`${CLIENT_MODULE_URL}${page}`}
           style={{ flex: 1, width: "100%", border: 0, background: "#f4f6f8" }}
         />
       ) : (

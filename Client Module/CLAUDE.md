@@ -21,6 +21,7 @@ Always flag missing or uncertain information.
 | `clientmodule/schema.json` | Columns, interview stages, options, required fields, conditional (N/A) rules |
 | `clientmodule/master.py` | Data layer: duplicate check, validation, completion score, save, Excel export |
 | `clientmodule/documents.py` | Document fields → columns adapter; services → DataBase folders |
+| `clientmodule/tax.py` | Tax Agent (read-only): VAT / Corporate Tax / renewal deadlines from the master → `/tax` page and `/api/tax-compliance`, shown in the CRM's Tax Compliance tab |
 | `..\Document Module` | Shared document pipeline (`docai`): validation + virus scan, OCR, classification, extraction, confidence, review, filing |
 | `config.json` | Storage root (`D:\Abhijith Projects\DataBase`), service folder mapping, AI caps |
 
