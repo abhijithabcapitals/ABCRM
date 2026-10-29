@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import CalendarPanel from "@calendar";
+import InboxPanel, { useInboxAlerts } from "./InboxPanel.jsx";
 
 // CEO Agent workspace, ported from Agent Module/11_Personal_Agent/CEO Agent.
 // All its data lives in the "ceo" schema, protected by per-user row-level
@@ -221,6 +222,7 @@ function Mfa({ sb, onDone }) {
 function Ready({ sb, userId, timezone }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [view, setView] = useState("overview");
+  const inbox = useInboxAlerts(sb);
   return (
     <div className="ceo-split">
       <Chat sb={sb} userId={userId} onChanged={() => setRefreshKey((k) => k + 1)} />
@@ -230,10 +232,15 @@ function Ready({ sb, userId, timezone }) {
             onClick={() => setView("overview")}>Overview</button>
           <button type="button" role="tab" aria-selected={view === "calendar"} className={view === "calendar" ? "on" : ""}
             onClick={() => setView("calendar")}>Calendar</button>
+          <button type="button" role="tab" aria-selected={view === "inbox"} className={view === "inbox" ? "on" : ""}
+            onClick={() => setView("inbox")}>Inbox{inbox.unread > 0 && <span className="ceo-badge">{inbox.unread}</span>}</button>
         </div>
-        {view === "overview"
-          ? <Dashboard sb={sb} timezone={timezone} refreshKey={refreshKey} />
-          : <CalendarView sb={sb} timezone={timezone} refreshKey={refreshKey} />}
+        {view === "overview" && <Dashboard sb={sb} timezone={timezone} refreshKey={refreshKey} />}
+        {view === "calendar" && <CalendarView sb={sb} timezone={timezone} refreshKey={refreshKey} />}
+        {view === "inbox" && (
+          <InboxPanel sb={sb} timezone={timezone} userId={userId}
+            onChanged={() => { inbox.refresh(); setRefreshKey((k) => k + 1); }} />
+        )}
       </div>
     </div>
   );
@@ -725,6 +732,7 @@ function Styles() {
       .ceo-stat span { font-size: 12px; color: #6b7280; }
       .ceo-stat-red b { color: #b91c1c; }
       .ceo-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .ceo-badge { display: inline-block; min-width: 17px; margin-left: 6px; padding: 0 5px; border-radius: 9px; background: #dc2626; color: #fff; font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center; }
       .ceo-panel { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 14px 16px; min-height: 120px; }
       .ceo-panel h3 { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #6b7280; margin: 0 0 8px; }
       .ceo-panel ul { list-style: none; margin: 0; padding: 0; display: grid; }

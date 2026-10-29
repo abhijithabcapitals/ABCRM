@@ -7,6 +7,9 @@ The CRM's **CEO Agent** tab (admins only). It is the user interface of the CEO I
 |---|---|
 | `components/CeoAgent.jsx` | Sign-in and TOTP MFA, then a chat with the agent on the left and the dashboard on the right |
 | `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: DeepSeek (`deepseek/deepseek-v4.1-flash`) via OpenRouter, with tools that save and look up the CEO's items |
+| `components/InboxPanel.jsx` | **Inbox** tab: AI summaries of the connected mailbox, unread badge and optional browser alerts |
+| `supabase/ceo-mail-sync/index.ts` | Edge Function `ceo-mail-sync`: reads the mailbox over IMAP (read-only) and summarizes each conversation |
+| `supabase/ceo-mail.sql` | Tables, policies, Vault secret and 15-minute schedule behind the Inbox |
 | `index.js` | Default export of the page |
 
 ## Chat and dashboard
@@ -26,6 +29,28 @@ refuses callers without a `ceo.profiles` row or, when `require_mfa` is true, wit
 Needs the `OPENROUTER_API_KEY` Edge Function secret (optional `OPENROUTER_MODEL` overrides the model). Only providers that support tools and do not retain prompts are used. Redeploy after editing `index.ts` as `ceo-agent`.
 
 The **Talk** button uses the browser's speech recognition (Chrome, Edge, Safari) to dictate a message, sends it when you stop speaking, and reads the reply aloud. It is hidden in browsers without speech recognition.
+
+## Inbox (email summaries)
+
+`ceo-mail-sync` connects to `bharat@ardentaxit.tax` (Hostinger Email, `imap.hostinger.com:993`) and opens
+the Inbox **read-only**: it never sends, moves, deletes or flags mail. Every 15 minutes (pg_cron job
+`ceo-mail-sync`) it reads up to 30 new messages (the first run looks back 7 days), groups them into
+conversations by `References`/`In-Reply-To` (or subject plus a shared participant), and asks DeepSeek for a
+summary, category, priority, whether a reply is needed, key points and suggested actions. Email text is
+treated as untrusted data and is only held in memory; `ceo.mail_messages` keeps headers and
+`ceo.mail_threads` keeps the summaries. Senders or domains in `ceo.mail_accounts.excluded_senders` (e.g.
+`@bank.com`) are skipped and never sent to the model.
+
+The **Inbox** tab lists conversations (unread, then by priority), with filters, **Sync now**, mark read/unread,
+archive, and buttons that turn a suggested action into a task or reminder. The tab badge counts unread
+conversations; **Enable alerts** shows a browser notification for new urgent or needs-reply conversations
+while the CRM is open.
+
+Edge Function secrets: `MAIL_IMAP_USER` (must equal the mailbox address), `MAIL_IMAP_PASSWORD` and
+`OPENROUTER_API_KEY`; `OPENROUTER_MAIL_MODEL` optionally overrides the model. Deploy `ceo-mail-sync` with
+JWT verification **off**: the scheduler authenticates with the `ceo_mail_sync_secret` Vault secret in the
+`x-sync-secret` header, and **Sync now** sends the CEO's session, which the function checks (profile and MFA)
+itself. Sync status and the last error are on `ceo.mail_accounts`.
 
 ## Where the data lives
 
