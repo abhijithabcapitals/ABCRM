@@ -26,6 +26,10 @@ The backend for the `Business Development Module` UI, which is still under devel
 | `migrations/bd/001_bd_schema.sql`, `002_bd_seed.sql` | Draft PostgreSQL schema and seed data. They run more than once safely and were tested on a throwaway cluster only. |
 | `SQL Data/BD_Field_Mapping.xlsx` | Every spec field mapped to its database column, plus the BD-to-Client-Master prefill and the reuse decisions. Built by `build_bd_field_mapping.py` |
 
+## Knowledge Base
+
+`Knowledge Base/` holds the export and import tools for the CRM's Knowledge Base articles (the `wiki_*` tables). See its README.
+
 ## Workbook layout
 
 | Sheet | Rows | Holds |
