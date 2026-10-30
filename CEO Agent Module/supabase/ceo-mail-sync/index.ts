@@ -12,9 +12,9 @@
 // MAIL_IMAP_USER, MAIL_IMAP_PASSWORD and OPENROUTER_API_KEY secrets;
 // OPENROUTER_MAIL_MODEL optionally overrides the model.
 
-import { ImapFlow } from "npm:imapflow@1";
 import PostalMime from "npm:postal-mime@2";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { ImapClient, imapDate } from "./imap.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = Deno.env.get("OPENROUTER_MAIL_MODEL") || "deepseek/deepseek-v4.1-flash";
@@ -102,54 +102,48 @@ function isExcluded(address: string | null, patterns: string[]) {
   });
 }
 
-async function readMailbox(account: Row, user: string, pass: string) {
-  const client = new ImapFlow({
-    host: account.imap_host, port: account.imap_port, secure: true,
-    auth: { user, pass }, logger: false, socketTimeout: 60_000,
-  });
-  await client.connect();
+async function readMailbox(account: Row, user: string, pass: string, retryUids: number[]) {
+  const client = new ImapClient(account.imap_host, account.imap_port);
   try {
-    const box = await client.mailboxOpen(account.mailbox, { readOnly: true });
-    const uidValidity = Number(box.uidValidity);
-    const lastUid = Number(account.uidvalidity) === uidValidity ? Number(account.last_uid) : 0;
+    await client.connect(user, pass);
+    const uidValidity = await client.examine(account.mailbox);
+    const sameMailbox = Number(account.uidvalidity) === uidValidity;
+    const lastUid = sameMailbox ? Number(account.last_uid) : 0;
     const found = lastUid > 0
-      ? await client.search({ uid: `${lastUid + 1}:*` }, { uid: true })
-      : await client.search({ since: new Date(Date.now() - FIRST_SYNC_DAYS * 86_400_000) }, { uid: true });
-    let uids = (found || []).map(Number).filter((u: number) => u > lastUid).sort((a: number, b: number) => a - b);
+      ? await client.searchUids(`UID ${lastUid + 1}:*`)
+      : await client.searchUids(`SINCE ${imapDate(new Date(Date.now() - FIRST_SYNC_DAYS * 86_400_000))}`);
+    let uids = found.filter((u) => u > lastUid).sort((a, b) => a - b);
     // First sync keeps the most recent messages; later runs work forward from last_uid.
     uids = lastUid === 0 ? uids.slice(-MAX_MESSAGES_PER_RUN) : uids.slice(0, MAX_MESSAGES_PER_RUN);
-
-    const raw: Row[] = [];
-    if (uids.length) {
-      for await (const msg of client.fetch(uids.join(","), {
-        uid: true, envelope: true, internalDate: true, source: { maxLength: MAX_SOURCE_BYTES },
-      }, { uid: true })) {
-        raw.push(msg);
-      }
-    }
+    // Re-read messages of conversations whose summary failed last time (bodies are not stored).
+    if (sameMailbox) uids = [...new Set([...retryUids, ...uids])];
+    const raw = await client.fetchSources(uids, MAX_SOURCE_BYTES);
+    await client.logout();
     return { uidValidity, lastUid, raw };
   } finally {
-    await client.logout().catch(() => client.close());
+    client.close();
   }
 }
 
-async function toFetched(msg: Row): Promise<Fetched> {
-  const env = msg.envelope || {};
+async function toFetched(msg: { uid: number; internalDate: string | null; source: Uint8Array }): Promise<Fetched> {
   let parsed: Row = {};
   try {
-    if (msg.source) parsed = await PostalMime.parse(msg.source);
-  } catch { /* fall back to the envelope */ }
-  const from = env.from?.[0] || {};
+    parsed = await PostalMime.parse(msg.source);
+  } catch { /* keep what we can from the IMAP data */ }
+  const addresses = (list: unknown) => (Array.isArray(list) ? list : [])
+    .flatMap((p: Row) => (p.group ? p.group : [p]))
+    .map((p: Row) => String(p.address || "").toLowerCase()).filter(Boolean);
+  const sent = new Date(parsed.date || msg.internalDate || Date.now());
   const body = parsed.text || (parsed.html ? htmlToText(parsed.html) : "");
   return {
-    uid: Number(msg.uid),
-    messageId: env.messageId || parsed.messageId || null,
-    refs: [...parseIds(parsed.references), ...parseIds(parsed.inReplyTo || env.inReplyTo)],
-    fromAddress: from.address ? String(from.address).toLowerCase() : null,
-    fromName: from.name || null,
-    to: [...(env.to || []), ...(env.cc || [])].map((p: Row) => String(p.address || "").toLowerCase()).filter(Boolean),
-    subject: env.subject || parsed.subject || "(no subject)",
-    sentAt: new Date(env.date || msg.internalDate || Date.now()).toISOString(),
+    uid: msg.uid,
+    messageId: parsed.messageId || null,
+    refs: [...parseIds(parsed.references), ...parseIds(parsed.inReplyTo)],
+    fromAddress: parsed.from?.address ? String(parsed.from.address).toLowerCase() : null,
+    fromName: parsed.from?.name || null,
+    to: [...addresses(parsed.to), ...addresses(parsed.cc)],
+    subject: parsed.subject || "(no subject)",
+    sentAt: (isNaN(sent.getTime()) ? new Date() : sent).toISOString(),
     text: cleanBody(body),
   };
 }
@@ -177,22 +171,35 @@ async function summarize(apiKey: string, thread: Row, messages: Fetched[]) {
   ).join("\n\n---\n\n");
   const user = `${thread.summary ? `Previous summary: ${thread.summary}\n\n` : ""}New messages:\n<emails>\n${transcript}\n</emails>`;
 
-  const res = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CEO Agent mail" },
-    body: JSON.stringify({
-      model: MODEL,
-      temperature: 0,
-      max_tokens: 1200,
-      response_format: { type: "json_object" },
-      provider: { data_collection: "deny" },
-      messages: [{ role: "system", content: SYSTEM }, { role: "user", content: user.slice(0, 60_000) }],
-    }),
-  });
-  const data: Row = await res.json().catch(() => ({}));
-  if (!res.ok || data.error) throw new Error(`Model error ${res.status}: ${data.error?.message || "no response"}`);
-  const content = String(data.choices?.[0]?.message?.content || "").replace(/^```(?:json)?\s*|\s*```$/g, "");
-  const out: Row = JSON.parse(content);
+  // Reasoning tokens count against max_tokens, so leave room and retry once on a cut-off reply.
+  let out: Row | null = null;
+  let lastProblem = "";
+  for (let attempt = 0; attempt < 2 && !out; attempt++) {
+    const res = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CEO Agent mail" },
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0,
+        max_tokens: 4000,
+        reasoning: { effort: "low", exclude: true },
+        response_format: { type: "json_object" },
+        provider: { data_collection: "deny" },
+        messages: [{ role: "system", content: SYSTEM }, { role: "user", content: user.slice(0, 60_000) }],
+      }),
+    });
+    const data: Row = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(`Model error ${res.status}: ${data.error?.message || "no response"}`);
+    const content = String(data.choices?.[0]?.message?.content || "");
+    const start = content.indexOf("{");
+    const end = content.lastIndexOf("}");
+    try {
+      out = JSON.parse(content.slice(start, end + 1));
+    } catch {
+      lastProblem = `reply was not complete JSON (finish: ${data.choices?.[0]?.finish_reason || "unknown"})`;
+    }
+  }
+  if (!out) throw new Error(lastProblem);
 
   const s = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : "");
   const due = (v: unknown) => {
@@ -221,9 +228,28 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
 }
 
 async function syncAccount(db: Db, account: Row, user: string, pass: string, apiKey: string) {
-  const { uidValidity, lastUid, raw } = await readMailbox(account, user, pass);
+  // Conversations still without a summary get their messages read again this run.
+  const { data: pending } = await db.from("mail_threads").select("id")
+    .eq("account_id", account.id).is("summary", null).order("last_message_at", { ascending: false }).limit(10);
+  let retryUids: number[] = [];
+  if (pending?.length && account.uidvalidity) {
+    const { data: rows } = await db.from("mail_messages").select("uid")
+      .eq("account_id", account.id).eq("uidvalidity", account.uidvalidity)
+      .in("thread_id", pending.map((t: Row) => t.id)).limit(MAX_MESSAGES_PER_RUN);
+    retryUids = (rows || []).map((r: Row) => Number(r.uid));
+  }
+
+  const { uidValidity, lastUid, raw } = await readMailbox(account, user, pass, retryUids);
   const fetched = await Promise.all(raw.map(toFetched));
   fetched.sort((a, b) => a.uid - b.uid);
+
+  // Messages already stored (retries, or a run cut short) are summarized again but not re-counted.
+  const known = new Map<number, string>();
+  if (fetched.length) {
+    const { data: rows } = await db.from("mail_messages").select("uid, thread_id")
+      .eq("account_id", account.id).eq("uidvalidity", uidValidity).in("uid", fetched.map((m) => m.uid));
+    for (const r of rows || []) known.set(Number(r.uid), r.thread_id);
+  }
 
   const batch = new Map<string, string>(); // message-id -> thread id within this run
   const touched = new Map<string, Fetched[]>();
@@ -231,6 +257,11 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
 
   for (const m of fetched) {
     if (isExcluded(m.fromAddress, account.excluded_senders || [])) { excluded++; continue; }
+    const storedThread = known.get(m.uid);
+    if (storedThread) {
+      touched.set(storedThread, [...(touched.get(storedThread) || []), m]);
+      continue;
+    }
     let threadId = await findThread(db, account.id, m, batch);
     const people = [m.fromAddress, ...m.to].filter((p): p is string => !!p && p !== account.address.toLowerCase());
 
@@ -367,9 +398,11 @@ Deno.serve(async (req) => {
       results.push(await syncAccount(admin, account, user.trim(), pass, apiKey));
     } catch (e) {
       const err = e as Row;
+      const server = err.serverLines?.length ? ` Server said: ${err.serverLines.join(" | ")}` : "";
       const message = err.authenticationFailed
-        ? "The mailbox rejected the login. Check MAIL_IMAP_USER and MAIL_IMAP_PASSWORD."
-        : `Sync failed: ${err.responseText || err.message || String(e)}`;
+        ? `The mailbox rejected the login. Check MAIL_IMAP_USER and MAIL_IMAP_PASSWORD.${server}`
+        : `Sync failed: ${err.responseText || err.message || String(e)}.${server}`;
+      console.error("ceo-mail-sync", message);
       await fail(message);
     }
   }

@@ -7,8 +7,10 @@ The CRM's **CEO Agent** tab (admins only). It is the user interface of the CEO I
 |---|---|
 | `components/CeoAgent.jsx` | Sign-in and TOTP MFA, then a chat with the agent on the left and the dashboard on the right |
 | `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: DeepSeek (`deepseek/deepseek-v4.1-flash`) via OpenRouter, with tools that save and look up the CEO's items |
+| `supabase/ceo-agent/playbooks.ts` | 14 CEO playbooks (decisions, reviews, delegation, pricing, finance, risk and more) served by the read-only `get_playbook` tool; adapted from the open skills in `Agent Module/11_Personal_Agent/CEO Agent/.claude/skills` |
 | `components/InboxPanel.jsx` | **Inbox** tab: AI summaries of the connected mailbox, unread badge and optional browser alerts |
 | `supabase/ceo-mail-sync/index.ts` | Edge Function `ceo-mail-sync`: reads the mailbox over IMAP (read-only) and summarizes each conversation |
+| `supabase/ceo-mail-sync/imap.ts` | Minimal read-only IMAP client on `Deno.connectTls` (npm IMAP libraries fail in the Edge Runtime) |
 | `supabase/ceo-mail.sql` | Tables, policies, Vault secret and 15-minute schedule behind the Inbox |
 | `index.js` | Default export of the page |
 

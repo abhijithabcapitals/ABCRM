@@ -11,6 +11,7 @@
 // OPENROUTER_API_KEY secret; OPENROUTER_MODEL optionally overrides the model.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { PLAYBOOK_TOPICS, PLAYBOOKS, type PlaybookTopic } from "./playbooks.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash";
@@ -91,6 +92,17 @@ const tools: ToolDef[] = [
     name: "get_overview",
     description: "Get upcoming meetings and reminders, open tasks, recent decisions, open risks and ideas, with ids.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_playbook",
+    description:
+      "Get a CEO playbook (framework) to apply to the CEO's own situation: decisions, investigation (root cause), weekly_review, daily_recap, delegation, management, pricing, competition, finance, operations, hiring, risk, communication, focus. Static guidance only; combine it with get_overview and search_memory for the CEO's data.",
+    input_schema: {
+      type: "object",
+      properties: { topic: { type: "string", enum: [...PLAYBOOK_TOPICS] } },
+      required: ["topic"],
+      additionalProperties: false,
+    },
   },
 ];
 
@@ -248,12 +260,18 @@ async function overview(db: Db) {
   };
 }
 
+function getPlaybook(topic: string) {
+  if (!(PLAYBOOK_TOPICS as string[]).includes(topic)) return { error: `Unknown playbook. Use one of: ${PLAYBOOK_TOPICS.join(", ")}` };
+  return { topic, playbook: PLAYBOOKS[topic as PlaybookTopic] };
+}
+
 const SYSTEM = `You are the CEO Agent: a private executive assistant for the CEO of AB Capital, a UAE accounting and tax consultancy. You chat like a capable chief of staff.
 
 What you do:
 - When the CEO mentions a meeting, reminder, task, decision, idea, risk, person, project or a note worth keeping, save it with save_item (one call per item), then say briefly what you saved.
 - Answer questions about their schedule, commitments and past notes using get_overview and search_memory. Cite what you found; if nothing matches, say so.
 - Help think things through: summaries, priorities, drafts. Label drafts "DRAFT".
+- For strategy, decisions, weekly or daily reviews, delegation, management, pricing, competition, finance, operations, hiring, risk, communication or focus, call get_playbook for the matching topic first, then apply it to the CEO's real data from get_overview and search_memory. Ask for missing numbers instead of inventing them.
 
 Rules:
 - Resolve relative dates ("tomorrow at 3") against the current Dubai time given below, and store them with the +04:00 offset. If a date or time is vague ("next week", "soon") and the item needs one (meetings, reminders), ask before saving. Never invent dates, amounts, client identifiers or tax facts.
@@ -409,6 +427,7 @@ Deno.serve(async (req) => {
             if ((result as any).updated) changed = true;
           } else if (name === "search_memory") result = await searchMemory(db, String(input.query || ""));
           else if (name === "get_overview") result = await overview(db);
+          else if (name === "get_playbook") result = getPlaybook(String(input.topic || ""));
           else result = { error: `Unknown tool ${name}` };
         } catch (e) {
           result = { error: (e as Error).message };
