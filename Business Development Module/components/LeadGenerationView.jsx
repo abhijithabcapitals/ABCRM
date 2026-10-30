@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   callLeadSources, fetchPlatformProspectCounts, fetchPlatformProspects, updatePlatformProspect,
 } from "../logic/businessDevelopmentData";
@@ -52,6 +52,16 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
   const [listError, setListError] = useState("");
   const [loadingList, setLoadingList] = useState(true);
   const [search, setSearch] = useState("");
+  // The list toolbar and the table header stay pinned while scrolling; the header sits under the toolbar.
+  const listHeadRef = useRef(null);
+  const [listHeadHeight, setListHeadHeight] = useState(0);
+  useEffect(() => {
+    const el = listHeadRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => setListHeadHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const loadStatus = useCallback(async (provider = "explee") => {
     const { data, error } = await callLeadSources("status", { provider });
@@ -154,7 +164,7 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
         />
       )}
 
-      <div className="bd-leadgen-listhead">
+      <div className="bd-leadgen-listhead" ref={listHeadRef}>
         <div>
           <h3 className="bd-leadgen-listtitle">{open ? `${open.name} leads` : "All leads"}</h3>
           <div className="bd-leadgen-tabs" role="tablist" aria-label="Prospect status">
@@ -172,9 +182,13 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
       {loadingList ? <div className="bd-loading"><span className="bd-spinner" /> Loading leads…</div> : rows.length === 0 ? (
         <div className="bd-muted-empty">{tab === "new" ? "No leads waiting. Open a source card and press Sync now." : "Nothing here."}</div>
       ) : (
-        <div className="bd-table-wrap">
+        <div className="bd-table-wrap bd-leadgen-tablewrap" style={{ "--lg-head": `${listHeadHeight}px` }}>
           <table className="bd-table bd-leadgen-table">
-            <thead><tr><th>Lead</th><th>Company</th><th>Source</th><th>Why now</th><th>When</th><th /></tr></thead>
+            <colgroup>
+              <col style={{ width: "19%" }} /><col style={{ width: "15%" }} /><col style={{ width: "11%" }} />
+              <col style={{ width: "33%" }} /><col style={{ width: "9%" }} /><col style={{ width: "13%" }} />
+            </colgroup>
+            <thead><tr><th>Lead</th><th>Company</th><th>Source</th><th>Email / why now</th><th>When</th><th /></tr></thead>
             <tbody>
               {rows.map((p) => (
                 <tr key={p.id}>
@@ -187,7 +201,7 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
                   <td>{sourceName(p.provider)}<small>{p.campaign_name || ""}</small></td>
                   <td className="bd-leadgen-why">
                     <span className={`bd-leadgen-kind ${p.kind}`}>{p.kind === "hot" ? "Hot lead" : p.replied ? "Replied" : "Contacted"}</span>
-                    {(p.why_hot || p.note) && <small>{p.why_hot || p.note}</small>}
+                    {(p.why_hot || p.note) && <MailText text={p.why_hot || p.note} />}
                   </td>
                   <td>{dateTime(p.became_hot_at || p.fetched_at)}</td>
                   <td className="bd-leadgen-row-actions">
@@ -210,6 +224,22 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
         </div>
       )}
     </section>
+  );
+}
+
+// The prospect's reply email: three lines, then Read more for the full text.
+function MailText({ text }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 220 || text.split("\n").length > 3;
+  return (
+    <div className="bd-leadgen-mailwrap">
+      <div className={`bd-leadgen-mail ${open || !long ? "open" : ""}`}>{open ? text : text.replace(/\n\s*\n+/g, "\n")}</div>
+      {long && (
+        <button type="button" className="bd-text-button bd-leadgen-more" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          {open ? "Show less" : "Read more"}
+        </button>
+      )}
+    </div>
   );
 }
 
