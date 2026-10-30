@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AiAssistWindow from "./AiAssistWindow.jsx";
 import ReplyComposer from "./ReplyComposer.jsx";
 
 // Inbox view of the CEO Agent: every conversation of the connected mailboxes
@@ -282,6 +283,22 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  // While a conversation is open the page behind it does not scroll, and Escape closes it
+  // (not while a reply is being written, so a draft is never lost by accident).
+  useEffect(() => {
+    if (!open) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => { if (e.key === "Escape" && !replying) closeThread(); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+    // closeThread only reads refs and setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, replying]);
+
   function closeThread() {
     if (pushedRef.current) { window.history.back(); return; }
     setOpen(null);
@@ -359,16 +376,18 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   }
 
   const current = open ? (threads || []).find((x) => x.id === open) : null;
+  let threadPopup = null;
   if (current) {
     const t = current;
     const messages = messagesByThread[t.id] || [];
     const lastIndex = messages.length - 1;
     const leaveWith = async (status) => { await setStatus(t.id, status); closeThread(); };
-    return (
-      <section className="ceo-dash ceo-inbox ceo-thread-page" aria-label="Email conversation">
-        <InboxStyles />
+    threadPopup = (
+      <div className="ceo-mail-overlay" role="presentation"
+        onMouseDown={(e) => { if (e.target === e.currentTarget && replying !== t.id) closeThread(); }}>
+      <section className="ceo-mail-window" role="dialog" aria-modal="true" aria-label="Email conversation">
         <div className="ceo-thread-toolbar">
-          <button type="button" className="ceo-text-btn ceo-back" onClick={closeThread}>← Back to inbox</button>
+          <button type="button" className="ceo-text-btn ceo-back" onClick={closeThread}>✕ Close</button>
           <span className="ceo-thread-tools">
             <button className="ceo-text-btn" type="button" onClick={() => setImportant(t, !t.is_important)}>
               {t.is_important ? "Unmark important" : "Mark important"}
@@ -450,36 +469,10 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
             )}
           </div>
 
-          <aside className="ceo-thread-side" aria-label="AI summary">
-            <h3>AI summary</h3>
-            {t.summary ? <p>{t.summary}</p> : <p className="ceo-muted">Summary not available yet.</p>}
-            {t.key_points?.length > 0 && <>
-              <h4>Key points</h4>
-              <ul className="ceo-points">{t.key_points.map((p, i) => {
-                const isSaved = savedFacts.some((fact) => fact.thread_id === t.id && fact.fact === p);
-                return (
-                  <li key={i}>
-                    <span>{p}</span>
-                    <button className="ceo-text-btn" type="button" disabled={isSaved} onClick={() => saveFact(t, p)}>
-                      {isSaved ? "Saved to memory" : "Save fact"}
-                    </button>
-                  </li>
-                );
-              })}</ul>
-            </>}
-            {t.suggested_actions?.length > 0 && <>
-              <h4>Suggested actions</h4>
-              <div className="ceo-actions">
-                {t.suggested_actions.map((a, i) => (
-                  <button key={i} type="button" className="ceo-chip" onClick={() => addAction(t, a)}>
-                    + {a.type === "reply" ? "Reply" : a.type}: {a.title}{a.due ? ` (${when(a.due)})` : ""}
-                  </button>
-                ))}
-              </div>
-            </>}
-          </aside>
         </div>
       </section>
+      <AiAssistWindow sb={sb} thread={t} when={when} savedFacts={savedFacts} onSaveFact={saveFact} onAddAction={addAction} />
+      </div>
     );
   }
 
@@ -601,6 +594,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
         </button>
       )}
       <p className="ceo-chat-note">The source mailbox remains read-only. Every folder&apos;s messages, attachments and original .eml files are kept in CRM Email Base. Email text is sent to DeepSeek via OpenRouter for summaries.</p>
+      {threadPopup}
     </section>
   );
 }
@@ -647,7 +641,9 @@ function InboxStyles() {
       .ceo-thread-head { display: grid; gap: 6px; padding: 4px 2px; }
       .ceo-thread-head h2 { margin: 0; font-size: 20px; line-height: 1.3; color: #1f2a30; overflow-wrap: anywhere; }
       .ceo-thread-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
-      .ceo-thread-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+      .ceo-mail-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: start center; padding: 24px 16px; overflow: auto; background: rgba(15, 23, 42, .38); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+      .ceo-mail-window { width: min(980px, 100%); display: grid; gap: 10px; padding: 16px; background: #f5f7f8; border-radius: 14px; box-shadow: 0 24px 60px rgba(15,23,42,.35); }
+      .ceo-thread-layout { display: grid; gap: 14px; }
       .ceo-thread-messages { display: grid; gap: 8px; min-width: 0; }
       .ceo-msg { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; }
       .ceo-msg-head { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; background: none; border: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
@@ -659,11 +655,7 @@ function InboxStyles() {
       .ceo-msg-body { display: grid; gap: 4px; padding: 0 14px 14px 56px; font-size: 12px; }
       .ceo-msg-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13.5px; line-height: 1.55; margin: 8px 0 0; color: #1f2a30; }
       .ceo-thread-reply { padding: 4px 0; }
-      .ceo-thread-side { position: sticky; top: 12px; display: grid; gap: 8px; padding: 14px; background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; font-size: 12.5px; color: #374151; }
-      .ceo-thread-side h3 { margin: 0; font-size: 14px; color: #1f2a30; }
-      .ceo-thread-side h4 { margin: 6px 0 0; font-size: 12.5px; color: #1f2a30; }
-      .ceo-thread-side p { margin: 0; line-height: 1.5; }
-      @media (max-width: 900px) { .ceo-thread-layout { grid-template-columns: 1fr; } .ceo-thread-side { position: static; } .ceo-msg-body { padding-left: 14px; } }
+      @media (max-width: 900px) { .ceo-msg-body { padding-left: 14px; } .ceo-mail-overlay { padding: 8px; } .ceo-mail-window { padding: 10px; } }
       .ceo-email-history { display: grid; gap: 8px; }
       .ceo-email-history h4 { margin: 0; font-size: 13px; color: #1f2a30; }
       .ceo-email-message { display: grid; gap: 4px; padding: 10px; border: 1px solid #e8e8e8; border-radius: 8px; }

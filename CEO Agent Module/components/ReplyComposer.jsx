@@ -376,7 +376,7 @@ function ReplyStyles() {
       .ceo-reply-footer > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
       .ceo-reply-btn { font: inherit; font-size: 13px; padding: 7px 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #1f2a30; cursor: pointer; }
       .ceo-reply-btn:disabled { opacity: .6; cursor: default; }
-      .ceo-reply-modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, .45); }
+      .ceo-reply-modal-backdrop { position: fixed; inset: 0; z-index: 1003; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, .45); }
       .ceo-reply-modal { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: grid; gap: 12px; padding: 18px; background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
       .ceo-reply-modal header { display: flex; justify-content: space-between; gap: 12px; }
       .ceo-reply-modal h3 { margin: 0; font-size: 16px; color: #1f2a30; }
