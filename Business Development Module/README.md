@@ -23,8 +23,36 @@ The Main Module imports this folder directly; there is no copy to keep in sync.
   `Database Module/docs/BD_*.md`). `Main Module/db/business_development.sql` is retired; do not run it.
 - The GitHub Pages build checks out the whole repo, so changes here deploy with the next push to `main`.
 
-## Adding a lead source (next)
+## Lead Generation tab (platform integrations)
 
-Keep provider API keys out of the browser and out of Git: store them as Supabase Edge Function secrets
-(see `Integrations Module/registry.json` for naming) and call the provider from an Edge Function that writes
-leads through the same RPCs the page uses, so duplicate checks and audit rules still apply.
+| Path | Purpose |
+|---|---|
+| `components/LeadGenerationView.jsx` | **Lead Generation** sub-tab: platform connection cards, sync, prospect review queue |
+| `supabase/bd-lead-sources/index.ts` | Edge Function `bd-lead-sources` (actions `status`, `settings`, `sync`) |
+| `Database Module/migrations/bd/005_bd_lead_platforms.sql` | `bd_platform_connections`, `bd_platform_prospects`, the `EXPLEE` lead source |
+
+Flow: **Sync now** pulls prospects into `bd_platform_prospects` (status `new`). A person reviews them and
+clicks **Add to pipeline**, which opens the normal New lead form prefilled (source Explee, campaign,
+contact details, why the lead is hot). Saving goes through `bd_create_lead`, so duplicate checks, ownership and
+follow-up rules apply, and the prospect is marked `added` with the new lead's id. **Dismiss** hides a prospect;
+**Restore** brings it back. Nothing is created in the pipeline automatically.
+
+### Explee
+
+- API: `https://api.explee.com/public/api/v1`, header `X-API-Key`. Docs: https://api.explee.com/public/api/docs
+- Secret: `EXPLEE_API_KEY` (Supabase → Edge Functions → Secrets). Never in the browser or Git.
+- Project: `settings.project_id` on the `explee` connection (preset to 38083, the id in the app URL
+  `explee.com/app-auto-gtm/p/38083`). BD managers can change it on the card.
+- Sync pulls **hot leads** (`GET /autogtm/hot-leads`, incremental from the newest `became_hot_at`) and,
+  when ticked, **everyone the campaigns emailed** (`GET /autogtm/campaigns/{id}/leads`, up to 1,000 per
+  campaign; needs an Explee plan with lead export). Hot leads overwrite their row's details; contacted rows never
+  overwrite existing ones.
+- Only BD managers can update the connection row, so a sync run by a sales executive still imports prospects but
+  does not record the sync time; the next sync re-reads the same window (imports are idempotent).
+- Explee charges nothing for reading these lists, but every API call needs a positive credit balance.
+
+### Adding another platform
+
+Add a `bd_platform_connections` row and a provider branch in `bd-lead-sources` that maps the platform's
+records to `bd_platform_prospects` columns, keep the key in an Edge Function secret, and add a card to
+`LeadGenerationView`.

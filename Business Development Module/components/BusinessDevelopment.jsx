@@ -14,7 +14,9 @@ import {
   markBusinessDevelopmentLeadWon,
   updateBusinessDevelopmentStage,
   updateBusinessDevelopmentService,
+  updatePlatformProspect,
 } from "../logic/businessDevelopmentData";
+import LeadGenerationView from "./LeadGenerationView";
 import "./BusinessDevelopment.css";
 
 const PAGES = [
@@ -26,6 +28,7 @@ const PAGES = [
   "Lead Calendar",
   "Follow-up Center",
   "Campaigns & Sources",
+  "Lead Generation",
   "Proposals & Quotations",
   "Won Leads & Onboarding Handover",
   "Lost Leads Analysis",
@@ -165,6 +168,8 @@ export default function BusinessDevelopment({ profile }) {
   const [selectedService, setSelectedService] = useState(null);
   const [modal, setModal] = useState("");
   const [busy, setBusy] = useState(false);
+  const [leadPrefill, setLeadPrefill] = useState(null); // { prospectId, values } when adding a platform prospect
+  const [prospectsVersion, setProspectsVersion] = useState(0);
   const currentUserId = profile?.id;
 
   const load = useCallback(async () => {
@@ -224,9 +229,16 @@ export default function BusinessDevelopment({ profile }) {
 
   async function submitLead(lead, activity, followup) {
     setBusy(true);
-    const { error: saveError } = await createBusinessDevelopmentLead(lead, activity, followup);
+    const { data: created, error: saveError } = await createBusinessDevelopmentLead(lead, activity, followup);
     setBusy(false);
     if (saveError) { setError(errorText(saveError)); return false; }
+    if (leadPrefill?.prospectId) {
+      await updatePlatformProspect(leadPrefill.prospectId, {
+        status: "added", lead_id: created?.id ?? null, handled_by: currentUserId, handled_at: new Date().toISOString(),
+      });
+      setLeadPrefill(null);
+      setProspectsVersion((v) => v + 1);
+    }
     setModal("");
     setStatus("Lead created and initial discussion recorded.");
     await load();
@@ -438,11 +450,17 @@ export default function BusinessDevelopment({ profile }) {
               : <FollowupView items={dueFollowups} onOpen={openLead} onComplete={completeFollowup} />
           )}
           {!isDashboard && !isPipeline && isSources && <SourcesView leads={leads} />}
+          {page === "Lead Generation" && (
+            <LeadGenerationView
+              version={prospectsVersion}
+              onAddToPipeline={(prospectId, values) => { setError(""); setLeadPrefill({ prospectId, values }); setModal("lead"); }}
+            />
+          )}
           {!isDashboard && !isPipeline && isProposals && <ProposalView leads={leads} onOpen={openLead} />}
           {!isDashboard && !isPipeline && page === "Reports & Analytics" && <ReportsView leads={leads} />}
           {!isDashboard && !isPipeline && page === "Settings & Master Data" && <MasterDataView />}
           {!isDashboard && !isPipeline && !isFollowups && !isSources && !isProposals && (
-            page !== "Reports & Analytics" && page !== "Settings & Master Data" && <LeadListView
+            page !== "Reports & Analytics" && page !== "Settings & Master Data" && page !== "Lead Generation" && <LeadListView
               title={page}
               leads={filteredLeads}
               profiles={profilesById}
@@ -456,7 +474,8 @@ export default function BusinessDevelopment({ profile }) {
         </main>
       )}
 
-      {modal === "lead" && <LeadForm profiles={profiles} currentUserId={currentUserId} leads={leads} busy={busy} onClose={() => setModal("")} onSubmit={submitLead} />}
+      {modal === "lead" && <LeadForm profiles={profiles} currentUserId={currentUserId} leads={leads} busy={busy}
+        initial={leadPrefill?.values} onClose={() => { setModal(""); setLeadPrefill(null); }} onSubmit={submitLead} />}
       {modal === "complete-followup" && selectedFollowup && <CompleteFollowupForm followup={selectedFollowup} busy={busy} onClose={() => { setModal(""); setSelectedFollowup(null); }} onSubmit={confirmFollowupComplete} />}
     </div>
   );
@@ -578,7 +597,7 @@ function MasterDataView() {
   return <section><div className="bd-section-heading"><div><h2>Settings & Master Data</h2><p>Default sources and services available to Business Development.</p></div></div><div className="bd-dashboard-grid"><section className="bd-panel"><div className="bd-panel-heading"><div><h3>Lead sources</h3><p>Original acquisition attribution</p></div></div><div className="bd-master-list">{BD_SOURCES.map((item) => <span key={item}>{item}</span>)}</div></section><section className="bd-panel"><div className="bd-panel-heading"><div><h3>Services</h3><p>Service interests and opportunity categories</p></div></div><div className="bd-master-list">{BD_SERVICES.map((item) => <span key={item}>{item}</span>)}</div></section></div><div className="bd-permission-note">Role assignments are managed in the protected <code>bd_user_roles</code> table. This initial version uses the module’s built-in source and service defaults; master-data editing is not enabled yet.</div></section>;
 }
 
-function LeadForm({ profiles, currentUserId, leads, busy, onClose, onSubmit }) {
+function LeadForm({ profiles, currentUserId, leads, busy, onClose, onSubmit, initial }) {
   const [form, setForm] = useState({
     lead_type: "company", name: "", contact_name: "", mobile: "", email: "", whatsapp: "",
     source: "Direct", source_detail: "", campaign_name: "", acquired_by: currentUserId || "",
@@ -586,6 +605,7 @@ function LeadForm({ profiles, currentUserId, leads, busy, onClose, onSubmit }) {
     initial_summary: "", next_followup_at: toUaeInput(new Date(Date.now() + 86400000)),
     estimated_budget: "", budget_currency: "AED", priority: "Medium", notes: "",
     contact_channel: "Phone Call",
+    ...(initial || {}),
   });
   const [duplicateAllowed, setDuplicateAllowed] = useState(false);
   const [validation, setValidation] = useState("");

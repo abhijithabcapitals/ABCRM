@@ -306,3 +306,33 @@
   .bd-inline-actions { flex-wrap: wrap; }
   .bd-detail-actions .bd-button { flex: 1; }
 }
+
+/* Lead Generation (platform prospects) */
+.bd-leadgen-sources { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; margin-bottom: 18px; }
+.bd-leadgen-card { display: grid; gap: 12px; align-content: start; }
+.bd-leadgen-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.bd-leadgen-card-head strong, .bd-leadgen-soon strong { font-size: 15px; display: block; }
+.bd-leadgen-card small, .bd-leadgen-soon small { color: #6b7280; font-size: 12.5px; display: block; }
+.bd-leadgen-state { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; background: #f3f4f6; color: #4b5563; white-space: nowrap; }
+.bd-leadgen-state.on { background: #dcfce7; color: #15803d; }
+.bd-leadgen-help { font-size: 12.5px; color: #4b5563; margin: 0; line-height: 1.5; }
+.bd-leadgen-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 0; }
+.bd-leadgen-facts dt { font-size: 11px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.04em; }
+.bd-leadgen-facts dd { margin: 2px 0 0; font-size: 13px; color: #1f2a30; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; overflow-wrap: anywhere; }
+.bd-leadgen-facts input { width: 110px; font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; }
+.bd-leadgen-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bd-leadgen-check { font-size: 12.5px; color: #374151; display: flex; gap: 6px; align-items: center; }
+.bd-leadgen-soon { background: #fafaf9; }
+.bd-leadgen-listhead { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.bd-leadgen-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.bd-leadgen-tabs button { background: none; border: 1px solid transparent; border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 13px; color: #4b5563; cursor: pointer; }
+.bd-leadgen-tabs button.active { background: #eef7f7; border-color: #cfe7e6; color: #0f5e5a; font-weight: 600; }
+.bd-leadgen-search { min-width: 240px; font: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 8px; }
+.bd-leadgen-table td small { display: block; color: #6b7280; font-size: 12px; margin-top: 2px; }
+.bd-leadgen-why small { max-width: 320px; }
+.bd-leadgen-kind { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; background: #f3f4f6; color: #4b5563; }
+.bd-leadgen-kind.hot { background: #fdecea; color: #b42318; }
+.bd-leadgen-kind.added { background: #dcfce7; color: #15803d; }
+.bd-leadgen-row-actions { white-space: nowrap; }
+.bd-leadgen-row-actions .bd-button { padding: 6px 10px; font-size: 12.5px; margin-right: 8px; }
+@media (max-width: 900px) { .bd-leadgen-sources { grid-template-columns: 1fr; } .bd-leadgen-facts { grid-template-columns: 1fr; } }

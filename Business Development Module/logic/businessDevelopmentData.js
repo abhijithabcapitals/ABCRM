@@ -32,6 +32,7 @@ export const BD_SOURCES = [
   "Email",
   "Networking / Event",
   "Walk-in",
+  "Explee",
   "Other",
 ];
 
@@ -124,4 +125,30 @@ export async function markBusinessDevelopmentLeadLost(leadId, reason, notes) {
     p_reason: reason,
     p_notes: notes,
   });
+}
+
+// Lead-generation platforms (bd-lead-sources Edge Function; prospects staged in bd_platform_prospects)
+export async function callLeadSources(action, payload = {}) {
+  const { data, error } = await supabase.functions.invoke("bd-lead-sources", { body: { action, provider: "explee", ...payload } });
+  if (error) {
+    let message = error.message;
+    try { message = (await error.context?.json())?.error || message; } catch { /* keep message */ }
+    return { data: null, error: { message } };
+  }
+  if (data?.error) return { data: null, error: { message: data.error } };
+  return { data, error: null };
+}
+
+export async function fetchPlatformProspects(status = "new") {
+  let query = supabase.from("bd_platform_prospects")
+    .select("id, provider, kind, external_id, campaign_name, name, email, phone, job_title, company_name, company_domain, linkedin_url, country, why_hot, note, became_hot_at, replied, status, lead_id, fetched_at")
+    .order("became_hot_at", { ascending: false, nullsFirst: false })
+    .order("fetched_at", { ascending: false })
+    .limit(500);
+  if (status !== "all") query = query.eq("status", status);
+  return query;
+}
+
+export async function updatePlatformProspect(id, patch) {
+  return supabase.from("bd_platform_prospects").update(patch).eq("id", id);
 }
