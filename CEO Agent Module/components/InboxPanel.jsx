@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReplyComposer from "./ReplyComposer.jsx";
 
-// Inbox view of the CEO Agent: AI summaries of the connected mailbox
+// Inbox view of the CEO Agent: every conversation of the connected mailboxes
 // (Email Base in the CRM Project: email_base.threads of the mailboxes tagged
-// 'ceo', written by the ceo-mail-sync Edge Function). The mailbox
-// itself is read-only; this view can mark threads important, save facts, review
-// unsent reply drafts, and turn a suggested action into a task or reminder.
+// 'ceo', written by the ceo-mail-sync Edge Function from all IMAP folders). The
+// mailbox itself is read-only; this view can search the whole store, open the
+// original messages with attachments, mark threads important, save facts,
+// review unsent reply drafts, and turn a suggested action into a task or reminder.
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -12,9 +14,22 @@ const FILTERS = [
   { id: "important", label: "Important" },
   { id: "reply", label: "Needs reply" },
   { id: "urgent", label: "Urgent" },
+  { id: "sent", label: "Sent" },
+  { id: "archived", label: "Archived" },
 ];
-const PRIORITY_ORDER = { urgent: 0, high: 1, normal: 2, low: 3 };
+const MAILBOX_COLORS = [
+  { bg: "#e6f4f3", fg: "#0b6b70", border: "#99d5d2" },
+  { bg: "#eef0ff", fg: "#3a43a8", border: "#c3c8f5" },
+  { bg: "#fff4e5", fg: "#9a5b00", border: "#f5d39a" },
+  { bg: "#fde8f1", fg: "#a3245e", border: "#f3b8d1" },
+];
 const POLL_MS = 2 * 60 * 1000;
+const PAGE_SIZE = 50;
+const BUCKET = "email-base";
+const THREAD_COLUMNS = "id, mailbox_id, subject, participants, last_message_at, message_count, status, category, priority, needs_reply, is_important, summary, key_points, suggested_actions, folders";
+const MESSAGE_COLUMNS = "id, folder, direction, from_address, from_name, to_addresses, cc_addresses, subject, sent_at, body_text, body_complete, parse_error, attachment_count, raw_path";
+
+const fileSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 // Unread count for the tab badge, plus an optional browser alert when a new
 // urgent or needs-reply conversation arrives while the CRM is open.
@@ -51,59 +66,122 @@ export function useInboxAlerts(sb) {
 
 export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged }) {
   const [account, setAccount] = useState(undefined);
+  const [folders, setFolders] = useState([]);
   const [threads, setThreads] = useState(null);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [query, setQuery] = useState("");
+  const [searchIds, setSearchIds] = useState(null);
+  const [searching, setSearching] = useState(false);
   const [messagesByThread, setMessagesByThread] = useState({});
+  const [attachmentsByMessage, setAttachmentsByMessage] = useState({});
   const [loadingMessages, setLoadingMessages] = useState(null);
   const [savedFacts, setSavedFacts] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [draftEdits, setDraftEdits] = useState({});
   const [filter, setFilter] = useState("all");
   const [open, setOpen] = useState(null);
+  const [replying, setReplying] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [alerts, setAlerts] = useState(() => (typeof Notification === "undefined" ? "unsupported" : Notification.permission));
 
+  // Conversations are filtered and paged in the database, so every stored email is reachable.
+  const threadQuery = useCallback((sentFolders, from, to) => {
+    let q = sb.schema("email_base").from("threads").select(THREAD_COLUMNS, { count: "exact" }).contains("tags", ["ceo"]);
+    q = filter === "archived" ? q.eq("status", "archived") : q.neq("status", "archived");
+    if (filter === "unread") q = q.eq("status", "new");
+    if (filter === "important") q = q.eq("is_important", true);
+    if (filter === "reply") q = q.eq("needs_reply", true);
+    if (filter === "urgent") q = q.in("priority", ["urgent", "high"]);
+    if (filter === "sent") q = q.overlaps("folders", sentFolders.length ? sentFolders : ["-"]);
+    if (searchIds) q = q.in("id", searchIds.length ? searchIds : ["00000000-0000-0000-0000-000000000000"]);
+    return q.order("last_message_at", { ascending: false }).range(from, to);
+  }, [sb, filter, searchIds]);
+
   const load = useCallback(async () => {
-    const [acc, list, facts, pendingDrafts] = await Promise.all([
+    const [acc, folderList, facts, pendingDrafts] = await Promise.all([
       sb.schema("email_base").from("mailboxes").select("id, address, status, last_synced_at, last_error").contains("tags", ["ceo"]).order("address"),
-      sb.schema("email_base").from("threads")
-        .select("id, mailbox_id, subject, participants, last_message_at, message_count, status, category, priority, needs_reply, is_important, summary, key_points, suggested_actions")
-        .contains("tags", ["ceo"]).neq("status", "archived").order("last_message_at", { ascending: false }).limit(60),
+      sb.schema("email_base").from("mailbox_folders").select("id, mailbox_id, name, role, enabled, last_uid, message_total, last_synced_at, last_error").order("name"),
       sb.from("email_saved_facts").select("id, thread_id, subject, fact, created_at").order("created_at", { ascending: false }).limit(100),
       sb.from("email_drafts").select("id, thread_id, to_address, subject, body, status, created_at")
         .in("status", ["draft", "approved"]).order("created_at", { ascending: false }).limit(50),
     ]);
-    const firstError = [acc, list, facts, pendingDrafts].find((result) => result.error)?.error;
+    const sentFolders = [...new Set((folderList.data || []).filter((f) => f.role === "sent").map((f) => f.name))];
+    const list = await threadQuery(sentFolders, 0, pages * PAGE_SIZE - 1);
+    const firstError = [acc, folderList, list, facts, pendingDrafts].find((result) => result.error)?.error;
     if (firstError) { setError(firstError.message); return; }
     setError("");
     setAccount(acc.data || []);
+    setFolders(folderList.data || []);
     setThreads(list.data || []);
+    setTotal(list.count ?? (list.data || []).length);
     setSavedFacts(facts.data || []);
     setDrafts(pendingDrafts.data || []);
-  }, [sb]);
+  }, [sb, threadQuery, pages]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
+
+  // Search covers message bodies, subjects and senders, and the AI summaries.
+  async function runSearch(e) {
+    e?.preventDefault();
+    const term = query.trim();
+    setPages(1);
+    if (!term) { setSearchIds(null); return; }
+    setSearching(true);
+    const safe = term.replace(/[,()*%"\\]/g, " ").trim();
+    // A fresh query builder per request: builders share their URL and must not be reused.
+    const mail = () => sb.schema("email_base").from("messages");
+    const [body, meta, summaries] = await Promise.all([
+      mail().select("thread_id").textSearch("body_search_vector", term, { type: "websearch", config: "english" }).limit(150),
+      safe ? mail().select("thread_id").or(`subject.ilike."*${safe}*",from_address.ilike."*${safe}*",from_name.ilike."*${safe}*"`).limit(150) : { data: [] },
+      sb.schema("email_base").from("threads").select("id").contains("tags", ["ceo"])
+        .textSearch("assistant_search_vector", term, { type: "websearch", config: "english" }).limit(150),
+    ]);
+    setSearching(false);
+    const failed = [body, meta, summaries].find((r) => r.error)?.error;
+    if (failed) { setError(`Search failed: ${failed.message}`); return; }
+    setSearchIds([...new Set([
+      ...(summaries.data || []).map((t) => t.id),
+      ...(meta.data || []).map((m) => m.thread_id),
+      ...(body.data || []).map((m) => m.thread_id),
+    ])].slice(0, 200));
+  }
+
+  function clearSearch() {
+    setQuery("");
+    setSearchIds(null);
+    setPages(1);
+  }
+
+  async function download(path, filename) {
+    setError("");
+    const { data, error: err } = await sb.storage.from(BUCKET).createSignedUrl(path, 120, { download: filename || true });
+    if (err) { setError(`Could not open the file: ${err.message}`); return; }
+    window.open(data.signedUrl, "_blank", "noopener");
+  }
 
   const fmt = useMemo(() => new Intl.DateTimeFormat("en-GB", {
     timeZone: timezone, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
   }), [timezone]);
   const when = (v) => (v ? fmt.format(new Date(v)) : "");
 
-  const shown = useMemo(() => {
-    const list = (threads || []).filter((t) => {
-      if (filter === "unread") return t.status === "new";
-      if (filter === "important") return t.is_important;
-      if (filter === "reply") return t.needs_reply;
-      if (filter === "urgent") return t.priority === "urgent" || t.priority === "high";
-      return true;
-    });
-    // Unread first, then by priority, then newest.
-    return list.sort((a, b) =>
-      (a.status === "new" ? 0 : 1) - (b.status === "new" ? 0 : 1)
-      || (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2)
-      || String(b.last_message_at).localeCompare(String(a.last_message_at)));
-  }, [threads, filter]);
+  // Chronological: newest conversation first. The filter is applied in the database.
+  const shown = useMemo(() => [...(threads || [])].sort((a, b) =>
+    String(b.last_message_at).localeCompare(String(a.last_message_at))), [threads]);
+
+  // Each mailbox keeps one colour, so its bubble identifies the email account at a glance.
+  const mailboxColor = useCallback((mailboxId) => {
+    const index = (account || []).findIndex((a) => a.id === mailboxId);
+    return MAILBOX_COLORS[(index < 0 ? 0 : index) % MAILBOX_COLORS.length];
+  }, [account]);
+  const mailboxBubble = (mailboxId) => {
+    const address = account?.find((a) => a.id === mailboxId)?.address;
+    if (!address) return null;
+    const c = mailboxColor(mailboxId);
+    return <span className="ceo-mailbox-bubble" style={{ background: c.bg, color: c.fg, borderColor: c.border }}>{address}</span>;
+  };
 
   async function syncNow() {
     setSyncing(true);
@@ -121,8 +199,9 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     const read = results.reduce((n, r) => n + (r.fetched || 0), 0);
     if (message) setError(message);
     else if (failed.length) setError(failed.map((r) => `${r.address}: ${r.error}`).join(" "));
+    const remaining = results.reduce((n, r) => n + (r.remaining || 0), 0);
     if (!message && results.length > failed.length) {
-      setNotice(read ? `Read ${read} new email(s) across ${results.length} mailbox(es).`
+      setNotice(read ? `Stored ${read} email(s) across ${results.length} mailbox(es).${remaining ? ` ${remaining} more are queued for the next runs.` : ""}`
         : results.some((r) => r.skipped) ? "A sync is already running." : "No new email.");
     }
     onChanged?.();
@@ -133,7 +212,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     if (err) { setError(err.message); return; }
     setThreads((list) => (list || [])
       .map((t) => (t.id === id ? { ...t, status } : t))
-      .filter((t) => t.status !== "archived"));
+      .filter((t) => (filter === "archived") === (t.status === "archived")));
     onChanged?.();
   }
 
@@ -199,11 +278,19 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     if (messagesByThread[t.id] || loadingMessages === t.id) return;
     setLoadingMessages(t.id);
     sb.schema("email_base").from("messages")
-      .select("id, from_address, from_name, to_addresses, subject, sent_at, body_text")
+      .select(MESSAGE_COLUMNS)
       .eq("thread_id", t.id).order("sent_at", { ascending: true }).limit(1000)
-      .then(({ data, error: messageError }) => {
-        if (messageError) setError(`Could not load email messages: ${messageError.message}`);
-        else setMessagesByThread((messages) => ({ ...messages, [t.id]: data || [] }));
+      .then(async ({ data, error: messageError }) => {
+        if (messageError) { setError(`Could not load email messages: ${messageError.message}`); return; }
+        setMessagesByThread((messages) => ({ ...messages, [t.id]: data || [] }));
+        const withFiles = (data || []).filter((m) => m.attachment_count > 0).map((m) => m.id);
+        if (!withFiles.length) return;
+        const { data: files, error: fileError } = await sb.schema("email_base").from("attachments")
+          .select("id, message_id, position, filename, content_type, size_bytes, storage_path").in("message_id", withFiles).order("position");
+        if (fileError) { setError(`Could not load attachments: ${fileError.message}`); return; }
+        const grouped = {};
+        for (const f of files || []) (grouped[f.message_id] ||= []).push(f);
+        setAttachmentsByMessage((all) => ({ ...all, ...grouped }));
       })
       .catch((messageError) => setError(`Could not load email messages: ${messageError.message || String(messageError)}`))
       .finally(() => setLoadingMessages(null));
@@ -253,17 +340,21 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
       <InboxStyles />
       <div className="ceo-inbox-head">
         <div>
-          {account?.map((a) => (
-            <div key={a.id} className="ceo-mailbox-line">
-              <b>{a.address}</b>
-              <span>
-                {a.status === "syncing" ? "Syncing…"
-                  : a.last_synced_at ? `Last checked ${when(a.last_synced_at)}`
-                    : "Not synced yet"}
-              </span>
-            </div>
-          ))}
-          <span>Checks every 15 minutes</span>
+          {account?.map((a) => {
+            const synced = folders.filter((f) => f.mailbox_id === a.id && f.enabled);
+            return (
+              <div key={a.id} className="ceo-mailbox-line">
+                {mailboxBubble(a.id)}
+                <span>
+                  {a.status === "syncing" ? "Syncing…"
+                    : a.last_synced_at ? `Last checked ${when(a.last_synced_at)}`
+                      : "Not synced yet"}
+                  {synced.length > 0 && ` · ${synced.map((f) => f.name.replace(/^INBOX[./]/i, "")).join(", ")}`}
+                </span>
+              </div>
+            );
+          })}
+          <span>Checks every 5 minutes · {total} conversation(s){searchIds ? " match the search" : ""}</span>
         </div>
         <div className="ceo-inbox-tools">
           {alerts === "default" && <button className="ceo-text-btn" type="button" onClick={enableAlerts}>Enable alerts</button>}
@@ -273,6 +364,11 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
 
       {account?.filter((a) => a.status === "error" && a.last_error).map((a) => (
         <p key={a.id} className="ceo-notice ceo-error" role="alert">{a.address}: {a.last_error}</p>
+      ))}
+      {folders.filter((f) => f.enabled && f.last_error).map((f) => (
+        <p key={f.id} className="ceo-notice ceo-error" role="alert">
+          {account?.find((a) => a.id === f.mailbox_id)?.address} · {f.name}: {f.last_error}
+        </p>
       ))}
       {error && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
       {notice && <p className="ceo-notice ceo-ok" role="status">{notice}</p>}
@@ -308,16 +404,23 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
         </section>
       )}
 
+      <form className="ceo-mail-search" role="search" onSubmit={runSearch}>
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search all emails: text, subject, sender, summary" aria-label="Search emails" />
+        <button className="btn btn-primary" type="submit" disabled={searching}>{searching ? "Searching…" : "Search"}</button>
+        {searchIds && <button className="ceo-text-btn" type="button" onClick={clearSearch}>Clear</button>}
+      </form>
+
       <div className="ceo-switch" role="tablist" aria-label="Filter conversations">
         {FILTERS.map((f) => (
           <button key={f.id} type="button" role="tab" aria-selected={filter === f.id} className={filter === f.id ? "on" : ""}
-            onClick={() => setFilter(f.id)}>{f.label}</button>
+            onClick={() => { setFilter(f.id); setPages(1); }}>{f.label}</button>
         ))}
       </div>
 
       {threads && !shown.length && (
         <div className="ceo-panel"><p className="ceo-panel-empty">
-          {threads.length ? "Nothing matches this filter." : "No conversations yet. Summaries appear here after the next sync."}
+          {searchIds ? "No email matches this search." : filter !== "all" ? "Nothing matches this filter." : "No conversations yet. They appear here after the next sync."}
         </p></div>
       )}
 
@@ -327,8 +430,9 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
             <button type="button" className="ceo-mail-row" onClick={() => toggle(t)} aria-expanded={open === t.id}>
               <span className={`ceo-dot ceo-dot-${t.priority || "normal"}`} title={t.priority || "normal"} />
               <span className="ceo-mail-main">
+                {mailboxBubble(t.mailbox_id)}
                 <b>{t.subject || "(no subject)"}</b>
-                <span>{account.length > 1 && <em className="ceo-mailbox">{account.find((a) => a.id === t.mailbox_id)?.address} · </em>}{(t.participants || []).slice(0, 2).join(", ")}{t.message_count > 1 ? ` · ${t.message_count} emails` : ""}</span>
+                <span>{(t.participants || []).slice(0, 2).join(", ")}{t.message_count > 1 ? ` · ${t.message_count} emails` : ""}</span>
                 {t.summary
                   ? <small className={open === t.id ? "" : "ceo-clamp"}>{t.summary}</small>
                   : <small className="ceo-muted">Summary not available.</small>}
@@ -347,10 +451,30 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
                   {loadingMessages === t.id && <p className="ceo-muted">Loading messages…</p>}
                   {(messagesByThread[t.id] || []).map((message) => (
                     <article key={message.id} className="ceo-email-message">
-                      <div><b>{message.from_name || message.from_address || "Unknown sender"}</b></div>
+                      <div>
+                        <b>{message.from_name || message.from_address || "Unknown sender"}</b>
+                        {message.direction === "outbound" && <span className="ceo-tag ceo-tag-sent">sent</span>}
+                        {message.folder && <span className="ceo-tag ceo-tag-folder">{message.folder.replace(/^INBOX[./]/i, "")}</span>}
+                      </div>
                       <div className="ceo-muted">{message.from_address} · {when(message.sent_at)}</div>
                       <div className="ceo-muted">To: {(message.to_addresses || []).join(", ") || "Not available"}</div>
+                      {message.cc_addresses?.length > 0 && <div className="ceo-muted">Cc: {message.cc_addresses.join(", ")}</div>}
+                      {message.body_complete === false && message.parse_error && <div className="ceo-mail-warning">{message.parse_error}</div>}
                       <pre>{message.body_text || "(No text body)"}</pre>
+                      {(attachmentsByMessage[message.id] || []).length > 0 && (
+                        <div className="ceo-attachments">
+                          {attachmentsByMessage[message.id].map((f) => (
+                            <button key={f.id} type="button" className="ceo-chip" onClick={() => download(f.storage_path, f.filename)}>
+                              {f.filename || "attachment"} · {fileSize(f.size_bytes)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {message.raw_path && (
+                        <button type="button" className="ceo-text-btn ceo-eml" onClick={() => download(message.raw_path, "message.eml")}>
+                          Download original (.eml)
+                        </button>
+                      )}
                     </article>
                   ))}
                 </section>
@@ -376,21 +500,35 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
                     ))}
                   </div>
                 )}
+                {replying === t.id && (
+                  <ReplyComposer sb={sb} thread={t} when={when} onClose={() => setReplying(null)}
+                    onSent={() => { setThreads((list) => (list || []).map((x) => (x.id === t.id ? { ...x, needs_reply: false, status: "read" } : x))); onChanged?.(); }} />
+                )}
                 <div className="ceo-mail-buttons">
+                  {replying !== t.id && (
+                    <button className="btn btn-primary ceo-reply-open" type="button" onClick={() => setReplying(t.id)}>Reply</button>
+                  )}
                   <button className="ceo-text-btn" type="button" onClick={() => setImportant(t, !t.is_important)}>
                     {t.is_important ? "Unmark important" : "Mark important"}
                   </button>
                   <button className="ceo-text-btn" type="button" onClick={() => setStatus(t.id, t.status === "new" ? "read" : "new")}>
                     Mark {t.status === "new" ? "read" : "unread"}
                   </button>
-                  <button className="ceo-text-btn" type="button" onClick={() => setStatus(t.id, "archived")}>Archive</button>
+                  {t.status === "archived"
+                    ? <button className="ceo-text-btn" type="button" onClick={() => setStatus(t.id, "read")}>Unarchive</button>
+                    : <button className="ceo-text-btn" type="button" onClick={() => setStatus(t.id, "archived")}>Archive</button>}
                 </div>
               </div>
             )}
           </li>
         ))}
       </ul>
-      <p className="ceo-chat-note">The source mailbox remains read-only. Email text is sent to DeepSeek via OpenRouter for summaries; plain-text message bodies and summaries are retained in CRM Email Base. Attachments are not stored.</p>
+      {threads && threads.length < total && (
+        <button className="ceo-text-btn ceo-more" type="button" onClick={() => setPages((n) => n + 1)}>
+          Show more ({threads.length} of {total})
+        </button>
+      )}
+      <p className="ceo-chat-note">The source mailbox remains read-only. Every folder&apos;s messages, attachments and original .eml files are kept in CRM Email Base. Email text is sent to DeepSeek via OpenRouter for summaries.</p>
     </section>
   );
 }
@@ -402,7 +540,8 @@ function InboxStyles() {
       .ceo-inbox-head b { display: block; font-size: 14px; color: #1f2a30; }
       .ceo-inbox-head span { font-size: 12px; color: #6b7280; }
       .ceo-mailbox-line + .ceo-mailbox-line { margin-top: 6px; }
-      .ceo-mailbox { font-style: normal; color: #0d7d82; }
+      .ceo-mailbox-bubble { justify-self: start; display: inline-block; max-width: 100%; font-size: 11px; font-weight: 600; line-height: 1.5; padding: 1px 9px; border: 1px solid; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ceo-mailbox-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .ceo-inbox-tools { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
       .ceo-ok { background: #ecfdf5; color: #047857; }
       .ceo-mail-review { display: grid; gap: 10px; padding: 12px; background: #f8fafc; border: 1px solid #dbe3e8; border-radius: 10px; }
@@ -440,7 +579,16 @@ function InboxStyles() {
       .ceo-points li { padding-left: 1px; }
       .ceo-points .ceo-text-btn { display: block; padding: 2px 0; }
       .ceo-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-      .ceo-mail-buttons { display: flex; gap: 14px; }
+      .ceo-mail-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+      .ceo-reply-open { padding: 6px 16px; }
+      .ceo-mail-search { display: flex; gap: 8px; align-items: center; }
+      .ceo-mail-search input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 7px; }
+      .ceo-tag-sent { background: #e0f2fe; color: #075985; margin-left: 6px; text-transform: none; }
+      .ceo-tag-folder { margin-left: 6px; text-transform: none; }
+      .ceo-mail-warning { font-size: 11.5px; color: #92400e; background: #fef3c7; padding: 4px 8px; border-radius: 6px; }
+      .ceo-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+      .ceo-eml { justify-self: start; font-size: 11.5px; }
+      .ceo-more { justify-self: center; }
       @media (max-width: 640px) { .ceo-inbox-head { flex-direction: column; align-items: flex-start; } .ceo-mail-meta { display: none; } }
     `}</style>
   );

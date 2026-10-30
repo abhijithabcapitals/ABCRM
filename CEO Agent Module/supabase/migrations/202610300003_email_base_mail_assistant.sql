@@ -22,7 +22,7 @@ create table ceo.email_saved_facts (
   subject text not null,
   fact text not null,
   fact_hash bytea generated always as (
-    extensions.digest(convert_to(fact, 'UTF8'), 'sha256')
+    extensions.digest(fact, 'sha256')
   ) stored,
   search_vector tsvector generated always as (
     to_tsvector('english', coalesce(subject, '') || ' ' || coalesce(fact, ''))

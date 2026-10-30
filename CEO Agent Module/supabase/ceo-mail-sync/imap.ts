@@ -2,8 +2,9 @@
 //
 // npm IMAP libraries rely on Node's tls shim, which closes the connection right
 // after the greeting inside the Supabase Edge Runtime. This client speaks only
-// the commands the sync needs: LOGIN, EXAMINE (read-only select), UID SEARCH,
-// UID FETCH with BODY.PEEK (never sets \Seen) and LOGOUT.
+// the commands the sync needs: LOGIN, LIST, EXAMINE (read-only select), UID SEARCH,
+// UID FETCH with BODY.PEEK (never sets \Seen) and LOGOUT. ceo-mail-reply also uses
+// APPEND to keep a copy of each sent reply in the Sent folder.
 
 const CRLF = new Uint8Array([13, 10]);
 const enc = new TextEncoder();
@@ -75,10 +76,22 @@ export class ImapClient {
     return line;
   }
 
+  // Large literals (whole messages) are copied once into a buffer of the final size.
   private async readBytes(n: number): Promise<Uint8Array> {
-    while (this.buf.length < n) await this.fill();
-    const out = this.buf.slice(0, n);
-    this.buf = this.buf.slice(n);
+    const out = new Uint8Array(n);
+    let have = Math.min(n, this.buf.length);
+    out.set(this.buf.subarray(0, have));
+    this.buf = this.buf.slice(have);
+    const chunk = new Uint8Array(256 * 1024);
+    while (have < n) {
+      this.armTimeout();
+      const read = await this.conn.read(chunk);
+      if (read === null) throw new ImapError("The mail server closed the connection.", [...this.serverLines]);
+      const take = Math.min(read, n - have);
+      out.set(chunk.subarray(0, take), have);
+      have += take;
+      if (take < read) this.buf = concat(this.buf, chunk.slice(take, read));
+    }
     return out;
   }
 
@@ -145,14 +158,41 @@ export class ImapClient {
     }
   }
 
+  /** All selectable folders with their attributes (e.g. \Sent, \Junk). */
+  async listFolders(): Promise<{ name: string; flags: string[] }[]> {
+    const lines = await this.command(`LIST "" "*"`);
+    const out: { name: string; flags: string[] }[] = [];
+    for (const l of lines) {
+      const m = l.text.match(/^\* LIST \(([^)]*)\) (?:NIL|"(?:[^"\\]|\\.)*") (.*)$/i);
+      if (!m) continue;
+      const flags = m[1].split(/\s+/).filter(Boolean).map((f) => f.toLowerCase());
+      if (flags.includes("\\noselect") || flags.includes("\\nonexistent")) continue;
+      let name = m[2].trim();
+      if (name === "\x00") name = latin1.decode(l.literals[0] || new Uint8Array(0));
+      else if (name.startsWith('"')) name = name.slice(1, -1).replace(/\\(.)/g, "$1");
+      if (name) out.push({ name, flags });
+    }
+    return out;
+  }
+
+  /** Message count reported by the last EXAMINE. */
+  exists = 0;
+
   /** Read-only select. Returns the mailbox UIDVALIDITY. */
   async examine(mailbox: string): Promise<number> {
-    const lines = await this.command(`EXAMINE ${astring(mailbox) ?? '"INBOX"'}`);
+    const name = astring(mailbox);
+    if (!name) throw new ImapError(`Folder name is not plain ASCII: ${mailbox}`, [...this.serverLines]);
+    const lines = await this.command(`EXAMINE ${name}`);
+    let uidValidity = 0;
+    this.exists = 0;
     for (const l of lines) {
       const m = l.text.match(/\[UIDVALIDITY (\d+)\]/i);
-      if (m) return Number(m[1]);
+      if (m) uidValidity = Number(m[1]);
+      const e = l.text.match(/^\* (\d+) EXISTS/i);
+      if (e) this.exists = Number(e[1]);
     }
-    throw new ImapError("The server did not report UIDVALIDITY.", [...this.serverLines]);
+    if (!uidValidity) throw new ImapError("The server did not report UIDVALIDITY.", [...this.serverLines]);
+    return uidValidity;
   }
 
   async searchUids(criteria: string): Promise<number[]> {
@@ -165,18 +205,43 @@ export class ImapClient {
     return uids;
   }
 
-  /** Fetches the first maxBytes of each message without marking it read. */
-  async fetchSources(uids: number[], maxBytes: number) {
-    if (!uids.length) return [];
-    const lines = await this.command(`UID FETCH ${uids.join(",")} (UID INTERNALDATE BODY.PEEK[]<0.${maxBytes}>)`);
-    const out: { uid: number; internalDate: string | null; source: Uint8Array }[] = [];
+  /** Size, flags and arrival date of each message, without reading it. */
+  async fetchMeta(uids: number[]) {
+    const out = new Map<number, { size: number; flags: string[]; internalDate: string | null }>();
+    if (!uids.length) return out;
+    const lines = await this.command(`UID FETCH ${uids.join(",")} (UID RFC822.SIZE FLAGS INTERNALDATE)`);
     for (const l of lines) {
       if (!/^\* \d+ FETCH/i.test(l.text)) continue;
       const uid = l.text.match(/\bUID (\d+)/i);
+      if (!uid) continue;
+      const size = l.text.match(/RFC822\.SIZE (\d+)/i);
+      const flags = l.text.match(/FLAGS \(([^)]*)\)/i);
       const date = l.text.match(/INTERNALDATE "([^"]+)"/i);
-      if (uid && l.literals[0]) out.push({ uid: Number(uid[1]), internalDate: date ? date[1] : null, source: l.literals[0] });
+      out.set(Number(uid[1]), {
+        size: size ? Number(size[1]) : 0,
+        flags: flags ? flags[1].split(/\s+/).filter(Boolean) : [],
+        internalDate: date ? date[1] : null,
+      });
     }
     return out;
+  }
+
+  /** The whole message (or only its header) without marking it read; null if it was expunged. */
+  async fetchSource(uid: number, headerOnly = false): Promise<Uint8Array | null> {
+    const lines = await this.command(`UID FETCH ${uid} (UID BODY.PEEK[${headerOnly ? "HEADER" : ""}])`);
+    for (const l of lines) {
+      const at = l.text.match(/\bUID (\d+)/i);
+      if (/^\* \d+ FETCH/i.test(l.text) && at && Number(at[1]) === uid && l.literals[0]) return l.literals[0];
+    }
+    return null;
+  }
+
+  /** Stores a message in a folder (used to keep a copy of a sent reply in Sent). */
+  async append(mailbox: string, message: Uint8Array, flags = "\\Seen") {
+    const name = astring(mailbox);
+    if (!name) throw new ImapError(`Folder name is not plain ASCII: ${mailbox}`, [...this.serverLines]);
+    // LITERAL+ ({n+}) sends the message without waiting for a continuation.
+    await this.command(concat(enc.encode(`APPEND ${name} (${flags}) {${message.length}+}\r\n`), message));
   }
 
   async logout() {
