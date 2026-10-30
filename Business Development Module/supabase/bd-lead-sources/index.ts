@@ -297,12 +297,9 @@ Deno.serve(async (req) => {
       if (body.action === "redraft_reply") {
         const apiKey = Deno.env.get("OPENROUTER_API_KEY")?.trim();
         if (!apiKey) return json({ error: "Add the OPENROUTER_API_KEY secret to the bd-lead-sources Edge Function." }, 500);
-        const { data: draft, error: draftError } = await db.schema("email_base").from("bd_reply_drafts")
-          .select("id, prospect_id, body_text, status").eq("id", body.draft_id).maybeSingle();
-        if (draftError) return json({ error: draftError.message }, 500);
-        if (!draft || draft.prospect_id !== prospect.id) return json({ error: "Reply draft not found for this prospect." }, 404);
-        if (!["draft", "failed"].includes(draft.status)) return json({ error: `This reply is already ${draft.status}.` }, 409);
-        if (!draft.body_text?.trim()) return json({ error: "Write your reply before asking for a redraft." }, 400);
+        if (typeof body.body_text !== "string" || !body.body_text.trim() || body.body_text.length > 10000) {
+          return json({ error: "Write a reply of 1 to 10,000 characters before asking for a redraft." }, 400);
+        }
 
         const messages = (thread.messages || []).slice(-10).map((message: Record<string, unknown>) => ({
           direction: message.type === "sent" ? "outbound" : "inbound",
@@ -328,7 +325,7 @@ Deno.serve(async (req) => {
                 content: JSON.stringify({
                   recipient: { name: prospect.name, email: prospect.email, company: prospect.company_name },
                   instructions: typeof body.instructions === "string" ? body.instructions.slice(0, 2000) : "",
-                  reply_to_rewrite: draft.body_text.slice(0, 10000),
+                  reply_to_rewrite: body.body_text,
                   recent_conversation: messages,
                 }),
               },

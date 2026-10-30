@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { callLeadSources, fetchLatestPlatformReplyDraft } from "../logic/businessDevelopmentData";
+import {
+  callLeadSources, fetchLatestPlatformReplyDraft, savePlatformReplyDraft,
+} from "../logic/businessDevelopmentData";
 
 const mailDate = (value) => value ? new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -17,6 +19,8 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
   const [redraftOpen, setRedraftOpen] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [redraft, setRedraft] = useState("");
+  const [redraftSource, setRedraftSource] = useState("");
+  const [appliedRedraft, setAppliedRedraft] = useState(null);
   const [sendConfirmation, setSendConfirmation] = useState(null);
   const [verificationCode, setVerificationCode] = useState("");
   const [sendSuccess, setSendSuccess] = useState(false);
@@ -67,9 +71,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
     }
     setBusy("save");
     setError("");
-    const { data, error: saveError } = await callLeadSources("save_draft", {
-      prospect_id: prospect.id, draft_id: draftId || undefined, body_text: body,
-    });
+    const { data, error: saveError } = await savePlatformReplyDraft(prospect.id, draftId, body);
     setBusy("");
     if (saveError) {
       setError(saveError.message);
@@ -77,23 +79,27 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
     }
     setDraftId(data.draft.id);
     setDraftSaved(true);
+    if (data.warning) setError(data.warning);
     onSaved();
     return data.draft;
   }
 
   async function generateRedraft() {
-    const draft = await saveDraft();
-    if (!draft) return;
+    if (!body.trim()) {
+      setError("Write a reply before asking for a redraft.");
+      return;
+    }
     setBusy("redraft");
     setError("");
     const { data, error: redraftError } = await callLeadSources("redraft_reply", {
-      prospect_id: prospect.id, draft_id: draft.id, instructions,
+      prospect_id: prospect.id, body_text: body, instructions,
     });
     setBusy("");
     if (redraftError) {
       setError(redraftError.message);
       return;
     }
+    setRedraftSource(body);
     setRedraft(data.body_text);
   }
 
@@ -187,12 +193,22 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
             onChange={(event) => {
               setBody(event.target.value);
               setDraftSaved(false);
+              if (appliedRedraft && event.target.value !== appliedRedraft.text) setAppliedRedraft(null);
             }}
             placeholder="Write your reply…"
           />
           <div className="bd-mailbox-compose-footer">
             <span>{draftSaved ? "Draft saved" : "Unsaved changes"} · {body.length.toLocaleString("en-GB")} / 10,000</span>
             <div>
+              {appliedRedraft && body === appliedRedraft.text && (
+                <button type="button" className="bd-button bd-button-secondary" onClick={() => {
+                  setBody(appliedRedraft.original);
+                  setAppliedRedraft(null);
+                  setDraftSaved(false);
+                }} disabled={!!busy}>
+                  Undo redraft
+                </button>
+              )}
               <button type="button" className="bd-button bd-button-secondary" onClick={saveDraft} disabled={!!busy}>
                 {busy === "save" ? "Saving…" : draftSaved ? "Save changes" : "Save draft"}
               </button>
@@ -217,13 +233,23 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
               <textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} maxLength={2000}
                 placeholder="For example: Make it warmer and concise, and suggest a call next week." />
             </label>
-            <p className="bd-mailbox-privacy">Your draft and conversation are sent to OpenRouter only when you choose Redraft. Nothing is sent to the prospect.</p>
+            <p className="bd-mailbox-privacy">Your current text and recent conversation are sent to OpenRouter only when you choose Redraft. The original stays unchanged until you choose Use rewrite. Nothing is sent to the prospect.</p>
+            {redraft && <div className="bd-mailbox-redraft-undo">
+              <span>Review the rewrite before applying. You can undo it afterward.</span>
+              <button type="button" className="bd-text-button" onClick={() => setRedraft(redraftSource)}>Restore original text</button>
+            </div>}
             {redraft && <label className="bd-mailbox-field">AI rewrite — review and edit before using
               <textarea className="bd-mailbox-redraft-output" value={redraft} onChange={(event) => setRedraft(event.target.value)} maxLength={10000} />
             </label>}
             <footer>
               <button type="button" className="bd-button bd-button-secondary" onClick={() => setRedraftOpen(false)}>Cancel</button>
-              {redraft && <button type="button" className="bd-button bd-button-secondary" onClick={() => { setBody(redraft); setRedraftOpen(false); }}>Use this rewrite</button>}
+              {redraft && <button type="button" className="bd-button bd-button-secondary" onClick={() => { setBody(redraftSource); setRedraftOpen(false); }}>Undo / keep original</button>}
+              {redraft && <button type="button" className="bd-button bd-button-primary" onClick={() => {
+                setBody(redraft);
+                setAppliedRedraft({ original: redraftSource, text: redraft });
+                setDraftSaved(false);
+                setRedraftOpen(false);
+              }}>Use rewrite</button>}
               <button type="button" className="bd-button bd-button-primary" onClick={generateRedraft} disabled={!!busy}>
                 {busy === "redraft" ? "Redrafting…" : "Redraft with OpenRouter"}
               </button>

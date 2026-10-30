@@ -415,6 +415,7 @@
 .bd-mailbox-field input { min-height: 40px; font-size: 18px; font-weight: 700; letter-spacing: .18em; }
 .bd-mailbox-field .bd-mailbox-redraft-output { min-height: 180px; }
 .bd-mailbox-privacy, .bd-mailbox-expiry { display: block; margin: 8px 0; color: #7a898f; font-size: 10px; line-height: 1.5; }
+.bd-mailbox-redraft-undo { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-top: 11px; padding: 8px 10px; border: 1px solid #e8edef; border-radius: 7px; color: #6d7d83; background: #f8fafb; font-size: 10px; }
 .bd-mailbox-modal > footer { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 17px; }
 .bd-mailbox-recipient { display: grid; gap: 4px; margin-top: 7px; padding: 12px; border: 1px solid #e7ecee; border-radius: 9px; background: #f8fafb; }
 .bd-mailbox-recipient span:first-child, .bd-mailbox-code-label { color: #79888e; font-size: 10px; }

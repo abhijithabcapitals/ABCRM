@@ -133,9 +133,17 @@ export async function callLeadSources(action, payload = {}) {
   if (error) {
     let message = error.message;
     try { message = (await error.context?.json())?.error || message; } catch { /* keep message */ }
+    if (/unknown action/i.test(message)) {
+      message = `The deployed bd-lead-sources function does not support "${action}" yet. Deploy the latest Business Development Edge Function in Supabase, then try again.`;
+    }
     return { data: null, error: { message } };
   }
-  if (data?.error) return { data: null, error: { message: data.error } };
+  if (data?.error) {
+    const message = /unknown action/i.test(data.error)
+      ? `The deployed bd-lead-sources function does not support "${action}" yet. Deploy the latest Business Development Edge Function in Supabase, then try again.`
+      : data.error;
+    return { data: null, error: { message } };
+  }
   return { data, error: null };
 }
 
@@ -162,6 +170,31 @@ export async function fetchLatestPlatformReplyDraft(prospectId) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+}
+
+export async function savePlatformReplyDraft(prospectId, draftId, bodyText) {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) return { data: null, error: userError };
+  if (!userData.user) return { data: null, error: { message: "Sign in before saving a reply draft." } };
+
+  const drafts = supabase.schema("email_base").from("bd_reply_drafts");
+  const result = draftId
+    ? await drafts.update({ body_text: bodyText, drafted_by: "person", status: "draft", updated_by: userData.user.id })
+      .eq("id", draftId).eq("prospect_id", prospectId).in("status", ["draft", "failed"]).select("*").maybeSingle()
+    : await drafts.insert({
+      prospect_id: prospectId, provider: "explee", body_text: bodyText, drafted_by: "person", created_by: userData.user.id,
+    }).select("*").single();
+
+  if (result.error) return { data: null, error: result.error };
+  if (!result.data) return { data: null, error: { message: "Draft not found or it can no longer be edited." } };
+
+  const { error: prospectError } = await supabase.from("bd_platform_prospects")
+    .update({ status: "drafted", handled_by: userData.user.id, handled_at: new Date().toISOString() })
+    .eq("id", prospectId);
+  return {
+    data: { draft: result.data, warning: prospectError ? `Draft saved, but could not move the prospect to Drafted replies: ${prospectError.message}` : null },
+    error: null,
+  };
 }
 
 export async function updatePlatformProspect(id, patch) {
