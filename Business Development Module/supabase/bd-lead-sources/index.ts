@@ -10,10 +10,10 @@
 //   agent_draft -> ask the Email Agent for a reply draft { prospect_id, instructions? } (needs EMAIL_AGENT_URL)
 //   save_draft  -> save a personal reply { prospect_id, draft_id?, body_text }
 //   redraft_reply -> rewrite a saved reply through OpenRouter { draft_id, instructions? }
-//   prepare_send -> create a short-lived human confirmation code { draft_id }
-//   send_draft  -> send a saved draft after code confirmation { draft_id, confirm: "SEND", verification_code }
+//   prepare_send -> create a short-lived human confirmation code { draft_id, signature_id? }
+//   send_draft  -> send a saved draft after code confirmation { draft_id, signature_id?, confirm: "SEND", verification_code }
 //
-// Drafts live in email_base.bd_reply_drafts; Explee has no draft API, so nothing reaches
+// Drafts live in email_base.bd_reply_drafts; Explee has no public draft API, so nothing reaches
 // Explee until send_draft. Draft status after a send attempt is written with the
 // service role, so users cannot mark a reply as sent without sending it.
 //
@@ -30,6 +30,8 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash";
 const MAX_HOT_PAGES = 10;       // 200 per page
 const CONTACTED_PER_CAMPAIGN = 1000;
+const EXPLEE_APP_API = "https://explee.com/api/app-auto-gtm";
+const MAX_DRAFT_IMPORTS = 10;   // per sync, to stay inside the function time limit
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -81,6 +83,79 @@ async function expleePost(key: string, path: string, payload: unknown) {
     throw new ProviderError(res.status, hint);
   }
   return body;
+}
+
+// Explee replies are plain text, so a signature logo can only travel as an attached file.
+async function expleeUploadAttachment(key: string, campaignId: string, logoUrl: string) {
+  const logo = await fetch(logoUrl, { signal: AbortSignal.timeout(30000) });
+  if (!logo.ok) throw new Error(`Could not read the signature logo (HTTP ${logo.status}). The reply was not sent.`);
+  const type = logo.headers.get("content-type")?.split(";")[0].trim() || "image/png";
+  const name = decodeURIComponent(new URL(logoUrl).pathname.split("/").pop() || "logo");
+  const form = new FormData();
+  form.append("file", new File([await logo.arrayBuffer()], name, { type }));
+  const res = await fetch(`${EXPLEE_BASE}/autogtm/campaigns/${campaignId}/attachments`, {
+    method: "POST",
+    headers: { "X-API-Key": key, Accept: "application/json" },
+    body: form,
+    signal: AbortSignal.timeout(60000),
+  });
+  // deno-lint-ignore no-explicit-any
+  const body: any = await res.json().catch(() => ({}));
+  if (!res.ok || !body.id) {
+    const detail = typeof body?.detail === "string" ? body.detail : body?.message || `HTTP ${res.status}`;
+    throw new ProviderError(res.status, `Explee would not accept the signature logo: ${detail}. The reply was not sent.`);
+  }
+  return String(body.id);
+}
+
+// The logo of the signature the user chose, only from our own public signature bucket.
+// deno-lint-ignore no-explicit-any
+async function loadSignatureLogo(db: any, signatureId: unknown) {
+  if (typeof signatureId !== "string" || !signatureId) return null;
+  const { data, error } = await db.from("email_signatures").select("logo_url").eq("id", signatureId).maybeSingle();
+  if (error) throw new Error(`Could not read the signature: ${error.message}`);
+  const prefix = `${Deno.env.get("SUPABASE_URL")}/storage/v1/object/public/email-signatures/`;
+  return data?.logo_url?.startsWith(prefix) ? data.logo_url as string : null;
+}
+
+// Copies the replies Explee has written for conversations awaiting an answer into Drafted replies.
+// The endpoint belongs to Explee's web app, not its public API, so it may reject the API key or change.
+// It only returns a suggestion; nothing is sent.
+// deno-lint-ignore no-explicit-any
+async function importExpleeDrafts(db: any, key: string, projectId: number, userId: string) {
+  const inbox = await explee(key, `/autogtm/projects/${projectId}/inbox`, { tab: "need_reply", limit: MAX_DRAFT_IMPORTS });
+  let imported = 0;
+  for (const contact of inbox.contacts || []) {
+    if (!contact.person_id || !contact.campaign_id) continue;
+    const { data: prospect } = await db.from("bd_platform_prospects").select("id")
+      .eq("provider", "explee").eq("external_id", String(contact.person_id)).eq("status", "new").maybeSingle();
+    if (!prospect) continue;
+    const { data: existing } = await db.schema("email_base").from("bd_reply_drafts").select("id")
+      .eq("prospect_id", prospect.id).neq("status", "discarded").limit(1);
+    if (existing?.length) continue;
+
+    const res = await fetch(`${EXPLEE_APP_API}/segments/${contact.campaign_id}/outreach/auto-reply/${contact.person_id}`, {
+      method: "POST",
+      headers: { "X-API-Key": key, "Content-Type": "application/json", Accept: "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return { imported, error: `Explee did not share its draft replies (HTTP ${res.status}).` };
+    // deno-lint-ignore no-explicit-any
+    const suggestion: any = await res.json().catch(() => ({}));
+    const text = typeof suggestion.suggestion_body === "string" ? suggestion.suggestion_body.trim() : "";
+    if (!text) continue;
+
+    const { error } = await db.schema("email_base").from("bd_reply_drafts").insert({
+      prospect_id: prospect.id, provider: "explee", body_text: text.slice(0, 10000), drafted_by: "email_agent",
+      agent_note: "Drafted by Explee", created_by: userId,
+    });
+    if (error) return { imported, error: error.message };
+    await db.from("bd_platform_prospects")
+      .update({ status: "drafted", handled_by: userId, handled_at: new Date().toISOString() }).eq("id", prospect.id);
+    imported++;
+  }
+  return { imported, error: null };
 }
 
 // deno-lint-ignore no-explicit-any
@@ -272,7 +347,10 @@ Deno.serve(async (req) => {
         }
       }
 
-      const result = { hot, contacted, campaigns: campaigns.size };
+      // A draft import problem must not fail the prospect sync, so it is reported beside the result.
+      const drafts = await importExpleeDrafts(db, key, projectId, auth.user.id)
+        .catch((e) => ({ imported: 0, error: (e as Error).message }));
+      const result = { hot, contacted, campaigns: campaigns.size, drafts_imported: drafts.imported, drafts_error: drafts.error };
       await db.from("bd_platform_connections").update({
         last_synced_at: new Date().toISOString(), last_hot_lead_at: newest, last_result: result, last_error: null,
       }).eq("provider", provider);
@@ -429,7 +507,9 @@ Deno.serve(async (req) => {
       const code = makeVerificationCode();
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
       const codeHash = await hashVerificationCode(draft.id, auth.user.id, expiresAt, code);
-      const bodyHash = await sha256Hex(draft.body_text);
+      // The code covers the logo as well as the text, so the attachment cannot change after confirming.
+      const logoUrl = await loadSignatureLogo(db, body.signature_id);
+      const bodyHash = await sha256Hex(JSON.stringify([draft.body_text, logoUrl]));
       const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
       const { error } = await admin.from("bd_reply_send_confirmations").upsert({
         draft_id: draft.id, user_id: auth.user.id, body_hash: bodyHash, recipient_email: prospect.email,
@@ -461,7 +541,8 @@ Deno.serve(async (req) => {
       if (!challenge || challenge.user_id !== auth.user.id || new Date(challenge.expires_at).getTime() <= Date.now()) {
         return json({ error: "Confirmation code expired. Prepare the send again for a new code." }, 403);
       }
-      const currentBodyHash = await sha256Hex(draft.body_text);
+      const logoUrl = await loadSignatureLogo(db, body.signature_id);
+      const currentBodyHash = await sha256Hex(JSON.stringify([draft.body_text, logoUrl]));
       if (!constantTimeEqual(currentBodyHash, challenge.body_hash) || prospect.email !== challenge.recipient_email) {
         await admin.from("bd_reply_send_confirmations").delete().eq("draft_id", draft.id).eq("user_id", auth.user.id);
         return json({ error: "The draft or recipient changed after confirmation. Review it and prepare a new send code." }, 409);
@@ -488,9 +569,11 @@ Deno.serve(async (req) => {
       if (!claimed?.length) return json({ error: "This reply is already being sent." }, 409);
 
       try {
+        const attachmentIds = logoUrl ? [await expleeUploadAttachment(key, prospect.external_campaign_id, logoUrl)] : [];
         const sent = await expleePost(key, `/autogtm/campaigns/${prospect.external_campaign_id}/inbox/${prospect.external_id}/reply`, {
           // Explee sends plain text only: a *bold* signature line goes out without the asterisks.
           body_text: draft.body_text.replace(/^[ \t]*\*([^*\n]+)\*[ \t]*$/gm, "$1"), cc_emails: draft.cc_emails || [], reply_all: true,
+          ...(attachmentIds.length ? { attachment_ids: attachmentIds } : {}),
         });
         const { error: draftUpdateError } = await admin.schema("email_base").from("bd_reply_drafts").update({
           status: "sent", sent_by: auth.user.id, sent_at: new Date().toISOString(),

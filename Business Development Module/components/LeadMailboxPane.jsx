@@ -169,7 +169,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
     if (!draft) return;
     setBusy("prepare");
     setError("");
-    const { data, error: prepareError } = await callLeadSources("prepare_send", { draft_id: draft.id });
+    const { data, error: prepareError } = await callLeadSources("prepare_send", { draft_id: draft.id, signature_id: selectedSignature.id });
     setBusy("");
     if (prepareError) {
       setError(prepareError.message);
@@ -184,7 +184,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
     setBusy("send");
     setError("");
     const { data, error: sendError } = await callLeadSources("send_draft", {
-      draft_id: draftId, confirm: "SEND", verification_code: verificationCode,
+      draft_id: draftId, signature_id: selectedSignature?.id, confirm: "SEND", verification_code: verificationCode,
     });
     setBusy("");
     if (sendError) {
@@ -269,7 +269,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
                 {signatures.map((signature) => <option key={signature.id} value={signature.id}>{signature.label || signature.name}</option>)}
               </select>
             </label>
-            {selectedSignature?.logo_url && <img src={selectedSignature.logo_url} alt="" title="Logo preview. Explee sends plain-text replies, so the logo is not included in the email." />}
+            {selectedSignature?.logo_url && <img src={selectedSignature.logo_url} alt="" title="Logo preview. Explee sends plain-text replies, so the logo goes as an attached image, not inside the signature." />}
             {!signatures.length && <span>Add one in Profile › Mail (click your name at the bottom of the sidebar).</span>}
             {selectedSignature && !signed && <span className="bd-mailbox-signature-warn">Signature edited or removed. Choose it again to re-add it.</span>}
           </div>

@@ -291,7 +291,7 @@ function SourcePanel({ source, status, statusError, onRefresh, onSynced, onClose
     const { data, error } = await callLeadSources("sync", { provider: source.provider, include_contacted: includeContacted });
     setSyncing(false);
     if (error) { setNote(error.message); await onRefresh(); return; }
-    setNote(`Synced ${data.hot} hot lead${data.hot === 1 ? "" : "s"}${includeContacted ? ` and ${data.contacted} campaign contacts` : ""} from ${data.campaigns} campaign${data.campaigns === 1 ? "" : "s"}.`);
+    setNote(`Synced ${data.hot} hot lead${data.hot === 1 ? "" : "s"}${includeContacted ? ` and ${data.contacted} campaign contacts` : ""} from ${data.campaigns} campaign${data.campaigns === 1 ? "" : "s"}. ${data.drafts_error || `${data.drafts_imported} Explee draft${data.drafts_imported === 1 ? "" : "s"} added to Drafted replies.`}`);
     await onSynced();
   }
 
