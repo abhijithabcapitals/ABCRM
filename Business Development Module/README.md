@@ -85,3 +85,23 @@ The **Lead Calendar** page shows a month view with an agenda for the next 30 day
 Row-level security: anyone with a BD role sees general items and items of leads they can see. Super admins, BD
 managers, team leaders, sales executives and marketing executives create items; managers and team leaders change any
 item, executives change the items they created or are assigned and delete the ones they created.
+
+## BD Agent (right-side panel)
+
+The **BD Agent** panel sits to the right of every Business Development page (closed, it leaves a "BD Agent" tab on
+the right edge). It advises and drafts only: it never writes to the CRM, sends messages or makes commercial commitments.
+With a lead open, the agent reads that lead (record, services, discussions, open follow-ups) through `bd_ui_leads`
+with the user's own access.
+
+| Path | Purpose |
+|---|---|
+| `components/BdAgentPanel.jsx` | The panel: quick prompts, skill picker (automatic by default), chat, copyable drafts |
+| `supabase/bd-agent/index.ts` | Edge Function `bd-agent` (`skills`, `chat`). Needs a BD role (`bd_current_role()`); OpenRouter via `OPENROUTER_API_KEY`, optional `OPENROUTER_MODEL` |
+| `supabase/bd-agent/skills.ts` | Generated bundle of the agent spec and the 64 skills in `Agent Module/05_Business_Development_Agent/.claude/skills` |
+| `scripts/build-bd-agent-skills.mjs` | Regenerates `skills.ts`; run after `npx skills update` in the agent folder |
+
+Deploy (Git Bash, from `Agent Module/11_Personal_Agent/CEO Agent`, linked to `pnnakrhfzyxudjaghoxx`):
+
+```bash
+node "../../../Business Development Module/scripts/build-bd-agent-skills.mjs" && mkdir -p supabase/functions/bd-agent && cp "../../../Business Development Module/supabase/bd-agent/"{index.ts,skills.ts} supabase/functions/bd-agent/ && npx --no-install supabase functions deploy bd-agent --project-ref pnnakrhfzyxudjaghoxx
+```

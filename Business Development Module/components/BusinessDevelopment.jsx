@@ -16,6 +16,7 @@ import {
   updateBusinessDevelopmentService,
   updatePlatformProspect,
 } from "../logic/businessDevelopmentData";
+import BdAgentPanel from "./BdAgentPanel";
 import BdCalendarView from "./BdCalendarView";
 import LeadGenerationView from "./LeadGenerationView";
 import "./BusinessDevelopment.css";
@@ -171,6 +172,7 @@ export default function BusinessDevelopment({ profile }) {
   const [busy, setBusy] = useState(false);
   const [leadPrefill, setLeadPrefill] = useState(null); // { prospectId, values } when adding a platform prospect
   const [prospectsVersion, setProspectsVersion] = useState(0);
+  const [agentOpen, setAgentOpen] = useState(() => window.matchMedia?.("(min-width: 1100px)").matches ?? true);
   const currentUserId = profile?.id;
 
   const load = useCallback(async () => {
@@ -343,8 +345,18 @@ export default function BusinessDevelopment({ profile }) {
   function openLead(lead) { setSelectedLead(lead); setError(""); }
   const profilesById = useMemo(() => Object.fromEntries(profiles.map((person) => [person.id, person])), [profiles]);
 
+  // The BD Agent sits to the right of whichever page is showing; closed, it leaves a tab on the edge.
+  const withAgent = (content) => (
+    <div className={`bd-shell${agentOpen ? " bd-shell-agent" : ""}`}>
+      <div className="bd-shell-main">{content}</div>
+      {agentOpen
+        ? <BdAgentPanel lead={selectedLead} page={selectedLead ? "Lead workspace" : page} onClose={() => setAgentOpen(false)} />
+        : <button type="button" className="bd-agent-tab" onClick={() => setAgentOpen(true)}>BD Agent</button>}
+    </div>
+  );
+
   if (selectedLead) {
-    return (
+    return withAgent(
       <LeadWorkspace
         lead={selectedLead}
         profiles={profiles}
@@ -367,7 +379,7 @@ export default function BusinessDevelopment({ profile }) {
         selectedService={selectedService}
         onSubmitWon={confirmWon}
         onSubmitLost={confirmLost}
-      />
+      />,
     );
   }
 
@@ -378,7 +390,7 @@ export default function BusinessDevelopment({ profile }) {
   const isSources = page === "Campaigns & Sources";
   const isProposals = page === "Proposals & Quotations";
 
-  return (
+  return withAgent(
     <div className="bd-workspace">
       <header className="bd-header">
         <div>
@@ -479,7 +491,7 @@ export default function BusinessDevelopment({ profile }) {
       {modal === "lead" && <LeadForm profiles={profiles} currentUserId={currentUserId} leads={leads} busy={busy}
         initial={leadPrefill?.values} onClose={() => { setModal(""); setLeadPrefill(null); }} onSubmit={submitLead} />}
       {modal === "complete-followup" && selectedFollowup && <CompleteFollowupForm followup={selectedFollowup} busy={busy} onClose={() => { setModal(""); setSelectedFollowup(null); }} onSubmit={confirmFollowupComplete} />}
-    </div>
+    </div>,
   );
 }
 

@@ -171,6 +171,21 @@ export async function callLeadSources(action, payload = {}) {
   return { data, error: null };
 }
 
+// BD Agent panel (bd-agent Edge Function; advice and drafts only, no writes)
+export async function callBdAgent(action, payload = {}) {
+  const { data, error } = await supabase.functions.invoke("bd-agent", { body: { action, ...payload } });
+  if (error) {
+    let message = error.message;
+    try { message = (await error.context?.json())?.error || message; } catch { /* keep message */ }
+    if (/failed to send|not found|404/i.test(message)) {
+      message = "The BD Agent is not deployed yet. Deploy the bd-agent Edge Function in Supabase, then try again.";
+    }
+    return { data: null, error: { message } };
+  }
+  if (data?.error) return { data: null, error: { message: data.error } };
+  return { data, error: null };
+}
+
 export async function fetchPlatformProspectCounts() {
   return supabase.from("bd_platform_prospects").select("provider, status").limit(20000);
 }

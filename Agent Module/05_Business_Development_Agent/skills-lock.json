@@ -1,0 +1,389 @@
+{
+  "version": 1,
+  "skills": {
+    "account-research": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/account-research/SKILL.md",
+      "computedHash": "09eaf34f5c24d76dbbcb1b5bfd2a7381b9a9a098b6a512b9657c689e09c45948"
+    },
+    "ai-seo": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/ai-seo/SKILL.md",
+      "computedHash": "e5ddbe100deb112d2f4c069904d05ba303e6d68416ac2f79c7e6a3f75ca8d1c3"
+    },
+    "call-prep": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/call-prep/SKILL.md",
+      "computedHash": "932438f38004388816e0535eca547ce02cb749e777b1b78c8feadb233e08086a"
+    },
+    "call-summary": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/call-summary/SKILL.md",
+      "computedHash": "ca71b610e21316f9b25a2645b7c77a572c5227c8421ab56a22eba91dd26812ee"
+    },
+    "close-plan": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/close-plan/SKILL.md",
+      "computedHash": "8878b6654bc397c7b1f8cf124fd86653c366aa866688ed3afc8f67153a540e5b"
+    },
+    "co-marketing": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/co-marketing/SKILL.md",
+      "computedHash": "bfec2d1ebf1b08e815ce27f55ed2e840328693eeadfd274b223387c3bbec442e"
+    },
+    "cold-call-opener": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/cold-call-opener/SKILL.md",
+      "computedHash": "dbc64f9099fb3413665802e0c750c78d22e3fb2d94deb9603993ad8edf14d38d"
+    },
+    "cold-email": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/cold-email/SKILL.md",
+      "computedHash": "35d9ce4ff689c5f875ef060f7f4bfb949a60a7e310af317e4a748ad1453f9988"
+    },
+    "cold-email-deliverability": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/cold-email-deliverability/SKILL.md",
+      "computedHash": "77cbe4a7b31bcf7909570623aaa979bcd232dcd680884efbba30905ad29555c1"
+    },
+    "cold-email-subject-line-tester": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/cold-email-subject-line-tester/SKILL.md",
+      "computedHash": "7a47203dda82bc22e5b6d089cdafab0e20d80284d5aaae2de04c828478f899c8"
+    },
+    "competitive-intelligence": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/competitive-intelligence/SKILL.md",
+      "computedHash": "9206d07c28ab62632aa5fe0af8535b55f1b2bbb4519bd84c004492323f833a23"
+    },
+    "competitor-profiling": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/competitor-profiling/SKILL.md",
+      "computedHash": "6cfdd2be3fa27b64891d0cb51381516ce21a186e98b9df6e06824ba25e078dd7"
+    },
+    "content-strategy": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/content-strategy/SKILL.md",
+      "computedHash": "2acc71a7c9828d21ce8e91d493ff27fa45e2a3736d0f07eac58459993dee5c90"
+    },
+    "copywriting": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/copywriting/SKILL.md",
+      "computedHash": "8afb468ec4e184cc2c4d418148ddf32abfb9508d8712133797409acd69233638"
+    },
+    "customer-research": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/customer-research/SKILL.md",
+      "computedHash": "d737bff91bdbd1995fd0b217ba27ea229e5a37c859426c59ff001111fe28d45f"
+    },
+    "deal-desk-approval": {
+      "source": "mbfinotti/revops-skills",
+      "sourceType": "github",
+      "skillPath": "skills/deal-desk-approval/SKILL.md",
+      "computedHash": "45873e9a7a00b21a7a5b8892ef60cf8d5f6e97f77047d3c2e1934dc81ea4e526"
+    },
+    "deal-red-flags": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/deal-red-flags/SKILL.md",
+      "computedHash": "589575bc145befc33fd402201c7617b5fca0aa0cdabefc442848553ed7441deb"
+    },
+    "deal-review": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/deal-review/SKILL.md",
+      "computedHash": "3272a2985db5599cb0901f3a2f43879d3b7585e0ccf7b86bb8d94fccce3df0b0"
+    },
+    "deal-value-calc": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/deal-value-calc/SKILL.md",
+      "computedHash": "46be05648c459f290bc767fef33cc60a9f04a18e3819115995e25625b519d0ce"
+    },
+    "draft-outreach": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/draft-outreach/SKILL.md",
+      "computedHash": "bcc64335187309d5dad681a8bc3cfeb1e675186982edf0c34c49cb5c788a8788"
+    },
+    "emails": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/emails/SKILL.md",
+      "computedHash": "f6e4b89f9e5f07f3cd2f47637d48f525ea3ca433a8cf43380be61c1e5f2b466b"
+    },
+    "events": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/events/SKILL.md",
+      "computedHash": "bfeb9f1f9f790c2fe03bd265218b7807819914e69e850ff717a71e4f21c97306"
+    },
+    "grow-pipeline": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "small-business/skills/grow-pipeline/SKILL.md",
+      "computedHash": "cb524b6d1d22ce3db31e0b3fcd197397d62d7ea470550f14c70ded8221a52d9c"
+    },
+    "handle-objection": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/handle-objection/SKILL.md",
+      "computedHash": "7f50e83b2f653981151a88c9bbb4a1dc99cd3932a6c112633a63e11d9ba3ba25"
+    },
+    "inbox-sweep": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/inbox-sweep/SKILL.md",
+      "computedHash": "605c4763b4f66120e100a9b5aed6741912da997d5b7afe94d86df2b7bb068038"
+    },
+    "lead-finder": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "small-business/skills/lead-finder/SKILL.md",
+      "computedHash": "b116259adc9ec5b58480c93a730c2019f7eb97a2bbfad6f6e6fc5bce21c769aa"
+    },
+    "lead-magnets": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/lead-magnets/SKILL.md",
+      "computedHash": "aa4b77783611b2e459e4b1c8135b426404cbc3881f381431346b664736f7d74a"
+    },
+    "lead-routing": {
+      "source": "mbfinotti/revops-skills",
+      "sourceType": "github",
+      "skillPath": "skills/lead-routing/SKILL.md",
+      "computedHash": "3d005e9903391455a025024411a4211be3f498062abd0382afc31b8688579ec2"
+    },
+    "lead-scoring": {
+      "source": "mbfinotti/revops-skills",
+      "sourceType": "github",
+      "skillPath": "skills/lead-scoring/SKILL.md",
+      "computedHash": "052eb1bc28be227bd1d633651b323645cc24d94245248ccf9ef8496fe29294e7"
+    },
+    "lead-triage": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/lead-triage/SKILL.md",
+      "computedHash": "5fe45db2f7de70ee807d9340c6e0b1af77fdba2c661261fec582c60ce6936135"
+    },
+    "log-activity": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/log-activity/SKILL.md",
+      "computedHash": "1afcb9116a03279bcb189bac7b052a9dd2f44c1827530e8d3612c4c17fa334fa"
+    },
+    "marketing-ideas": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/marketing-ideas/SKILL.md",
+      "computedHash": "afa2f0fb48faac417e2919eb91d4283c6f9d75b14c64da39633f00ea46f0a706"
+    },
+    "marketing-plan": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/marketing-plan/SKILL.md",
+      "computedHash": "7047432a16f688e0ca243b1a92c0b9e0c2d36e398070c93a8c3d3b39751c9a28"
+    },
+    "marketing-psychology": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/marketing-psychology/SKILL.md",
+      "computedHash": "d057044710ce7b7f9b90b84b3ab64e9359aaf47982b922ec10daca3822185ede"
+    },
+    "meddpicc-scorecard": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/meddpicc-scorecard/SKILL.md",
+      "computedHash": "b16a48f1f73263d99c9c4bfac0c29457dfd65383e1c6752f8d98976636fb32bc"
+    },
+    "negotiation-concession-planner": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/negotiation-concession-planner/SKILL.md",
+      "computedHash": "7f98f429a7370fe02108a6f9da67173f74bd1afb6f475bfc27911cea3e170857"
+    },
+    "offers": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/offers/SKILL.md",
+      "computedHash": "8774a73e09beb5cc7d369a1d50c63db12df891bf9f7c21cad2d1031967a9cf12"
+    },
+    "outreach-composer": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "small-business/skills/outreach-composer/SKILL.md",
+      "computedHash": "750120b2b54f19f2468bc1056584f60d395edd07a39874cd750bae7aaaf3bdbc"
+    },
+    "pipeline-review": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/pipeline-review/SKILL.md",
+      "computedHash": "743d96aee841bd0aeef5665d688fbb34e0766764ed815ae2acf3d12c0a66120c"
+    },
+    "pipeline-stage-definition-audit": {
+      "source": "mbfinotti/revops-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pipeline-stage-definition-audit/SKILL.md",
+      "computedHash": "55944926b93b6c04aa34da958983074d0d32cfcc98eb879bb4dc2dff02e23833"
+    },
+    "pricing": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/pricing/SKILL.md",
+      "computedHash": "ef4afc3f12c75cde152459f8b6c40a80f9317443cc2760cba1cb16ba01266e70"
+    },
+    "proposal-builder": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "small-business/skills/proposal-builder/SKILL.md",
+      "computedHash": "d28b61ba6a470abb5a0dc7574b777940f1401478d43e555d52c1870bc024df93"
+    },
+    "prospecting": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/prospecting/SKILL.md",
+      "computedHash": "9fa23c60ae8eb2b38415814d47098f4144f08fb2f25f5ff217e78ca01da9e95e"
+    },
+    "public-relations": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/public-relations/SKILL.md",
+      "computedHash": "00823b1d5cd17f18cb56b4dea09bd6adb19be2bf1ff9ee62aad8ceea2a548cda"
+    },
+    "reactivate": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "small-business/skills/reactivate/SKILL.md",
+      "computedHash": "876ed6e67dc150ef216c51d8bd58495884a0629a0288a22bbc4be24ef1749fe9"
+    },
+    "referrals": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/referrals/SKILL.md",
+      "computedHash": "6b809f64e80259ebe4c0303d106745bc9d7f1e88903715cee004dc4bce88efdc"
+    },
+    "revenue-funnel": {
+      "source": "mbfinotti/revops-skills",
+      "sourceType": "github",
+      "skillPath": "skills/revenue-funnel/SKILL.md",
+      "computedHash": "0ff86e182aaa6fc5daaa9f2f03a1d2d16d3bbed3b3ce432b5cb07e803744a513"
+    },
+    "revops": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/revops/SKILL.md",
+      "computedHash": "a83eb82d8216e8f79cee5216ea8175ff88fe4e664745d6c9f0f9b2728a2ed946"
+    },
+    "route-lead": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/route-lead/SKILL.md",
+      "computedHash": "2ea429f4cfed8913c7592ce07a2e7be47b8c94d96e15ba00f56858f595ecb515"
+    },
+    "sales-account-segmentation": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-account-segmentation/SKILL.md",
+      "computedHash": "171448b29dccfcb28f40fcc250f2974dfb6f5efd66e3545452ae196e82800854"
+    },
+    "sales-discovery-questions": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-discovery-questions/SKILL.md",
+      "computedHash": "c6ba58300d102ff06039fa02ac7b87cf4792eca3cd4c126e99308cbcee94489c"
+    },
+    "sales-enablement": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-enablement/SKILL.md",
+      "computedHash": "3b085e7abf927f60e7088f4884c1278e7b728e1d71284b92554e11c8b31b05d8"
+    },
+    "sales-icp-definition": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-icp-definition/SKILL.md",
+      "computedHash": "584c2299c87de39c9734537f2d2ed08e850e795c241e3821479c05f8e6c5e41c"
+    },
+    "sales-meeting-recap": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-meeting-recap/SKILL.md",
+      "computedHash": "4993419bd4cf19786658116979ae6e280ed63b4df897a1d8ef6ed27fae09bbec"
+    },
+    "sales-objection-handling": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-objection-handling/SKILL.md",
+      "computedHash": "29c59b66729cd192f44980372db8eb52f8694532a684130b75bf84c7407e2190"
+    },
+    "sales-outbound-sequence": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-outbound-sequence/SKILL.md",
+      "computedHash": "1ffb8212085af1fe04ab7763740043813e733a1a0332f0d06a67e27b5adecb8f"
+    },
+    "sales-outreach-personalization": {
+      "source": "mbfinotti/sales-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-outreach-personalization/SKILL.md",
+      "computedHash": "3d1cfbf37adc051ee5f217b325002faf5f2146fd5ef1cc197f0fdf15012de139"
+    },
+    "sales-pipeline-hygiene": {
+      "source": "mbfinotti/revops-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-pipeline-hygiene/SKILL.md",
+      "computedHash": "02ccef16e47d0f7ef3d8637a35e79e23185c5c83003c64c5f194b7a8e0ace0c6"
+    },
+    "sales-to-cs-handoff": {
+      "source": "mbfinotti/revops-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sales-to-cs-handoff/SKILL.md",
+      "computedHash": "1d775659e8292233d7b869a1b27e2e7f42cf0072e729349578128576bf6013c6"
+    },
+    "seo-audit": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/seo-audit/SKILL.md",
+      "computedHash": "00202d90242df3ba5f240ffcf6bedca8e12854b350c8be65831a9346a5c6d6fd"
+    },
+    "social": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/social/SKILL.md",
+      "computedHash": "8fbfde477a34d243500855a5f4f47a9848dedba21713d53467dc603cd15001ef"
+    },
+    "speed-to-lead": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "small-business/skills/speed-to-lead/SKILL.md",
+      "computedHash": "19da466b56f69c83e16cb769382a1cfac7318de964ba912cab647faef72a7bbc"
+    },
+    "update-opportunity": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/update-opportunity/SKILL.md",
+      "computedHash": "bd59857e52338ff0ca8241412fd3a5f1a8a39c9dc74f31a4c480ebd4582cdceb"
+    },
+    "win-loss-review": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/win-loss-review/SKILL.md",
+      "computedHash": "d2cd20abf15d8ee3c44dac92db00d6e7482fc7275d6f6caffcc7dba0f899db84"
+    }
+  }
+}
