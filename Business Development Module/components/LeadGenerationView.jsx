@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
-import { callLeadSources, fetchPlatformProspects, updatePlatformProspect } from "../logic/businessDevelopmentData";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  callLeadSources, fetchPlatformProspectCounts, fetchPlatformProspects, updatePlatformProspect,
+} from "../logic/businessDevelopmentData";
+
+// Lead-generation platforms. Each source is a card; the combined prospect list sits below.
+// Clicking a card opens its settings and sync, and narrows the list to that source.
+const SOURCES = [
+  { provider: "explee", name: "Explee", tagline: "AI outbound · hot leads and campaign replies", mark: "Ex" },
+];
 
 const STATUS_TABS = [
   { key: "new", label: "To review" },
@@ -12,8 +20,11 @@ const dateTime = (value) => value ? new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Dubai", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
 }).format(new Date(value)) : "—";
 
+const sourceName = (provider) => SOURCES.find((s) => s.provider === provider)?.name || provider;
+
 // Values for the New lead form when a prospect is added to the pipeline.
 function leadValues(p) {
+  const name = sourceName(p.provider);
   const context = [p.why_hot, p.note].filter(Boolean).join(" ");
   return {
     lead_type: p.company_name ? "company" : "individual",
@@ -21,171 +32,149 @@ function leadValues(p) {
     contact_name: p.company_name ? p.name || "" : "",
     email: p.email || "",
     mobile: p.phone || "",
-    source: "Explee",
-    source_detail: [p.kind === "hot" ? "Explee hot lead" : "Explee campaign contact", p.job_title, p.linkedin_url].filter(Boolean).join(" · "),
+    source: name,
+    source_detail: [p.kind === "hot" ? `${name} hot lead` : `${name} campaign contact`, p.job_title, p.linkedin_url].filter(Boolean).join(" · "),
     campaign_name: p.campaign_name || "",
     contact_channel: "Email",
-    initial_summary: context
-      ? `Explee ${p.kind === "hot" ? "hot lead" : "campaign reply"}: ${context}`
-      : "",
+    initial_summary: context ? `${name} ${p.kind === "hot" ? "hot lead" : "campaign reply"}: ${context}` : "",
     notes: [p.job_title && `Title: ${p.job_title}`, p.company_domain && `Website: ${p.company_domain}`, p.country && `Country: ${p.country}`, p.linkedin_url && `LinkedIn: ${p.linkedin_url}`]
       .filter(Boolean).join("\n"),
   };
 }
 
 export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
-  const [status, setStatus] = useState(null);
-  const [statusError, setStatusError] = useState("");
+  const [statuses, setStatuses] = useState({}); // provider -> status response
+  const [statusErrors, setStatusErrors] = useState({});
+  const [counts, setCounts] = useState({}); // provider -> { new, added, dismissed }
+  const [openSource, setOpenSource] = useState(null);
   const [tab, setTab] = useState("new");
   const [prospects, setProspects] = useState([]);
   const [listError, setListError] = useState("");
   const [loadingList, setLoadingList] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncNote, setSyncNote] = useState("");
-  const [includeContacted, setIncludeContacted] = useState(false);
-  const [projectInput, setProjectInput] = useState("");
   const [search, setSearch] = useState("");
 
-  const loadStatus = useCallback(async () => {
-    setStatusError("");
-    const { data, error } = await callLeadSources("status");
-    if (error) { setStatusError(error.message); return; }
-    setStatus(data);
-    setProjectInput(String(data.connection?.settings?.project_id || ""));
+  const loadStatus = useCallback(async (provider = "explee") => {
+    const { data, error } = await callLeadSources("status", { provider });
+    setStatusErrors((m) => ({ ...m, [provider]: error?.message || "" }));
+    if (!error) setStatuses((m) => ({ ...m, [provider]: data }));
+  }, []);
+
+  const loadCounts = useCallback(async () => {
+    const { data } = await fetchPlatformProspectCounts();
+    const out = {};
+    for (const r of data || []) {
+      out[r.provider] ||= { new: 0, added: 0, dismissed: 0 };
+      out[r.provider][r.status] = (out[r.provider][r.status] || 0) + 1;
+    }
+    setCounts(out);
   }, []);
 
   const loadList = useCallback(async () => {
     setLoadingList(true);
-    const { data, error } = await fetchPlatformProspects(tab);
+    const { data, error } = await fetchPlatformProspects(tab, openSource);
     setLoadingList(false);
     if (error) { setListError(error.message); return; }
     setListError("");
     setProspects(data || []);
-  }, [tab]);
+  }, [tab, openSource]);
 
-  useEffect(() => { loadStatus(); }, [loadStatus]);
+  useEffect(() => { SOURCES.forEach((s) => loadStatus(s.provider)); }, [loadStatus]);
+  useEffect(() => { loadCounts(); }, [loadCounts, version]);
   useEffect(() => { loadList(); }, [loadList, version]);
 
-  async function sync() {
-    setSyncing(true);
-    setSyncNote("");
-    const { data, error } = await callLeadSources("sync", { include_contacted: includeContacted });
-    setSyncing(false);
-    if (error) { setSyncNote(error.message); await loadStatus(); return; }
-    setSyncNote(`Synced ${data.hot} hot lead${data.hot === 1 ? "" : "s"}${includeContacted ? ` and ${data.contacted} campaign contacts` : ""} from ${data.campaigns} campaign${data.campaigns === 1 ? "" : "s"}.`);
-    await Promise.all([loadStatus(), loadList()]);
-  }
-
-  async function saveProject() {
-    const { error } = await callLeadSources("settings", { project_id: Number(projectInput) });
-    if (error) { setStatusError(error.message); return; }
-    await loadStatus();
+  async function refreshAll() {
+    await Promise.all([loadCounts(), loadList()]);
   }
 
   async function dismiss(p) {
     const { error } = await updatePlatformProspect(p.id, { status: "dismissed", handled_at: new Date().toISOString() });
     if (error) { setListError(error.message); return; }
-    setProspects((list) => list.filter((x) => x.id !== p.id || tab === "all"));
-    if (tab === "all") loadList();
+    refreshAll();
   }
 
   async function restore(p) {
     const { error } = await updatePlatformProspect(p.id, { status: "new", handled_at: null, handled_by: null });
     if (error) { setListError(error.message); return; }
-    loadList();
+    refreshAll();
   }
 
-  const conn = status?.connection;
-  const balance = status?.balance && !status.balance.error ? status.balance.remain : null;
-  const projects = status?.projects?.projects || [];
-  const campaigns = status?.campaigns?.campaigns || [];
   const needle = search.trim().toLowerCase();
-  const rows = needle
+  const rows = useMemo(() => (needle
     ? prospects.filter((p) => [p.name, p.company_name, p.email, p.job_title, p.country, p.campaign_name].some((v) => String(v || "").toLowerCase().includes(needle)))
-    : prospects;
+    : prospects), [prospects, needle]);
+
+  const open = SOURCES.find((s) => s.provider === openSource);
 
   return (
     <section className="bd-leadgen">
       <div className="bd-section-heading">
         <div>
           <h2>Lead Generation</h2>
-          <p>Prospects from lead-generation platforms. Review them here and add the good ones to the pipeline.</p>
+          <p>Every lead-generation platform in one place. Open a source to connect or sync it; review all prospects below.</p>
         </div>
       </div>
 
-      <div className="bd-leadgen-sources">
-        <div className="bd-panel bd-leadgen-card">
-          <div className="bd-leadgen-card-head">
-            <div>
-              <strong>Explee</strong>
-              <small>AI outbound · hot leads and campaign replies</small>
-            </div>
-            <span className={`bd-leadgen-state ${status?.configured ? "on" : ""}`}>
-              {status === null && !statusError ? "Checking…" : status?.configured ? "Connected" : "Not connected"}
-            </span>
-          </div>
-
-          {statusError && <p className="bd-inline-error">{statusError}</p>}
-          {status && !status.configured && (
-            <p className="bd-leadgen-help">
-              Add your Explee API key as the Supabase Edge Function secret <code>EXPLEE_API_KEY</code>
-              (Supabase → Edge Functions → Secrets), then press Refresh. The key is never stored in the CRM or the browser.
-            </p>
-          )}
-
-          <dl className="bd-leadgen-facts">
-            <div><dt>Project</dt><dd>
-              <input aria-label="Explee project ID" inputMode="numeric" value={projectInput} onChange={(e) => setProjectInput(e.target.value.replace(/\D/g, ""))} />
-              {projectInput !== String(conn?.settings?.project_id || "") && (
-                <button type="button" className="bd-text-button" onClick={saveProject}>Save</button>
-              )}
-              {projects.length > 0 && (
-                <small>{projects.find((p) => String(p.id) === String(conn?.settings?.project_id))?.domain || "Not in your Explee projects"}</small>
-              )}
-            </dd></div>
-            <div><dt>Campaigns</dt><dd>{status?.campaigns?.error ? status.campaigns.error : campaigns.length ? campaigns.map((c) => c.name).join(", ") : "—"}</dd></div>
-            <div><dt>Credit balance</dt><dd>{balance != null ? `${Number(balance).toLocaleString("en-GB")} credits` : "—"}</dd></div>
-            <div><dt>Last sync</dt><dd>{dateTime(conn?.last_synced_at)}{conn?.last_error && <small className="bd-overdue-text"> · {conn.last_error}</small>}</dd></div>
-          </dl>
-
-          <div className="bd-leadgen-actions">
-            <label className="bd-leadgen-check">
-              <input type="checkbox" checked={includeContacted} onChange={(e) => setIncludeContacted(e.target.checked)} />
-              Also import everyone the campaigns emailed
-            </label>
-            <span style={{ flex: 1 }} />
-            <button type="button" className="bd-button bd-button-secondary" onClick={loadStatus}>Refresh</button>
-            <button type="button" className="bd-button bd-button-primary" onClick={sync} disabled={syncing || !status?.configured}>
-              {syncing ? "Syncing…" : "Sync now"}
+      <div className="bd-leadgen-cards">
+        {SOURCES.map((s) => {
+          const st = statuses[s.provider];
+          const err = statusErrors[s.provider];
+          const c = counts[s.provider] || {};
+          const state = st?.connected ? "on" : st?.configured ? "warn" : "";
+          const label = !st && !err ? "Checking…" : st?.connected ? "Connected" : st?.configured ? "Key rejected" : err ? "Error" : "Not connected";
+          return (
+            <button key={s.provider} type="button" className={`bd-leadgen-source ${openSource === s.provider ? "open" : ""}`}
+              aria-expanded={openSource === s.provider} onClick={() => setOpenSource((cur) => (cur === s.provider ? null : s.provider))}>
+              <span className="bd-leadgen-source-top">
+                <span className="bd-leadgen-mark" aria-hidden="true">{s.mark}</span>
+                <span className="bd-leadgen-source-name"><b>{s.name}</b><small>{s.tagline}</small></span>
+                <span className={`bd-leadgen-state ${state}`}>{label}</span>
+              </span>
+              <span className="bd-leadgen-source-stats">
+                <span><b>{c.new || 0}</b> to review</span>
+                <span><b>{c.added || 0}</b> in pipeline</span>
+                <span>Synced {st?.connection?.last_synced_at ? dateTime(st.connection.last_synced_at) : "never"}</span>
+              </span>
             </button>
-          </div>
-          {syncNote && <p className="bd-leadgen-help">{syncNote}</p>}
-        </div>
-
-        <div className="bd-panel bd-leadgen-card bd-leadgen-soon">
-          <strong>More platforms</strong>
-          <small>Apollo, LinkedIn Lead Gen, Meta lead forms, website forms and others can be added here the same way.</small>
+          );
+        })}
+        <div className="bd-leadgen-source bd-leadgen-source-add" aria-label="More sources">
+          <b>+ More sources</b>
+          <small>Apollo, LinkedIn Lead Gen, Meta lead forms and website forms can be added as cards here.</small>
         </div>
       </div>
+
+      {open && (
+        <SourcePanel
+          source={open}
+          status={statuses[open.provider]}
+          statusError={statusErrors[open.provider]}
+          onRefresh={() => loadStatus(open.provider)}
+          onSynced={async () => { await loadStatus(open.provider); await refreshAll(); }}
+          onClose={() => setOpenSource(null)}
+        />
+      )}
 
       <div className="bd-leadgen-listhead">
-        <div className="bd-leadgen-tabs" role="tablist" aria-label="Prospect status">
-          {STATUS_TABS.map((t) => (
-            <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>
-              {t.label}
-            </button>
-          ))}
+        <div>
+          <h3 className="bd-leadgen-listtitle">{open ? `${open.name} leads` : "All leads"}</h3>
+          <div className="bd-leadgen-tabs" role="tablist" aria-label="Prospect status">
+            {STATUS_TABS.map((t) => (
+              <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
         <input aria-label="Search prospects" className="bd-leadgen-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, company, email…" />
       </div>
 
       {listError && <p className="bd-inline-error">{listError}</p>}
-      {loadingList ? <div className="bd-loading"><span className="bd-spinner" /> Loading prospects…</div> : rows.length === 0 ? (
-        <div className="bd-muted-empty">{tab === "new" ? "No prospects waiting. Press Sync now to pull the latest from Explee." : "Nothing here."}</div>
+      {loadingList ? <div className="bd-loading"><span className="bd-spinner" /> Loading leads…</div> : rows.length === 0 ? (
+        <div className="bd-muted-empty">{tab === "new" ? "No leads waiting. Open a source card and press Sync now." : "Nothing here."}</div>
       ) : (
         <div className="bd-table-wrap">
           <table className="bd-table bd-leadgen-table">
-            <thead><tr><th>Prospect</th><th>Company</th><th>Why now</th><th>Campaign</th><th>When</th><th /></tr></thead>
+            <thead><tr><th>Lead</th><th>Company</th><th>Source</th><th>Why now</th><th>When</th><th /></tr></thead>
             <tbody>
               {rows.map((p) => (
                 <tr key={p.id}>
@@ -194,15 +183,12 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
                     <small>{[p.job_title, p.email, p.phone].filter(Boolean).join(" · ") || "No contact details"}</small>
                     {p.linkedin_url && <small><a href={p.linkedin_url} target="_blank" rel="noopener noreferrer">LinkedIn</a></small>}
                   </td>
-                  <td>
-                    {p.company_name || "—"}
-                    <small>{[p.company_domain, p.country].filter(Boolean).join(" · ")}</small>
-                  </td>
+                  <td>{p.company_name || "—"}<small>{[p.company_domain, p.country].filter(Boolean).join(" · ")}</small></td>
+                  <td>{sourceName(p.provider)}<small>{p.campaign_name || ""}</small></td>
                   <td className="bd-leadgen-why">
                     <span className={`bd-leadgen-kind ${p.kind}`}>{p.kind === "hot" ? "Hot lead" : p.replied ? "Replied" : "Contacted"}</span>
                     {(p.why_hot || p.note) && <small>{p.why_hot || p.note}</small>}
                   </td>
-                  <td>{p.campaign_name || "—"}</td>
                   <td>{dateTime(p.became_hot_at || p.fetched_at)}</td>
                   <td className="bd-leadgen-row-actions">
                     {p.status === "new" && (
@@ -224,5 +210,82 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
         </div>
       )}
     </section>
+  );
+}
+
+function SourcePanel({ source, status, statusError, onRefresh, onSynced, onClose }) {
+  const [syncing, setSyncing] = useState(false);
+  const [note, setNote] = useState("");
+  const [includeContacted, setIncludeContacted] = useState(false);
+  const saved = String(status?.connection?.settings?.project_id || "");
+  const [projectInput, setProjectInput] = useState(saved);
+  const [saveError, setSaveError] = useState("");
+
+  useEffect(() => { setProjectInput(saved); }, [saved]);
+
+  async function sync() {
+    setSyncing(true);
+    setNote("");
+    const { data, error } = await callLeadSources("sync", { provider: source.provider, include_contacted: includeContacted });
+    setSyncing(false);
+    if (error) { setNote(error.message); await onRefresh(); return; }
+    setNote(`Synced ${data.hot} hot lead${data.hot === 1 ? "" : "s"}${includeContacted ? ` and ${data.contacted} campaign contacts` : ""} from ${data.campaigns} campaign${data.campaigns === 1 ? "" : "s"}.`);
+    await onSynced();
+  }
+
+  async function saveProject() {
+    setSaveError("");
+    const { error } = await callLeadSources("settings", { provider: source.provider, project_id: Number(projectInput) });
+    if (error) { setSaveError(error.message); return; }
+    await onRefresh();
+  }
+
+  const conn = status?.connection;
+  const balance = status?.balance && !status.balance.error ? status.balance.remain : null;
+  const projects = status?.projects?.projects || [];
+  const campaigns = status?.campaigns?.campaigns || [];
+  const keyProblem = status?.key_error || (status && !status.configured ? "no-key" : "");
+
+  return (
+    <div className="bd-panel bd-leadgen-panel">
+      <div className="bd-leadgen-card-head">
+        <div><strong>{source.name}</strong><small>{source.tagline}</small></div>
+        <button type="button" className="bd-text-button" onClick={onClose}>Close</button>
+      </div>
+
+      {statusError && <p className="bd-inline-error">{statusError}</p>}
+      {keyProblem === "no-key" && (
+        <p className="bd-leadgen-help">
+          Add your API key as the Supabase Edge Function secret <code>EXPLEE_API_KEY</code> (Supabase → Edge Functions → Secrets),
+          then press Refresh. The key is never stored in the CRM or the browser.
+        </p>
+      )}
+      {keyProblem && keyProblem !== "no-key" && <p className="bd-inline-error">{keyProblem}</p>}
+
+      <dl className="bd-leadgen-facts">
+        <div><dt>Project</dt><dd>
+          <input aria-label={`${source.name} project ID`} inputMode="numeric" value={projectInput} onChange={(e) => setProjectInput(e.target.value.replace(/\D/g, ""))} />
+          {projectInput !== saved && <button type="button" className="bd-text-button" onClick={saveProject}>Save</button>}
+          {projects.length > 0 && <small>{projects.find((p) => String(p.id) === saved)?.domain || "Not in your Explee projects"}</small>}
+          {saveError && <small className="bd-overdue-text">{saveError}</small>}
+        </dd></div>
+        <div><dt>Campaigns</dt><dd>{status?.campaigns?.error && !status?.key_error ? status.campaigns.error : campaigns.length ? campaigns.map((c) => c.name).join(", ") : "—"}</dd></div>
+        <div><dt>Credit balance</dt><dd>{balance != null ? `${Number(balance).toLocaleString("en-GB")} credits` : "—"}</dd></div>
+        <div><dt>Last sync</dt><dd>{dateTime(conn?.last_synced_at)}{conn?.last_error && <small className="bd-overdue-text"> · {conn.last_error}</small>}</dd></div>
+      </dl>
+
+      <div className="bd-leadgen-actions">
+        <label className="bd-leadgen-check">
+          <input type="checkbox" checked={includeContacted} onChange={(e) => setIncludeContacted(e.target.checked)} />
+          Also import everyone the campaigns emailed
+        </label>
+        <span style={{ flex: 1 }} />
+        <button type="button" className="bd-button bd-button-secondary" onClick={onRefresh}>Refresh</button>
+        <button type="button" className="bd-button bd-button-primary" onClick={sync} disabled={syncing || !status?.connected}>
+          {syncing ? "Syncing…" : "Sync now"}
+        </button>
+      </div>
+      {note && <p className="bd-leadgen-help">{note}</p>}
+    </div>
   );
 }

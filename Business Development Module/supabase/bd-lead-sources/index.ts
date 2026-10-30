@@ -41,7 +41,7 @@ async function explee(key: string, path: string, params: Record<string, string |
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = typeof body?.detail === "string" ? body.detail : body?.message || body?.error || `HTTP ${res.status}`;
-    const hint = res.status === 401 ? "The EXPLEE_API_KEY secret is not valid."
+    const hint = res.status === 401 ? `Explee rejected the EXPLEE_API_KEY secret (${detail}). Copy the key again from explee.com/app-auto-gtm/api-keys and paste only the key.`
       : res.status === 402 ? "The Explee account has no credit left."
       : res.status === 403 ? `Your Explee plan does not allow this (${detail}).`
       : res.status === 429 ? "Explee rate limit reached. Try again shortly."
@@ -123,7 +123,9 @@ Deno.serve(async (req) => {
   if (connErr) return json({ error: connErr.message }, 500);
   if (!conn) return json({ error: "You do not have access to lead sources, or Explee is not set up." }, 403);
 
-  const key = Deno.env.get("EXPLEE_API_KEY")?.trim();
+  // Tolerate a pasted header name, "Bearer " prefix or surrounding quotes.
+  const key = Deno.env.get("EXPLEE_API_KEY")?.trim()
+    .replace(/^(x-api-key\s*:\s*|bearer\s+)/i, "").replace(/^["']|["']$/g, "").trim();
   const projectId = Number(conn.settings?.project_id) || null;
 
   try {
@@ -139,13 +141,14 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "status") {
-      if (!key) return json({ connection: conn, configured: false });
+      if (!key) return json({ connection: conn, configured: false, connected: false });
       const [balance, projects, campaigns] = await Promise.all([
         explee(key, "/billing/balance").catch((e) => ({ error: e.message })),
         explee(key, "/autogtm/projects").catch((e) => ({ error: e.message })),
         projectId ? explee(key, "/autogtm/campaigns", { project_id: projectId }).catch((e) => ({ error: e.message })) : null,
       ]);
-      return json({ connection: conn, configured: true, balance, projects, campaigns });
+      // "connected" only when Explee accepted the key (the projects call works).
+      return json({ connection: conn, configured: true, connected: !projects?.error, key_error: projects?.error || null, balance, projects, campaigns });
     }
 
     if (body.action === "sync") {

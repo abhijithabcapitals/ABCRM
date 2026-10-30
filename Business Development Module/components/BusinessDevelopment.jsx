@@ -20,6 +20,7 @@ import LeadGenerationView from "./LeadGenerationView";
 import "./BusinessDevelopment.css";
 
 const PAGES = [
+  "Lead Generation",
   "BD Dashboard",
   "Lead Pipeline",
   "All Leads",
@@ -28,7 +29,6 @@ const PAGES = [
   "Lead Calendar",
   "Follow-up Center",
   "Campaigns & Sources",
-  "Lead Generation",
   "Proposals & Quotations",
   "Won Leads & Onboarding Handover",
   "Lost Leads Analysis",
@@ -155,7 +155,7 @@ function LeadCard({ lead, profiles, onOpen, draggable = false, onDragStart }) {
 }
 
 export default function BusinessDevelopment({ profile }) {
-  const [page, setPage] = useState("BD Dashboard");
+  const [page, setPage] = useState("Lead Generation");
   const [leads, setLeads] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);

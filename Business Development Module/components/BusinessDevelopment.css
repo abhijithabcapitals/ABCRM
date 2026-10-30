@@ -336,3 +336,22 @@
 .bd-leadgen-row-actions { white-space: nowrap; }
 .bd-leadgen-row-actions .bd-button { padding: 6px 10px; font-size: 12.5px; margin-right: 8px; }
 @media (max-width: 900px) { .bd-leadgen-sources { grid-template-columns: 1fr; } .bd-leadgen-facts { grid-template-columns: 1fr; } }
+.bd-leadgen-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.bd-leadgen-source { display: grid; gap: 14px; text-align: left; background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px 18px; font: inherit; color: inherit; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.bd-leadgen-source:hover { border-color: #b7d8d6; box-shadow: 0 4px 14px rgba(15, 94, 90, 0.08); }
+.bd-leadgen-source.open { border-color: #0d7d82; box-shadow: 0 0 0 1px #0d7d82; }
+.bd-leadgen-source-top { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+.bd-leadgen-mark { width: 38px; height: 38px; border-radius: 10px; background: #1f3a4d; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+.bd-leadgen-source-name { display: grid; min-width: 0; }
+.bd-leadgen-source-name b { font-size: 15px; color: #1f2a30; }
+.bd-leadgen-source-name small { font-size: 12px; color: #6b7280; }
+.bd-leadgen-state.warn { background: #fdf3e2; color: #a15c07; }
+.bd-leadgen-source-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: #6b7280; border-top: 1px solid #f0f0f0; padding-top: 10px; }
+.bd-leadgen-source-stats b { color: #1f2a30; font-size: 15px; margin-right: 3px; }
+.bd-leadgen-source-add { cursor: default; border-style: dashed; background: #fafaf9; align-content: center; }
+.bd-leadgen-source-add:hover { border-color: #e5e7eb; box-shadow: none; }
+.bd-leadgen-source-add b { font-size: 14px; color: #374151; }
+.bd-leadgen-source-add small { font-size: 12.5px; color: #6b7280; }
+.bd-leadgen-panel { display: grid; gap: 12px; margin-bottom: 18px; }
+.bd-leadgen-listtitle { font-size: 15px; margin: 0 0 6px; color: #1f2a30; }
+.bd-leadgen-listhead { align-items: flex-end; }

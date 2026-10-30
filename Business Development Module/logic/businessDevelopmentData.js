@@ -139,13 +139,18 @@ export async function callLeadSources(action, payload = {}) {
   return { data, error: null };
 }
 
-export async function fetchPlatformProspects(status = "new") {
+export async function fetchPlatformProspectCounts() {
+  return supabase.from("bd_platform_prospects").select("provider, status").limit(20000);
+}
+
+export async function fetchPlatformProspects(status = "new", provider = null) {
   let query = supabase.from("bd_platform_prospects")
     .select("id, provider, kind, external_id, campaign_name, name, email, phone, job_title, company_name, company_domain, linkedin_url, country, why_hot, note, became_hot_at, replied, status, lead_id, fetched_at")
     .order("became_hot_at", { ascending: false, nullsFirst: false })
     .order("fetched_at", { ascending: false })
     .limit(500);
   if (status !== "all") query = query.eq("status", status);
+  if (provider) query = query.eq("provider", provider);
   return query;
 }
 
