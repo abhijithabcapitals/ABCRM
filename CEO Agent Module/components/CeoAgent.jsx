@@ -337,6 +337,11 @@ function chatStorageKey(userId) {
   return `ceo-chat-${userId}`;
 }
 
+// The agent marks key answers and amounts with **bold**; everything else stays plain text.
+function renderBold(text) {
+  return text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <strong key={i}>{part}</strong> : part));
+}
+
 function Chat({ sb, userId, onChanged }) {
   const [messages, setMessages] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem(chatStorageKey(userId)) || "[]"); } catch { return []; }
@@ -524,7 +529,7 @@ function Chat({ sb, userId, onChanged }) {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`ceo-msg ${m.role === "user" ? "ceo-msg-user" : "ceo-msg-bot"}`}>
-            <div className="ceo-msg-body">{m.content}</div>
+            <div className="ceo-msg-body">{m.role === "user" ? m.content : renderBold(m.content)}</div>
             {m.saved?.length > 0 && (
               <div className="ceo-saved">
                 {m.saved.map((s) => (
