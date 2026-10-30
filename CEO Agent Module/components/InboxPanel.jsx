@@ -25,10 +25,12 @@ const MAILBOX_COLORS = [
   { bg: "#fde8f1", fg: "#a3245e", border: "#f3b8d1" },
 ];
 const POLL_MS = 2 * 60 * 1000;
+const INBOX_REFRESH_MS = 60 * 1000;
 const PAGE_SIZE = 50;
 const BUCKET = "email-base";
 const THREAD_COLUMNS = "id, mailbox_id, subject, participants, last_message_at, message_count, status, category, priority, needs_reply, is_important, summary, key_points, suggested_actions, folders";
 const MESSAGE_COLUMNS = "id, folder, direction, from_address, from_name, to_addresses, cc_addresses, subject, sent_at, body_text, body_complete, parse_error, attachment_count, raw_path";
+const CATEGORIES = ["client", "internal", "vendor", "government", "bank", "newsletter", "personal", "other"];
 
 const fileSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
@@ -91,6 +93,10 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   const [drafts, setDrafts] = useState([]);
   const [draftEdits, setDraftEdits] = useState({});
   const [filter, setFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+  const [mailboxFilter, setMailboxFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
   const [open, setOpen] = useState(null);
   const [replying, setReplying] = useState(null);
   const [expanded, setExpanded] = useState({}); // message id -> shown in full (the latest is shown by default)
@@ -110,9 +116,23 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     if (filter === "reply") q = q.eq("needs_reply", true);
     if (filter === "urgent") q = q.in("priority", ["urgent", "high"]);
     if (filter === "sent") q = q.overlaps("folders", sentFolders.length ? sentFolders : ["-"]);
+    if (mailboxFilter !== "all") q = q.eq("mailbox_id", mailboxFilter);
+    if (categoryFilter !== "all") q = q.eq("category", categoryFilter);
+    if (dateFilter !== "all") {
+      const age = dateFilter === "day" ? 1 : dateFilter === "week" ? 7 : 30;
+      const cutoff = new Date(Date.now() - age * 24 * 60 * 60 * 1000).toISOString();
+      q = dateFilter === "older" ? q.lt("last_message_at", cutoff) : q.gte("last_message_at", cutoff);
+    }
     if (searchIds) q = q.in("id", searchIds.length ? searchIds : ["00000000-0000-0000-0000-000000000000"]);
-    return q.order("last_message_at", { ascending: false }).range(from, to);
-  }, [sb, filter, searchIds]);
+    if (sortBy === "subject-asc" || sortBy === "subject-desc") {
+      q = q.order("subject", { ascending: sortBy === "subject-asc", nullsFirst: false })
+        .order("last_message_at", { ascending: false });
+    } else {
+      q = q.order("last_message_at", { ascending: sortBy === "oldest" })
+        .order("id", { ascending: true });
+    }
+    return q.range(from, to);
+  }, [sb, filter, searchIds, sortBy, mailboxFilter, categoryFilter, dateFilter]);
 
   const load = useCallback(async () => {
     const [acc, folderList, facts, pendingDrafts, hiddenIds] = await Promise.all([
@@ -137,7 +157,16 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     setDrafts(pendingDrafts.data || []);
   }, [sb, threadQuery, pages]);
 
-  useEffect(() => { load(); }, [load, refreshKey]);
+  useEffect(() => {
+    load();
+    const refresh = () => { if (!document.hidden) load(); };
+    const interval = window.setInterval(refresh, INBOX_REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [load, refreshKey]);
 
   // Search covers message bodies, subjects and senders, and the AI summaries.
   async function runSearch(e) {
@@ -183,9 +212,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   }), [timezone]);
   const when = (v) => (v ? fmt.format(new Date(v)) : "");
 
-  // Chronological: newest conversation first. The filter is applied in the database.
-  const shown = useMemo(() => [...(threads || [])].sort((a, b) =>
-    String(b.last_message_at).localeCompare(String(a.last_message_at))), [threads]);
+  const shown = threads || [];
 
   // Each mailbox keeps one colour, so its bubble identifies the email account at a glance.
   const mailboxColor = useCallback((mailboxId) => {
@@ -203,24 +230,29 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     setSyncing(true);
     setNotice("");
     setError("");
-    const { data, error: fnError } = await sb.functions.invoke("ceo-mail-sync", { body: {} });
-    setSyncing(false);
-    let message = data?.error;
-    if (fnError) {
-      try { message = (await fnError.context?.json())?.error || fnError.message; } catch { message = fnError.message; }
+    try {
+      const { data, error: fnError } = await sb.functions.invoke("ceo-mail-sync", { body: {} });
+      let message = data?.error;
+      if (fnError) {
+        try { message = (await fnError.context?.json())?.error || fnError.message; } catch { message = fnError.message; }
+      }
+      const results = data?.results || [];
+      const failed = results.filter((r) => r.error);
+      const read = results.reduce((n, r) => n + (r.fetched || 0), 0);
+      if (message) setError(message);
+      else if (failed.length) setError(failed.map((r) => `${r.address}: ${r.error}`).join(" "));
+      const remaining = results.reduce((n, r) => n + (r.remaining || 0), 0);
+      if (!message && results.length > failed.length) {
+        setNotice(read ? `Stored ${read} email(s) across ${results.length} mailbox(es).${remaining ? ` ${remaining} more are queued for the next runs.` : ""}`
+          : results.some((r) => r.skipped) ? "A sync is already running." : "No new email.");
+      }
+      await load();
+      onChanged?.();
+    } catch (syncError) {
+      setError(syncError.message || String(syncError));
+    } finally {
+      setSyncing(false);
     }
-    // One result per connected mailbox.
-    const results = data?.results || [];
-    const failed = results.filter((r) => r.error);
-    const read = results.reduce((n, r) => n + (r.fetched || 0), 0);
-    if (message) setError(message);
-    else if (failed.length) setError(failed.map((r) => `${r.address}: ${r.error}`).join(" "));
-    const remaining = results.reduce((n, r) => n + (r.remaining || 0), 0);
-    if (!message && results.length > failed.length) {
-      setNotice(read ? `Stored ${read} email(s) across ${results.length} mailbox(es).${remaining ? ` ${remaining} more are queued for the next runs.` : ""}`
-        : results.some((r) => r.skipped) ? "A sync is already running." : "No new email.");
-    }
-    onChanged?.();
   }
 
   async function setStatus(id, status) {
@@ -319,6 +351,39 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     setReplying(null);
   }
 
+  const refreshThreadMessages = useCallback(async (threadId) => {
+    const { data, error: messageError } = await sb.schema("email_base").from("messages")
+      .select(MESSAGE_COLUMNS)
+      .eq("thread_id", threadId).order("sent_at", { ascending: true }).limit(1000);
+    if (messageError) { setError(`Could not refresh email messages: ${messageError.message}`); return; }
+    const messages = data || [];
+    setMessagesByThread((all) => ({ ...all, [threadId]: messages }));
+    const withFiles = messages.filter((message) => message.attachment_count > 0).map((message) => message.id);
+    if (!withFiles.length) return;
+    const { data: files, error: fileError } = await sb.schema("email_base").from("attachments")
+      .select("id, message_id, position, filename, content_type, size_bytes, storage_path").in("message_id", withFiles).order("position");
+    if (fileError) { setError(`Could not refresh attachments: ${fileError.message}`); return; }
+    const grouped = {};
+    for (const file of files || []) (grouped[file.message_id] ||= []).push(file);
+    setAttachmentsByMessage((all) => ({ ...all, ...grouped }));
+  }, [sb]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const refresh = () => {
+      if (!document.hidden) {
+        refreshThreadMessages(open)
+          .catch((messageError) => setError(`Could not refresh email messages: ${messageError.message || String(messageError)}`));
+      }
+    };
+    const interval = window.setInterval(refresh, INBOX_REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [open, refreshThreadMessages]);
+
   function openThread(t) {
     setOpen(t.id);
     setReplying(null);
@@ -331,21 +396,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     if (t.status === "new") setStatus(t.id, "read");
     if (messagesByThread[t.id] || loadingMessages === t.id) return;
     setLoadingMessages(t.id);
-    sb.schema("email_base").from("messages")
-      .select(MESSAGE_COLUMNS)
-      .eq("thread_id", t.id).order("sent_at", { ascending: true }).limit(1000)
-      .then(async ({ data, error: messageError }) => {
-        if (messageError) { setError(`Could not load email messages: ${messageError.message}`); return; }
-        setMessagesByThread((messages) => ({ ...messages, [t.id]: data || [] }));
-        const withFiles = (data || []).filter((m) => m.attachment_count > 0).map((m) => m.id);
-        if (!withFiles.length) return;
-        const { data: files, error: fileError } = await sb.schema("email_base").from("attachments")
-          .select("id, message_id, position, filename, content_type, size_bytes, storage_path").in("message_id", withFiles).order("position");
-        if (fileError) { setError(`Could not load attachments: ${fileError.message}`); return; }
-        const grouped = {};
-        for (const f of files || []) (grouped[f.message_id] ||= []).push(f);
-        setAttachmentsByMessage((all) => ({ ...all, ...grouped }));
-      })
+    refreshThreadMessages(t.id)
       .catch((messageError) => setError(`Could not load email messages: ${messageError.message || String(messageError)}`))
       .finally(() => setLoadingMessages(null));
   }
@@ -381,6 +432,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
       .upsert({ user_id: userId, hidden_mailbox_ids: next, updated_at: new Date().toISOString() });
     if (err) { setError(`Could not save the Inbox setting: ${err.message}`); return; }
     setHidden(next);
+    if (mailboxFilter === id && next.includes(id)) setMailboxFilter("all");
     setPages(1);
     onChanged?.();
   }
@@ -519,7 +571,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
               </div>
             );
           })}
-          <span>Checks every 5 minutes · {total} conversation(s){searchIds ? " match the search" : ""}</span>
+          <span>Mail syncs every 2 minutes · Inbox refreshes every minute · {total} conversation(s){searchIds ? " match the search" : ""}</span>
         </div>
         <div className="ceo-inbox-tools">
           {alerts === "default" && <button className="ceo-text-btn" type="button" onClick={enableAlerts}>Enable alerts</button>}
@@ -599,6 +651,44 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
         ))}
       </div>
 
+      <div className="ceo-inbox-filters" aria-label="Sort and filter conversations">
+        <label>
+          Sort
+          <select value={sortBy} onChange={(e) => { setSortBy(e.target.value); setPages(1); }}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="subject-asc">Subject A–Z</option>
+            <option value="subject-desc">Subject Z–A</option>
+          </select>
+        </label>
+        <label>
+          Mailbox
+          <select value={mailboxFilter} onChange={(e) => { setMailboxFilter(e.target.value); setPages(1); }}>
+            <option value="all">All mailboxes</option>
+            {(account || []).filter((mailbox) => !hidden.includes(mailbox.id)).map((mailbox) => (
+              <option key={mailbox.id} value={mailbox.id}>{mailbox.address}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Category
+          <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPages(1); }}>
+            <option value="all">All categories</option>
+            {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+        </label>
+        <label>
+          Date
+          <select value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setPages(1); }}>
+            <option value="all">Any time</option>
+            <option value="day">Past 24 hours</option>
+            <option value="week">Past 7 days</option>
+            <option value="month">Past 30 days</option>
+            <option value="older">Older than 30 days</option>
+          </select>
+        </label>
+      </div>
+
       {threads && !shown.length && (
         <div className="ceo-panel"><p className="ceo-panel-empty">
           {searchIds ? "No email matches this search." : filter !== "all" ? "Nothing matches this filter." : "No conversations yet. They appear here after the next sync."}
@@ -649,6 +739,9 @@ function InboxStyles() {
       .ceo-mailbox-bubble { justify-self: start; display: inline-block; max-width: 100%; font-size: 11px; font-weight: 600; line-height: 1.5; padding: 1px 9px; border: 1px solid; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .ceo-mailbox-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .ceo-inbox-tools { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+      .ceo-inbox-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 10px 0; }
+      .ceo-inbox-filters label { display: grid; gap: 4px; color: #6b7280; font-size: 11px; }
+      .ceo-inbox-filters select { min-width: 135px; max-width: 100%; padding: 7px 9px; color: #1f2a30; background: #fff; border: 1px solid #d1d5db; border-radius: 7px; font: inherit; font-size: 12px; }
       .ceo-gear-wrap { position: relative; }
       .ceo-gear { width: 34px; height: 34px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; font-size: 17px; cursor: pointer; }
       .ceo-gear-panel { position: absolute; right: 0; top: 40px; z-index: 50; width: 280px; display: grid; gap: 8px; padding: 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.15); font-size: 13px; }

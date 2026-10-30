@@ -13,9 +13,12 @@ The shared CRM email store. For now it syncs `info@abcapital.ae` and
 - `bd_reply_drafts` stores unsent Business Development replies to Explee prospects. Drafts remain in the CRM Email Base when the mailbox pane is closed and are restored when the conversation is opened again.
 
 The `ceo-mail-sync` Edge Function reads IMAP in read-only mode. Each run (every
-5 minutes, job `email-base-sync`) walks the enabled folders of each mailbox,
-INBOX first, oldest UID first. A run stores up to 25 messages / 12 MB / 45 s,
-split evenly between the mailboxes, because Edge Functions have a small CPU
+2 minutes, job `email-base-sync`) walks the enabled folders of each mailbox,
+INBOX first. New UIDs are imported newest first, while older history is
+backfilled in descending UID batches using a separate resumable cursor. This
+lets recent arrivals appear without waiting for the historical backlog. A run
+stores up to 25 messages / 12 MB / 45 s, split evenly between the mailboxes,
+with capacity shared between new mail and backfill because Edge Functions have a small CPU
 allowance. It then summarizes up to 24 conversations per mailbox marked
 `needs_summary` from the stored rows. The folder position is saved after every
 message. A message larger than 10 MB, or one that stopped an earlier run, is
@@ -24,7 +27,7 @@ stored with its headers only (`body_complete = false`, reason in
 other folders continue. Messages from `excluded_senders` are stored but not
 summarized. Email bodies are also sent to the configured summarization provider.
 
-Apply migrations in order to the CRM Supabase project. Migration 005 adds full capture (folders, all headers, HTML, attachments, .eml) and resets each INBOX cursor so the existing history is re-read and completed; existing summaries are kept. Migration 002 adds
+Apply migrations in order to the CRM Supabase project. Migration 005 adds full capture (folders, all headers, HTML, attachments, .eml) and resets each INBOX cursor so the existing history is re-read and completed; existing summaries are kept. Migration 007 adds the newest-first/backfill cursors and changes the sync schedule to every 2 minutes. Migration 002 adds
 message-body storage, assigns the provisioned CEO owner, resets the mailbox
 cursors for the historical backfill, and redirects the schedule to the CRM
 function. Expose the `email_base` schema through the Data API, and deploy `ceo-mail-sync` from

@@ -177,6 +177,7 @@ export class ImapClient {
 
   /** Message count reported by the last EXAMINE. */
   exists = 0;
+  uidNext = 0;
 
   /** Read-only select. Returns the mailbox UIDVALIDITY. */
   async examine(mailbox: string): Promise<number> {
@@ -185,9 +186,12 @@ export class ImapClient {
     const lines = await this.command(`EXAMINE ${name}`);
     let uidValidity = 0;
     this.exists = 0;
+    this.uidNext = 0;
     for (const l of lines) {
       const m = l.text.match(/\[UIDVALIDITY (\d+)\]/i);
       if (m) uidValidity = Number(m[1]);
+      const next = l.text.match(/\[UIDNEXT (\d+)\]/i);
+      if (next) this.uidNext = Number(next[1]);
       const e = l.text.match(/^\* (\d+) EXISTS/i);
       if (e) this.exists = Number(e[1]);
     }

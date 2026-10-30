@@ -39,19 +39,19 @@ The **Talk** button uses the browser's speech recognition (Chrome, Edge, Safari)
 
 `ceo-mail-sync` connects to the enabled CRM Email Base mailboxes `bharat@ardentaxit.tax` and
 `info@abcapital.ae` (Hostinger Email at `imap.hostinger.com:993`) **read-only**: it never sends, moves,
-deletes or flags mail. Every 5 minutes it reads every enabled folder (INBOX, Sent, Archive, custom folders)
+deletes or flags mail. Every 2 minutes it reads every enabled folder (INBOX, Sent, Archive, custom folders)
 and stores each message completely in Email Base: recipients, headers, text and HTML bodies, flags,
 attachments and the original .eml (see `Database Module/Email Base/README.md`). Conversations are then
 summarized by DeepSeek from the stored rows. Email text is untrusted data and is sent to the configured
 OpenRouter provider for summarization. A message above 10 MB is kept with headers only and flagged, without
 blocking the rest of the mailbox.
 
-The **Inbox** tab lists every stored conversation (newest first, each with a coloured bubble naming its mailbox, 50 per page with **Show more**), with search across message text, subjects, senders and summaries, filters (including Sent and Archived), attachment and original .eml download, **Sync now**, mark read/unread,
+The **Inbox** tab lists every stored conversation (newest first by default, each with a coloured bubble naming its mailbox, 50 per page with **Show more**), with search across message text, subjects, senders and summaries, sort by date or subject, filters by mailbox, category and date range (in addition to status tabs including Sent and Archived), attachment and original .eml download, **Sync now**, mark read/unread,
 archive, and buttons that turn a suggested action into a task or reminder. Marking a thread important changes
 only its CRM record, not an IMAP flag. Key points can be saved individually to CEO memory. When explicitly
 asked, chat can create an unsent reply draft using the latest external sender address in the selected thread.
 Drafts appear in Inbox for editing, approval or cancellation; approval only marks the draft approved and never
-sends it. The agent itself never sends. The tab badge counts unread conversations;
+sends it. The agent itself never sends. the Inbox list refreshes every minute while visible and the tab badge counts unread conversations;
 **Enable alerts** shows a browser notification for new urgent or needs-reply conversations while the CRM is open.
 
 **Reply** (`components/ReplyComposer.jsx`) works like the Business Development reply mailer. To is prefilled
@@ -70,7 +70,7 @@ Apply `Database Module/Email Base/migrations/001_email_base.sql` and
 `002_full_message_history.sql`, then
 `supabase/migrations/202610290002_mail_assistant.sql` and
 `supabase/migrations/202610300003_email_base_mail_assistant.sql`, then Email Base `005_full_capture.sql` and,
-after `Main Module/db/email_signatures.sql`, `006_reply_drafts.sql`, to the CRM Supabase project. Expose the
+after `Main Module/db/email_signatures.sql`, `006_reply_drafts.sql`, then `007_newest_first_live_sync.sql`, to the CRM Supabase project. Expose the
 `email_base` schema through the Data API and deploy the functions in this module (`ceo-mail-reply` with JWT
 verification on). The migrations grant the provisioned CEO owner access to the two mailboxes and keep browser
 writes limited to Inbox status, importance, saved facts and drafts. Mail is sent only by `ceo-mail-reply` after

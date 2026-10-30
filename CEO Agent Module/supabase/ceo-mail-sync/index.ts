@@ -2,7 +2,7 @@
 // organization's tagged email database (schema email_base), from IMAP mailboxes.
 // The CEO Agent tab reads the mailboxes tagged 'ceo' that the CEO owns.
 //
-// Every 15 minutes (pg_cron) or on "Sync now", it reads new messages from every
+// Every 2 minutes (pg_cron) or on "Sync now", it reads new messages from every
 // enabled folder of each mailbox (INBOX, Sent, Archive, custom folders) in
 // read-only mode. Each message is stored completely: headers, recipients, text
 // and HTML bodies, flags, the original .eml file and its attachments (Storage
@@ -336,23 +336,81 @@ async function syncFolderList(db: Db, account: Row, client: ImapClient) {
 async function syncFolder(db: Db, client: ImapClient, account: Row, folder: Row, budget: Budget, batch: Map<string, string>) {
   const uidValidity = await client.examine(folder.name);
   const total = client.exists;
-  const lastUid = Number(folder.uidvalidity) === uidValidity ? Number(folder.last_uid) : 0;
-  const found = total ? await client.searchUids(lastUid > 0 ? `UID ${lastUid + 1}:*` : "ALL") : [];
-  // Oldest first so advancing last_uid cannot skip history.
-  const uids = found.filter((u) => u > lastUid).sort((a, b) => a - b).slice(0, budget.count);
-  const meta = await client.fetchMeta(uids);
-  let cursor = lastUid;
+  const sameUidValidity = Number(folder.uidvalidity) === uidValidity;
+  const previousLastUid = sameUidValidity ? Number(folder.last_uid) : 0;
+  const found = !total
+    ? []
+    : previousLastUid === 0 || !client.uidNext
+    ? await client.searchUids("ALL")
+    : client.uidNext > previousLastUid + 1
+    ? await client.searchUids(`UID ${previousLastUid + 1}:${client.uidNext - 1}`)
+    : [];
+  const highestUid = found.reduce((highest, uid) => Math.max(highest, uid), previousLastUid);
+  const newUids = found.filter((uid) => uid > previousLastUid).sort((a, b) => b - a);
+  const initializingBackfill = !sameUidValidity || folder.backfill_uid == null;
+  let backfillUid: number | null = initializingBackfill ? highestUid : Number(folder.backfill_uid);
+  let backfillFloorUid = initializingBackfill ? previousLastUid : Number(folder.backfill_floor_uid || 0);
+  let backfillResumeUid = sameUidValidity && folder.backfill_resume_uid != null
+    ? Number(folder.backfill_resume_uid)
+    : null;
+  let backfillResumeFloorUid = sameUidValidity && folder.backfill_resume_floor_uid != null
+    ? Number(folder.backfill_resume_floor_uid)
+    : null;
+
+  if (highestUid > previousLastUid && !initializingBackfill) {
+    if (backfillUid === 0) {
+      backfillUid = highestUid;
+      backfillFloorUid = previousLastUid;
+    } else if (backfillResumeUid === null) {
+      backfillResumeUid = backfillUid;
+      backfillResumeFloorUid = backfillFloorUid;
+      backfillUid = highestUid;
+      backfillFloorUid = previousLastUid;
+    } else {
+      backfillUid = Math.max(backfillUid ?? 0, highestUid);
+    }
+  }
+  if (backfillUid !== null && backfillUid <= backfillFloorUid) {
+    if (backfillResumeUid !== null) {
+      backfillUid = backfillResumeUid;
+      backfillFloorUid = backfillResumeFloorUid ?? 0;
+      backfillResumeUid = null;
+      backfillResumeFloorUid = null;
+    } else {
+      backfillUid = 0;
+      backfillFloorUid = 0;
+    }
+  }
+
+  const lastUid = highestUid;
+  await db.from("mailbox_folders").update({
+    uidvalidity: uidValidity,
+    last_uid: lastUid,
+    backfill_uid: backfillUid,
+    backfill_floor_uid: backfillFloorUid,
+    backfill_resume_uid: backfillResumeUid,
+    backfill_resume_floor_uid: backfillResumeFloorUid,
+    message_total: total,
+    updated_at: new Date().toISOString(),
+  }).eq("id", folder.id);
+
   let stored = 0;
   let previousMarker = folder.last_error;
-  for (const uid of uids) {
-    if (budget.count <= 0 || Date.now() > budget.deadline) break;
+  const processedLive = new Set<number>();
+  const meta = new Map<number, Meta>();
+  const liveLimit = Math.max(1, Math.ceil(budget.count / 2));
+  const liveUids = newUids.slice(0, liveLimit);
+  const liveMeta = await client.fetchMeta(liveUids);
+  for (const [uid, value] of liveMeta) meta.set(uid, value);
+
+  const importUid = async (uid: number): Promise<boolean> => {
+    if (budget.count <= 0 || Date.now() > budget.deadline) return false;
     const size = meta.get(uid)?.size || 0;
     const reason = previousMarker === importingMarker(uid)
       ? "An earlier import of this message ran out of resources."
       : size > MAX_FULL_MESSAGE_BYTES ? `Message is larger than ${MAX_FULL_MESSAGE_BYTES} bytes.` : null;
-    if (stored > 0 && !reason && size > budget.bytes) break;
-    // The position is saved per message, so a run stopped by the platform resumes here.
-    await db.from("mailbox_folders").update({ uidvalidity: uidValidity, last_uid: cursor, last_error: importingMarker(uid) }).eq("id", folder.id);
+    if (stored > 0 && !reason && size > budget.bytes) return false;
+    await db.from("mailbox_folders").update({ last_error: importingMarker(uid) }).eq("id", folder.id);
     previousMarker = null;
     const source = await client.fetchSource(uid, !!reason);
     if (source) {
@@ -361,13 +419,87 @@ async function syncFolder(db: Db, client: ImapClient, account: Row, folder: Row,
       stored++;
     }
     budget.count--;
-    cursor = uid;
+    return true;
+  };
+
+  for (const uid of liveUids) {
+    if (!(await importUid(uid))) break;
+    processedLive.add(uid);
   }
+
+  let backfillStored = 0;
+  let backfillTotal = 0;
+  let liveBackfillStored = 0;
+  let backfillCandidates: number[] = [];
+  if (backfillUid !== null && backfillUid > backfillFloorUid) {
+    const range = `UID ${Math.max(1, backfillFloorUid + 1)}:${backfillUid}`;
+    const backfillFound = initializingBackfill && backfillFloorUid === previousLastUid
+      ? found
+      : await client.searchUids(range);
+    backfillTotal = backfillFound.filter((uid) => uid > backfillFloorUid && uid <= backfillUid!).length;
+    liveBackfillStored = backfillFound.filter((uid) => processedLive.has(uid)).length;
+    const pendingBackfill = backfillFound
+      .filter((uid) => uid > backfillFloorUid && uid <= backfillUid! && !processedLive.has(uid))
+      .sort((a, b) => b - a);
+    backfillCandidates = pendingBackfill.slice(0, budget.count);
+    if (!pendingBackfill.length) {
+      if (backfillResumeUid !== null) {
+        backfillUid = backfillResumeUid;
+        backfillFloorUid = backfillResumeFloorUid ?? 0;
+        backfillResumeUid = null;
+        backfillResumeFloorUid = null;
+      } else {
+        backfillUid = 0;
+        backfillFloorUid = 0;
+      }
+      await db.from("mailbox_folders").update({
+        backfill_uid: backfillUid,
+        backfill_floor_uid: backfillFloorUid,
+        backfill_resume_uid: backfillResumeUid,
+        backfill_resume_floor_uid: backfillResumeFloorUid,
+      }).eq("id", folder.id);
+    }
+    const backfillMeta = await client.fetchMeta(backfillCandidates);
+    for (const [uid, value] of backfillMeta) meta.set(uid, value);
+
+    for (const uid of backfillCandidates) {
+      if (!(await importUid(uid))) break;
+      backfillStored++;
+      backfillUid = uid - 1;
+      if (backfillUid <= backfillFloorUid) {
+        if (backfillResumeUid !== null) {
+          backfillUid = backfillResumeUid;
+          backfillFloorUid = backfillResumeFloorUid ?? 0;
+          backfillResumeUid = null;
+          backfillResumeFloorUid = null;
+        } else {
+          backfillUid = 0;
+          backfillFloorUid = 0;
+        }
+      }
+      await db.from("mailbox_folders").update({
+        backfill_uid: backfillUid,
+        backfill_floor_uid: backfillFloorUid,
+        backfill_resume_uid: backfillResumeUid,
+        backfill_resume_floor_uid: backfillResumeFloorUid,
+      }).eq("id", folder.id);
+    }
+  }
+
   await db.from("mailbox_folders").update({
-    uidvalidity: uidValidity, last_uid: cursor, message_total: total,
+    uidvalidity: uidValidity, last_uid: lastUid, message_total: total,
+    backfill_uid: backfillUid,
+    backfill_floor_uid: backfillFloorUid,
+    backfill_resume_uid: backfillResumeUid,
+    backfill_resume_floor_uid: backfillResumeFloorUid,
     last_synced_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString(),
   }).eq("id", folder.id);
-  return { folder: folder.name, stored, remaining: uids.length > 0 ? found.filter((u) => u > cursor).length : 0 };
+  return {
+    folder: folder.name,
+    stored,
+    remaining: Math.max(0, backfillTotal - backfillStored - liveBackfillStored)
+      + (backfillUid !== null && backfillUid > backfillFloorUid ? 1 : 0),
+  };
 }
 
 async function summarize(apiKey: string, thread: Row, messages: SummaryMessage[]) {
