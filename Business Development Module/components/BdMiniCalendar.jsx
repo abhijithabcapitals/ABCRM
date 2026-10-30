@@ -12,7 +12,7 @@ export default function BdMiniCalendar({ followups, onOpenLead, onOpenCalendar }
   const [month, setMonth] = useState(() => monthOf(today));
   const [selected, setSelected] = useState(today);
   const [items, setItems] = useState([]);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false); // collapsed until the person asks for it
   const grid = useMemo(() => monthGrid(month), [month]);
 
   useEffect(() => {
@@ -27,13 +27,15 @@ export default function BdMiniCalendar({ followups, onOpenLead, onOpenCalendar }
     ...items.filter((item) => item.status !== "done").map((item) => ({ id: `i-${item.id}`, kind: item.kind, start: item.starts_at, title: item.title, allDay: item.all_day })),
   ], TZ), [followups, items]);
   const dayEvents = byDay[selected] || [];
+  const todayCount = (byDay[today] || []).length;
 
   return (
     <section className="bd-mini-cal" aria-label="Lead calendar">
       <div className="bd-mini-cal-head">
         <button type="button" className="bd-mini-cal-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
-          {open ? "▾" : "▸"} {monthLabel(month)}
+          {open ? `▾ ${monthLabel(month)}` : "▸ Calendar"}
         </button>
+        {!open && <small className="bd-mini-cal-count">{todayCount ? `${todayCount} today` : "Nothing today"}</small>}
         {open && (
           <span>
             <button type="button" onClick={() => setMonth(addMonths(month, -1))} aria-label="Previous month">‹</button>

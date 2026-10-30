@@ -526,3 +526,4 @@
 .bd-mini-cal-day .bd-text-button { justify-self: start; margin-top: 2px; }
 .bd-agent-body { overflow-x: hidden; }
 .bd-agent .bd-alert span { min-width: 0; overflow-wrap: anywhere; }
+.bd-mini-cal-count { color: #718087; font-size: 11px; }
