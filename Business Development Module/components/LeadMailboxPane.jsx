@@ -13,6 +13,8 @@ const stripSignature = (text, signature) => (endsWithSignature(text, signature)
 const DRAFT_GAP = "\n".repeat(6);
 const appendSignature = (text, signature) => `${text.trimEnd()}${DRAFT_GAP}${signatureText(signature)}`;
 const finalReply = (text, signature) => `${stripSignature(text, signature).trim()}\n\n${signatureText(signature)}`;
+// Explee ends its drafts with its own sign-off; the CRM signature replaces it.
+const stripSignOff = (text) => text.replace(/\n\s*(best|best regards|kind regards|regards|thanks|thank you|sincerely|cheers),?\s*\n[^\n]{1,60}\s*$/i, "");
 
 const mailDate = (value) => value ? new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -34,6 +36,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
   const [sendConfirmation, setSendConfirmation] = useState(null);
   const [verificationCode, setVerificationCode] = useState("");
   const [sendSuccess, setSendSuccess] = useState(false);
+  const [expleeDraft, setExpleeDraft] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -63,6 +66,17 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
         if (preferred) {
           setSignatureId(preferred.id);
           setBody(appendSignature("", preferred));
+        }
+        // Same as pressing Reply in Explee: it writes a draft, and nothing is sent. Text typed meanwhile is kept.
+        if (threadResult.data?.can_reply) {
+          const blank = preferred ? appendSignature("", preferred) : "";
+          setExpleeDraft("loading");
+          callLeadSources("explee_draft", { prospect_id: prospect.id }).then(({ data, error: draftError }) => {
+            if (!active) return;
+            const text = data?.body_text;
+            setExpleeDraft(draftError ? draftError.message : !text ? "Explee has no draft for this conversation." : "loaded");
+            if (text) setBody((current) => (current === blank ? (preferred ? appendSignature(stripSignOff(text), preferred) : text) : current));
+          });
         }
       }
     }).catch((loadError) => {
@@ -243,6 +257,11 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
 
         <section className="bd-mailbox-composer" aria-label="Reply composer">
           <div className="bd-mailbox-compose-to"><b>To</b><span>{prospect.name ? `${prospect.name} · ` : ""}{prospect.email || "No email address"}</span></div>
+          {expleeDraft && (
+            <small role="status">
+              {expleeDraft === "loading" ? "Getting Explee's draft…" : expleeDraft === "loaded" ? "Draft written by Explee. Review it, then save or send." : expleeDraft}
+            </small>
+          )}
           <textarea
             aria-label="Reply message"
             maxLength={10000}

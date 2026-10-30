@@ -7,6 +7,7 @@
 //   settings -> save { project_id } (BD managers only, enforced by row-level security)
 //   sync     -> pull hot leads since the last sync (and, with include_contacted, campaign leads)
 //   thread      -> the full email conversation with one prospect { prospect_id }
+//   explee_draft -> the reply Explee suggests for this conversation, not saved or sent { prospect_id }
 //   agent_draft -> ask the Email Agent for a reply draft { prospect_id, instructions? } (needs EMAIL_AGENT_URL)
 //   save_draft  -> save a personal reply { prospect_id, draft_id?, body_text }
 //   redraft_reply -> rewrite a saved reply through OpenRouter { draft_id, instructions? }
@@ -118,14 +119,36 @@ async function loadSignatureLogo(db: any, signatureId: unknown) {
   return data?.logo_url?.startsWith(prefix) ? data.logo_url as string : null;
 }
 
+// The reply Explee writes when someone presses Reply in its inbox. The endpoint belongs to Explee's
+// web app, not its public API, so it may reject the API key or change. It only returns a suggestion; nothing is sent.
+async function fetchExpleeSuggestion(key: string, campaignId: unknown, personId: unknown) {
+  const res = await fetch(`${EXPLEE_APP_API}/segments/${campaignId}/outreach/auto-reply/${personId}`, {
+    method: "POST",
+    headers: { "X-API-Key": key, "Content-Type": "application/json", Accept: "application/json" },
+    body: "{}",
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) throw new ProviderError(res.status, `Explee did not share its draft reply (HTTP ${res.status}).`);
+  // deno-lint-ignore no-explicit-any
+  const suggestion: any = await res.json().catch(() => ({}));
+  return typeof suggestion.suggestion_body === "string" ? suggestion.suggestion_body.trim() : "";
+}
+
 // Copies the replies Explee has written for conversations awaiting an answer into Drafted replies.
-// The endpoint belongs to Explee's web app, not its public API, so it may reject the API key or change.
-// It only returns a suggestion; nothing is sent.
 // deno-lint-ignore no-explicit-any
 async function importExpleeDrafts(db: any, key: string, projectId: number, userId: string) {
-  const inbox = await explee(key, `/autogtm/projects/${projectId}/inbox`, { tab: "need_reply", limit: MAX_DRAFT_IMPORTS });
+  // Read every waiting conversation: ones already drafted are skipped, so the next sync continues with the rest.
+  // deno-lint-ignore no-explicit-any
+  const contacts: any[] = [];
+  for (let offset = 0, more = true; more;) {
+    const inbox = await explee(key, `/autogtm/projects/${projectId}/inbox`, { tab: "need_reply", limit: 100, offset });
+    contacts.push(...(inbox.contacts || []));
+    more = !!inbox.has_more;
+    offset = inbox.next_offset ?? offset + 100;
+  }
   let imported = 0;
-  for (const contact of inbox.contacts || []) {
+  for (const contact of contacts) {
+    if (imported >= MAX_DRAFT_IMPORTS) break;
     if (!contact.person_id || !contact.campaign_id) continue;
     const { data: prospect } = await db.from("bd_platform_prospects").select("id")
       .eq("provider", "explee").eq("external_id", String(contact.person_id)).eq("status", "new").maybeSingle();
@@ -134,16 +157,7 @@ async function importExpleeDrafts(db: any, key: string, projectId: number, userI
       .eq("prospect_id", prospect.id).neq("status", "discarded").limit(1);
     if (existing?.length) continue;
 
-    const res = await fetch(`${EXPLEE_APP_API}/segments/${contact.campaign_id}/outreach/auto-reply/${contact.person_id}`, {
-      method: "POST",
-      headers: { "X-API-Key": key, "Content-Type": "application/json", Accept: "application/json" },
-      body: "{}",
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) return { imported, error: `Explee did not share its draft replies (HTTP ${res.status}).` };
-    // deno-lint-ignore no-explicit-any
-    const suggestion: any = await res.json().catch(() => ({}));
-    const text = typeof suggestion.suggestion_body === "string" ? suggestion.suggestion_body.trim() : "";
+    const text = await fetchExpleeSuggestion(key, contact.campaign_id, contact.person_id);
     if (!text) continue;
 
     const { error } = await db.schema("email_base").from("bd_reply_drafts").insert({
@@ -358,6 +372,13 @@ Deno.serve(async (req) => {
     }
 
     // ---- Mailbox: conversation, reply drafts, AI redraft and confirmed send -------
+    if (body.action === "explee_draft") {
+      if (!key) return json({ error: "Add the EXPLEE_API_KEY secret first." }, 400);
+      const prospect = await loadProspect(db, body.prospect_id);
+      if (!prospect) return json({ error: "Prospect not found." }, 404);
+      return json({ body_text: await fetchExpleeSuggestion(key, prospect.external_campaign_id, prospect.external_id) });
+    }
+
     if (body.action === "thread" || body.action === "agent_draft" || body.action === "redraft_reply") {
       if (!key) return json({ error: "Add the EXPLEE_API_KEY secret first." }, 400);
       const prospect = await loadProspect(db, body.prospect_id);
