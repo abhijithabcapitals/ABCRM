@@ -82,6 +82,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   const [filter, setFilter] = useState("all");
   const [open, setOpen] = useState(null);
   const [replying, setReplying] = useState(null);
+  const [expanded, setExpanded] = useState({}); // message id -> shown in full (the latest is shown by default)
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -268,12 +269,34 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     setNotice("Reply draft cancelled.");
   }
 
-  function toggle(t) {
-    if (open === t.id) {
+  // A conversation opens as its own page, like Gmail. The browser Back button returns to the list.
+  const pushedRef = useRef(false);
+  useEffect(() => {
+    const onPop = () => {
+      if (!pushedRef.current) return;
+      pushedRef.current = false;
       setOpen(null);
-      return;
-    }
+      setReplying(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  function closeThread() {
+    if (pushedRef.current) { window.history.back(); return; }
+    setOpen(null);
+    setReplying(null);
+  }
+
+  function openThread(t) {
     setOpen(t.id);
+    setReplying(null);
+    setExpanded({});
+    if (!pushedRef.current) {
+      window.history.pushState({ ceoInboxThread: t.id }, "");
+      pushedRef.current = true;
+    }
+    window.scrollTo({ top: 0 });
     if (t.status === "new") setStatus(t.id, "read");
     if (messagesByThread[t.id] || loadingMessages === t.id) return;
     setLoadingMessages(t.id);
@@ -331,6 +354,131 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     return (
       <section className="ceo-dash">
         <div className="ceo-panel"><h3>Inbox</h3><p className="ceo-panel-empty">No mailbox is connected to this CEO workspace.</p></div>
+      </section>
+    );
+  }
+
+  const current = open ? (threads || []).find((x) => x.id === open) : null;
+  if (current) {
+    const t = current;
+    const messages = messagesByThread[t.id] || [];
+    const lastIndex = messages.length - 1;
+    const leaveWith = async (status) => { await setStatus(t.id, status); closeThread(); };
+    return (
+      <section className="ceo-dash ceo-inbox ceo-thread-page" aria-label="Email conversation">
+        <InboxStyles />
+        <div className="ceo-thread-toolbar">
+          <button type="button" className="ceo-text-btn ceo-back" onClick={closeThread}>← Back to inbox</button>
+          <span className="ceo-thread-tools">
+            <button className="ceo-text-btn" type="button" onClick={() => setImportant(t, !t.is_important)}>
+              {t.is_important ? "Unmark important" : "Mark important"}
+            </button>
+            <button className="ceo-text-btn" type="button" onClick={() => leaveWith("new")}>Mark unread</button>
+            {t.status === "archived"
+              ? <button className="ceo-text-btn" type="button" onClick={() => leaveWith("read")}>Unarchive</button>
+              : <button className="ceo-text-btn" type="button" onClick={() => leaveWith("archived")}>Archive</button>}
+          </span>
+        </div>
+        {error && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
+        {notice && <p className="ceo-notice ceo-ok" role="status">{notice}</p>}
+
+        <header className="ceo-thread-head">
+          <h2>{t.subject || "(no subject)"}</h2>
+          <div className="ceo-thread-tags">
+            {mailboxBubble(t.mailbox_id)}
+            {t.category && <span className="ceo-tag">{t.category}</span>}
+            {t.is_important && <span className="ceo-tag ceo-tag-important">important</span>}
+            {t.needs_reply && <span className="ceo-tag ceo-tag-reply">needs reply</span>}
+            <span className="ceo-muted">{t.message_count} email{t.message_count === 1 ? "" : "s"}</span>
+          </div>
+        </header>
+
+        <div className="ceo-thread-layout">
+          <div className="ceo-thread-messages">
+            {loadingMessages === t.id && <p className="ceo-muted">Loading messages…</p>}
+            {messages.map((message, index) => {
+              const full = expanded[message.id] ?? index === lastIndex;
+              const name = message.from_name || message.from_address || "Unknown sender";
+              return (
+                <article key={message.id} className={`ceo-msg ${full ? "ceo-msg-open" : ""}`}>
+                  <button type="button" className="ceo-msg-head" aria-expanded={full}
+                    onClick={() => setExpanded((all) => ({ ...all, [message.id]: !full }))}>
+                    <span className="ceo-avatar" aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>
+                    <span className="ceo-msg-who">
+                      <span>
+                        <b>{name}</b>
+                        {message.direction === "outbound" && <span className="ceo-tag ceo-tag-sent">sent</span>}
+                        {message.folder && message.folder.toUpperCase() !== "INBOX" && <span className="ceo-tag ceo-tag-folder">{message.folder.replace(/^INBOX[./]/i, "")}</span>}
+                      </span>
+                      <small>{full ? `<${message.from_address || ""}>` : (message.body_text || "").replace(/\s+/g, " ").slice(0, 140)}</small>
+                    </span>
+                    <span className="ceo-msg-date">{when(message.sent_at)}</span>
+                  </button>
+                  {full && (
+                    <div className="ceo-msg-body">
+                      <div className="ceo-muted">To: {(message.to_addresses || []).join(", ") || "Not available"}</div>
+                      {message.cc_addresses?.length > 0 && <div className="ceo-muted">Cc: {message.cc_addresses.join(", ")}</div>}
+                      {message.body_complete === false && message.parse_error && <div className="ceo-mail-warning">{message.parse_error}</div>}
+                      <pre>{message.body_text || "(No text body)"}</pre>
+                      {(attachmentsByMessage[message.id] || []).length > 0 && (
+                        <div className="ceo-attachments">
+                          {attachmentsByMessage[message.id].map((f) => (
+                            <button key={f.id} type="button" className="ceo-chip" onClick={() => download(f.storage_path, f.filename)}>
+                              📎 {f.filename || "attachment"} · {fileSize(f.size_bytes)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {message.raw_path && (
+                        <button type="button" className="ceo-text-btn ceo-eml" onClick={() => download(message.raw_path, "message.eml")}>
+                          Download original (.eml)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+
+            {replying === t.id ? (
+              <ReplyComposer sb={sb} thread={t} when={when} onClose={() => setReplying(null)}
+                onSent={() => { setThreads((list) => (list || []).map((x) => (x.id === t.id ? { ...x, needs_reply: false, status: "read" } : x))); onChanged?.(); }} />
+            ) : (
+              <div className="ceo-thread-reply">
+                <button className="btn btn-primary" type="button" onClick={() => setReplying(t.id)}>↩ Reply</button>
+              </div>
+            )}
+          </div>
+
+          <aside className="ceo-thread-side" aria-label="AI summary">
+            <h3>AI summary</h3>
+            {t.summary ? <p>{t.summary}</p> : <p className="ceo-muted">Summary not available yet.</p>}
+            {t.key_points?.length > 0 && <>
+              <h4>Key points</h4>
+              <ul className="ceo-points">{t.key_points.map((p, i) => {
+                const isSaved = savedFacts.some((fact) => fact.thread_id === t.id && fact.fact === p);
+                return (
+                  <li key={i}>
+                    <span>{p}</span>
+                    <button className="ceo-text-btn" type="button" disabled={isSaved} onClick={() => saveFact(t, p)}>
+                      {isSaved ? "Saved to memory" : "Save fact"}
+                    </button>
+                  </li>
+                );
+              })}</ul>
+            </>}
+            {t.suggested_actions?.length > 0 && <>
+              <h4>Suggested actions</h4>
+              <div className="ceo-actions">
+                {t.suggested_actions.map((a, i) => (
+                  <button key={i} type="button" className="ceo-chip" onClick={() => addAction(t, a)}>
+                    + {a.type === "reply" ? "Reply" : a.type}: {a.title}{a.due ? ` (${when(a.due)})` : ""}
+                  </button>
+                ))}
+              </div>
+            </>}
+          </aside>
+        </div>
       </section>
     );
   }
@@ -427,14 +575,14 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
       <ul className="ceo-mail-list">
         {shown.map((t) => (
           <li key={t.id} className={`ceo-mail ${t.status === "new" ? "ceo-mail-new" : ""}`}>
-            <button type="button" className="ceo-mail-row" onClick={() => toggle(t)} aria-expanded={open === t.id}>
+            <button type="button" className="ceo-mail-row" onClick={() => openThread(t)}>
               <span className={`ceo-dot ceo-dot-${t.priority || "normal"}`} title={t.priority || "normal"} />
               <span className="ceo-mail-main">
                 {mailboxBubble(t.mailbox_id)}
                 <b>{t.subject || "(no subject)"}</b>
                 <span>{(t.participants || []).slice(0, 2).join(", ")}{t.message_count > 1 ? ` · ${t.message_count} emails` : ""}</span>
                 {t.summary
-                  ? <small className={open === t.id ? "" : "ceo-clamp"}>{t.summary}</small>
+                  ? <small className="ceo-clamp">{t.summary}</small>
                   : <small className="ceo-muted">Summary not available.</small>}
               </span>
               <span className="ceo-mail-meta">
@@ -444,82 +592,6 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
                 {t.needs_reply && <span className="ceo-tag ceo-tag-reply">needs reply</span>}
               </span>
             </button>
-            {open === t.id && (
-              <div className="ceo-mail-detail">
-                <section className="ceo-email-history" aria-label="Original email messages">
-                  <h4>Original messages</h4>
-                  {loadingMessages === t.id && <p className="ceo-muted">Loading messages…</p>}
-                  {(messagesByThread[t.id] || []).map((message) => (
-                    <article key={message.id} className="ceo-email-message">
-                      <div>
-                        <b>{message.from_name || message.from_address || "Unknown sender"}</b>
-                        {message.direction === "outbound" && <span className="ceo-tag ceo-tag-sent">sent</span>}
-                        {message.folder && <span className="ceo-tag ceo-tag-folder">{message.folder.replace(/^INBOX[./]/i, "")}</span>}
-                      </div>
-                      <div className="ceo-muted">{message.from_address} · {when(message.sent_at)}</div>
-                      <div className="ceo-muted">To: {(message.to_addresses || []).join(", ") || "Not available"}</div>
-                      {message.cc_addresses?.length > 0 && <div className="ceo-muted">Cc: {message.cc_addresses.join(", ")}</div>}
-                      {message.body_complete === false && message.parse_error && <div className="ceo-mail-warning">{message.parse_error}</div>}
-                      <pre>{message.body_text || "(No text body)"}</pre>
-                      {(attachmentsByMessage[message.id] || []).length > 0 && (
-                        <div className="ceo-attachments">
-                          {attachmentsByMessage[message.id].map((f) => (
-                            <button key={f.id} type="button" className="ceo-chip" onClick={() => download(f.storage_path, f.filename)}>
-                              {f.filename || "attachment"} · {fileSize(f.size_bytes)}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {message.raw_path && (
-                        <button type="button" className="ceo-text-btn ceo-eml" onClick={() => download(message.raw_path, "message.eml")}>
-                          Download original (.eml)
-                        </button>
-                      )}
-                    </article>
-                  ))}
-                </section>
-                {t.key_points?.length > 0 && (
-                  <ul className="ceo-points">{t.key_points.map((p, i) => {
-                    const isSaved = savedFacts.some((fact) => fact.thread_id === t.id && fact.fact === p);
-                    return (
-                      <li key={i}>
-                        <span>{p}</span>
-                        <button className="ceo-text-btn" type="button" disabled={isSaved} onClick={() => saveFact(t, p)}>
-                          {isSaved ? "Saved to memory" : "Save fact"}
-                        </button>
-                      </li>
-                    );
-                  })}</ul>
-                )}
-                {t.suggested_actions?.length > 0 && (
-                  <div className="ceo-actions">
-                    {t.suggested_actions.map((a, i) => (
-                      <button key={i} type="button" className="ceo-chip" onClick={() => addAction(t, a)}>
-                        + {a.type === "reply" ? "Reply" : a.type}: {a.title}{a.due ? ` (${when(a.due)})` : ""}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {replying === t.id && (
-                  <ReplyComposer sb={sb} thread={t} when={when} onClose={() => setReplying(null)}
-                    onSent={() => { setThreads((list) => (list || []).map((x) => (x.id === t.id ? { ...x, needs_reply: false, status: "read" } : x))); onChanged?.(); }} />
-                )}
-                <div className="ceo-mail-buttons">
-                  {replying !== t.id && (
-                    <button className="btn btn-primary ceo-reply-open" type="button" onClick={() => setReplying(t.id)}>Reply</button>
-                  )}
-                  <button className="ceo-text-btn" type="button" onClick={() => setImportant(t, !t.is_important)}>
-                    {t.is_important ? "Unmark important" : "Mark important"}
-                  </button>
-                  <button className="ceo-text-btn" type="button" onClick={() => setStatus(t.id, t.status === "new" ? "read" : "new")}>
-                    Mark {t.status === "new" ? "read" : "unread"}
-                  </button>
-                  {t.status === "archived"
-                    ? <button className="ceo-text-btn" type="button" onClick={() => setStatus(t.id, "read")}>Unarchive</button>
-                    : <button className="ceo-text-btn" type="button" onClick={() => setStatus(t.id, "archived")}>Archive</button>}
-                </div>
-              </div>
-            )}
           </li>
         ))}
       </ul>
@@ -569,7 +641,29 @@ function InboxStyles() {
       .ceo-tag-approved { background: #dcfce7; color: #166534; text-transform: none; }
       .ceo-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; background: #d1d5db; }
       .ceo-dot-urgent { background: #dc2626; } .ceo-dot-high { background: #f59e0b; } .ceo-dot-normal { background: #0d7d82; } .ceo-dot-low { background: #d1d5db; }
-      .ceo-mail-detail { padding: 0 14px 12px 33px; display: grid; gap: 8px; }
+      .ceo-thread-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; }
+      .ceo-back { font-weight: 600; }
+      .ceo-thread-tools { display: flex; flex-wrap: wrap; gap: 14px; }
+      .ceo-thread-head { display: grid; gap: 6px; padding: 4px 2px; }
+      .ceo-thread-head h2 { margin: 0; font-size: 20px; line-height: 1.3; color: #1f2a30; overflow-wrap: anywhere; }
+      .ceo-thread-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+      .ceo-thread-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+      .ceo-thread-messages { display: grid; gap: 8px; min-width: 0; }
+      .ceo-msg { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; }
+      .ceo-msg-head { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; background: none; border: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+      .ceo-avatar { flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: #e6f4f3; color: #0b6b70; font-weight: 700; font-size: 14px; }
+      .ceo-msg-who { flex: 1; min-width: 0; display: grid; gap: 2px; }
+      .ceo-msg-who b { font-size: 13.5px; color: #1f2a30; }
+      .ceo-msg-who small { font-size: 12px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ceo-msg-date { flex-shrink: 0; font-size: 11.5px; color: #9ca3af; }
+      .ceo-msg-body { display: grid; gap: 4px; padding: 0 14px 14px 56px; font-size: 12px; }
+      .ceo-msg-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13.5px; line-height: 1.55; margin: 8px 0 0; color: #1f2a30; }
+      .ceo-thread-reply { padding: 4px 0; }
+      .ceo-thread-side { position: sticky; top: 12px; display: grid; gap: 8px; padding: 14px; background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; font-size: 12.5px; color: #374151; }
+      .ceo-thread-side h3 { margin: 0; font-size: 14px; color: #1f2a30; }
+      .ceo-thread-side h4 { margin: 6px 0 0; font-size: 12.5px; color: #1f2a30; }
+      .ceo-thread-side p { margin: 0; line-height: 1.5; }
+      @media (max-width: 900px) { .ceo-thread-layout { grid-template-columns: 1fr; } .ceo-thread-side { position: static; } .ceo-msg-body { padding-left: 14px; } }
       .ceo-email-history { display: grid; gap: 8px; }
       .ceo-email-history h4 { margin: 0; font-size: 13px; color: #1f2a30; }
       .ceo-email-message { display: grid; gap: 4px; padding: 10px; border: 1px solid #e8e8e8; border-radius: 8px; }

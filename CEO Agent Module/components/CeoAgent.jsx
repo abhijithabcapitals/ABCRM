@@ -8,6 +8,7 @@ export default function CeoAgent({ crmClient }) {
     () => crmClient && {
       auth: crmClient.auth,
       functions: crmClient.functions,
+      storage: crmClient.storage,
       from: (table) => crmClient.schema("ceo").from(table),
       schema: (schema) => crmClient.schema(schema),
     },

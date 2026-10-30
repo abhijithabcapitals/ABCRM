@@ -52,7 +52,8 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
     setLoading(true);
     Promise.all([
       call("context", { thread_id: thread.id }),
-      sb.from("email_signatures").select("id, name, body_text, logo_url, is_default").order("created_at"),
+      // The same Profile › Mail signatures the Business Development composer uses (public schema).
+      sb.schema("public").from("email_signatures").select("id, name, body_text, logo_url, is_default").order("created_at"),
     ]).then(([context, signatureResult]) => {
       if (!active) return;
       const mySignatures = signatureResult.error ? [] : signatureResult.data || [];
