@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "Email Classifier": {
+      "source": "claude-office-skills/skills",
+      "sourceType": "github",
+      "skillPath": "email-classifier/SKILL.md",
+      "computedHash": "93bbfb596c86fd86070dc41e05bc525bb80de9e59f8caa2950c603a4d08b9e43"
+    },
+    "Suspicious Email Analyzer": {
+      "source": "claude-office-skills/skills",
+      "sourceType": "github",
+      "skillPath": "suspicious-email/SKILL.md",
+      "computedHash": "31ae0aac88cb1406d33b31faa5053373b554ee4635f2836657db6e83f71a0292"
+    },
+    "daily-briefing": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "sales/skills/daily-briefing/SKILL.md",
+      "computedHash": "ed9ef8d388c13a72de06de0229ec7749fd16b42a76b0cb0a21ab1594666453f5"
+    },
+    "email-drafter": {
+      "source": "claude-office-skills/skills",
+      "sourceType": "github",
+      "skillPath": "email-drafter/SKILL.md",
+      "computedHash": "26abc741db57906c55fbef7dc0356865e45b396977d2e770e6b58313875ef4ad"
+    },
+    "email-ops": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/email-ops/SKILL.md",
+      "computedHash": "531061ebd92c5798c90b39aa68b6384997519d14fa264ea1c526c9c749c8c03e"
+    }
+  }
+}

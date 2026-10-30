@@ -16,6 +16,7 @@ const DocumentGenerator = lazy(() => import("@document-generator"));
 const Clients = lazy(() => import("./components/Clients"));
 const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
+const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
 
 export default function App() {
@@ -488,6 +489,7 @@ export default function App() {
         {view === "clients" && <Clients profile={profile} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
+        {view === "email-agent" && profile?.role === "admin" && <EmailAgent />}
         {view === "tax" && (
           <Clients profile={profile} page="/tax" title="Tax Compliance" subtitle="Tax Agent · VAT, Corporate Tax & renewals" />
         )}

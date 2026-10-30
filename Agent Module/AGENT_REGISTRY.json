@@ -1,6 +1,6 @@
 {
     "version":  "0.1.0",
-    "updated":  "2026-10-28",
+    "updated":  "2026-10-30",
     "orchestrator":  {
                          "id":  "AGT-00-ORCHESTRATOR",
                          "role":  "Routes tasks, enforces permissions, coordinates handoffs, tracks results",
@@ -174,6 +174,22 @@
                                     "agent_registry"
                                 ],
                        "status":  "specification"
+                   },
+                   {
+                       "id":  "AGT-13-EMAIL",
+                       "name":  "Email Agent",
+                       "folder":  "13_EMail_Agent",
+                       "group":  "Client & Support",
+                       "mission":  "Read every new email in CRM Email Base and create notifications, calendar entries, follow-up alerts and a daily digest for the mailbox owner. Never sends mail.",
+                       "owns":  [
+                                    "email_agent.settings",
+                                    "email_agent.rules",
+                                    "email_agent.processed",
+                                    "email_agent.insights",
+                                    "email_agent.runs",
+                                    "email_agent.digests"
+                                ],
+                       "status":  "built"
                    }
                ]
 }
