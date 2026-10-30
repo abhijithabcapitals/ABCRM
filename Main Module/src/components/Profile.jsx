@@ -4,10 +4,12 @@ import { supabase } from "../supabase";
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const EMPTY = { id: null, name: "", body_text: "", logo_url: "", is_default: false };
 
-// Profile page. The Mail section holds the user's own email signatures; the
-// Business Development reply composer lists them in its signature dropdown.
+// Profile page. The Mail section holds the user's own email signatures, which they
+// edit here, and lists colleagues' signatures read-only. Signatures are shared:
+// every reply composer (Business Development, CEO Inbox) offers all of them.
 export default function Profile({ profile }) {
   const [signatures, setSignatures] = useState([]);
+  const [shared, setShared] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(null);
   const [logoFile, setLogoFile] = useState(null);
@@ -16,12 +18,17 @@ export default function Profile({ profile }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error: loadError } = await supabase.from("email_signatures")
-      .select("id, name, body_text, logo_url, is_default, created_at")
-      .order("created_at");
+    const [{ data: sessionData }, { data, error: loadError }] = await Promise.all([
+      supabase.auth.getSession(),
+      supabase.from("email_signatures")
+        .select("id, user_id, name, body_text, logo_url, is_default, created_at, owner:profiles(full_name, email)")
+        .order("created_at"),
+    ]);
     setLoading(false);
     if (loadError) { setError(`Could not load your signatures: ${loadError.message}`); return; }
-    setSignatures(data || []);
+    const me = sessionData?.session?.user?.id;
+    setSignatures((data || []).filter((s) => s.user_id === me));
+    setShared((data || []).filter((s) => s.user_id !== me));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -51,7 +58,9 @@ export default function Profile({ profile }) {
     try {
       const logo_url = logoFile ? await uploadLogo(logoFile) : form.logo_url || null;
       if (form.is_default) {
-        const { error: clearError } = await supabase.from("email_signatures").update({ is_default: false }).eq("is_default", true);
+        const { data: userData } = await supabase.auth.getUser();
+        const { error: clearError } = await supabase.from("email_signatures").update({ is_default: false })
+          .eq("is_default", true).eq("user_id", userData.user.id);
         if (clearError) throw clearError;
       }
       const row = { name: form.name.trim(), body_text: form.body_text.trim(), logo_url, is_default: form.is_default, updated_at: new Date().toISOString() };
@@ -92,7 +101,8 @@ export default function Profile({ profile }) {
             <div>
               <h2 style={{ margin: 0, fontSize: 16 }}>Mail</h2>
               <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "#6b7280" }}>
-                Email signatures. Pick one in the reply composer; it is added to the end of every reply before you can send.
+                Email signatures, shared with everyone in the CRM. Pick one in any reply composer; it is added to the end of
+                every reply before you can send. You can edit only the signatures you created.
               </p>
             </div>
             {!form && <button type="button" className="btn btn-primary btn-sm" onClick={() => edit(null)}>＋ Add signature</button>}
@@ -154,6 +164,24 @@ export default function Profile({ profile }) {
                   ))}
                 </div>
               )}
+
+          {!loading && shared.length > 0 && (
+            <>
+              <h3 style={{ margin: "20px 0 8px", fontSize: 13.5 }}>Shared by colleagues</h3>
+              <div style={{ display: "grid", gap: 10 }}>
+                {shared.map((s) => (
+                  <div key={s.id} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, background: "#fafbfb" }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      {s.name}
+                      <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: "#6b7280" }}>by {s.owner?.full_name || s.owner?.email || "a colleague"}</span>
+                    </div>
+                    <pre style={{ margin: "6px 0 0", fontFamily: "inherit", fontSize: 12.5, color: "#374151", whiteSpace: "pre-wrap" }}>{s.body_text}</pre>
+                    {s.logo_url && <img src={s.logo_url} alt="" style={{ marginTop: 8, maxHeight: 40, maxWidth: 160 }} />}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </section>
       </div>
     </>

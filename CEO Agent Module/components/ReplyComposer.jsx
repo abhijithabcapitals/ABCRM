@@ -14,6 +14,18 @@ const stripSignature = (text, signature) => (endsWithSignature(text, signature)
 const appendSignature = (text, signature) => `${text.trimEnd()}${text.trim() ? "\n\n" : ""}${signatureText(signature)}`;
 const listText = (list) => (list || []).join(", ");
 
+// Signatures are shared across the organization: the user's own come first, another person's are
+// labelled with their name, and only the user's own default is selected automatically.
+function shapeSharedSignatures(rows, userId) {
+  return rows
+    .map((s) => {
+      const mine = s.user_id === userId;
+      const owner = s.owner?.full_name || s.owner?.email || "a colleague";
+      return { ...s, mine, is_default: mine && s.is_default, label: mine ? s.name : `${s.name} (shared by ${owner})` };
+    })
+    .sort((a, b) => Number(b.mine) - Number(a.mine));
+}
+
 export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
   const [loading, setLoading] = useState(true);
   const [mailbox, setMailbox] = useState(null);
@@ -52,11 +64,13 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
     setLoading(true);
     Promise.all([
       call("context", { thread_id: thread.id }),
-      // The same Profile › Mail signatures the Business Development composer uses (public schema).
-      sb.schema("public").from("email_signatures").select("id, name, body_text, logo_url, is_default").order("created_at"),
-    ]).then(([context, signatureResult]) => {
+      // The organization's shared Profile › Mail signatures, as in the Business Development composer (public schema).
+      sb.schema("public").from("email_signatures")
+        .select("id, user_id, name, body_text, logo_url, is_default, owner:profiles(full_name, email)").order("created_at"),
+      sb.auth.getSession(),
+    ]).then(([context, signatureResult, sessionResult]) => {
       if (!active) return;
-      const mySignatures = signatureResult.error ? [] : signatureResult.data || [];
+      const mySignatures = signatureResult.error ? [] : shapeSharedSignatures(signatureResult.data || [], sessionResult?.data?.session?.user?.id);
       setSignatures(mySignatures);
       if (signatureResult.error) setError(`Could not load your signatures: ${signatureResult.error.message}`);
       if (context.error) { setError(context.error.message); return; }
@@ -270,7 +284,7 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
         <label>Signature
           <select value={signatureId} onChange={(event) => chooseSignature(event.target.value)} disabled={!!busy}>
             <option value="">{signatures.length ? "Choose a signature…" : "No signatures yet"}</option>
-            {signatures.map((signature) => <option key={signature.id} value={signature.id}>{signature.name}</option>)}
+            {signatures.map((signature) => <option key={signature.id} value={signature.id}>{signature.label || signature.name}</option>)}
           </select>
         </label>
         {selectedSignature?.logo_url && <img src={selectedSignature.logo_url} alt="" title="This logo is added below the text in the sent email." />}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  callLeadSources, fetchLatestPlatformReplyDraft, fetchMyEmailSignatures, savePlatformReplyDraft,
+  callLeadSources, fetchLatestPlatformReplyDraft, fetchEmailSignatures, savePlatformReplyDraft,
 } from "../logic/businessDevelopmentData";
 
 // The chosen signature is kept as the last block of the reply text, so the saved draft is exactly what is sent.
@@ -39,7 +39,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
     Promise.all([
       callLeadSources("thread", { prospect_id: prospect.id }),
       fetchLatestPlatformReplyDraft(prospect.id),
-      fetchMyEmailSignatures(),
+      fetchEmailSignatures(),
     ]).then(([threadResult, draftResult, signatureResult]) => {
       if (!active) return;
       if (threadResult.error) setThreadError(threadResult.error.message);
@@ -260,7 +260,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
             <label>Signature
               <select value={signatureId} onChange={(event) => chooseSignature(event.target.value)} disabled={!!busy}>
                 <option value="">{signatures.length ? "Choose a signature…" : "No signatures yet"}</option>
-                {signatures.map((signature) => <option key={signature.id} value={signature.id}>{signature.name}</option>)}
+                {signatures.map((signature) => <option key={signature.id} value={signature.id}>{signature.label || signature.name}</option>)}
               </select>
             </label>
             {selectedSignature?.logo_url && <img src={selectedSignature.logo_url} alt="" title="Logo preview. Explee sends plain-text replies, so the logo is not included in the email." />}

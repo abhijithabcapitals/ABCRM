@@ -221,11 +221,28 @@ export async function savePlatformReplyDraft(prospectId, draftId, bodyText) {
   };
 }
 
-// The signed-in user's own signatures (Profile > Mail); row-level security returns only theirs.
-export async function fetchMyEmailSignatures() {
-  return supabase.from("email_signatures")
-    .select("id, name, body_text, logo_url, is_default")
-    .order("created_at");
+// Every signature in the organization (Profile > Mail; shared by Main Module/db/email_signatures_shared.sql).
+// The user's own come first; another person's are labelled with their name, and only the
+// user's own default is treated as the default.
+export async function fetchEmailSignatures() {
+  const [{ data: sessionData }, result] = await Promise.all([
+    supabase.auth.getSession(),
+    supabase.from("email_signatures")
+      .select("id, user_id, name, body_text, logo_url, is_default, owner:profiles(full_name, email)")
+      .order("created_at"),
+  ]);
+  if (result.error) return { data: null, error: result.error };
+  return { data: shapeSharedSignatures(result.data || [], sessionData?.session?.user?.id), error: null };
+}
+
+export function shapeSharedSignatures(rows, userId) {
+  return rows
+    .map((s) => {
+      const mine = s.user_id === userId;
+      const owner = s.owner?.full_name || s.owner?.email || "a colleague";
+      return { ...s, mine, is_default: mine && s.is_default, label: mine ? s.name : `${s.name} (shared by ${owner})` };
+    })
+    .sort((a, b) => Number(b.mine) - Number(a.mine));
 }
 
 export async function discardPlatformReplyDraft(prospectId) {
