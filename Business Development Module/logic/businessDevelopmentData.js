@@ -197,6 +197,13 @@ export async function savePlatformReplyDraft(prospectId, draftId, bodyText) {
   };
 }
 
+// The signed-in user's own signatures (Profile > Mail); row-level security returns only theirs.
+export async function fetchMyEmailSignatures() {
+  return supabase.from("email_signatures")
+    .select("id, name, body_text, logo_url, is_default")
+    .order("created_at");
+}
+
 export async function discardPlatformReplyDraft(prospectId) {
   const { error: draftError } = await supabase.schema("email_base").from("bd_reply_drafts")
     .update({ status: "discarded" })

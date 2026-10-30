@@ -1620,6 +1620,24 @@ export default function Sidebar({
           gap: 8,
         }}
       >
+        <button
+          type="button"
+          onClick={() => onNavigate("profile")}
+          title="Open your profile"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: 0,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            textAlign: "left",
+            font: "inherit",
+          }}
+        >
         <div
           style={{
             width: 30,
@@ -1654,6 +1672,7 @@ export default function Sidebar({
             {profile?.role || "member"}
           </div>
         </div>
+        </button>
         <button
           onClick={onLogout}
           title="Logout"

@@ -400,7 +400,13 @@
 .bd-mailbox-compose-to { display: flex; gap: 8px; align-items: baseline; padding: 0 1px 9px; color: #687980; font-size: 11px; overflow-wrap: anywhere; }
 .bd-mailbox-compose-to b { color: #40565c; }
 .bd-mailbox-composer > textarea { display: block; width: 100%; min-height: 130px; max-height: 31vh; resize: vertical; padding: 11px 12px; border: 1px solid #dfe6e8; border-radius: 8px; color: #30454b; font: inherit; font-size: 12px; line-height: 1.55; }
-.bd-mailbox-composer > textarea:focus, .bd-mailbox-field textarea:focus, .bd-mailbox-field input:focus { outline: 2px solid #aad7d4; border-color: #0d7d82; }
+.bd-mailbox-redraft-instructions { display: block; width: 100%; margin-top: 8px; padding: 7px 10px; border: 1px solid #dfe6e8; border-radius: 7px; color: #30454b; font: inherit; font-size: 11px; }
+.bd-mailbox-signature { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; color: #849197; font-size: 10px; }
+.bd-mailbox-signature label { display: flex; align-items: center; gap: 7px; color: #40565c; font-size: 11px; font-weight: 650; }
+.bd-mailbox-signature select { min-width: 190px; padding: 6px 8px; border: 1px solid #dfe6e8; border-radius: 7px; color: #30454b; font: inherit; font-weight: 400; background: #fff; }
+.bd-mailbox-signature img { max-height: 28px; max-width: 120px; }
+.bd-mailbox-signature-warn { color: #a15c07; }
+.bd-mailbox-composer > textarea:focus, .bd-mailbox-redraft-instructions:focus, .bd-mailbox-field textarea:focus, .bd-mailbox-field input:focus { outline: 2px solid #aad7d4; border-color: #0d7d82; }
 .bd-mailbox-compose-footer { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-top: 10px; }
 .bd-mailbox-compose-footer > span { color: #849197; font-size: 10px; }
 .bd-mailbox-compose-footer > div { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }

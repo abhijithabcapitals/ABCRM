@@ -16,6 +16,7 @@ const DocumentGenerator = lazy(() => import("@document-generator"));
 const Clients = lazy(() => import("./components/Clients"));
 const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
+const Profile = lazy(() => import("./components/Profile"));
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -490,6 +491,7 @@ export default function App() {
         {view === "tax" && (
           <Clients profile={profile} page="/tax" title="Tax Compliance" subtitle="Tax Agent · VAT, Corporate Tax & renewals" />
         )}
+        {view === "profile" && <Profile profile={profile} />}
         {view === "settings" && profile?.role === "admin" && (
           <Settings currentUser={user} profile={profile} spaces={spaces} onAccessChanged={() => fetchAccessRules(profile)} />
         )}
