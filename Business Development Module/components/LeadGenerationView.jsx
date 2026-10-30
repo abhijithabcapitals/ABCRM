@@ -12,6 +12,8 @@ const SOURCES = [
 
 const STATUS_TABS = [
   { key: "new", label: "To review" },
+  { key: "drafted", label: "Drafted replies" },
+  { key: "replied", label: "Replied" },
   { key: "added", label: "Added to pipeline" },
   { key: "dismissed", label: "Dismissed" },
   { key: "all", label: "All" },
@@ -209,15 +211,17 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
                   </td>
                   <td>{dateTime(p.became_hot_at || p.fetched_at)}</td>
                   <td className="bd-leadgen-row-actions">
-                    {p.status === "new" && (
+                    {(p.status === "new" || p.status === "drafted") && (
                       <>
                         <button type="button" className="bd-button bd-button-primary" onClick={() => onAddToPipeline(p.id, leadValues(p))}
                           disabled={!p.email && !p.phone} title={!p.email && !p.phone ? "No email or phone to create a lead with" : undefined}>
                           Add to pipeline
                         </button>
-                        <button type="button" className="bd-text-button" onClick={() => dismiss(p)}>Dismiss</button>
+                        {p.status === "new" && <button type="button" className="bd-text-button" onClick={() => dismiss(p)}>Dismiss</button>}
                       </>
                     )}
+                    {p.status === "drafted" && <span className="bd-leadgen-kind">Draft saved</span>}
+                    {p.status === "replied" && <span className="bd-leadgen-kind added">Reply sent</span>}
                     {p.status === "added" && <span className="bd-leadgen-kind added">In pipeline</span>}
                     {p.status === "dismissed" && <button type="button" className="bd-text-button" onClick={() => restore(p)}>Restore</button>}
                   </td>
@@ -231,6 +235,7 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
         <LeadMailboxPane
           prospect={mailboxProspect}
           onClose={() => setMailboxProspect(null)}
+          onSaved={refreshAll}
           onSent={refreshAll}
         />
       )}

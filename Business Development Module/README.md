@@ -30,8 +30,10 @@ The Main Module imports this folder directly; there is no copy to keep in sync.
 | `components/LeadGenerationView.jsx` | **Lead Generation** sub-tab: platform connection cards, sync, prospect review queue |
 | `supabase/bd-lead-sources/index.ts` | Edge Function `bd-lead-sources` (platform sync, mailbox conversations, reply drafting and confirmed send) |
 | `Database Module/migrations/bd/005_bd_lead_platforms.sql` | `bd_platform_connections`, `bd_platform_prospects`, the `EXPLEE` lead source |
-| `Database Module/migrations/bd/007_bd_reply_drafts.sql` | Saved reply drafts and status protections |
+| `Database Module/migrations/bd/007_bd_reply_drafts.sql` | Legacy draft table, migrated into Email Base |
+| `Database Module/Email Base/migrations/004_business_development_drafts.sql` | Persistent Business Development drafts in the shared Email Base |
 | `Database Module/migrations/bd/008_bd_reply_send_confirmation.sql` | One-time, short-lived human confirmation codes for sending |
+| `Database Module/migrations/bd/009_bd_reply_queue_status.sql` | Dedicated drafted and replied queue tabs |
 
 Flow: **Sync now** pulls prospects into `bd_platform_prospects` (status `new`). A person reviews them and
 clicks **Add to pipeline**, which opens the normal New lead form prefilled (source Explee, campaign,
@@ -56,10 +58,10 @@ follow-up rules apply, and the prospect is marked `added` with the new lead's id
 ### Email conversations and replies
 
 - **Read more** opens the full Explee conversation in a left-side mailbox pane with a Gmail-style reply composer.
-- Personal drafts are stored in `bd_reply_drafts`; saving or redrafting never sends a message.
+- Personal drafts are stored in `email_base.bd_reply_drafts`, alongside the shared CRM Email Base. Saving a reply moves its prospect from **To review** to **Drafted replies**; reopening the conversation loads the saved text. After sending, it appears under **Replied**. Saving or redrafting never sends a message.
 - **Redraft with AI** opens an overlay. Only after the user presses its redraft button are the saved reply and recent conversation sent to OpenRouter. Configure `OPENROUTER_API_KEY` as a secret on the CRM Supabase `bd-lead-sources` Edge Function; optionally set `OPENROUTER_MODEL`.
 - **Send** first saves the current reply, then opens a confirmation popup showing the recipient and a six-digit code. The user must enter that code and explicitly press **Send reply**. The server verifies the single-use code, which expires after five minutes and allows at most five incorrect attempts, before calling Explee. Sending is never triggered by opening a conversation, writing, saving, or redrafting.
-- Apply migrations `007_bd_reply_drafts.sql` and `008_bd_reply_send_confirmation.sql` before deploying the updated `bd-lead-sources` function.
+- Apply BD migrations `005_bd_lead_platforms.sql` and `007_bd_reply_drafts.sql`, then Email Base migration `004_business_development_drafts.sql`, then BD migrations `008_bd_reply_send_confirmation.sql` and `009_bd_reply_queue_status.sql`, before deploying the updated `bd-lead-sources` function. Migration 004 moves any existing drafts from the legacy public draft table into Email Base.
 
 ### Adding another platform
 

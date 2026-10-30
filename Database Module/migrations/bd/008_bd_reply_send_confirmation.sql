@@ -2,7 +2,7 @@
 -- Codes are hashed by bd-lead-sources and are never readable by CRM users.
 
 create table if not exists public.bd_reply_send_confirmations (
-  draft_id uuid primary key references public.bd_reply_drafts(id) on delete cascade,
+  draft_id uuid primary key references email_base.bd_reply_drafts(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
   body_hash text not null,
   recipient_email text not null,

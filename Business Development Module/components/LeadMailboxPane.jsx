@@ -5,12 +5,13 @@ const mailDate = (value) => value ? new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
 }).format(new Date(value)) : "";
 
-export default function LeadMailboxPane({ prospect, onClose, onSent }) {
+export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) {
   const [thread, setThread] = useState(null);
   const [threadError, setThreadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [draftId, setDraftId] = useState("");
   const [body, setBody] = useState("");
+  const [draftSaved, setDraftSaved] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [redraftOpen, setRedraftOpen] = useState(false);
@@ -35,6 +36,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSent }) {
       else if (draftResult.data) {
         setDraftId(draftResult.data.id);
         setBody(draftResult.data.body_text || "");
+        setDraftSaved(true);
       }
     }).catch((loadError) => {
       if (active) setThreadError(loadError.message || "Could not load the email conversation.");
@@ -74,6 +76,8 @@ export default function LeadMailboxPane({ prospect, onClose, onSent }) {
       return null;
     }
     setDraftId(data.draft.id);
+    setDraftSaved(true);
+    onSaved();
     return data.draft;
   }
 
@@ -116,7 +120,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSent }) {
     if (!sendConfirmation || verificationCode !== sendConfirmation.confirmation_code) return;
     setBusy("send");
     setError("");
-    const { error: sendError } = await callLeadSources("send_draft", {
+    const { data, error: sendError } = await callLeadSources("send_draft", {
       draft_id: draftId, confirm: "SEND", verification_code: verificationCode,
     });
     setBusy("");
@@ -126,6 +130,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSent }) {
     }
     setSendConfirmation(null);
     setSendSuccess(true);
+    if (data?.warning) setError(data.warning);
     onSent();
   }
 
@@ -139,7 +144,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSent }) {
       <aside className="bd-mailbox-pane" role="dialog" aria-modal="true" aria-labelledby="bd-mailbox-title">
         <header className="bd-mailbox-header">
           <div>
-            <span className="bd-mailbox-eyebrow">Explee conversation</span>
+            <span className="bd-mailbox-eyebrow">Explee conversation{draftSaved && !sendSuccess ? " · Draft saved" : ""}</span>
             <h2 id="bd-mailbox-title">{prospect.name || "Prospect"}</h2>
             <p>{prospect.email || "No email address"}</p>
           </div>
@@ -179,14 +184,17 @@ export default function LeadMailboxPane({ prospect, onClose, onSent }) {
             aria-label="Reply message"
             maxLength={10000}
             value={body}
-            onChange={(event) => setBody(event.target.value)}
+            onChange={(event) => {
+              setBody(event.target.value);
+              setDraftSaved(false);
+            }}
             placeholder="Write your reply…"
           />
           <div className="bd-mailbox-compose-footer">
-            <span>{body.length.toLocaleString("en-GB")} / 10,000</span>
+            <span>{draftSaved ? "Draft saved" : "Unsaved changes"} · {body.length.toLocaleString("en-GB")} / 10,000</span>
             <div>
               <button type="button" className="bd-button bd-button-secondary" onClick={saveDraft} disabled={!!busy}>
-                {busy === "save" ? "Saving…" : "Save draft"}
+                {busy === "save" ? "Saving…" : draftSaved ? "Save changes" : "Save draft"}
               </button>
               <button type="button" className="bd-button bd-button-secondary" onClick={() => { setRedraft(""); setRedraftOpen(true); }} disabled={!!busy || !body.trim()}>
                 Redraft with AI

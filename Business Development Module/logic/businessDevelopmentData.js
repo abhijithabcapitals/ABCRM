@@ -155,7 +155,7 @@ export async function fetchPlatformProspects(status = "new", provider = null) {
 }
 
 export async function fetchLatestPlatformReplyDraft(prospectId) {
-  return supabase.from("bd_reply_drafts")
+  return supabase.schema("email_base").from("bd_reply_drafts")
     .select("id, body_text, status")
     .eq("prospect_id", prospectId)
     .in("status", ["draft", "failed"])

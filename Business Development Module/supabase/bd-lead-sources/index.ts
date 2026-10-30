@@ -13,7 +13,7 @@
 //   prepare_send -> create a short-lived human confirmation code { draft_id }
 //   send_draft  -> send a saved draft after code confirmation { draft_id, confirm: "SEND", verification_code }
 //
-// Drafts live in public.bd_reply_drafts; Explee has no draft API, so nothing reaches
+// Drafts live in email_base.bd_reply_drafts; Explee has no draft API, so nothing reaches
 // Explee until send_draft. Draft status after a send attempt is written with the
 // service role, so users cannot mark a reply as sent without sending it.
 //
@@ -297,7 +297,7 @@ Deno.serve(async (req) => {
       if (body.action === "redraft_reply") {
         const apiKey = Deno.env.get("OPENROUTER_API_KEY")?.trim();
         if (!apiKey) return json({ error: "Add the OPENROUTER_API_KEY secret to the bd-lead-sources Edge Function." }, 500);
-        const { data: draft, error: draftError } = await db.from("bd_reply_drafts")
+        const { data: draft, error: draftError } = await db.schema("email_base").from("bd_reply_drafts")
           .select("id, prospect_id, body_text, status").eq("id", body.draft_id).maybeSingle();
         if (draftError) return json({ error: draftError.message }, 500);
         if (!draft || draft.prospect_id !== prospect.id) return json({ error: "Reply draft not found for this prospect." }, 404);
@@ -373,11 +373,15 @@ Deno.serve(async (req) => {
       const agentOut: any = await agentRes.json().catch(() => ({}));
       const text = typeof agentOut.body_text === "string" ? agentOut.body_text.trim() : "";
       if (!agentRes.ok || !text) return json({ error: agentOut.error || `The Email Agent did not return a draft (HTTP ${agentRes.status}).` }, 502);
-      const { data: draft, error } = await db.from("bd_reply_drafts").insert({
+      const { data: draft, error } = await db.schema("email_base").from("bd_reply_drafts").insert({
         prospect_id: prospect.id, provider, body_text: text.slice(0, 10000), drafted_by: "email_agent",
         agent_note: typeof agentOut.note === "string" ? agentOut.note.slice(0, 2000) : null, created_by: auth.user.id,
       }).select("*").single();
       if (error) return json({ error: error.message }, 500);
+      const { error: prospectError } = await db.from("bd_platform_prospects")
+        .update({ status: "drafted", handled_by: auth.user.id, handled_at: new Date().toISOString() })
+        .eq("id", prospect.id);
+      if (prospectError) return json({ error: `Draft saved, but could not move the prospect to Drafted replies: ${prospectError.message}` }, 500);
       return json({ draft });
     }
 
@@ -389,24 +393,32 @@ Deno.serve(async (req) => {
       }
 
       if (typeof body.draft_id === "string") {
-        const { data: draft, error } = await db.from("bd_reply_drafts")
+        const { data: draft, error } = await db.schema("email_base").from("bd_reply_drafts")
           .update({ body_text: body.body_text, drafted_by: "person", status: "draft", updated_by: auth.user.id })
           .eq("id", body.draft_id).eq("prospect_id", prospect.id).in("status", ["draft", "failed"]).select("*").maybeSingle();
         if (error) return json({ error: error.message }, 500);
         if (!draft) return json({ error: "Draft not found or it can no longer be edited." }, 404);
+        const { error: prospectError } = await db.from("bd_platform_prospects")
+          .update({ status: "drafted", handled_by: auth.user.id, handled_at: new Date().toISOString() })
+          .eq("id", prospect.id);
+        if (prospectError) return json({ error: `Draft saved, but could not move the prospect to Drafted replies: ${prospectError.message}` }, 500);
         return json({ draft });
       }
 
-      const { data: draft, error } = await db.from("bd_reply_drafts").insert({
+      const { data: draft, error } = await db.schema("email_base").from("bd_reply_drafts").insert({
         prospect_id: prospect.id, provider, body_text: body.body_text, drafted_by: "person", created_by: auth.user.id,
       }).select("*").single();
       if (error) return json({ error: error.message }, 500);
+      const { error: prospectError } = await db.from("bd_platform_prospects")
+        .update({ status: "drafted", handled_by: auth.user.id, handled_at: new Date().toISOString() })
+        .eq("id", prospect.id);
+      if (prospectError) return json({ error: `Draft saved, but could not move the prospect to Drafted replies: ${prospectError.message}` }, 500);
       return json({ draft });
     }
 
     if (body.action === "prepare_send") {
       if (!key) return json({ error: "Add the EXPLEE_API_KEY secret first." }, 400);
-      const { data: draft, error: draftError } = await db.from("bd_reply_drafts")
+      const { data: draft, error: draftError } = await db.schema("email_base").from("bd_reply_drafts")
         .select("id, prospect_id, body_text, status").eq("id", body.draft_id).maybeSingle();
       if (draftError) return json({ error: draftError.message }, 500);
       if (!draft) return json({ error: "Draft not found." }, 404);
@@ -435,7 +447,7 @@ Deno.serve(async (req) => {
       const code = typeof body.verification_code === "string" ? body.verification_code.trim() : "";
       if (!/^\d{6}$/.test(code)) return json({ error: "Enter the six-digit confirmation code." }, 400);
       if (!key) return json({ error: "Add the EXPLEE_API_KEY secret first." }, 400);
-      const { data: draft, error: dErr } = await db.from("bd_reply_drafts").select("*").eq("id", body.draft_id).maybeSingle();
+      const { data: draft, error: dErr } = await db.schema("email_base").from("bd_reply_drafts").select("*").eq("id", body.draft_id).maybeSingle();
       if (dErr) return json({ error: dErr.message }, 500);
       if (!draft) return json({ error: "Draft not found." }, 404);
       if (!["draft", "failed"].includes(draft.status)) return json({ error: `This reply is already ${draft.status}.` }, 409);
@@ -473,7 +485,7 @@ Deno.serve(async (req) => {
       if (!consumed?.length) return json({ error: "This confirmation code was already used. Prepare the send again if needed." }, 409);
 
       // Status changes after this point are written by the server only (users cannot set sending/sent/failed).
-      const { data: claimed } = await admin.from("bd_reply_drafts")
+      const { data: claimed } = await admin.schema("email_base").from("bd_reply_drafts")
         .update({ status: "sending", error: null, updated_by: auth.user.id, updated_at: new Date().toISOString() })
         .eq("id", draft.id).in("status", ["draft", "failed"]).select("id");
       if (!claimed?.length) return json({ error: "This reply is already being sent." }, 409);
@@ -482,13 +494,20 @@ Deno.serve(async (req) => {
         const sent = await expleePost(key, `/autogtm/campaigns/${prospect.external_campaign_id}/inbox/${prospect.external_id}/reply`, {
           body_text: draft.body_text, cc_emails: draft.cc_emails || [], reply_all: true,
         });
-        await admin.from("bd_reply_drafts").update({
+        const { error: draftUpdateError } = await admin.schema("email_base").from("bd_reply_drafts").update({
           status: "sent", sent_by: auth.user.id, sent_at: new Date().toISOString(),
           provider_message_id: sent.sent_email_id ? String(sent.sent_email_id) : null,
         }).eq("id", draft.id);
-        return json({ ok: true, status: sent.status || "queued", deduped: !!sent.deduped });
+        const { error: prospectUpdateError } = await admin.from("bd_platform_prospects").update({
+          status: "replied", handled_by: auth.user.id, handled_at: new Date().toISOString(),
+        }).eq("id", prospect.id);
+        const warnings = [draftUpdateError?.message, prospectUpdateError?.message].filter(Boolean);
+        return json({
+          ok: true, status: sent.status || "queued", deduped: !!sent.deduped,
+          warning: warnings.length ? `Reply sent, but CRM status update failed: ${warnings.join("; ")}` : null,
+        });
       } catch (e) {
-        await admin.from("bd_reply_drafts").update({ status: "failed", error: (e as Error).message }).eq("id", draft.id);
+        await admin.schema("email_base").from("bd_reply_drafts").update({ status: "failed", error: (e as Error).message }).eq("id", draft.id);
         throw e;
       }
     }
