@@ -1,39 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import CalendarPanel from "@calendar";
 import InboxPanel, { useInboxAlerts } from "./InboxPanel.jsx";
 
-// CEO Agent workspace, ported from Agent Module/11_Personal_Agent/CEO Agent.
-// All its data lives in the "ceo" schema, protected by per-user row-level
-// security. Two ways to connect:
-//   - crmClient: the CRM's Supabase client, when the ceo schema lives in the
-//     CRM project. The CRM sign-in is reused and only "ceo" tables are queried.
-//   - supabaseUrl + publishableKey: a separate CEO project with its own sign-in.
-
-let cachedClient = null;
-function getClient(url, key) {
-  if (!cachedClient || cachedClient.url !== url) {
-    cachedClient = {
-      url,
-      client: createClient(url, key, {
-        db: { schema: "ceo" },
-        auth: { storageKey: "ceo-agent-auth", persistSession: true, autoRefreshToken: true },
-      }),
-    };
-  }
-  return cachedClient.client;
-}
-
-export default function CeoAgent({ supabaseUrl, publishableKey, crmClient }) {
+// The CEO workspace and Email Base use the CRM Supabase project and CRM sign-in.
+export default function CeoAgent({ crmClient }) {
   const shared = useMemo(
     () => crmClient && {
       auth: crmClient.auth,
       functions: crmClient.functions,
       from: (table) => crmClient.schema("ceo").from(table),
+      schema: (schema) => crmClient.schema(schema),
     },
     [crmClient],
   );
-  if (supabaseUrl && publishableKey) return <Workspace sb={getClient(supabaseUrl, publishableKey)} />;
   if (shared) return <Workspace sb={shared} sharedSession />;
   return <SetupCard />;
 }

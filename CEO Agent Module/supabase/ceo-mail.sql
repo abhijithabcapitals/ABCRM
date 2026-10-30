@@ -1,6 +1,6 @@
--- Applied to the CRM Supabase project (pnnakrhfzyxudjaghoxx) on 29/10/2026 as
--- migrations "ceo_mail_summaries" and "ceo_mail_sync_schedule". Kept here as the
--- source of record for the ceo-mail-sync Edge Function.
+-- Deprecated legacy CEO-only mail schema. New CRM email ingestion and summaries
+-- use Database Module/Email Base/migrations instead. Do not apply this file for
+-- new deployments; retained only as a record of the original schema.
 --
 -- Read-only mailbox summaries for the CEO Agent. Email bodies are never stored:
 -- messages keep headers only, threads keep the AI summary and labels.

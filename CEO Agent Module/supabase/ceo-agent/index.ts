@@ -254,7 +254,7 @@ async function searchMemory(db: Db, query: string) {
       .textSearch("search_vector", q, { type: "websearch", config: "english" }).limit(15),
     db.from("captures").select("id, input_text, created_at")
       .textSearch("search_vector", q, { type: "websearch", config: "english" }).order("created_at", { ascending: false }).limit(10),
-    db.from("mail_saved_facts").select("id, thread_id, subject, fact, created_at")
+    db.from("email_saved_facts").select("id, thread_id, subject, fact, created_at")
       .textSearch("search_vector", q, { type: "websearch", config: "english" })
       .order("created_at", { ascending: false }).limit(10),
   ]);
@@ -277,7 +277,7 @@ async function searchMemory(db: Db, query: string) {
 async function searchEmails(db: Db, query: string) {
   const q = query.trim().slice(0, 160);
   if (!q) return { error: "Enter a search term for the email inbox." };
-  const { data, error } = await db.from("mail_threads")
+  const { data, error } = await db.schema("email_base").from("threads")
     .select("id, subject, last_message_at, category, priority, is_important, summary, key_points")
     .textSearch("assistant_search_vector", q, { type: "websearch", config: "english" })
     .order("last_message_at", { ascending: false }).limit(10);
@@ -285,7 +285,7 @@ async function searchEmails(db: Db, query: string) {
   return {
     results: (data || []).map((thread: Record<string, unknown>) => ({
       ...thread,
-      source: "synced email summary and key points; original message body is not stored",
+      source: "synced email summary and key points; full text is stored in Email Base",
     })),
   };
 }
@@ -296,17 +296,18 @@ async function createReplyDraft(db: Db, uid: string, input: Record<string, unkno
   if (!threadId || !/^[0-9a-f-]{36}$/i.test(threadId)) return { error: "A valid email thread id is required." };
   if (!body || body.length > 10000) return { error: "A reply draft must contain 1 to 10,000 characters." };
 
-  const { data: thread, error: threadError } = await db.from("mail_threads")
-    .select("id, account_id, subject").eq("id", threadId).maybeSingle();
+  const emailDb = db.schema("email_base");
+  const { data: thread, error: threadError } = await emailDb.from("threads")
+    .select("id, mailbox_id, subject").eq("id", threadId).maybeSingle();
   if (threadError) return { error: threadError.message };
   if (!thread) return { error: "That email thread was not found in your inbox." };
 
-  const { data: account, error: accountError } = await db.from("mail_accounts")
-    .select("address").eq("id", thread.account_id).maybeSingle();
+  const { data: account, error: accountError } = await emailDb.from("mailboxes")
+    .select("address").eq("id", thread.mailbox_id).maybeSingle();
   if (accountError) return { error: accountError.message };
   if (!account?.address) return { error: "The mailbox address for this thread could not be found." };
 
-  const { data: messages, error: messagesError } = await db.from("mail_messages")
+  const { data: messages, error: messagesError } = await emailDb.from("messages")
     .select("from_address").eq("thread_id", thread.id)
     .order("sent_at", { ascending: false, nullsFirst: false }).limit(30);
   if (messagesError) return { error: messagesError.message };
@@ -317,7 +318,7 @@ async function createReplyDraft(db: Db, uid: string, input: Record<string, unkno
 
   const originalSubject = String(thread.subject || "").trim();
   const subject = /^re\s*:/i.test(originalSubject) ? originalSubject : `Re: ${originalSubject || "(no subject)"}`;
-  const { data: draft, error: draftError } = await db.from("mail_drafts")
+  const { data: draft, error: draftError } = await db.from("email_drafts")
     .insert({ user_id: uid, thread_id: thread.id, to_address: recipient, subject, body, status: "draft" })
     .select("id, thread_id, to_address, subject, status, created_at").single();
   if (draftError) return { error: draftError.message };

@@ -1,10 +1,12 @@
-// Supabase Edge Function "ceo-mail-sync": read-only mailbox summaries for the CEO Agent.
+// Supabase Edge Function "ceo-mail-sync" (CRM Project): fills Email Base, the
+// organization's tagged email database (schema email_base), from IMAP mailboxes.
+// The CEO Agent tab reads the mailboxes tagged 'ceo' that the CEO owns.
 //
 // Every 15 minutes (pg_cron) or on "Sync now", it reads new messages from the
 // configured IMAP mailbox in read-only mode, groups them into conversations and
 // asks DeepSeek (via OpenRouter) for a summary, labels and suggested actions.
-// Email bodies are only held in memory; the database keeps headers and
-// summaries. It never sends, moves, deletes or flags mail.
+// Full text bodies, headers, and summaries are stored. It never sends, moves,
+// deletes or flags mail.
 //
 // Deploy as Edge Function "ceo-mail-sync" with JWT verification OFF: the
 // scheduler calls it with the x-sync-secret header (checked against Vault) and
@@ -14,14 +16,13 @@
 
 import PostalMime from "npm:postal-mime@2";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { ImapClient, imapDate } from "./imap.ts";
+import { ImapClient } from "./imap.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = Deno.env.get("OPENROUTER_MAIL_MODEL") || "deepseek/deepseek-v4.1-flash";
 const MAX_MESSAGES_PER_RUN = 30;
-const FIRST_SYNC_DAYS = 7;
-const MAX_SOURCE_BYTES = 256 * 1024;
-const MAX_TEXT_PER_MESSAGE = 5000;
+const MAX_SOURCE_BYTES = 1024 * 1024;
+const EMAIL_ADDRESSES = ["info@abcapital.ae", "bharat@ardentaxit.tax"];
 const STALE_LOCK_MS = 10 * 60 * 1000;
 const SUMMARY_CONCURRENCY = 4;
 
@@ -51,6 +52,7 @@ type Fetched = {
   to: string[];
   subject: string;
   sentAt: string;
+  bodyText: string;
   text: string;
 };
 
@@ -87,8 +89,7 @@ function cleanBody(text: string) {
   const cut = text.search(/^(On .{3,200}wrote:|-{2,}\s*Original Message\s*-{2,}|From: .+\r?\n(Sent|Date): )/im);
   return (cut > 0 ? text.slice(0, cut) : text)
     .split(/\r?\n/).filter((line) => !line.startsWith(">")).join("\n")
-    .replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim()
-    .slice(0, MAX_TEXT_PER_MESSAGE);
+    .replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function isExcluded(address: string | null, patterns: string[]) {
@@ -125,15 +126,16 @@ async function readMailbox(account: Row, user: string, pass: string, retryUids: 
     const uidValidity = await client.examine(account.mailbox);
     const sameMailbox = Number(account.uidvalidity) === uidValidity;
     const lastUid = sameMailbox ? Number(account.last_uid) : 0;
-    const found = lastUid > 0
-      ? await client.searchUids(`UID ${lastUid + 1}:*`)
-      : await client.searchUids(`SINCE ${imapDate(new Date(Date.now() - FIRST_SYNC_DAYS * 86_400_000))}`);
+    const found = await client.searchUids(lastUid > 0 ? `UID ${lastUid + 1}:*` : "UID 1:*");
     let uids = found.filter((u) => u > lastUid).sort((a, b) => a - b);
-    // First sync keeps the most recent messages; later runs work forward from last_uid.
-    uids = lastUid === 0 ? uids.slice(-MAX_MESSAGES_PER_RUN) : uids.slice(0, MAX_MESSAGES_PER_RUN);
-    // Re-read messages of conversations whose summary failed last time (bodies are not stored).
+    // Backfill the oldest messages first so advancing last_uid cannot skip history.
+    uids = uids.slice(0, MAX_MESSAGES_PER_RUN);
+    // Re-read messages of conversations whose summary failed last time.
     if (sameMailbox) uids = [...new Set([...retryUids, ...uids])];
     const raw = await client.fetchSources(uids, MAX_SOURCE_BYTES);
+    if (raw.some((message) => message.source.length >= MAX_SOURCE_BYTES)) {
+      throw new Error(`A message reached the ${MAX_SOURCE_BYTES}-byte import limit; refusing to store a partial body. The sync cursor was not advanced.`);
+    }
     await client.logout();
     return { uidValidity, lastUid, raw };
   } finally {
@@ -145,7 +147,9 @@ async function toFetched(msg: { uid: number; internalDate: string | null; source
   let parsed: Row = {};
   try {
     parsed = await PostalMime.parse(msg.source);
-  } catch { /* keep what we can from the IMAP data */ }
+  } catch (error) {
+    throw new Error(`Could not parse message UID ${msg.uid}: ${(error as Error).message}`);
+  }
   const addresses = (list: unknown) => (Array.isArray(list) ? list : [])
     .flatMap((p: Row) => (p.group ? p.group : [p]))
     .map((p: Row) => String(p.address || "").toLowerCase()).filter(Boolean);
@@ -160,6 +164,7 @@ async function toFetched(msg: { uid: number; internalDate: string | null; source
     to: [...addresses(parsed.to), ...addresses(parsed.cc)],
     subject: parsed.subject || "(no subject)",
     sentAt: (isNaN(sent.getTime()) ? new Date() : sent).toISOString(),
+    bodyText: body.trim(),
     text: cleanBody(body),
   };
 }
@@ -167,14 +172,14 @@ async function toFetched(msg: { uid: number; internalDate: string | null; source
 async function findThread(db: Db, accountId: string, m: Fetched, batch: Map<string, string>) {
   for (const r of m.refs) if (batch.has(r)) return batch.get(r)!;
   if (m.refs.length) {
-    const { data } = await db.from("mail_messages").select("thread_id").eq("account_id", accountId).in("message_id", m.refs).limit(1);
+    const { data } = await db.from("messages").select("thread_id").eq("mailbox_id", accountId).in("message_id", m.refs).limit(1);
     if (data?.[0]) return data[0].thread_id as string;
   }
   // Replies without threading headers: same subject with a shared participant in the last 30 days.
   if (/^\s*(re|fw|fwd)\s*:/i.test(m.subject) && m.fromAddress) {
     const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
-    const { data } = await db.from("mail_threads").select("id, subject, participants")
-      .eq("account_id", accountId).gte("last_message_at", since).contains("participants", [m.fromAddress]).limit(20);
+    const { data } = await db.from("threads").select("id, subject, participants")
+      .eq("mailbox_id", accountId).gte("last_message_at", since).contains("participants", [m.fromAddress]).limit(20);
     const hit = (data || []).find((t: Row) => normalizeSubject(t.subject || "") === normalizeSubject(m.subject));
     if (hit) return hit.id as string;
   }
@@ -245,12 +250,12 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
 
 async function syncAccount(db: Db, account: Row, user: string, pass: string, apiKey: string) {
   // Conversations still without a summary get their messages read again this run.
-  const { data: pending } = await db.from("mail_threads").select("id")
-    .eq("account_id", account.id).is("summary", null).order("last_message_at", { ascending: false }).limit(10);
+  const { data: pending } = await db.from("threads").select("id")
+    .eq("mailbox_id", account.id).is("summary", null).order("last_message_at", { ascending: false }).limit(10);
   let retryUids: number[] = [];
   if (pending?.length && account.uidvalidity) {
-    const { data: rows } = await db.from("mail_messages").select("uid")
-      .eq("account_id", account.id).eq("uidvalidity", account.uidvalidity)
+    const { data: rows } = await db.from("messages").select("uid")
+      .eq("mailbox_id", account.id).eq("uidvalidity", account.uidvalidity)
       .in("thread_id", pending.map((t: Row) => t.id)).limit(MAX_MESSAGES_PER_RUN);
     retryUids = (rows || []).map((r: Row) => Number(r.uid));
   }
@@ -262,8 +267,8 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
   // Messages already stored (retries, or a run cut short) are summarized again but not re-counted.
   const known = new Map<number, string>();
   if (fetched.length) {
-    const { data: rows } = await db.from("mail_messages").select("uid, thread_id")
-      .eq("account_id", account.id).eq("uidvalidity", uidValidity).in("uid", fetched.map((m) => m.uid));
+    const { data: rows } = await db.from("messages").select("uid, thread_id")
+      .eq("mailbox_id", account.id).eq("uidvalidity", uidValidity).in("uid", fetched.map((m) => m.uid));
     for (const r of rows || []) known.set(Number(r.uid), r.thread_id);
   }
 
@@ -275,6 +280,9 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
     if (isExcluded(m.fromAddress, account.excluded_senders || [])) { excluded++; continue; }
     const storedThread = known.get(m.uid);
     if (storedThread) {
+      const { error: bodyErr } = await db.from("messages").update({ body_text: m.bodyText })
+        .eq("mailbox_id", account.id).eq("uidvalidity", uidValidity).eq("uid", m.uid);
+      if (bodyErr) throw new Error(`Could not update stored message body: ${bodyErr.message}`);
       touched.set(storedThread, [...(touched.get(storedThread) || []), m]);
       continue;
     }
@@ -282,8 +290,8 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
     const people = [m.fromAddress, ...m.to].filter((p): p is string => !!p && p !== account.address.toLowerCase());
 
     if (threadId) {
-      const { data: t } = await db.from("mail_threads").select("participants, message_count, last_message_at").eq("id", threadId).single();
-      await db.from("mail_threads").update({
+      const { data: t } = await db.from("threads").select("participants, message_count, last_message_at").eq("id", threadId).single();
+      await db.from("threads").update({
         participants: [...new Set([...(t?.participants || []), ...people])].slice(0, 30),
         message_count: (t?.message_count || 0) + 1,
         last_message_at: !t?.last_message_at || m.sentAt > t.last_message_at ? m.sentAt : t.last_message_at,
@@ -292,20 +300,20 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
       }).eq("id", threadId);
     } else {
       const key = `id:${m.refs[0] || m.messageId || `uid:${uidValidity}:${m.uid}`}`;
-      const { data: t, error } = await db.from("mail_threads").upsert({
-        user_id: account.user_id, account_id: account.id, thread_key: key, subject: m.subject.slice(0, 500),
+      const { data: t, error } = await db.from("threads").upsert({
+        mailbox_id: account.id, thread_key: key, subject: m.subject.slice(0, 500),
         participants: [...new Set(people)].slice(0, 30), first_message_at: m.sentAt, last_message_at: m.sentAt,
-        message_count: 1, status: "new",
-      }, { onConflict: "account_id,thread_key" }).select("id").single();
+        message_count: 1, status: "new", tags: account.tags || [],
+      }, { onConflict: "mailbox_id,thread_key" }).select("id").single();
       if (error) throw new Error(`Could not save thread: ${error.message}`);
       threadId = t.id as string;
     }
 
-    const { error: msgErr } = await db.from("mail_messages").upsert({
-      user_id: account.user_id, account_id: account.id, thread_id: threadId, uidvalidity: uidValidity, uid: m.uid,
+    const { error: msgErr } = await db.from("messages").upsert({
+      mailbox_id: account.id, thread_id: threadId, uidvalidity: uidValidity, uid: m.uid,
       message_id: m.messageId, from_address: m.fromAddress, from_name: m.fromName, to_addresses: m.to.slice(0, 50),
-      subject: m.subject.slice(0, 500), sent_at: m.sentAt,
-    }, { onConflict: "account_id,uidvalidity,uid", ignoreDuplicates: true });
+      subject: m.subject.slice(0, 500), sent_at: m.sentAt, body_text: m.bodyText,
+    }, { onConflict: "mailbox_id,uidvalidity,uid", ignoreDuplicates: true });
     if (msgErr) throw new Error(`Could not save message: ${msgErr.message}`);
 
     if (m.messageId) batch.set(m.messageId, threadId);
@@ -316,10 +324,12 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
   let summarized = 0;
   const failures: string[] = [];
   await pool([...touched.entries()], SUMMARY_CONCURRENCY, async ([threadId, msgs]) => {
-    const { data: thread } = await db.from("mail_threads").select("id, summary").eq("id", threadId).single();
+    const { data: thread } = await db.from("threads").select("id, summary, tags").eq("id", threadId).single();
     try {
       const result = await summarize(apiKey, thread || {}, msgs);
-      await db.from("mail_threads").update({ ...result, summarized_at: new Date().toISOString() }).eq("id", threadId);
+      // Tags: the mailbox's tags plus the category, keeping any tags set by hand.
+      const tags = [...new Set([...(thread?.tags || []), ...(account.tags || []), result.category])];
+      await db.from("threads").update({ ...result, tags, summarized_at: new Date().toISOString() }).eq("id", threadId);
       summarized++;
     } catch (e) {
       failures.push((e as Error).message);
@@ -327,7 +337,7 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
   });
 
   const maxUid = fetched.reduce((max, m) => Math.max(max, m.uid), lastUid);
-  await db.from("mail_accounts").update({
+  await db.from("mailboxes").update({
     uidvalidity: uidValidity, last_uid: maxUid, status: "idle", sync_started_at: null,
     last_synced_at: new Date().toISOString(),
     last_error: failures.length ? `${failures.length} conversation(s) could not be summarized: ${failures[0]}`.slice(0, 500) : null,
@@ -341,20 +351,23 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Use POST" }, 405);
 
-  const url = Deno.env.get("SUPABASE_URL")!;
-  const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
-    db: { schema: "ceo" }, auth: { persistSession: false },
+  const emailBaseUrl = Deno.env.get("EMAIL_BASE_SUPABASE_URL") || Deno.env.get("SUPABASE_URL");
+  const emailBaseKey = Deno.env.get("EMAIL_BASE_SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!emailBaseUrl || !emailBaseKey) {
+    return json({ error: "Email Base access is not configured. Set EMAIL_BASE_SUPABASE_URL and EMAIL_BASE_SUPABASE_SERVICE_ROLE_KEY." }, 500);
+  }
+  const admin = createClient(emailBaseUrl, emailBaseKey, {
+    db: { schema: "email_base" }, auth: { persistSession: false },
   });
 
   // Caller: the scheduler (shared secret) or the signed-in CEO ("Sync now").
-  let ownerId: string | null = null;
   const secret = req.headers.get("x-sync-secret");
   if (secret) {
-    const { data: ok } = await admin.rpc("check_mail_sync_secret", { candidate: secret });
+    const { data: ok } = await admin.rpc("check_sync_secret", { candidate: secret });
     if (ok !== true) return json({ error: "Forbidden" }, 403);
   } else {
     const authHeader = req.headers.get("Authorization") || "";
-    const userDb = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    const userDb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       db: { schema: "ceo" }, global: { headers: { Authorization: authHeader } },
     });
     const { data: auth } = await userDb.auth.getUser();
@@ -368,21 +381,23 @@ Deno.serve(async (req) => {
       } catch { /* treat as not verified */ }
       if (aal !== "aal2") return json({ error: "Verify with your authenticator app first." }, 403);
     }
-    ownerId = auth.user.id;
   }
 
   const apiKey = Deno.env.get("OPENROUTER_API_KEY");
 
-  let query = admin.from("mail_accounts").select("*").eq("enabled", true);
-  if (ownerId) query = query.eq("user_id", ownerId);
-  const { data: accounts, error } = await query;
+  const { data: accounts, error } = await admin.from("mailboxes").select("*")
+    .eq("enabled", true).in("address", EMAIL_ADDRESSES);
   if (error) return json({ error: `Could not load mail accounts: ${error.message}` }, 500);
-  if (!accounts?.length) return json({ error: "No mailbox is connected to this CEO workspace." }, 404);
+  const found = new Set((accounts || []).map((account: Row) => account.address));
+  const missing = EMAIL_ADDRESSES.filter((address) => !found.has(address));
+  if (missing.length) {
+    return json({ error: `Approved mailbox(es) missing or disabled in CRM Email Base: ${missing.join(", ")}.` }, 404);
+  }
 
   const results = [];
   for (const account of accounts) {
     const fail = async (message: string) => {
-      await admin.from("mail_accounts").update({
+      await admin.from("mailboxes").update({
         status: "error", sync_started_at: null, last_error: message.slice(0, 500), updated_at: new Date().toISOString(),
       }).eq("id", account.id);
       results.push({ address: account.address, error: message });
@@ -399,7 +414,7 @@ Deno.serve(async (req) => {
 
     // One sync at a time per mailbox; a lock older than 10 minutes is treated as stale.
     const staleBefore = new Date(Date.now() - STALE_LOCK_MS).toISOString();
-    const { data: locked } = await admin.from("mail_accounts")
+    const { data: locked } = await admin.from("mailboxes")
       .update({ status: "syncing", sync_started_at: new Date().toISOString() })
       .eq("id", account.id)
       .or(`status.neq.syncing,sync_started_at.is.null,sync_started_at.lt.${staleBefore}`)

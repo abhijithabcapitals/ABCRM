@@ -2,7 +2,7 @@
 --
 -- Every mailbox and every conversation carries tags, so one store serves
 -- several consumers: the CEO Agent tab reads mailboxes tagged 'ceo'. Email
--- bodies are never stored: messages keep headers only, threads keep the AI
+-- Email bodies are never stored: messages keep headers only, threads keep the AI
 -- summary, labels and tags. Written by the ceo-mail-sync Edge Function
 -- (service role); signed-in owners read their mailboxes and change status/tags.
 --

@@ -1,8 +1,9 @@
 # Configuration and integration sequence
 
-The code is staged for configuration one decision at a time. Do not copy
-production CRM data into this agent. Keep this Supabase project separate from
-the CRM project.
+The code is staged for configuration one decision at a time. Keep this
+Supabase project separate from the CRM project. The only configured CRM data
+access is a read-only Edge Function integration to the two approved mailboxes
+in CRM Email Base; mail is not copied into this agent's database.
 
 ## Before connecting real data
 
@@ -37,9 +38,26 @@ the CRM project.
 
    The publishable key is intended for the browser and is constrained by RLS.
    Never add a Supabase secret/service-role key to `NEXT_PUBLIC_*`, a browser
-   bundle, source control, prompts, or logs. No service-role key is needed by
-   the currently implemented features.
-7. **Verify security before real captures.** Run the database tests, verify
+   bundle, source control, prompts, or logs.
+7. **Connect the shared Email Base.** First apply the CRM migrations in order:
+   `Database Module/Email Base/migrations/001_email_base.sql`,
+   `002_full_message_history.sql`, and `003_body_search.sql`. Expose the
+   `email_base` schema through the CRM Supabase Data API. Then set these secrets
+   on the standalone Agent project's `ceo-agent` Edge Function:
+
+   - `EMAIL_BASE_SUPABASE_URL`: the CRM Supabase project URL
+   - `EMAIL_BASE_SUPABASE_SERVICE_ROLE_KEY`: the CRM project's service-role
+     key, stored only as an Edge Function secret
+
+   The function's server-side allowlist is fixed to `info@abcapital.ae` and
+   `bharat@ardentaxit.tax`; it does not search or return any other mailbox.
+   Email tools are restricted to the provisioned `owner` profile.
+   The service-role key is never sent to the browser or the model. The email
+   content returned by the tools is provided to OpenRouter for the CEO's
+   requested analysis, so confirm that this processing is approved for the
+   mailbox data. The separate `ceo-mail-sync` function in the CRM project
+   remains responsible for importing mail and must also be deployed there.
+8. **Verify security before real captures.** Run the database tests, verify
    cross-user denial, confirm that anonymous users have no `ceo` table grants,
    verify the private bucket is inaccessible, and test MFA enrollment and
    sign-in. Enable backups/PITR and perform a restore test before production.
@@ -58,8 +76,7 @@ ownership, and deletion/audit tests. Do not just add an upload policy.
 Configure these only after the core project and security model are approved:
 
 1. Durable worker/queue for transcription, extraction, retries, and cleanup.
-2. Speech and language-model providers, structured output validation, and
-   prompt-injection tests.
+2. Speech providers, structured output validation, and prompt-injection tests.
 3. CRM adapter after documenting the existing CRM's supported API, canonical
    IDs, allowed reads/writes, and conflict/approval behavior.
 4. OneDrive using an approved Microsoft Graph app and least-privilege site
@@ -71,7 +88,9 @@ Configure these only after the core project and security model are approved:
 
 Future agent access must go through a trusted, authenticated server/worker
 which checks the registry and narrowly scoped permissions. Agent rows default
-to disabled. Do not give an agent arbitrary SQL or a service-role credential.
+to disabled. Never expose a service-role credential to the model or browser;
+the email Edge Function holds it server-side and only issues fixed queries
+against the two-mailbox allowlist.
 
 ## Validation checklist
 
@@ -82,4 +101,5 @@ to disabled. Do not give an agent arbitrary SQL or a service-role credential.
 - Test unauthenticated, owner, and different-user access separately
 - Confirm TOTP is required for profiles with `require_mfa = true`
 - Confirm no audio object policy exists before retention/worker setup
-- Confirm no CRM, OneDrive, AI, or notification side effects occur in this stage
+- Confirm there are no CRM writes, OneDrive, or notification side effects;
+  verify email reads stay within the two-mailbox allowlist

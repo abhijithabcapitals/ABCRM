@@ -6,12 +6,13 @@ The CRM's **CEO Agent** tab (admins only). It is the user interface of the CEO I
 | Path | Purpose |
 |---|---|
 | `components/CeoAgent.jsx` | Sign-in and TOTP MFA, then a chat with the agent on the left and the dashboard on the right |
-| `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: DeepSeek (`deepseek/deepseek-v4.1-flash`) via OpenRouter, with tools that save and look up the CEO's items |
+| `supabase/ceo-agent/index.ts` | Edge Function `ceo-agent`: DeepSeek (`deepseek/deepseek-v4.1-flash`) via OpenRouter, with tools that save and look up CEO items and synced email summaries |
 | `supabase/ceo-agent/playbooks.ts` | 14 CEO playbooks (decisions, reviews, delegation, pricing, finance, risk and more) served by the read-only `get_playbook` tool; adapted from the open skills in `Agent Module/11_Personal_Agent/CEO Agent/.claude/skills` |
-| `components/InboxPanel.jsx` | **Inbox** tab: AI summaries of the connected mailbox, unread badge and optional browser alerts |
-| `supabase/ceo-mail-sync/index.ts` | Edge Function `ceo-mail-sync`: reads the mailbox over IMAP (read-only) and summarizes each conversation |
-| `supabase/ceo-mail-sync/imap.ts` | Minimal read-only IMAP client on `Deno.connectTls` (npm IMAP libraries fail in the Edge Runtime) |
-| `supabase/ceo-mail.sql` | Tables, policies, Vault secret and 15-minute schedule behind the Inbox |
+| `components/InboxPanel.jsx` | **Inbox** tab: full message text, AI summaries, importance markers, saved facts, reply-draft review and alerts |
+| `supabase/ceo-mail-sync/index.ts` | Edge Function `ceo-mail-sync`: read-only IMAP sync, full text retention and conversation summaries |
+| `supabase/ceo-mail-sync/imap.ts` | Minimal read-only IMAP client on `Deno.connectTls` |
+| `../Database Module/Email Base/migrations/` | Shared mailbox, message and conversation schema, CRM access policies and sync schedule |
+| `supabase/migrations/202610300003_email_base_mail_assistant.sql` | Connects CEO saved facts and unsent drafts to shared Email Base threads |
 | `index.js` | Default export of the page |
 
 ## Chat and dashboard
@@ -19,8 +20,10 @@ The CRM's **CEO Agent** tab (admins only). It is the user interface of the CEO I
 Every chat message is saved to `ceo.captures`. The agent then saves what it hears as structured items:
 meetings, reminders, tasks, decisions, ideas, risks, people, projects and notes (`ceo.records` plus the
 matching table), and can mark items done or cancelled. It answers questions from `get_overview` and
-`search_memory`. It asks for an exact date before saving a meeting or reminder, and never sends anything
-outside the CRM (no emails, invites or reminder delivery).
+`search_memory`. It can search synced email summaries and key points with `search_emails`; full plain-text
+email bodies are retained in Email Base and are available in the Inbox. Selected
+email key points can be saved to private CEO memory and searched later. It asks for an exact date before
+saving a meeting or reminder, and never sends anything outside the CRM.
 
 The dashboard reads the same tables directly: this week's meetings, open and overdue tasks (tick to complete),
 reminders, recent decisions, ideas and open risks. It refreshes after each reply that saved something.
@@ -34,35 +37,45 @@ The **Talk** button uses the browser's speech recognition (Chrome, Edge, Safari)
 
 ## Inbox (email summaries)
 
-`ceo-mail-sync` connects to every enabled row in `ceo.mail_accounts` (now `bharat@ardentaxit.tax` and
-`info@abcapital.ae`, both Hostinger Email on `imap.hostinger.com:993`) and opens
-the Inbox **read-only**: it never sends, moves, deletes or flags mail. Every 15 minutes (pg_cron job
-`ceo-mail-sync`) it reads up to 30 new messages (the first run looks back 7 days), groups them into
-conversations by `References`/`In-Reply-To` (or subject plus a shared participant), and asks DeepSeek for a
-summary, category, priority, whether a reply is needed, key points and suggested actions. Email text is
-treated as untrusted data and is only held in memory; `ceo.mail_messages` keeps headers and
-`ceo.mail_threads` keeps the summaries. Senders or domains in `ceo.mail_accounts.excluded_senders` (e.g.
-`@bank.com`) are skipped and never sent to the model.
+`ceo-mail-sync` connects to the enabled CRM Email Base mailboxes `bharat@ardentaxit.tax` and
+`info@abcapital.ae` (Hostinger Email at `imap.hostinger.com:993`) and opens the Inbox **read-only**:
+it never sends, moves, deletes or flags mail. Every 15 minutes it reads up to 30 messages per mailbox,
+groups them into conversations, and asks DeepSeek for a summary, category, priority, reply status, key
+points and suggested actions. Initial sync starts at the oldest available message and continues in
+ascending UID batches until caught up. Headers and extracted plain-text bodies are stored in
+`email_base.messages`; summaries and conversation metadata are stored in `email_base.threads`.
+Attachments and original MIME files are not retained. Email text is untrusted data and is sent to the
+configured OpenRouter provider for summarization. A message reaching the 1 MiB import limit fails visibly
+without advancing the mailbox cursor, so it is not silently stored with a partial body.
 
 The **Inbox** tab lists conversations (unread, then by priority), with filters, **Sync now**, mark read/unread,
-archive, and buttons that turn a suggested action into a task or reminder. The tab badge counts unread
-conversations; **Enable alerts** shows a browser notification for new urgent or needs-reply conversations
-while the CRM is open.
+archive, and buttons that turn a suggested action into a task or reminder. Marking a thread important changes
+only its CRM record, not an IMAP flag. Key points can be saved individually to CEO memory. When explicitly
+asked, chat can create an unsent reply draft using the latest external sender address in the selected thread.
+Drafts appear in Inbox for editing, approval or cancellation; approval only marks the draft approved and never
+sends it. Sending remains a manual action outside the agent. The tab badge counts unread conversations;
+**Enable alerts** shows a browser notification for new urgent or needs-reply conversations while the CRM is open.
 
-Edge Function secrets: one password per mailbox named `MAIL_PASSWORD_` plus the address in capitals with
-every other character as `_` (e.g. `MAIL_PASSWORD_INFO_ABCAPITAL_AE`); `bharat@ardentaxit.tax` still uses the
-original `MAIL_IMAP_USER` / `MAIL_IMAP_PASSWORD` pair. Also `OPENROUTER_API_KEY`. To add a mailbox, insert a
-`ceo.mail_accounts` row and add its password secret; the Inbox lists every mailbox. `OPENROUTER_MAIL_MODEL` optionally overrides the model. Deploy `ceo-mail-sync` with
-JWT verification **off**: the scheduler authenticates with the `ceo_mail_sync_secret` Vault secret in the
-`x-sync-secret` header, and **Sync now** sends the CEO's session, which the function checks (profile and MFA)
-itself. Sync status and the last error are on `ceo.mail_accounts`.
+Apply `Database Module/Email Base/migrations/001_email_base.sql` and
+`002_full_message_history.sql`, then
+`supabase/migrations/202610290002_mail_assistant.sql` and
+`supabase/migrations/202610300003_email_base_mail_assistant.sql` to the CRM Supabase project. Expose the
+`email_base` schema through the Data API and deploy the functions in this module. The migrations grant
+the provisioned CEO owner access to the two mailboxes and keep browser writes limited to Inbox status,
+importance, saved facts and drafts. No mail-sending capability is configured.
+
+Edge Function secrets: `MAIL_PASSWORD_INFO_ABCAPITAL_AE`,
+`MAIL_PASSWORD_BHARAT_ARDENTAXIT_TAX`, and `OPENROUTER_API_KEY`.
+`OPENROUTER_MAIL_MODEL` optionally overrides the summarization model. Deploy `ceo-mail-sync` with JWT
+verification **off**: the scheduler uses the `email_base_sync_secret` Vault secret, while **Sync now**
+authenticates the CEO's CRM session and MFA. Mailbox sync status and errors are in `email_base.mailboxes`.
 
 ## Where the data lives
 
-The `ceo` schema is in the CRM Supabase project (`pnnakrhfzyxudjaghoxx`), applied as migration
-`initial_ceo_schema` on 29/10/2026. It is kept apart from the CRM tables by schema and row-level security:
-every `ceo` table only returns rows where `user_id` is the signed-in user, anonymous users have no access,
-and the CRM's own code never queries `ceo`. The tab reuses the CRM sign-in, so there is no second login.
+The `ceo` and `email_base` schemas are in the CRM Supabase project (`pnnakrhfzyxudjaghoxx`). The `ceo`
+schema was applied as migration `initial_ceo_schema` on 29/10/2026. It is kept apart from the CRM tables
+by schema and row-level security: CEO memory is scoped to the signed-in user, while Email Base mailbox
+access is scoped to its provisioned owner. Anonymous users have no access. The tab reuses the CRM sign-in.
 
 The same rules as the original apply: owner provisioned in `ceo.profiles` (done for
 abhijith.abcapitals@gmail.com, role `owner`), an authenticator app (TOTP) is required when `require_mfa` is
@@ -73,21 +86,15 @@ To give another person a CEO workspace, insert their row in `ceo.profiles` (see
 `Agent Module/11_Personal_Agent/CEO Agent/CONFIGURATION.md`). Without a row the tab says the account is not
 provisioned.
 
-`ceo` was added to the API's exposed schemas with
-`alter role authenticator set pgrst.db_schemas = 'public, graphql_public, acct, ceo'`.
-
-## Moving to a separate project later
-
-If the CEO data should move to its own Supabase project, apply the same migration there, set
-`VITE_CEO_SUPABASE_URL` and `VITE_CEO_SUPABASE_PUBLISHABLE_KEY` (in `Main Module/.env` and as GitHub
-repository secrets) and redeploy. The tab then uses that project with its own sign-in (stored under
-`ceo-agent-auth`).
+Email Base is the CRM-wide source for connected mailboxes, message headers and bodies, and conversation
+summaries. The current mailboxes are the two listed above; add future CRM mailboxes in `email_base.mailboxes`
+and provide a matching Edge Function password secret.
 
 ## How it is connected
 
 `Main Module/vite.config.js` maps `@ceo-agent` to this folder and resolves `react` and
 `@supabase/supabase-js` from the Main Module. `Main Module/src/components/CeoAgent.jsx` adds the page header
-and passes the two settings; the sidebar shows **CEO Agent** to admins only.
+and passes the CRM Supabase client; the sidebar shows **CEO Agent** to admins only.
 
 The standalone Next.js app in `Agent Module/11_Personal_Agent/CEO Agent` is unchanged and can still run on
 its own. Port later features (extraction, reminders, approvals) here as they are built there.

@@ -1,10 +1,7 @@
 import CeoAgentWorkspace from "@ceo-agent";
 import { supabase } from "../supabase";
 
-// The CEO Agent page lives in the sibling "CEO Agent Module" folder. Its data
-// is in the "ceo" schema of the CRM project and it reuses the CRM sign-in.
-// Setting VITE_CEO_SUPABASE_URL and VITE_CEO_SUPABASE_PUBLISHABLE_KEY points it
-// at a separate CEO project instead, with its own sign-in.
+// The CEO Agent page and Email Base use the CRM Supabase project and CRM sign-in.
 export default function CeoAgent() {
   return (
     <div>
@@ -17,8 +14,6 @@ export default function CeoAgent() {
       <div className="content-area">
         <CeoAgentWorkspace
           crmClient={supabase}
-          supabaseUrl={import.meta.env.VITE_CEO_SUPABASE_URL}
-          publishableKey={import.meta.env.VITE_CEO_SUPABASE_PUBLISHABLE_KEY}
         />
       </div>
     </div>

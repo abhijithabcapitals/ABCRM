@@ -1,12 +1,12 @@
-// Supabase Edge Function "ceo-mail-sync" (Agent Project): fills Email Base, the
+// Supabase Edge Function "ceo-mail-sync" (CRM Project): fills Email Base, the
 // organization's tagged email database (schema email_base), from IMAP mailboxes.
 // The CEO Agent tab reads the mailboxes tagged 'ceo' that the CEO owns.
 //
 // Every 15 minutes (pg_cron) or on "Sync now", it reads new messages from the
 // configured IMAP mailbox in read-only mode, groups them into conversations and
 // asks DeepSeek (via OpenRouter) for a summary, labels and suggested actions.
-// Email bodies are only held in memory; the database keeps headers and
-// summaries. It never sends, moves, deletes or flags mail.
+// Full text bodies, headers, and summaries are stored. It never sends, moves,
+// deletes or flags mail.
 //
 // Deploy as Edge Function "ceo-mail-sync" with JWT verification OFF: the
 // scheduler calls it with the x-sync-secret header (checked against Vault) and
@@ -16,14 +16,13 @@
 
 import PostalMime from "npm:postal-mime@2";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { ImapClient, imapDate } from "./imap.ts";
+import { ImapClient } from "./imap.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = Deno.env.get("OPENROUTER_MAIL_MODEL") || "deepseek/deepseek-v4.1-flash";
 const MAX_MESSAGES_PER_RUN = 30;
-const FIRST_SYNC_DAYS = 7;
-const MAX_SOURCE_BYTES = 256 * 1024;
-const MAX_TEXT_PER_MESSAGE = 5000;
+const MAX_SOURCE_BYTES = 1024 * 1024;
+const EMAIL_ADDRESSES = ["info@abcapital.ae", "bharat@ardentaxit.tax"];
 const STALE_LOCK_MS = 10 * 60 * 1000;
 const SUMMARY_CONCURRENCY = 4;
 
@@ -53,6 +52,7 @@ type Fetched = {
   to: string[];
   subject: string;
   sentAt: string;
+  bodyText: string;
   text: string;
 };
 
@@ -89,8 +89,7 @@ function cleanBody(text: string) {
   const cut = text.search(/^(On .{3,200}wrote:|-{2,}\s*Original Message\s*-{2,}|From: .+\r?\n(Sent|Date): )/im);
   return (cut > 0 ? text.slice(0, cut) : text)
     .split(/\r?\n/).filter((line) => !line.startsWith(">")).join("\n")
-    .replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim()
-    .slice(0, MAX_TEXT_PER_MESSAGE);
+    .replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function isExcluded(address: string | null, patterns: string[]) {
@@ -127,15 +126,16 @@ async function readMailbox(account: Row, user: string, pass: string, retryUids: 
     const uidValidity = await client.examine(account.mailbox);
     const sameMailbox = Number(account.uidvalidity) === uidValidity;
     const lastUid = sameMailbox ? Number(account.last_uid) : 0;
-    const found = lastUid > 0
-      ? await client.searchUids(`UID ${lastUid + 1}:*`)
-      : await client.searchUids(`SINCE ${imapDate(new Date(Date.now() - FIRST_SYNC_DAYS * 86_400_000))}`);
+    const found = await client.searchUids(lastUid > 0 ? `UID ${lastUid + 1}:*` : "UID 1:*");
     let uids = found.filter((u) => u > lastUid).sort((a, b) => a - b);
-    // First sync keeps the most recent messages; later runs work forward from last_uid.
-    uids = lastUid === 0 ? uids.slice(-MAX_MESSAGES_PER_RUN) : uids.slice(0, MAX_MESSAGES_PER_RUN);
-    // Re-read messages of conversations whose summary failed last time (bodies are not stored).
+    // Backfill the oldest messages first so advancing last_uid cannot skip history.
+    uids = uids.slice(0, MAX_MESSAGES_PER_RUN);
+    // Re-read messages of conversations whose summary failed last time.
     if (sameMailbox) uids = [...new Set([...retryUids, ...uids])];
     const raw = await client.fetchSources(uids, MAX_SOURCE_BYTES);
+    if (raw.some((message) => message.source.length >= MAX_SOURCE_BYTES)) {
+      throw new Error(`A message reached the ${MAX_SOURCE_BYTES}-byte import limit; refusing to store a partial body. The sync cursor was not advanced.`);
+    }
     await client.logout();
     return { uidValidity, lastUid, raw };
   } finally {
@@ -147,7 +147,9 @@ async function toFetched(msg: { uid: number; internalDate: string | null; source
   let parsed: Row = {};
   try {
     parsed = await PostalMime.parse(msg.source);
-  } catch { /* keep what we can from the IMAP data */ }
+  } catch (error) {
+    throw new Error(`Could not parse message UID ${msg.uid}: ${(error as Error).message}`);
+  }
   const addresses = (list: unknown) => (Array.isArray(list) ? list : [])
     .flatMap((p: Row) => (p.group ? p.group : [p]))
     .map((p: Row) => String(p.address || "").toLowerCase()).filter(Boolean);
@@ -162,6 +164,7 @@ async function toFetched(msg: { uid: number; internalDate: string | null; source
     to: [...addresses(parsed.to), ...addresses(parsed.cc)],
     subject: parsed.subject || "(no subject)",
     sentAt: (isNaN(sent.getTime()) ? new Date() : sent).toISOString(),
+    bodyText: body.trim(),
     text: cleanBody(body),
   };
 }
@@ -277,6 +280,9 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
     if (isExcluded(m.fromAddress, account.excluded_senders || [])) { excluded++; continue; }
     const storedThread = known.get(m.uid);
     if (storedThread) {
+      const { error: bodyErr } = await db.from("messages").update({ body_text: m.bodyText })
+        .eq("mailbox_id", account.id).eq("uidvalidity", uidValidity).eq("uid", m.uid);
+      if (bodyErr) throw new Error(`Could not update stored message body: ${bodyErr.message}`);
       touched.set(storedThread, [...(touched.get(storedThread) || []), m]);
       continue;
     }
@@ -306,7 +312,7 @@ async function syncAccount(db: Db, account: Row, user: string, pass: string, api
     const { error: msgErr } = await db.from("messages").upsert({
       mailbox_id: account.id, thread_id: threadId, uidvalidity: uidValidity, uid: m.uid,
       message_id: m.messageId, from_address: m.fromAddress, from_name: m.fromName, to_addresses: m.to.slice(0, 50),
-      subject: m.subject.slice(0, 500), sent_at: m.sentAt,
+      subject: m.subject.slice(0, 500), sent_at: m.sentAt, body_text: m.bodyText,
     }, { onConflict: "mailbox_id,uidvalidity,uid", ignoreDuplicates: true });
     if (msgErr) throw new Error(`Could not save message: ${msgErr.message}`);
 
@@ -345,20 +351,23 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Use POST" }, 405);
 
-  const url = Deno.env.get("SUPABASE_URL")!;
-  const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+  const emailBaseUrl = Deno.env.get("EMAIL_BASE_SUPABASE_URL") || Deno.env.get("SUPABASE_URL");
+  const emailBaseKey = Deno.env.get("EMAIL_BASE_SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!emailBaseUrl || !emailBaseKey) {
+    return json({ error: "Email Base access is not configured. Set EMAIL_BASE_SUPABASE_URL and EMAIL_BASE_SUPABASE_SERVICE_ROLE_KEY." }, 500);
+  }
+  const admin = createClient(emailBaseUrl, emailBaseKey, {
     db: { schema: "email_base" }, auth: { persistSession: false },
   });
 
   // Caller: the scheduler (shared secret) or the signed-in CEO ("Sync now").
-  let ownerId: string | null = null;
   const secret = req.headers.get("x-sync-secret");
   if (secret) {
     const { data: ok } = await admin.rpc("check_sync_secret", { candidate: secret });
     if (ok !== true) return json({ error: "Forbidden" }, 403);
   } else {
     const authHeader = req.headers.get("Authorization") || "";
-    const userDb = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    const userDb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       db: { schema: "ceo" }, global: { headers: { Authorization: authHeader } },
     });
     const { data: auth } = await userDb.auth.getUser();
@@ -372,16 +381,18 @@ Deno.serve(async (req) => {
       } catch { /* treat as not verified */ }
       if (aal !== "aal2") return json({ error: "Verify with your authenticator app first." }, 403);
     }
-    ownerId = auth.user.id;
   }
 
   const apiKey = Deno.env.get("OPENROUTER_API_KEY");
 
-  let query = admin.from("mailboxes").select("*").eq("enabled", true);
-  if (ownerId) query = query.eq("owner_user_id", ownerId);
-  const { data: accounts, error } = await query;
+  const { data: accounts, error } = await admin.from("mailboxes").select("*")
+    .eq("enabled", true).in("address", EMAIL_ADDRESSES);
   if (error) return json({ error: `Could not load mail accounts: ${error.message}` }, 500);
-  if (!accounts?.length) return json({ error: "No mailbox is connected to this CEO workspace." }, 404);
+  const found = new Set((accounts || []).map((account: Row) => account.address));
+  const missing = EMAIL_ADDRESSES.filter((address) => !found.has(address));
+  if (missing.length) {
+    return json({ error: `Approved mailbox(es) missing or disabled in CRM Email Base: ${missing.join(", ")}.` }, 404);
+  }
 
   const results = [];
   for (const account of accounts) {

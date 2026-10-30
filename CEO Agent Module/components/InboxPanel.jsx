@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Inbox view of the CEO Agent: AI summaries of the connected mailbox
-// (Email Base in the Agent Project: email_base.threads of the mailboxes tagged
+// (Email Base in the CRM Project: email_base.threads of the mailboxes tagged
 // 'ceo', written by the ceo-mail-sync Edge Function). The mailbox
 // itself is read-only; this view can mark threads important, save facts, review
 // unsent reply drafts, and turn a suggested action into a task or reminder.
@@ -52,6 +52,8 @@ export function useInboxAlerts(sb) {
 export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged }) {
   const [account, setAccount] = useState(undefined);
   const [threads, setThreads] = useState(null);
+  const [messagesByThread, setMessagesByThread] = useState({});
+  const [loadingMessages, setLoadingMessages] = useState(null);
   const [savedFacts, setSavedFacts] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [draftEdits, setDraftEdits] = useState({});
@@ -68,8 +70,8 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
       sb.schema("email_base").from("threads")
         .select("id, mailbox_id, subject, participants, last_message_at, message_count, status, category, priority, needs_reply, is_important, summary, key_points, suggested_actions")
         .contains("tags", ["ceo"]).neq("status", "archived").order("last_message_at", { ascending: false }).limit(60),
-      sb.from("mail_saved_facts").select("id, thread_id, subject, fact, created_at").order("created_at", { ascending: false }).limit(100),
-      sb.from("mail_drafts").select("id, thread_id, to_address, subject, body, status, created_at")
+      sb.from("email_saved_facts").select("id, thread_id, subject, fact, created_at").order("created_at", { ascending: false }).limit(100),
+      sb.from("email_drafts").select("id, thread_id, to_address, subject, body, status, created_at")
         .in("status", ["draft", "approved"]).order("created_at", { ascending: false }).limit(50),
     ]);
     const firstError = [acc, list, facts, pendingDrafts].find((result) => result.error)?.error;
@@ -146,7 +148,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
 
   async function saveFact(thread, fact) {
     setError("");
-    const { data, error: err } = await sb.from("mail_saved_facts")
+    const { data, error: err } = await sb.from("email_saved_facts")
       .insert({ user_id: userId, thread_id: thread.id, subject: thread.subject || "(no subject)", fact })
       .select("id, thread_id, subject, fact, created_at").single();
     if (err?.code === "23505") {
@@ -162,7 +164,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   async function saveDraft(draft) {
     const body = draftEdits[draft.id] ?? draft.body;
     if (!body.trim()) { setError("A reply draft cannot be empty."); return; }
-    const { error: err } = await sb.from("mail_drafts").update({ body }).eq("id", draft.id);
+    const { error: err } = await sb.from("email_drafts").update({ body }).eq("id", draft.id);
     if (err) { setError(err.message); return; }
     setDrafts((list) => list.map((item) => item.id === draft.id ? { ...item, body } : item));
     setDraftEdits((edits) => ({ ...edits, [draft.id]: body }));
@@ -173,7 +175,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     if (!window.confirm("Approve this draft? It will remain unsent; you must send it yourself outside this agent.")) return;
     const body = draftEdits[draft.id] ?? draft.body;
     if (!body.trim()) { setError("A reply draft cannot be empty."); return; }
-    const { error: err } = await sb.from("mail_drafts").update({ body, status: "approved" }).eq("id", draft.id);
+    const { error: err } = await sb.from("email_drafts").update({ body, status: "approved" }).eq("id", draft.id);
     if (err) { setError(err.message); return; }
     setDrafts((list) => list.map((item) => item.id === draft.id ? { ...item, body, status: "approved" } : item));
     setNotice("Draft approved and kept unsent. Copy it to your mail client when you are ready to send.");
@@ -181,15 +183,30 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
 
   async function cancelDraft(draft) {
     if (!window.confirm("Cancel and remove this reply draft from the review list?")) return;
-    const { error: err } = await sb.from("mail_drafts").update({ status: "cancelled" }).eq("id", draft.id);
+    const { error: err } = await sb.from("email_drafts").update({ status: "cancelled" }).eq("id", draft.id);
     if (err) { setError(err.message); return; }
     setDrafts((list) => list.filter((item) => item.id !== draft.id));
     setNotice("Reply draft cancelled.");
   }
 
   function toggle(t) {
-    setOpen(open === t.id ? null : t.id);
+    if (open === t.id) {
+      setOpen(null);
+      return;
+    }
+    setOpen(t.id);
     if (t.status === "new") setStatus(t.id, "read");
+    if (messagesByThread[t.id] || loadingMessages === t.id) return;
+    setLoadingMessages(t.id);
+    sb.schema("email_base").from("messages")
+      .select("id, from_address, from_name, to_addresses, subject, sent_at, body_text")
+      .eq("thread_id", t.id).order("sent_at", { ascending: true }).limit(1000)
+      .then(({ data, error: messageError }) => {
+        if (messageError) setError(`Could not load email messages: ${messageError.message}`);
+        else setMessagesByThread((messages) => ({ ...messages, [t.id]: data || [] }));
+      })
+      .catch((messageError) => setError(`Could not load email messages: ${messageError.message || String(messageError)}`))
+      .finally(() => setLoadingMessages(null));
   }
 
   // A suggested action becomes a reminder (when it has a date) or a task.
@@ -325,6 +342,18 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
             </button>
             {open === t.id && (
               <div className="ceo-mail-detail">
+                <section className="ceo-email-history" aria-label="Original email messages">
+                  <h4>Original messages</h4>
+                  {loadingMessages === t.id && <p className="ceo-muted">Loading messages…</p>}
+                  {(messagesByThread[t.id] || []).map((message) => (
+                    <article key={message.id} className="ceo-email-message">
+                      <div><b>{message.from_name || message.from_address || "Unknown sender"}</b></div>
+                      <div className="ceo-muted">{message.from_address} · {when(message.sent_at)}</div>
+                      <div className="ceo-muted">To: {(message.to_addresses || []).join(", ") || "Not available"}</div>
+                      <pre>{message.body_text || "(No text body)"}</pre>
+                    </article>
+                  ))}
+                </section>
                 {t.key_points?.length > 0 && (
                   <ul className="ceo-points">{t.key_points.map((p, i) => {
                     const isSaved = savedFacts.some((fact) => fact.thread_id === t.id && fact.fact === p);
@@ -361,7 +390,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
           </li>
         ))}
       </ul>
-      <p className="ceo-chat-note">The source mailbox remains read-only. Importance markers and saved facts are CRM-only. Email text goes to DeepSeek via OpenRouter to be summarized; only summaries and headers are stored.</p>
+      <p className="ceo-chat-note">The source mailbox remains read-only. Email text is sent to DeepSeek via OpenRouter for summaries; plain-text message bodies and summaries are retained in CRM Email Base. Attachments are not stored.</p>
     </section>
   );
 }
@@ -402,6 +431,11 @@ function InboxStyles() {
       .ceo-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; background: #d1d5db; }
       .ceo-dot-urgent { background: #dc2626; } .ceo-dot-high { background: #f59e0b; } .ceo-dot-normal { background: #0d7d82; } .ceo-dot-low { background: #d1d5db; }
       .ceo-mail-detail { padding: 0 14px 12px 33px; display: grid; gap: 8px; }
+      .ceo-email-history { display: grid; gap: 8px; }
+      .ceo-email-history h4 { margin: 0; font-size: 13px; color: #1f2a30; }
+      .ceo-email-message { display: grid; gap: 4px; padding: 10px; border: 1px solid #e8e8e8; border-radius: 8px; }
+      .ceo-email-message > div { font-size: 11px; }
+      .ceo-email-message pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; margin: 6px 0 0; color: #374151; }
       .ceo-points { margin: 0; padding-left: 18px; font-size: 12.5px; color: #374151; display: grid; gap: 6px; }
       .ceo-points li { padding-left: 1px; }
       .ceo-points .ceo-text-btn { display: block; padding: 2px 0; }

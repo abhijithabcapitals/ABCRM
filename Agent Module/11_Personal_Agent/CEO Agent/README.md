@@ -2,7 +2,9 @@
 
 Private, standalone executive capture and memory workspace. This project uses
 its own Supabase project and the `ceo` PostgreSQL schema. It does not share the
-existing CRM database or copy CRM/client data.
+CRM database for its private memory. Its `ceo-agent` function can securely read
+the CRM Email Base for exactly `info@abcapital.ae` and `bharat@ardentaxit.tax`;
+other mailboxes are not exposed to the agent.
 
 ## What is built
 
@@ -18,6 +20,9 @@ existing CRM database or copy CRM/client data.
   and an outbox.
 - PostgreSQL full-text indexes for captures and canonical record titles and
   summaries.
+- Email search and conversation tools backed by the CRM Email Base allowlist;
+  email bodies remain in the CRM database and are not copied into this agent's
+  database. The agent can only read the two configured addresses.
 
 ## Status
 
@@ -89,4 +94,4 @@ support the Node.js `proxy.ts` that Next 16 introduced.
 
 See [CONFIGURATION.md](./CONFIGURATION.md) for the ordered, one-by-one setup
 path for a separate hosted Supabase project, MFA, deployment, and later
-integrations.
+integrations, including the narrowly scoped CRM Email Base connection.
