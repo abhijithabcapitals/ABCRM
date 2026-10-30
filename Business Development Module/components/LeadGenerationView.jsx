@@ -222,7 +222,12 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
                     )}
                     {p.status === "drafted" && <span className="bd-leadgen-kind">Draft saved</span>}
                     {p.status === "replied" && <span className="bd-leadgen-kind added">Reply sent</span>}
-                    {p.status === "added" && <span className="bd-leadgen-kind added">In pipeline</span>}
+                    {p.status === "added" && (
+                      <>
+                        <span className="bd-leadgen-kind added">In pipeline</span>
+                        <button type="button" className="bd-text-button" onClick={() => restore(p)}>Restore to review</button>
+                      </>
+                    )}
                     {p.status === "dismissed" && <button type="button" className="bd-text-button" onClick={() => restore(p)}>Restore</button>}
                   </td>
                 </tr>
