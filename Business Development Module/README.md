@@ -9,6 +9,7 @@ platform integrations (starting with Explee) are included here.
 | `components/BusinessDevelopment.jsx` | The page and all its sub-tabs. Takes `profile` |
 | `components/BusinessDevelopment.css` | Its styles |
 | `logic/businessDevelopmentData.js` | Supabase reads, writes and RPC calls for leads, activities, follow-ups, services and won/lost |
+| `components/BdCalendarView.jsx` | **Lead Calendar** page: month view and agenda (shared `@calendar` component) of lead follow-ups plus BD calendar items, with an Overdue list |
 | `index.js` | Default export of the page, plus the data functions |
 
 ## How it is connected
@@ -68,3 +69,19 @@ follow-up rules apply, and the prospect is marked `added` with the new lead's id
 Add a `bd_platform_connections` row and a provider branch in `bd-lead-sources` that maps the platform's
 records to `bd_platform_prospects` columns, keep the key in an Edge Function secret, and add a card to
 `LeadGenerationView`.
+
+## Lead Calendar
+
+The **Lead Calendar** page shows a month view with an agenda for the next 30 days (UAE time). It combines:
+
+- **Follow-ups** of open leads (from `bd_ui_leads`). Clicking one opens the lead; overdue ones can be completed from
+  the Overdue list.
+- **Calendar items** in `public.bd_calendar_items` (`Database Module/migrations/bd/010_bd_calendar_items.sql`):
+  deadlines, meetings (with an end time), tasks, conversion targets and reminders. Each can be linked to a lead,
+  assigned to a person, timed or all-day, and marked done or cancelled. **＋ New calendar item** adds one; clicking
+  an item edits it. Open items past their date appear under **Overdue** with a **Done** button. **Only mine** limits
+  the view to items assigned to or created by you and follow-ups of your leads.
+
+Row-level security: anyone with a BD role sees general items and items of leads they can see. Super admins, BD
+managers, team leaders, sales executives and marketing executives create items; managers and team leaders change any
+item, executives change the items they created or are assigned and delete the ones they created.

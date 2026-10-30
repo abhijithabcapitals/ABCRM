@@ -127,6 +127,30 @@ export async function markBusinessDevelopmentLeadLost(leadId, reason, notes) {
   });
 }
 
+// Lead Calendar items (Database Module/migrations/bd/010_bd_calendar_items.sql); row-level security decides visibility.
+const CALENDAR_ITEM_COLUMNS = "id, title, kind, starts_at, ends_at, all_day, lead_id, assigned_to, notes, status, completed_at, created_by";
+
+export async function fetchBdCalendarItems(from, to) {
+  return supabase.from("bd_calendar_items").select(CALENDAR_ITEM_COLUMNS)
+    .gte("starts_at", from).lt("starts_at", to).neq("status", "cancelled").order("starts_at").limit(2000);
+}
+
+export async function fetchOverdueBdCalendarItems() {
+  return supabase.from("bd_calendar_items").select(CALENDAR_ITEM_COLUMNS)
+    .eq("status", "open").lt("starts_at", new Date().toISOString()).order("starts_at").limit(100);
+}
+
+export async function saveBdCalendarItem(item, id = null) {
+  const query = id
+    ? supabase.from("bd_calendar_items").update(item).eq("id", id)
+    : supabase.from("bd_calendar_items").insert(item);
+  return query.select(CALENDAR_ITEM_COLUMNS).single();
+}
+
+export async function deleteBdCalendarItem(id) {
+  return supabase.from("bd_calendar_items").delete().eq("id", id);
+}
+
 // Lead-generation platforms (bd-lead-sources Edge Function; prospects staged in bd_platform_prospects)
 export async function callLeadSources(action, payload = {}) {
   const { data, error } = await supabase.functions.invoke("bd-lead-sources", { body: { action, provider: "explee", ...payload } });

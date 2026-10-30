@@ -16,6 +16,7 @@ import {
   updateBusinessDevelopmentService,
   updatePlatformProspect,
 } from "../logic/businessDevelopmentData";
+import BdCalendarView from "./BdCalendarView";
 import LeadGenerationView from "./LeadGenerationView";
 import "./BusinessDevelopment.css";
 
@@ -446,7 +447,8 @@ export default function BusinessDevelopment({ profile }) {
           )}
           {!isDashboard && !isPipeline && isFollowups && (
             isCalendar
-              ? <FollowupCalendar items={dueFollowups} onOpen={openLead} onComplete={completeFollowup} />
+              ? <BdCalendarView leads={leads} profiles={profiles} currentUserId={currentUserId} followups={dueFollowups}
+                onOpenLead={openLead} onCompleteFollowup={completeFollowup} />
               : <FollowupView items={dueFollowups} onOpen={openLead} onComplete={completeFollowup} />
           )}
           {!isDashboard && !isPipeline && isSources && <SourcesView leads={leads} />}
@@ -547,15 +549,6 @@ function FollowupView({ items, onOpen, onComplete }) {
     { title: "Upcoming", rows: items.filter((item) => uaeDate(item.planned_at) > today) },
   ];
   return <section><div className="bd-section-heading"><div><h2>Follow-up Center</h2><p>Chronological action queue across your leads.</p></div><span className="bd-count-pill">{items.length} open</span></div>{sections.map((group) => <div className="bd-panel bd-followup-group" key={group.title}><h3>{group.title}<span>{group.rows.length}</span></h3>{group.rows.length ? group.rows.map((item) => <div key={item.id} className="bd-followup-row"><button type="button" className="bd-followup-open" onClick={() => onOpen(item.lead)}><span className="bd-followup-time">{when(item.planned_at)}</span><span className="bd-followup-details"><b>{item.lead.name}</b><small>{item.objective || "Follow-up"} · {item.channel || "No channel"}</small></span><span className="bd-followup-status">{isLate(item.planned_at) ? "Overdue" : item.status}</span></button><button type="button" className="bd-followup-complete" onClick={() => onComplete(item)} aria-label={`Complete follow-up for ${item.lead.name}`}>Complete</button></div>) : <div className="bd-muted-empty">No follow-ups in this section.</div>}</div>)}</section>;
-}
-
-function FollowupCalendar({ items, onOpen, onComplete }) {
-  const dates = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(`${localDate()}T12:00:00+04:00`);
-    date.setUTCDate(date.getUTCDate() + index);
-    return uaeDate(date);
-  });
-  return <section><div className="bd-section-heading"><div><h2>Lead Calendar</h2><p>Upcoming follow-ups in UAE time, grouped by date.</p></div><span className="bd-count-pill">Next 7 days</span></div><div className="bd-calendar-grid">{dates.map((date) => { const dayItems = items.filter((item) => uaeDate(item.planned_at) === date); return <section className="bd-calendar-day" key={date}><div className="bd-calendar-date"><b>{new Date(`${date}T12:00:00+04:00`).toLocaleDateString("en-AE", { timeZone: "Asia/Dubai", weekday: "short" })}</b><span>{new Date(`${date}T12:00:00+04:00`).toLocaleDateString("en-AE", { timeZone: "Asia/Dubai", day: "numeric", month: "short" })}</span><small>{dayItems.length} action{dayItems.length === 1 ? "" : "s"}</small></div>{dayItems.map((item) => <article className="bd-calendar-event" key={item.id}><button className="bd-calendar-open" onClick={() => onOpen(item.lead)}><b>{item.lead.name}</b><small>{when(item.planned_at)}</small><span>{item.objective || "Follow-up"}</span></button><button className="bd-calendar-complete" onClick={() => onComplete(item)}>Complete</button></article>)}{dayItems.length === 0 && <div className="bd-calendar-empty">No follow-ups</div>}</section>; })}</div></section>;
 }
 
 function SourcesView({ leads }) {
