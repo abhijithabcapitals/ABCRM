@@ -9,8 +9,8 @@
 // Deploy as Edge Function "ceo-mail-sync" with JWT verification OFF: the
 // scheduler calls it with the x-sync-secret header (checked against Vault) and
 // "Sync now" sends the CEO's session token (checked here). Needs the
-// MAIL_IMAP_USER, MAIL_IMAP_PASSWORD and OPENROUTER_API_KEY secrets;
-// OPENROUTER_MAIL_MODEL optionally overrides the model.
+// OPENROUTER_API_KEY secret and one password secret per mailbox (see
+// passwordSecretName); OPENROUTER_MAIL_MODEL optionally overrides the model.
 
 import PostalMime from "npm:postal-mime@2";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -100,6 +100,22 @@ function isExcluded(address: string | null, patterns: string[]) {
     if (p.startsWith("@")) return a.endsWith(p);
     return p.includes("@") ? a === p : a.endsWith(`@${p}`);
   });
+}
+
+// Each mailbox has its own password secret, e.g. info@abcapital.ae ->
+// MAIL_PASSWORD_INFO_ABCAPITAL_AE. The original MAIL_IMAP_USER /
+// MAIL_IMAP_PASSWORD pair still works for the mailbox it names.
+function passwordSecretName(address: string) {
+  return `MAIL_PASSWORD_${address.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+}
+
+function mailboxLogin(address: string) {
+  const pass = Deno.env.get(passwordSecretName(address));
+  if (pass) return { user: address, pass };
+  const legacyUser = Deno.env.get("MAIL_IMAP_USER")?.trim();
+  const legacyPass = Deno.env.get("MAIL_IMAP_PASSWORD");
+  if (legacyUser && legacyPass && legacyUser.toLowerCase() === address.toLowerCase()) return { user: legacyUser, pass: legacyPass };
+  return null;
 }
 
 async function readMailbox(account: Row, user: string, pass: string, retryUids: number[]) {
@@ -355,8 +371,6 @@ Deno.serve(async (req) => {
     ownerId = auth.user.id;
   }
 
-  const user = Deno.env.get("MAIL_IMAP_USER");
-  const pass = Deno.env.get("MAIL_IMAP_PASSWORD");
   const apiKey = Deno.env.get("OPENROUTER_API_KEY");
 
   let query = admin.from("mail_accounts").select("*").eq("enabled", true);
@@ -373,12 +387,13 @@ Deno.serve(async (req) => {
       }).eq("id", account.id);
       results.push({ address: account.address, error: message });
     };
-    if (!user || !pass || !apiKey) {
-      await fail("Mail is not set up yet: add the MAIL_IMAP_USER, MAIL_IMAP_PASSWORD and OPENROUTER_API_KEY secrets.");
+    if (!apiKey) {
+      await fail("Mail is not set up yet: add the OPENROUTER_API_KEY secret.");
       continue;
     }
-    if (user.trim().toLowerCase() !== String(account.address).toLowerCase()) {
-      await fail(`MAIL_IMAP_USER does not match the connected mailbox ${account.address}.`);
+    const login = mailboxLogin(account.address);
+    if (!login) {
+      await fail(`No password for ${account.address}: add the Edge Function secret ${passwordSecretName(account.address)}.`);
       continue;
     }
 
@@ -395,12 +410,12 @@ Deno.serve(async (req) => {
     }
 
     try {
-      results.push(await syncAccount(admin, account, user.trim(), pass, apiKey));
+      results.push(await syncAccount(admin, account, login.user, login.pass, apiKey));
     } catch (e) {
       const err = e as Row;
       const server = err.serverLines?.length ? ` Server said: ${err.serverLines.join(" | ")}` : "";
       const message = err.authenticationFailed
-        ? `The mailbox rejected the login. Check MAIL_IMAP_USER and MAIL_IMAP_PASSWORD.${server}`
+        ? `The mailbox rejected the login. Check the password secret for ${account.address}.${server}`
         : `Sync failed: ${err.responseText || err.message || String(e)}.${server}`;
       console.error("ceo-mail-sync", message);
       await fail(message);

@@ -34,7 +34,8 @@ The **Talk** button uses the browser's speech recognition (Chrome, Edge, Safari)
 
 ## Inbox (email summaries)
 
-`ceo-mail-sync` connects to `bharat@ardentaxit.tax` (Hostinger Email, `imap.hostinger.com:993`) and opens
+`ceo-mail-sync` connects to every enabled row in `ceo.mail_accounts` (now `bharat@ardentaxit.tax` and
+`info@abcapital.ae`, both Hostinger Email on `imap.hostinger.com:993`) and opens
 the Inbox **read-only**: it never sends, moves, deletes or flags mail. Every 15 minutes (pg_cron job
 `ceo-mail-sync`) it reads up to 30 new messages (the first run looks back 7 days), groups them into
 conversations by `References`/`In-Reply-To` (or subject plus a shared participant), and asks DeepSeek for a
@@ -48,8 +49,10 @@ archive, and buttons that turn a suggested action into a task or reminder. The t
 conversations; **Enable alerts** shows a browser notification for new urgent or needs-reply conversations
 while the CRM is open.
 
-Edge Function secrets: `MAIL_IMAP_USER` (must equal the mailbox address), `MAIL_IMAP_PASSWORD` and
-`OPENROUTER_API_KEY`; `OPENROUTER_MAIL_MODEL` optionally overrides the model. Deploy `ceo-mail-sync` with
+Edge Function secrets: one password per mailbox named `MAIL_PASSWORD_` plus the address in capitals with
+every other character as `_` (e.g. `MAIL_PASSWORD_INFO_ABCAPITAL_AE`); `bharat@ardentaxit.tax` still uses the
+original `MAIL_IMAP_USER` / `MAIL_IMAP_PASSWORD` pair. Also `OPENROUTER_API_KEY`. To add a mailbox, insert a
+`ceo.mail_accounts` row and add its password secret; the Inbox lists every mailbox. `OPENROUTER_MAIL_MODEL` optionally overrides the model. Deploy `ceo-mail-sync` with
 JWT verification **off**: the scheduler authenticates with the `ceo_mail_sync_secret` Vault secret in the
 `x-sync-secret` header, and **Sync now** sends the CEO's session, which the function checks (profile and MFA)
 itself. Sync status and the last error are on `ceo.mail_accounts`.

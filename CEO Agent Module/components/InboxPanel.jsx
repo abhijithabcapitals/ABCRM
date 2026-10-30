@@ -59,14 +59,14 @@ export default function InboxPanel({ sb, timezone, userId, onChanged }) {
 
   const load = useCallback(async () => {
     const [acc, list] = await Promise.all([
-      sb.from("mail_accounts").select("address, status, last_synced_at, last_error").maybeSingle(),
+      sb.from("mail_accounts").select("id, address, status, last_synced_at, last_error").order("address"),
       sb.from("mail_threads")
-        .select("id, subject, participants, last_message_at, message_count, status, category, priority, needs_reply, summary, key_points, suggested_actions")
+        .select("id, account_id, subject, participants, last_message_at, message_count, status, category, priority, needs_reply, summary, key_points, suggested_actions")
         .neq("status", "archived").order("last_message_at", { ascending: false }).limit(60),
     ]);
     if (acc.error || list.error) { setError((acc.error || list.error).message); return; }
     setError("");
-    setAccount(acc.data);
+    setAccount(acc.data || []);
     setThreads(list.data || []);
   }, [sb]);
 
@@ -100,10 +100,16 @@ export default function InboxPanel({ sb, timezone, userId, onChanged }) {
     if (fnError) {
       try { message = (await fnError.context?.json())?.error || fnError.message; } catch { message = fnError.message; }
     }
-    const result = data?.results?.[0];
-    if (message || result?.error) setError(message || result.error);
-    else if (result?.skipped) setNotice(result.skipped);
-    else if (result) setNotice(result.fetched ? `Read ${result.fetched} new email(s) in ${result.conversations} conversation(s).` : "No new email.");
+    // One result per connected mailbox.
+    const results = data?.results || [];
+    const failed = results.filter((r) => r.error);
+    const read = results.reduce((n, r) => n + (r.fetched || 0), 0);
+    if (message) setError(message);
+    else if (failed.length) setError(failed.map((r) => `${r.address}: ${r.error}`).join(" "));
+    if (!message && results.length > failed.length) {
+      setNotice(read ? `Read ${read} new email(s) across ${results.length} mailbox(es).`
+        : results.some((r) => r.skipped) ? "A sync is already running." : "No new email.");
+    }
     await load();
     onChanged?.();
   }
@@ -153,7 +159,7 @@ export default function InboxPanel({ sb, timezone, userId, onChanged }) {
   }
 
   if (account === undefined && !error) return <section className="ceo-dash"><p className="ceo-muted">Loading inbox…</p></section>;
-  if (!account && !error) {
+  if (!account?.length && !error) {
     return (
       <section className="ceo-dash">
         <div className="ceo-panel"><h3>Inbox</h3><p className="ceo-panel-empty">No mailbox is connected to this CEO workspace.</p></div>
@@ -166,12 +172,17 @@ export default function InboxPanel({ sb, timezone, userId, onChanged }) {
       <InboxStyles />
       <div className="ceo-inbox-head">
         <div>
-          <b>{account?.address}</b>
-          <span>
-            {account?.status === "syncing" ? "Syncing…"
-              : account?.last_synced_at ? `Last checked ${when(account.last_synced_at)} · checks every 15 minutes`
-                : "Not synced yet"}
-          </span>
+          {account?.map((a) => (
+            <div key={a.id} className="ceo-mailbox-line">
+              <b>{a.address}</b>
+              <span>
+                {a.status === "syncing" ? "Syncing…"
+                  : a.last_synced_at ? `Last checked ${when(a.last_synced_at)}`
+                    : "Not synced yet"}
+              </span>
+            </div>
+          ))}
+          <span>Checks every 15 minutes</span>
         </div>
         <div className="ceo-inbox-tools">
           {alerts === "default" && <button className="ceo-text-btn" type="button" onClick={enableAlerts}>Enable alerts</button>}
@@ -179,7 +190,9 @@ export default function InboxPanel({ sb, timezone, userId, onChanged }) {
         </div>
       </div>
 
-      {account?.status === "error" && account.last_error && <p className="ceo-notice ceo-error" role="alert">{account.last_error}</p>}
+      {account?.filter((a) => a.status === "error" && a.last_error).map((a) => (
+        <p key={a.id} className="ceo-notice ceo-error" role="alert">{a.address}: {a.last_error}</p>
+      ))}
       {error && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
       {notice && <p className="ceo-notice ceo-ok" role="status">{notice}</p>}
 
@@ -203,7 +216,7 @@ export default function InboxPanel({ sb, timezone, userId, onChanged }) {
               <span className={`ceo-dot ceo-dot-${t.priority || "normal"}`} title={t.priority || "normal"} />
               <span className="ceo-mail-main">
                 <b>{t.subject || "(no subject)"}</b>
-                <span>{(t.participants || []).slice(0, 2).join(", ")}{t.message_count > 1 ? ` · ${t.message_count} emails` : ""}</span>
+                <span>{account.length > 1 && <em className="ceo-mailbox">{account.find((a) => a.id === t.account_id)?.address} · </em>}{(t.participants || []).slice(0, 2).join(", ")}{t.message_count > 1 ? ` · ${t.message_count} emails` : ""}</span>
                 {t.summary
                   ? <small className={open === t.id ? "" : "ceo-clamp"}>{t.summary}</small>
                   : <small className="ceo-muted">Summary not available.</small>}
@@ -248,6 +261,8 @@ function InboxStyles() {
       .ceo-inbox-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px 14px; }
       .ceo-inbox-head b { display: block; font-size: 14px; color: #1f2a30; }
       .ceo-inbox-head span { font-size: 12px; color: #6b7280; }
+      .ceo-mailbox-line + .ceo-mailbox-line { margin-top: 6px; }
+      .ceo-mailbox { font-style: normal; color: #0d7d82; }
       .ceo-inbox-tools { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
       .ceo-ok { background: #ecfdf5; color: #047857; }
       .ceo-mail-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

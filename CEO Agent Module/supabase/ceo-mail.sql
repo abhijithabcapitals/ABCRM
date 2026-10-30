@@ -138,3 +138,10 @@ select cron.schedule(
   );
   $$
 );
+
+-- 30/10/2026: second mailbox. Its password is the Edge Function secret
+-- MAIL_PASSWORD_INFO_ABCAPITAL_AE (see passwordSecretName in ceo-mail-sync).
+insert into ceo.mail_accounts (user_id, address, imap_host)
+select p.user_id, 'info@abcapital.ae', 'imap.hostinger.com'
+from ceo.profiles p where p.role = 'owner' order by p.created_at limit 1
+on conflict (user_id, address) do nothing;
