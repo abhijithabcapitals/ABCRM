@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   callLeadSources, fetchPlatformProspectCounts, fetchPlatformProspects, updatePlatformProspect,
 } from "../logic/businessDevelopmentData";
+import LeadMailboxPane from "./LeadMailboxPane";
 
 // Lead-generation platforms. Each source is a card; the combined prospect list sits below.
 // Clicking a card opens its settings and sync, and narrows the list to that source.
@@ -49,6 +50,7 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
   const [openSource, setOpenSource] = useState(null);
   const [tab, setTab] = useState("new");
   const [prospects, setProspects] = useState([]);
+  const [mailboxProspect, setMailboxProspect] = useState(null);
   const [listError, setListError] = useState("");
   const [loadingList, setLoadingList] = useState(true);
   const [search, setSearch] = useState("");
@@ -201,7 +203,9 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
                   <td>{sourceName(p.provider)}<small>{p.campaign_name || ""}</small></td>
                   <td className="bd-leadgen-why">
                     <span className={`bd-leadgen-kind ${p.kind}`}>{p.kind === "hot" ? "Hot lead" : p.replied ? "Replied" : "Contacted"}</span>
-                    {(p.why_hot || p.note) && <MailText text={p.why_hot || p.note} />}
+                    {(p.why_hot || p.note || p.email) && (
+                      <MailText text={p.why_hot || p.note || ""} prospect={p} onOpenMailbox={() => setMailboxProspect(p)} />
+                    )}
                   </td>
                   <td>{dateTime(p.became_hot_at || p.fetched_at)}</td>
                   <td className="bd-leadgen-row-actions">
@@ -223,22 +227,27 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
           </table>
         </div>
       )}
+      {mailboxProspect && (
+        <LeadMailboxPane
+          prospect={mailboxProspect}
+          onClose={() => setMailboxProspect(null)}
+          onSent={refreshAll}
+        />
+      )}
     </section>
   );
 }
 
-// The prospect's reply email: three lines, then Read more for the full text.
-function MailText({ text }) {
-  const [open, setOpen] = useState(false);
+// The list shows a short snippet; Read more opens the full conversation and reply pane.
+function MailText({ text, prospect, onOpenMailbox }) {
   const long = text.length > 220 || text.split("\n").length > 3;
   return (
     <div className="bd-leadgen-mailwrap">
-      <div className={`bd-leadgen-mail ${open || !long ? "open" : ""}`}>{open ? text : text.replace(/\n\s*\n+/g, "\n")}</div>
-      {long && (
-        <button type="button" className="bd-text-button bd-leadgen-more" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          {open ? "Show less" : "Read more"}
-        </button>
-      )}
+      {text && <div className="bd-leadgen-mail">{text.replace(/\n\s*\n+/g, "\n")}</div>}
+      <button type="button" className="bd-text-button bd-leadgen-more" onClick={onOpenMailbox} disabled={!prospect.email}
+        title={!prospect.email ? "This prospect has no email address" : undefined}>
+        {long ? "Read more" : "Open mailbox"}
+      </button>
     </div>
   );
 }

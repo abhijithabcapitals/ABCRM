@@ -154,6 +154,16 @@ export async function fetchPlatformProspects(status = "new", provider = null) {
   return query;
 }
 
+export async function fetchLatestPlatformReplyDraft(prospectId) {
+  return supabase.from("bd_reply_drafts")
+    .select("id, body_text, status")
+    .eq("prospect_id", prospectId)
+    .in("status", ["draft", "failed"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+}
+
 export async function updatePlatformProspect(id, patch) {
   return supabase.from("bd_platform_prospects").update(patch).eq("id", id);
 }

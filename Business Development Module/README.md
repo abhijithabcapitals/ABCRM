@@ -2,7 +2,7 @@
 
 Source of the CRM's **Business Development** tab: BD dashboard, lead pipeline, lead lists, lead calendar,
 follow-up centre, campaigns and sources, proposals, and won-lead onboarding handovers. Lead-generation
-platform integrations (starting with Explee) will be added here.
+platform integrations (starting with Explee) are included here.
 
 | Path | Purpose |
 |---|---|
@@ -28,8 +28,10 @@ The Main Module imports this folder directly; there is no copy to keep in sync.
 | Path | Purpose |
 |---|---|
 | `components/LeadGenerationView.jsx` | **Lead Generation** sub-tab: platform connection cards, sync, prospect review queue |
-| `supabase/bd-lead-sources/index.ts` | Edge Function `bd-lead-sources` (actions `status`, `settings`, `sync`) |
+| `supabase/bd-lead-sources/index.ts` | Edge Function `bd-lead-sources` (platform sync, mailbox conversations, reply drafting and confirmed send) |
 | `Database Module/migrations/bd/005_bd_lead_platforms.sql` | `bd_platform_connections`, `bd_platform_prospects`, the `EXPLEE` lead source |
+| `Database Module/migrations/bd/007_bd_reply_drafts.sql` | Saved reply drafts and status protections |
+| `Database Module/migrations/bd/008_bd_reply_send_confirmation.sql` | One-time, short-lived human confirmation codes for sending |
 
 Flow: **Sync now** pulls prospects into `bd_platform_prospects` (status `new`). A person reviews them and
 clicks **Add to pipeline**, which opens the normal New lead form prefilled (source Explee, campaign,
@@ -50,6 +52,14 @@ follow-up rules apply, and the prospect is marked `added` with the new lead's id
 - Only BD managers can update the connection row, so a sync run by a sales executive still imports prospects but
   does not record the sync time; the next sync re-reads the same window (imports are idempotent).
 - Explee charges nothing for reading these lists, but every API call needs a positive credit balance.
+
+### Email conversations and replies
+
+- **Read more** opens the full Explee conversation in a left-side mailbox pane with a Gmail-style reply composer.
+- Personal drafts are stored in `bd_reply_drafts`; saving or redrafting never sends a message.
+- **Redraft with AI** opens an overlay. Only after the user presses its redraft button are the saved reply and recent conversation sent to OpenRouter. Configure `OPENROUTER_API_KEY` as a secret on the CRM Supabase `bd-lead-sources` Edge Function; optionally set `OPENROUTER_MODEL`.
+- **Send** first saves the current reply, then opens a confirmation popup showing the recipient and a six-digit code. The user must enter that code and explicitly press **Send reply**. The server verifies the single-use code, which expires after five minutes and allows at most five incorrect attempts, before calling Explee. Sending is never triggered by opening a conversation, writing, saving, or redrafting.
+- Apply migrations `007_bd_reply_drafts.sql` and `008_bd_reply_send_confirmation.sql` before deploying the updated `bd-lead-sources` function.
 
 ### Adding another platform
 
