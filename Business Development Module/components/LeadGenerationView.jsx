@@ -220,6 +220,7 @@ function SourcePanel({ source, status, statusError, onRefresh, onSynced, onClose
   const saved = String(status?.connection?.settings?.project_id || "");
   const [projectInput, setProjectInput] = useState(saved);
   const [saveError, setSaveError] = useState("");
+  const [savingProject, setSavingProject] = useState(false);
 
   useEffect(() => { setProjectInput(saved); }, [saved]);
 
@@ -233,10 +234,14 @@ function SourcePanel({ source, status, statusError, onRefresh, onSynced, onClose
     await onSynced();
   }
 
-  async function saveProject() {
+  async function saveProject(value) {
+    if (!value || value === saved) return;
+    setProjectInput(value);
     setSaveError("");
-    const { error } = await callLeadSources("settings", { provider: source.provider, project_id: Number(projectInput) });
-    if (error) { setSaveError(error.message); return; }
+    setSavingProject(true);
+    const { error } = await callLeadSources("settings", { provider: source.provider, project_id: Number(value) });
+    setSavingProject(false);
+    if (error) { setSaveError(error.message); setProjectInput(saved); return; }
     await onRefresh();
   }
 
@@ -264,9 +269,13 @@ function SourcePanel({ source, status, statusError, onRefresh, onSynced, onClose
 
       <dl className="bd-leadgen-facts">
         <div><dt>Project</dt><dd>
-          <input aria-label={`${source.name} project ID`} inputMode="numeric" value={projectInput} onChange={(e) => setProjectInput(e.target.value.replace(/\D/g, ""))} />
-          {projectInput !== saved && <button type="button" className="bd-text-button" onClick={saveProject}>Save</button>}
-          {projects.length > 0 && <small>{projects.find((p) => String(p.id) === saved)?.domain || "Not in your Explee projects"}</small>}
+          <select aria-label={`${source.name} project`} value={projectInput} disabled={!projects.length || savingProject}
+            onChange={(e) => saveProject(e.target.value)}>
+            {!projects.length && <option value={saved}>{saved ? `Project ${saved}` : "No projects"}</option>}
+            {projects.length > 0 && !projects.some((p) => String(p.id) === saved) && <option value={saved}>Select a project</option>}
+            {projects.map((p) => <option key={p.id} value={String(p.id)}>{p.domain || `Project ${p.id}`}</option>)}
+          </select>
+          {savingProject && <small>Saving…</small>}
           {saveError && <small className="bd-overdue-text">{saveError}</small>}
         </dd></div>
         <div><dt>Campaigns</dt><dd>{status?.campaigns?.error && !status?.key_error ? status.campaigns.error : campaigns.length ? campaigns.map((c) => c.name).join(", ") : "—"}</dd></div>

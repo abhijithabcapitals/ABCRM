@@ -133,7 +133,11 @@ Deno.serve(async (req) => {
       const pid = Number(body.project_id);
       if (!Number.isInteger(pid) || pid <= 0) return json({ error: "Enter a valid Explee project ID." }, 400);
       const { data, error } = await db.from("bd_platform_connections")
-        .update({ settings: { ...conn.settings, project_id: pid }, updated_by: auth.user.id, updated_at: new Date().toISOString() })
+        .update({
+          settings: { ...conn.settings, project_id: pid }, updated_by: auth.user.id, updated_at: new Date().toISOString(),
+          // A different project has its own hot-lead history: start the next sync from the beginning.
+          ...(pid !== projectId ? { last_hot_lead_at: null } : {}),
+        })
         .eq("provider", provider).select("provider");
       if (error) return json({ error: error.message }, 500);
       if (!data?.length) return json({ error: "Only a BD manager can change lead-source settings." }, 403);
