@@ -489,7 +489,8 @@ Deno.serve(async (req) => {
 
       try {
         const sent = await expleePost(key, `/autogtm/campaigns/${prospect.external_campaign_id}/inbox/${prospect.external_id}/reply`, {
-          body_text: draft.body_text, cc_emails: draft.cc_emails || [], reply_all: true,
+          // Explee sends plain text only: a *bold* signature line goes out without the asterisks.
+          body_text: draft.body_text.replace(/^[ \t]*\*([^*\n]+)\*[ \t]*$/gm, "$1"), cc_emails: draft.cc_emails || [], reply_all: true,
         });
         const { error: draftUpdateError } = await admin.schema("email_base").from("bd_reply_drafts").update({
           status: "sent", sent_by: auth.user.id, sent_at: new Date().toISOString(),

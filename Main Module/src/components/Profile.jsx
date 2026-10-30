@@ -120,7 +120,10 @@ export default function Profile({ profile }) {
               <div className="form-group">
                 <label className="form-label" htmlFor="sig-text">Signature text</label>
                 <textarea id="sig-text" value={form.body_text} maxLength={2000} rows={5} onChange={(e) => setForm({ ...form, body_text: e.target.value })}
-                  placeholder={"Regards\nBharat Bajaj\nAB Capital Services\n+971-585619500"} />
+                  placeholder={"*Regards,*\n*Bharat Bajaj*\nAB Capital Services\n+971-585619500"} />
+                <small style={{ fontSize: 11.5, color: "#6b7280" }}>
+                  Wrap a whole line in *asterisks* to make it bold in the sent email. Explee replies are plain text, so there the asterisks are simply removed.
+                </small>
               </div>
               <div className="form-group">
                 <label className="form-label" htmlFor="sig-logo">Logo (PNG, JPG, GIF or WebP, up to 1 MB)</label>

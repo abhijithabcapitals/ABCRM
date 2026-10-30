@@ -42,12 +42,15 @@ export type OutgoingMail = {
   references?: string[];
 };
 
+// A whole line wrapped in asterisks (signature lines such as *Regards,*) is bold in HTML and bare in plain text.
+const BOLD_LINE = /^[ \t]*\*([^*\n]+)\*[ \t]*$/gm;
+
 /** Builds a multipart/alternative message (plain text plus the same text as HTML with the signature logo). */
 export function buildMessage(mail: OutgoingMail) {
   const domain = mail.from.split("@")[1] || "localhost";
   const messageId = `<${crypto.randomUUID()}@${domain}>`;
   const boundary = `=_ceo_${crypto.randomUUID().replace(/-/g, "")}`;
-  const html = `<!doctype html><html><body><div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap">${escapeHtml(mail.text)}</div>`
+  const html = `<!doctype html><html><body><div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap">${escapeHtml(mail.text).replace(BOLD_LINE, "<b>$1</b>")}</div>`
     + (mail.logoUrl ? `<p><img src="${escapeHtml(mail.logoUrl)}" alt="" style="max-width:480px;height:auto"></p>` : "")
     + `</body></html>`;
   const headers = [
@@ -64,7 +67,7 @@ export function buildMessage(mail: OutgoingMail) {
   ];
   const part = (type: string, body: string) =>
     `--${boundary}\r\nContent-Type: ${type}; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap76(base64(enc.encode(body)))}`;
-  const raw = `${headers.join("\r\n")}\r\n\r\n${part("text/plain", mail.text.replace(/\r?\n/g, "\r\n"))}${part("text/html", html)}--${boundary}--\r\n`;
+  const raw = `${headers.join("\r\n")}\r\n\r\n${part("text/plain", mail.text.replace(BOLD_LINE, "$1").replace(/\r?\n/g, "\r\n"))}${part("text/html", html)}--${boundary}--\r\n`;
   return { messageId, raw: enc.encode(raw) };
 }
 

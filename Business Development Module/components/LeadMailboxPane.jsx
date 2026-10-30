@@ -9,7 +9,10 @@ const endsWithSignature = (text, signature) => !!signature && text.trimEnd().end
 const stripSignature = (text, signature) => (endsWithSignature(text, signature)
   ? text.trimEnd().slice(0, -signatureText(signature).length).trimEnd()
   : text);
-const appendSignature = (text, signature) => `${text.trimEnd()}${text.trim() ? "\n\n" : ""}${signatureText(signature)}`;
+// Five blank lines above the signature give room to write; prepareSend tidies them to one before sending.
+const DRAFT_GAP = "\n".repeat(6);
+const appendSignature = (text, signature) => `${text.trimEnd()}${DRAFT_GAP}${signatureText(signature)}`;
+const finalReply = (text, signature) => `${stripSignature(text, signature).trim()}\n\n${signatureText(signature)}`;
 
 const mailDate = (value) => value ? new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -84,14 +87,15 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [busy, onClose]);
 
-  async function saveDraft() {
-    if (body.length > 10000) {
+  async function saveDraft(text) {
+    const content = typeof text === "string" ? text : body; // a button click passes an event
+    if (content.length > 10000) {
       setError("Reply must be 10,000 characters or fewer.");
       return null;
     }
     setBusy("save");
     setError("");
-    const { data, error: saveError } = await savePlatformReplyDraft(prospect.id, draftId, body);
+    const { data, error: saveError } = await savePlatformReplyDraft(prospect.id, draftId, content);
     setBusy("");
     if (saveError) {
       setError(saveError.message);
@@ -159,7 +163,9 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
       setError(sendBlockedReason);
       return;
     }
-    const draft = await saveDraft();
+    const finalText = finalReply(body, selectedSignature);
+    setBody(finalText);
+    const draft = await saveDraft(finalText);
     if (!draft) return;
     setBusy("prepare");
     setError("");

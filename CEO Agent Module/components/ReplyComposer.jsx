@@ -11,7 +11,10 @@ const endsWithSignature = (text, signature) => !!signature && text.trimEnd().end
 const stripSignature = (text, signature) => (endsWithSignature(text, signature)
   ? text.trimEnd().slice(0, -signatureText(signature).length).trimEnd()
   : text);
-const appendSignature = (text, signature) => `${text.trimEnd()}${text.trim() ? "\n\n" : ""}${signatureText(signature)}`;
+// Five blank lines above the signature give room to write; prepareSend tidies them to one before sending.
+const DRAFT_GAP = "\n".repeat(6);
+const appendSignature = (text, signature) => `${text.trimEnd()}${DRAFT_GAP}${signatureText(signature)}`;
+const finalReply = (text, signature) => `${stripSignature(text, signature).trim()}\n\n${signatureText(signature)}`;
 const listText = (list) => (list || []).join(", ");
 
 // Signatures are shared across the organization: the user's own come first, another person's are
@@ -128,15 +131,16 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
     setNotice("");
   }
 
-  async function saveDraft() {
-    if (body.length > 10000) {
+  async function saveDraft(text) {
+    const content = typeof text === "string" ? text : body; // a button click passes an event
+    if (content.length > 10000) {
       setError("Reply must be 10,000 characters or fewer.");
       return null;
     }
     setBusy("save");
     setError("");
     const { data, error: saveError } = await call("save_draft", {
-      thread_id: thread.id, draft_id: draftId || undefined, to, cc, subject, body_text: body,
+      thread_id: thread.id, draft_id: draftId || undefined, to, cc, subject, body_text: content,
       signature_id: signatureId || null, drafted_by: draftedBy,
     });
     setBusy("");
@@ -211,7 +215,9 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
       setError(sendBlockedReason);
       return;
     }
-    const draft = await saveDraft();
+    const finalText = finalReply(body, selectedSignature);
+    setBody(finalText);
+    const draft = await saveDraft(finalText);
     if (!draft) return;
     setBusy("prepare");
     setError("");
