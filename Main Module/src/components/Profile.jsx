@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-const EMPTY = { id: null, name: "", body_text: "", logo_url: "", is_default: false };
+const EMPTY = { id: null, name: "", body_text: "", logo_url: "", is_default: false, sender_mailbox_address: "" };
 
 // Profile page. The Mail section holds the user's own email signatures, which they
 // edit here, and lists colleagues' signatures read-only. Signatures are shared:
@@ -10,6 +10,7 @@ const EMPTY = { id: null, name: "", body_text: "", logo_url: "", is_default: fal
 export default function Profile({ profile }) {
   const [signatures, setSignatures] = useState([]);
   const [shared, setShared] = useState([]);
+  const [mailboxes, setMailboxes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(null);
   const [logoFile, setLogoFile] = useState(null);
@@ -18,13 +19,15 @@ export default function Profile({ profile }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data: sessionData }, { data, error: loadError }] = await Promise.all([
+    const [{ data: sessionData }, { data, error: loadError }, { data: ownMailboxes }] = await Promise.all([
       supabase.auth.getSession(),
       supabase.from("email_signatures")
-        .select("id, user_id, name, body_text, logo_url, is_default, created_at, owner:profiles(full_name, email)")
+        .select("id, user_id, name, body_text, logo_url, is_default, sender_mailbox_address, created_at, owner:profiles(full_name, email)")
         .order("created_at"),
+      supabase.schema("email_base").from("mailboxes").select("address").order("address"),
     ]);
     setLoading(false);
+    setMailboxes((ownMailboxes || []).map((m) => m.address));
     if (loadError) { setError(`Could not load your signatures: ${loadError.message}`); return; }
     const me = sessionData?.session?.user?.id;
     setSignatures((data || []).filter((s) => s.user_id === me));
@@ -36,7 +39,9 @@ export default function Profile({ profile }) {
   function edit(signature) {
     setError("");
     setLogoFile(null);
-    setForm(signature ? { ...signature, logo_url: signature.logo_url || "" } : { ...EMPTY, is_default: signatures.length === 0 });
+    setForm(signature
+      ? { ...signature, logo_url: signature.logo_url || "", sender_mailbox_address: signature.sender_mailbox_address || "" }
+      : { ...EMPTY, is_default: signatures.length === 0 });
   }
 
   async function uploadLogo(file) {
@@ -63,7 +68,7 @@ export default function Profile({ profile }) {
           .eq("is_default", true).eq("user_id", userData.user.id);
         if (clearError) throw clearError;
       }
-      const row = { name: form.name.trim(), body_text: form.body_text.trim(), logo_url, is_default: form.is_default, updated_at: new Date().toISOString() };
+      const row = { name: form.name.trim(), body_text: form.body_text.trim(), logo_url, is_default: form.is_default, sender_mailbox_address: form.sender_mailbox_address || null, updated_at: new Date().toISOString() };
       const { error: saveError } = form.id
         ? await supabase.from("email_signatures").update(row).eq("id", form.id)
         : await supabase.from("email_signatures").insert(row);
@@ -134,6 +139,16 @@ export default function Profile({ profile }) {
                     <button type="button" className="btn btn-sm" onClick={() => { setLogoFile(null); setForm({ ...form, logo_url: "" }); }}>Remove logo</button>
                   </div>
                 )}
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="sig-sender">Send from</label>
+                <select id="sig-sender" value={form.sender_mailbox_address} onChange={(e) => setForm({ ...form, sender_mailbox_address: e.target.value })}>
+                  <option value="">The conversation's own mailbox</option>
+                  {[...new Set([...mailboxes, form.sender_mailbox_address].filter(Boolean))].map((address) => <option key={address} value={address}>{address}</option>)}
+                </select>
+                <small style={{ fontSize: 11.5, color: "#6b7280" }}>
+                  Choosing this signature in the CEO Inbox switches the sender to this mailbox. Explee picks its own sender, so this does not apply to Explee replies.
+                </small>
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, marginBottom: 14 }}>
                 <input type="checkbox" style={{ width: "auto" }} checked={form.is_default} onChange={(e) => setForm({ ...form, is_default: e.target.checked })} />

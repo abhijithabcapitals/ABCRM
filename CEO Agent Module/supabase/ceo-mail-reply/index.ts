@@ -81,9 +81,9 @@ async function sha256Hex(value: string) {
 const hashVerificationCode = (draftId: string, userId: string, expiresAt: string, code: string) =>
   sha256Hex(`${draftId}:${userId}:${new Date(expiresAt).getTime()}:${code}`);
 
-// Everything the confirmation covers: recipients, subject, text and signature.
-const contentHash = (d: Row) =>
-  sha256Hex(JSON.stringify([d.to_addresses, d.cc_addresses, d.subject, d.body_text, d.signature_id || null]));
+// Everything the confirmation covers: sender, recipients, subject, text and signature.
+const contentHash = (d: Row, from: string) =>
+  sha256Hex(JSON.stringify([from, d.to_addresses, d.cc_addresses, d.subject, d.body_text, d.signature_id || null]));
 
 function constantTimeEqual(left: string, right: string) {
   if (left.length !== right.length) return false;
@@ -117,6 +117,21 @@ async function loadMailbox(eb: Db, mailboxId: string) {
   if (error) throw new Error(error.message);
   if (!data) throw new InputError("Mailbox not found.", 404);
   return data;
+}
+
+// The mailbox named by the draft's signature, or else the conversation's own. Reading it with the
+// caller's JWT means row-level security only lets people send from mailboxes they own.
+async function loadSender(eb: Db, userDb: Db, draft: Row) {
+  if (!draft.signature_id) return loadMailbox(eb, draft.mailbox_id);
+  const { data: signature, error } = await userDb.from("email_signatures")
+    .select("sender_mailbox_address").eq("id", draft.signature_id).maybeSingle();
+  if (error) throw new Error(error.message);
+  const address = signature?.sender_mailbox_address;
+  if (!address) return loadMailbox(eb, draft.mailbox_id);
+  const { data: mailbox, error: mailboxError } = await eb.from("mailboxes").select("id").eq("address", address).maybeSingle();
+  if (mailboxError) throw new Error(mailboxError.message);
+  if (!mailbox) throw new InputError(`This signature sends from ${address}, which is not one of your mailboxes.`, 403);
+  return loadMailbox(eb, mailbox.id);
 }
 
 async function loadDraft(eb: Db, draftId: unknown) {
@@ -184,8 +199,10 @@ Deno.serve(async (req) => {
           .eq("thread_id", thread.id).in("status", ["draft", "approved"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
         agentDraft = data || null;
       }
+      const { data: ownMailboxes } = await eb.from("mailboxes").select("address, smtp_host");
       return json({
         mailbox: { address: mailbox.address, can_send: !!mailboxLogin(mailbox.address) && !!mailbox.smtp_host },
+        senders: (ownMailboxes || []).filter((m: Row) => m.smtp_host && mailboxLogin(m.address)).map((m: Row) => m.address),
         defaults: { to, cc: [], reply_all_cc: replyAllCc, subject: replySubject(latest?.subject || thread.subject || "") },
         draft: draft || null,
         agent_draft: agentDraft,
@@ -314,13 +331,13 @@ Deno.serve(async (req) => {
     if (body.action === "prepare_send") {
       const draft = await loadDraft(eb, body.draft_id);
       checkSendable(draft);
-      const mailbox = await loadMailbox(eb, draft.mailbox_id);
+      const mailbox = await loadSender(eb, userDb, draft);
       if (!mailbox.smtp_host) throw new InputError(`No SMTP server is set for ${mailbox.address}.`);
       if (!mailboxLogin(mailbox.address)) throw new InputError(`No password for ${mailbox.address}: add the Edge Function secret ${passwordSecretName(mailbox.address)}.`);
       const code = makeVerificationCode();
       const expiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
       const { error } = await adminEb.from("reply_send_confirmations").upsert({
-        draft_id: draft.id, user_id: uid, content_hash: await contentHash(draft),
+        draft_id: draft.id, user_id: uid, content_hash: await contentHash(draft, mailbox.address),
         code_hash: await hashVerificationCode(draft.id, uid, expiresAt, code), expires_at: expiresAt, attempts: 0,
       });
       if (error) throw new Error(`Could not prepare send confirmation: ${error.message}`);
@@ -336,7 +353,7 @@ Deno.serve(async (req) => {
       if (!/^\d{6}$/.test(code)) throw new InputError("Enter the six-digit confirmation code.");
       const draft = await loadDraft(eb, body.draft_id);
       checkSendable(draft);
-      const mailbox = await loadMailbox(eb, draft.mailbox_id);
+      const mailbox = await loadSender(eb, userDb, draft);
       const login = mailboxLogin(mailbox.address);
       if (!login || !mailbox.smtp_host) throw new InputError(`Sending is not set up for ${mailbox.address}.`);
 
@@ -346,7 +363,7 @@ Deno.serve(async (req) => {
       if (!challenge || challenge.user_id !== uid || new Date(challenge.expires_at).getTime() <= Date.now()) {
         throw new InputError("Confirmation code expired. Prepare the send again for a new code.", 403);
       }
-      if (!constantTimeEqual(await contentHash(draft), challenge.content_hash)) {
+      if (!constantTimeEqual(await contentHash(draft, mailbox.address), challenge.content_hash)) {
         await adminEb.from("reply_send_confirmations").delete().eq("draft_id", draft.id).eq("user_id", uid);
         throw new InputError("The reply or its recipients changed after confirmation. Review it and prepare a new send code.", 409);
       }

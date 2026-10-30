@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 // Reply composer for one Inbox conversation, with the same flow as the Business
 // Development reply mailer: save draft, AI redraft with instructions and undo,
 // signature picker, and sending only after a one-time confirmation code. Mail is
-// sent from the conversation's own mailbox by the ceo-mail-reply Edge Function.
+// sent by the ceo-mail-reply Edge Function, from the mailbox the chosen signature
+// names, or else from the conversation's own mailbox.
 
 // The chosen signature is kept as the last block of the reply text, so the saved draft is exactly what is sent.
 const signatureText = (signature) => signature.body_text.trim();
@@ -33,6 +34,7 @@ function shapeSharedSignatures(rows, userId) {
 export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
   const [loading, setLoading] = useState(true);
   const [mailbox, setMailbox] = useState(null);
+  const [senders, setSenders] = useState([]);
   const [replyAllCc, setReplyAllCc] = useState([]);
   const [draftId, setDraftId] = useState("");
   const [to, setTo] = useState("");
@@ -73,7 +75,7 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
       call("context", { thread_id: thread.id }),
       // The organization's shared Profile › Mail signatures, as in the Business Development composer (public schema).
       sb.schema("public").from("email_signatures")
-        .select("id, user_id, name, body_text, logo_url, is_default, owner:profiles(full_name, email)").order("created_at"),
+        .select("id, user_id, name, body_text, logo_url, is_default, sender_mailbox_address, owner:profiles(full_name, email)").order("created_at"),
       sb.auth.getSession(),
     ]).then(([context, signatureResult, sessionResult]) => {
       if (!active) return;
@@ -81,8 +83,9 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
       setSignatures(mySignatures);
       if (signatureResult.error) setError(`Could not load your signatures: ${signatureResult.error.message}`);
       if (context.error) { setError(context.error.message); return; }
-      const { mailbox: box, defaults, draft, agent_draft: agentDraft } = context.data;
+      const { mailbox: box, senders: sendable, defaults, draft, agent_draft: agentDraft } = context.data;
       setMailbox(box);
+      setSenders(sendable || []);
       setReplyAllCc(defaults.reply_all_cc || []);
       if (draft) {
         setDraftId(draft.id);
@@ -124,7 +127,9 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
   const showUndo = appliedRedraft && body === appliedRedraft.text;
   const signed = endsWithSignature(body, selectedSignature);
   const hasMessage = !!stripSignature(body, selectedSignature).trim();
-  const sendBlockedReason = !mailbox?.can_send ? `Sending is not set up for ${mailbox?.address || "this mailbox"}.`
+  const fromAddress = selectedSignature?.sender_mailbox_address || mailbox?.address;
+  const canSend = selectedSignature?.sender_mailbox_address ? senders.includes(fromAddress) : mailbox?.can_send;
+  const sendBlockedReason = !canSend ? `Sending is not set up for ${fromAddress || "this mailbox"}.`
     : !to.trim() ? "Add at least one recipient."
       : !selectedSignature ? "Choose a signature first."
         : !signed ? "The selected signature must stay at the end of the reply."
@@ -284,7 +289,7 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
     <section className={`ceo-compose ceo-compose-${view}`} role="dialog" aria-label="Reply">
       {header}
       {view !== "minimized" && <>
-        <div className="ceo-compose-row ceo-compose-from"><span>From</span><b>{mailbox?.address || "this mailbox"}</b></div>
+        <div className="ceo-compose-row ceo-compose-from"><span>From</span><b>{fromAddress || "this mailbox"}</b></div>
         <div className="ceo-compose-row">
           <span>To</span>
           <input value={to} onChange={(e) => { setTo(e.target.value); edited(); }} disabled={!!busy} aria-label="To" />
@@ -367,7 +372,7 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
             {!sendSuccess && <button type="button" className="ceo-text-btn" onClick={() => setSendConfirmation(null)} aria-label="Cancel send">✕</button>}
           </header>
           <dl className="ceo-reply-recipients">
-            <dt>From</dt><dd>{sendConfirmation?.from || mailbox?.address}</dd>
+            <dt>From</dt><dd>{sendConfirmation?.from || fromAddress}</dd>
             <dt>To</dt><dd>{listText(sendConfirmation?.to) || to}</dd>
             {(sendConfirmation?.cc?.length > 0) && <><dt>Cc</dt><dd>{listText(sendConfirmation.cc)}</dd></>}
             <dt>Subject</dt><dd>{sendConfirmation?.subject || subject}</dd>
