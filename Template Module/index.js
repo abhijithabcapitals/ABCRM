@@ -7,6 +7,8 @@ export { default as QuotationsPage } from "./components/QuotationsPage";
 export { default as GenerateTab } from "./components/GenerateTab";
 export { default as TemplatesTab } from "./components/TemplatesTab";
 export { default as TemplateEditor } from "./components/TemplateEditor";
+export { default as CompanyTemplatesPage } from "./components/CompanyTemplatesPage";
+export * from "./logic/companyTemplates";
 
 export * from "./logic/helpers";
 export { buildContext } from "./logic/buildContext";

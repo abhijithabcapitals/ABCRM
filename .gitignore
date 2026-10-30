@@ -27,3 +27,6 @@ Thumbs.db
 
 # Claude Code local tooling
 .claude/
+
+# Local API keys - never commit
+Api Secrets/

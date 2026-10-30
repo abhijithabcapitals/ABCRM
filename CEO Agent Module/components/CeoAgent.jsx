@@ -241,7 +241,7 @@ function Ready({ sb, userId, timezone }) {
             onChanged={() => setRefreshKey((k) => k + 1)} />
         )}
         {view === "inbox" && (
-          <InboxPanel sb={sb} timezone={timezone} userId={userId}
+          <InboxPanel sb={sb} timezone={timezone} userId={userId} refreshKey={refreshKey}
             onChanged={() => { inbox.refresh(); setRefreshKey((k) => k + 1); }} />
         )}
       </div>
@@ -347,6 +347,7 @@ function CalendarView({ sb, userId, timezone, refreshKey, onChanged }) {
 
 const SUGGESTIONS = [
   "What's on my plate this week?",
+  "Find the latest emails about the Q4 audit",
   "Meeting with the Ardentax team tomorrow at 11:00 about the Q4 audit",
   "Remind me on Sunday at 09:00 to review the VAT filings",
   "We decided to hire two more tax specialists",
@@ -504,7 +505,7 @@ function Chat({ sb, userId, onChanged }) {
       <div className="ceo-chat-head">
         <div>
           <strong>CEO Agent</strong>
-          <small>Tell me meetings, reminders, decisions or ideas. Ask about anything you've saved.</small>
+          <small>Ask about your saved items and synced emails, or request an unsent reply draft.</small>
         </div>
         <div className="ceo-chat-actions">
           <button className="ceo-text-btn" type="button" onClick={() => (showHistory ? setShowHistory(false) : openHistory())}>

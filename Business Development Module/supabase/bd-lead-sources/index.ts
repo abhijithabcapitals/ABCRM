@@ -6,6 +6,13 @@
 //   status   -> connection settings, whether the key is set, balance, projects, campaigns
 //   settings -> save { project_id } (BD managers only, enforced by row-level security)
 //   sync     -> pull hot leads since the last sync (and, with include_contacted, campaign leads)
+//   thread      -> the full email conversation with one prospect { prospect_id }
+//   agent_draft -> ask the Email Agent for a reply draft { prospect_id, instructions? } (needs EMAIL_AGENT_URL)
+//   send_draft  -> send a saved draft through Explee { draft_id, confirm: "SEND" }
+//
+// Drafts live in public.bd_reply_drafts; Explee has no draft API, so nothing reaches
+// Explee until send_draft. Draft status after a send attempt is written with the
+// service role, so users cannot mark a reply as sent without sending it.
 //
 // The provider key is read from the Edge Function secret EXPLEE_API_KEY and never
 // sent to the browser. Database access uses the caller's JWT, so the BD role
@@ -49,6 +56,35 @@ async function explee(key: string, path: string, params: Record<string, string |
     throw new ProviderError(res.status, hint);
   }
   return body;
+}
+
+async function expleePost(key: string, path: string, payload: unknown) {
+  const res = await fetch(EXPLEE_BASE + path, {
+    method: "POST",
+    headers: { "X-API-Key": key, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(60000),
+  });
+  // deno-lint-ignore no-explicit-any
+  const body: any = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = typeof body?.detail === "string" ? body.detail : body?.message || `HTTP ${res.status}`;
+    const hint = res.status === 403 ? `Explee will not send this reply: ${detail}`
+      : res.status === 409 ? "Another reply to this contact is being sent right now. Try again in a few seconds."
+      : res.status === 429 ? `Explee reply limit reached: ${detail}`
+      : `Explee error: ${detail}`;
+    throw new ProviderError(res.status, hint);
+  }
+  return body;
+}
+
+// deno-lint-ignore no-explicit-any
+async function loadProspect(db: any, id: unknown) {
+  if (typeof id !== "string") return null;
+  const { data } = await db.from("bd_platform_prospects")
+    .select("id, provider, external_id, external_campaign_id, campaign_name, name, email, job_title, company_name, company_domain, country, why_hot")
+    .eq("id", id).maybeSingle();
+  return data && data.external_campaign_id ? data : null;
 }
 
 const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -212,6 +248,88 @@ Deno.serve(async (req) => {
         last_synced_at: new Date().toISOString(), last_hot_lead_at: newest, last_result: result, last_error: null,
       }).eq("provider", provider);
       return json({ ok: true, ...result });
+    }
+
+    // ---- Mailbox: conversation, Email Agent drafts, confirmed send ----------------
+    if (body.action === "thread" || body.action === "agent_draft") {
+      if (!key) return json({ error: "Add the EXPLEE_API_KEY secret first." }, 400);
+      const prospect = await loadProspect(db, body.prospect_id);
+      if (!prospect) return json({ error: "Prospect not found." }, 404);
+      const thread = await explee(key, `/autogtm/campaigns/${prospect.external_campaign_id}/inbox/${prospect.external_id}`);
+
+      if (body.action === "thread") {
+        return json({
+          messages: thread.messages || [], can_reply: !!thread.can_reply,
+          reply_blocked_reason: thread.reply_blocked_reason || null, latest_intent: thread.latest_intent || null,
+          lead: thread.lead || null,
+        });
+      }
+
+      // Email Agent (Agent Module/13_EMail_Agent). Runs only when someone presses the button.
+      const agentUrl = Deno.env.get("EMAIL_AGENT_URL")?.trim();
+      if (!agentUrl) {
+        return json({ error: "The Email Agent is not set up yet. Write the reply yourself, or add the agent (Agent Module/13_EMail_Agent) and its EMAIL_AGENT_URL secret." }, 501);
+      }
+      const agentRes = await fetch(agentUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("EMAIL_AGENT_TOKEN") || ""}` },
+        body: JSON.stringify({
+          task: "draft_reply",
+          company: "AB Capital",
+          instructions: typeof body.instructions === "string" ? body.instructions.slice(0, 2000) : "",
+          lead: {
+            name: prospect.name, email: prospect.email, job_title: prospect.job_title, company_name: prospect.company_name,
+            company_domain: prospect.company_domain, country: prospect.country, campaign: prospect.campaign_name, why_hot: prospect.why_hot,
+          },
+          // deno-lint-ignore no-explicit-any
+          thread: (thread.messages || []).map((m: any) => ({ direction: m.type === "sent" ? "outbound" : "inbound", from: m.from_email, to: m.to_email, subject: m.subject, body_text: m.body_text, at: m.ts })),
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+      // deno-lint-ignore no-explicit-any
+      const agentOut: any = await agentRes.json().catch(() => ({}));
+      const text = typeof agentOut.body_text === "string" ? agentOut.body_text.trim() : "";
+      if (!agentRes.ok || !text) return json({ error: agentOut.error || `The Email Agent did not return a draft (HTTP ${agentRes.status}).` }, 502);
+      const { data: draft, error } = await db.from("bd_reply_drafts").insert({
+        prospect_id: prospect.id, provider, body_text: text.slice(0, 10000), drafted_by: "email_agent",
+        agent_note: typeof agentOut.note === "string" ? agentOut.note.slice(0, 2000) : null, created_by: auth.user.id,
+      }).select("*").single();
+      if (error) return json({ error: error.message }, 500);
+      return json({ draft });
+    }
+
+    if (body.action === "send_draft") {
+      // Second confirmation is enforced here too: the browser must send confirm: "SEND".
+      if (body.confirm !== "SEND") return json({ error: "Confirm the send first." }, 400);
+      if (!key) return json({ error: "Add the EXPLEE_API_KEY secret first." }, 400);
+      const { data: draft, error: dErr } = await db.from("bd_reply_drafts").select("*").eq("id", body.draft_id).maybeSingle();
+      if (dErr) return json({ error: dErr.message }, 500);
+      if (!draft) return json({ error: "Draft not found." }, 404);
+      if (!["draft", "failed"].includes(draft.status)) return json({ error: `This reply is already ${draft.status}.` }, 409);
+      if (!draft.body_text?.trim()) return json({ error: "The reply is empty." }, 400);
+      const prospect = await loadProspect(db, draft.prospect_id);
+      if (!prospect) return json({ error: "Prospect not found." }, 404);
+
+      // Status changes after this point are written by the server only (users cannot set sending/sent/failed).
+      const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      const { data: claimed } = await admin.from("bd_reply_drafts")
+        .update({ status: "sending", error: null, updated_by: auth.user.id, updated_at: new Date().toISOString() })
+        .eq("id", draft.id).in("status", ["draft", "failed"]).select("id");
+      if (!claimed?.length) return json({ error: "This reply is already being sent." }, 409);
+
+      try {
+        const sent = await expleePost(key, `/autogtm/campaigns/${prospect.external_campaign_id}/inbox/${prospect.external_id}/reply`, {
+          body_text: draft.body_text, cc_emails: draft.cc_emails || [], reply_all: true,
+        });
+        await admin.from("bd_reply_drafts").update({
+          status: "sent", sent_by: auth.user.id, sent_at: new Date().toISOString(),
+          provider_message_id: sent.sent_email_id ? String(sent.sent_email_id) : null,
+        }).eq("id", draft.id);
+        return json({ ok: true, status: sent.status || "queued", deduped: !!sent.deduped });
+      } catch (e) {
+        await admin.from("bd_reply_drafts").update({ status: "failed", error: (e as Error).message }).eq("id", draft.id);
+        throw e;
+      }
     }
 
     return json({ error: "Unknown action." }, 400);

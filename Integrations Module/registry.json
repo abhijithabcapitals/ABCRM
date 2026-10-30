@@ -1,0 +1,200 @@
+{
+  "about": "Every external service the CRM may connect to and the Supabase Edge Function secret names it uses. Names only, never values. status: in_use = read by deployed code; ready = code exists in the repo but is not deployed; planned = reserved for a future feature.",
+  "groups": [
+    {
+      "id": "ai",
+      "label": "AI models",
+      "integrations": [
+        { "id": "anthropic", "name": "Anthropic (Claude)", "status": "in_use", "usedBy": "Support Agent chat on Hot Alerts (support-agent); Knowledge Base Ask AI (wiki-ai-search)",
+          "secrets": [{ "name": "ANTHROPIC_API_KEY", "use": "Calls Claude", "source": "console.anthropic.com -> API Keys (sk-ant-...)" }] },
+        { "id": "openrouter", "name": "OpenRouter", "status": "planned", "usedBy": "",
+          "secrets": [{ "name": "OPENROUTER_API_KEY", "use": "Many models through one key", "source": "openrouter.ai -> Keys (sk-or-...)" }] },
+        { "id": "deepseek", "name": "DeepSeek", "status": "planned", "usedBy": "",
+          "secrets": [{ "name": "DEEPSEEK_API_KEY", "use": "DeepSeek models", "source": "platform.deepseek.com -> API Keys" }] },
+        { "id": "openai", "name": "OpenAI", "status": "planned", "usedBy": "",
+          "secrets": [{ "name": "OPENAI_API_KEY", "use": "OpenAI models", "source": "platform.openai.com -> API Keys" }] },
+        { "id": "gemini", "name": "Google Gemini", "status": "planned", "usedBy": "",
+          "secrets": [{ "name": "GEMINI_API_KEY", "use": "Gemini models", "source": "aistudio.google.com -> API Keys" }] }
+      ]
+    },
+    {
+      "id": "crm",
+      "label": "CRM email and webhooks",
+      "integrations": [
+        { "id": "resend", "name": "Resend (automation emails)", "status": "ready", "usedBy": "Main Module/db/edge-function-send-automation-emails.ts",
+          "secrets": [
+            { "name": "RESEND_API_KEY", "use": "Sends automation emails", "source": "resend.com -> API Keys (re_...)" },
+            { "name": "FROM_EMAIL", "use": "Sender address on a Resend-verified domain", "source": "e.g. crm@abcapital.ae" },
+            { "name": "EMAIL_WEBHOOK_SECRET", "use": "Protects the automation-email trigger", "source": "Random string you create" }
+          ] },
+        { "id": "lead-webhook", "name": "Lead to task webhook", "status": "ready", "usedBy": "Main Module/db/edge-function-create-lead-task.ts",
+          "secrets": [{ "name": "WEBHOOK_SECRET", "use": "Protects the create-lead-task webhook", "source": "Random string you create" }] }
+      ]
+    },
+    {
+      "id": "messaging",
+      "label": "Messaging",
+      "integrations": [
+        { "id": "whatsapp", "name": "WhatsApp Cloud API", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "WHATSAPP_ACCESS_TOKEN", "use": "Send and receive WhatsApp messages", "source": "Meta for Developers -> WhatsApp -> API Setup (permanent System User token)" },
+            { "name": "WHATSAPP_PHONE_NUMBER_ID", "use": "Business number that sends messages", "source": "Same page" },
+            { "name": "WHATSAPP_BUSINESS_ACCOUNT_ID", "use": "Templates and number management", "source": "Same page" },
+            { "name": "WHATSAPP_VERIFY_TOKEN", "use": "Meta webhook verification", "source": "Random string you create" }
+          ] },
+        { "id": "telegram", "name": "Telegram", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "TELEGRAM_BOT_TOKEN", "use": "Bot for alerts and chat", "source": "@BotFather -> /newbot" },
+            { "name": "TELEGRAM_WEBHOOK_SECRET", "use": "Verifies incoming Telegram webhooks", "source": "Random string you create" }
+          ] },
+        { "id": "twilio", "name": "Twilio (SMS and calls)", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "TWILIO_ACCOUNT_SID", "use": "Account ID", "source": "twilio.com console" },
+            { "name": "TWILIO_AUTH_TOKEN", "use": "Auth token", "source": "twilio.com console" },
+            { "name": "TWILIO_FROM_NUMBER", "use": "Number to send from", "source": "e.g. +971..." }
+          ] },
+        { "id": "slack", "name": "Slack", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "SLACK_BOT_TOKEN", "use": "Bot for alerts (xoxb-...)", "source": "api.slack.com -> Your Apps" },
+            { "name": "SLACK_WEBHOOK_URL", "use": "Post to one channel", "source": "Slack app -> Incoming Webhooks" }
+          ] }
+      ]
+    },
+    {
+      "id": "social",
+      "label": "Social media",
+      "integrations": [
+        { "id": "meta", "name": "Facebook and Instagram (Meta Graph API)", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "META_APP_ID", "use": "Your Meta app", "source": "Meta for Developers -> App -> Settings -> Basic" },
+            { "name": "META_APP_SECRET", "use": "Signs and validates Meta requests", "source": "Same page" },
+            { "name": "FACEBOOK_PAGE_ID", "use": "Page to post to and read messages from", "source": "Facebook Page -> About" },
+            { "name": "FACEBOOK_PAGE_ACCESS_TOKEN", "use": "Posting and Messenger", "source": "Graph API Explorer (long-lived Page token)" },
+            { "name": "INSTAGRAM_BUSINESS_ACCOUNT_ID", "use": "Instagram posting, DMs and insights", "source": "Graph API (Business account linked to the Page)" },
+            { "name": "INSTAGRAM_ACCESS_TOKEN", "use": "Token with Instagram permissions", "source": "Graph API Explorer" }
+          ] },
+        { "id": "linkedin", "name": "LinkedIn", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "LINKEDIN_CLIENT_ID", "use": "Company page posting", "source": "linkedin.com/developers -> App -> Auth" },
+            { "name": "LINKEDIN_CLIENT_SECRET", "use": "Same app", "source": "Same page" }
+          ] }
+      ]
+    },
+    {
+      "id": "workspace",
+      "label": "Email, files and calendar",
+      "integrations": [
+        { "id": "google", "name": "Gmail and Google Workspace", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "GOOGLE_CLIENT_ID", "use": "Google OAuth app", "source": "Cloud Console -> APIs & Services -> Credentials" },
+            { "name": "GOOGLE_CLIENT_SECRET", "use": "Same OAuth client", "source": "Same page" },
+            { "name": "GOOGLE_REFRESH_TOKEN", "use": "Long-lived access after one sign-in", "source": "Created once when granting Gmail/Drive/Calendar access" },
+            { "name": "GMAIL_SENDER", "use": "Address the CRM sends from and reads", "source": "Your Gmail address" }
+          ] },
+        { "id": "microsoft", "name": "OneDrive, Outlook and SharePoint (Microsoft Graph)", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "MICROSOFT_TENANT_ID", "use": "Your Microsoft tenant", "source": "Azure Portal (Entra ID) -> App registrations -> Overview" },
+            { "name": "MICROSOFT_CLIENT_ID", "use": "App registration ID", "source": "Same app" },
+            { "name": "MICROSOFT_CLIENT_SECRET", "use": "App secret", "source": "App -> Certificates & secrets" },
+            { "name": "ONEDRIVE_DRIVE_ID", "use": "Drive holding client documents", "source": "Graph Explorer -> /me/drive" }
+          ] },
+        { "id": "calendly", "name": "Calendly", "status": "planned", "usedBy": "",
+          "secrets": [{ "name": "CALENDLY_API_TOKEN", "use": "Read meeting bookings", "source": "calendly.com -> Integrations -> API" }] },
+        { "id": "docusign", "name": "DocuSign", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "DOCUSIGN_INTEGRATION_KEY", "use": "E-signing engagement letters", "source": "DocuSign Admin -> Apps and Keys" },
+            { "name": "DOCUSIGN_SECRET_KEY", "use": "Same app", "source": "Same page" }
+          ] }
+      ]
+    },
+    {
+      "id": "automation",
+      "label": "Automation platforms",
+      "integrations": [
+        { "id": "n8n", "name": "n8n", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "N8N_BASE_URL", "use": "Your n8n address", "source": "e.g. https://n8n.yourdomain.com" },
+            { "name": "N8N_API_KEY", "use": "Manage workflows from the CRM", "source": "n8n -> Settings -> n8n API" },
+            { "name": "N8N_WEBHOOK_URL", "use": "Webhook node the CRM calls", "source": "n8n workflow -> Webhook node" }
+          ] },
+        { "id": "zapier", "name": "Zapier", "status": "planned", "usedBy": "",
+          "secrets": [{ "name": "ZAPIER_WEBHOOK_URL", "use": "Catch Hook the CRM posts events to", "source": "Zapier -> Webhooks by Zapier -> Catch Hook" }] },
+        { "id": "make", "name": "Make.com", "status": "planned", "usedBy": "",
+          "secrets": [{ "name": "MAKE_WEBHOOK_URL", "use": "Webhook the CRM posts events to", "source": "Make -> Webhooks module" }] }
+      ]
+    },
+    {
+      "id": "accounting",
+      "label": "Accounting software",
+      "integrations": [
+        { "id": "tally", "name": "Tally (local server, no cloud API)", "status": "planned", "usedBy": "",
+          "notes": "Tally only listens on the PC where it runs; a local connector on that PC is needed.",
+          "secrets": [
+            { "name": "TALLY_HOST", "use": "Tally's built-in server", "source": "e.g. http://192.168.1.20:9000 (TallyPrime: F1 Help -> Settings -> Connectivity)" },
+            { "name": "TALLY_COMPANY", "use": "Company name exactly as in Tally", "source": "Tally" }
+          ] },
+        { "id": "zoho-books", "name": "Zoho Books", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "ZOHO_CLIENT_ID", "use": "OAuth app", "source": "api-console.zoho.com" },
+            { "name": "ZOHO_CLIENT_SECRET", "use": "Same app", "source": "Same" },
+            { "name": "ZOHO_REFRESH_TOKEN", "use": "Long-lived access", "source": "Created once after granting access" },
+            { "name": "ZOHO_BOOKS_ORG_ID", "use": "Which Zoho Books organisation", "source": "Zoho Books -> Settings -> Organisation Profile" }
+          ] },
+        { "id": "quickbooks", "name": "QuickBooks Online", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "QUICKBOOKS_CLIENT_ID", "use": "OAuth app", "source": "developer.intuit.com -> My Apps -> Keys" },
+            { "name": "QUICKBOOKS_CLIENT_SECRET", "use": "Same app", "source": "Same" },
+            { "name": "QUICKBOOKS_REFRESH_TOKEN", "use": "Long-lived access (expires if unused)", "source": "Created once after granting access" },
+            { "name": "QUICKBOOKS_REALM_ID", "use": "Company ID", "source": "Returned at sign-in" }
+          ] },
+        { "id": "xero", "name": "Xero", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "XERO_CLIENT_ID", "use": "OAuth app", "source": "developer.xero.com -> My Apps" },
+            { "name": "XERO_CLIENT_SECRET", "use": "Same app", "source": "Same" },
+            { "name": "XERO_REFRESH_TOKEN", "use": "Long-lived access", "source": "Created once after granting access" },
+            { "name": "XERO_TENANT_ID", "use": "Organisation ID", "source": "Returned after sign-in" }
+          ] },
+        { "id": "odoo", "name": "Odoo", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "ODOO_URL", "use": "Odoo address", "source": "e.g. https://yourcompany.odoo.com" },
+            { "name": "ODOO_DB", "use": "Database name", "source": "Odoo" },
+            { "name": "ODOO_USERNAME", "use": "Integration user login", "source": "Odoo" },
+            { "name": "ODOO_API_KEY", "use": "API key of that user", "source": "Odoo -> Preferences -> Account Security -> API Keys" }
+          ] },
+        { "id": "sage", "name": "Sage Business Cloud Accounting", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "SAGE_CLIENT_ID", "use": "OAuth app", "source": "developer.sage.com" },
+            { "name": "SAGE_CLIENT_SECRET", "use": "Same app", "source": "Same" },
+            { "name": "SAGE_REFRESH_TOKEN", "use": "Long-lived access", "source": "Created once after granting access" }
+          ] },
+        { "id": "business-central", "name": "Microsoft Dynamics 365 Business Central", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "BC_TENANT_ID", "use": "Microsoft tenant", "source": "Same as MICROSOFT_TENANT_ID" },
+            { "name": "BC_CLIENT_ID", "use": "App registration with Business Central permission", "source": "Azure Portal -> App registrations" },
+            { "name": "BC_CLIENT_SECRET", "use": "App secret", "source": "Same app -> Certificates & secrets" },
+            { "name": "BC_ENVIRONMENT", "use": "Environment name", "source": "e.g. Production" },
+            { "name": "BC_COMPANY_ID", "use": "Company GUID", "source": "Business Central API" }
+          ] },
+        { "id": "wafeq", "name": "Wafeq", "status": "planned", "usedBy": "",
+          "secrets": [{ "name": "WAFEQ_API_KEY", "use": "UAE/KSA accounting API", "source": "Wafeq -> Settings -> API" }] },
+        { "id": "freshbooks", "name": "FreshBooks", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "FRESHBOOKS_CLIENT_ID", "use": "OAuth app", "source": "my.freshbooks.com/#/developer" },
+            { "name": "FRESHBOOKS_CLIENT_SECRET", "use": "Same app", "source": "Same" },
+            { "name": "FRESHBOOKS_REFRESH_TOKEN", "use": "Long-lived access", "source": "Created once after granting access" }
+          ] }
+      ]
+    },
+    {
+      "id": "payments",
+      "label": "Payments",
+      "integrations": [
+        { "id": "stripe", "name": "Stripe", "status": "planned", "usedBy": "",
+          "secrets": [
+            { "name": "STRIPE_SECRET_KEY", "use": "Online invoice payments", "source": "dashboard.stripe.com -> Developers -> API keys" },
+            { "name": "STRIPE_WEBHOOK_SECRET", "use": "Verifies payment events (whsec_...)", "source": "Stripe -> Developers -> Webhooks" }
+          ] }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { IconClose } from "./icons";
+import IntegrationsPanel from "@integrations";
 
 const DEFAULT_COL_WIDTHS = { member: 220, email: 240, role: 130, joined: 140, actions: 60 };
 
@@ -234,7 +235,9 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
           {[
             { key: "members", label: "👥 Members" },
             { key: "permissions", label: "🔒 Permissions" },
-            ...(profile?.role === "admin" ? [{ key: "usage", label: "📊 Usage" }] : []),
+            ...(profile?.role === "admin"
+              ? [{ key: "usage", label: "📊 Usage" }, { key: "integrations", label: "🔌 Integrations" }]
+              : []),
           ].map((tab) => (
             <button
               key={tab.key}
@@ -480,6 +483,9 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             </div>
           </>
         )}
+
+        {/* ── INTEGRATIONS TAB (admin only) ── */}
+        {activeTab === "integrations" && profile?.role === "admin" && <IntegrationsPanel supabase={supabase} />}
 
         {/* ── USAGE TAB (admin only) ── */}
         {activeTab === "usage" && profile?.role === "admin" && (
