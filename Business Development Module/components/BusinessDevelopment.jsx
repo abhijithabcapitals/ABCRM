@@ -350,7 +350,9 @@ export default function BusinessDevelopment({ profile }) {
     <div className={`bd-shell${agentOpen ? " bd-shell-agent" : ""}`}>
       <div className="bd-shell-main">{content}</div>
       {agentOpen
-        ? <BdAgentPanel lead={selectedLead} page={selectedLead ? "Lead workspace" : page} onClose={() => setAgentOpen(false)} />
+        ? <BdAgentPanel lead={selectedLead} page={selectedLead ? "Lead workspace" : page} onClose={() => setAgentOpen(false)}
+          followups={dueFollowups} onOpenLead={openLead}
+          onOpenCalendar={() => { setSelectedLead(null); setModal(""); setPage("Lead Calendar"); }} />
         : <button type="button" className="bd-agent-tab" onClick={() => setAgentOpen(true)}>BD Agent</button>}
     </div>
   );

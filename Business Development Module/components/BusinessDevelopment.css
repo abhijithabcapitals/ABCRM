@@ -499,3 +499,30 @@
   .bd-shell-agent { grid-template-columns: minmax(0, 1fr); }
   .bd-agent { position: fixed; top: 0; right: 0; bottom: 0; z-index: 30; width: min(380px, 100vw); height: auto; box-shadow: -10px 0 30px rgba(23, 47, 53, .15); }
 }
+
+/* Mini calendar in the BD Agent panel */
+.bd-mini-cal { padding: 10px 16px 12px; border-bottom: 1px solid #edf1f2; }
+.bd-mini-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.bd-mini-cal-head button { padding: 3px 7px; border: 0; border-radius: 6px; color: #4d5f66; background: transparent; font-size: 12px; cursor: pointer; }
+.bd-mini-cal-head button:hover { color: #0d7d82; background: #f3fafa; }
+.bd-mini-cal-toggle { font-weight: 700; color: #172f35 !important; }
+.bd-mini-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; text-align: center; }
+.bd-mini-cal-grid b { padding: 2px 0; color: #8a979c; font-size: 10px; font-weight: 650; }
+.bd-mini-cal-grid button { display: flex; flex-direction: column; align-items: center; gap: 1px; height: 30px; padding: 3px 0 0; border: 0; border-radius: 6px; color: #26363c; background: transparent; font-size: 11.5px; cursor: pointer; }
+.bd-mini-cal-grid button:hover { background: #f3fafa; }
+.bd-mini-cal-grid button.out { color: #b7c2c6; }
+.bd-mini-cal-grid button.today { color: #0d7d82; font-weight: 800; }
+.bd-mini-cal-grid button.selected { color: #fff; background: #0d7d82; }
+.bd-mini-cal-grid i { display: flex; gap: 2px; height: 5px; }
+.bd-mini-cal-grid em, .bd-mini-cal-day em { display: inline-block; width: 5px; height: 5px; border-radius: 50%; }
+.bd-mini-cal-grid button.selected em { box-shadow: 0 0 0 1px #fff; }
+.bd-mini-cal-day { display: grid; gap: 3px; margin-top: 8px; }
+.bd-mini-cal-day > strong { font-size: 11.5px; color: #4d5f66; }
+.bd-mini-cal-day > small { color: #8a979c; font-size: 11.5px; }
+.bd-mini-cal-day > button:not(.bd-text-button) { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border: 0; border-radius: 6px; color: #26363c; background: #f8fafb; font-size: 11.5px; text-align: left; cursor: pointer; }
+.bd-mini-cal-day > button:not(.bd-text-button):hover { background: #eef7f7; }
+.bd-mini-cal-day span { flex: 0 0 auto; color: #718087; }
+.bd-mini-cal-day b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.bd-mini-cal-day .bd-text-button { justify-self: start; margin-top: 2px; }
+.bd-agent-body { overflow-x: hidden; }
+.bd-agent .bd-alert span { min-width: 0; overflow-wrap: anywhere; }

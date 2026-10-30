@@ -91,7 +91,10 @@ item, executives change the items they created or are assigned and delete the on
 The **BD Agent** panel sits to the right of every Business Development page (closed, it leaves a "BD Agent" tab on
 the right edge). It advises and drafts only: it never writes to the CRM, sends messages or makes commercial commitments.
 With a lead open, the agent reads that lead (record, services, discussions, open follow-ups) through `bd_ui_leads`
-with the user's own access.
+with the user's own access, plus its recent emails from Email Base (`email_base.messages`, matched by the lead's address
+and business domain). Questions about leads in general ("rank my leads", "who is hot") get the open pipeline (80 rows), the
+Lead Generation queue (60 newest prospects) and each one's latest inbound email date. Email Base row-level security applies:
+a person sees mail only from mailboxes they own. The top of the panel holds a mini calendar of follow-ups and BD calendar items.
 
 | Path | Purpose |
 |---|---|

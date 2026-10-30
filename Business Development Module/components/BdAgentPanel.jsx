@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { callBdAgent } from "../logic/businessDevelopmentData";
+import BdMiniCalendar from "./BdMiniCalendar";
 
 // Right-side BD Agent panel. Advice and drafts only: nothing here writes to the CRM or sends a message.
 const LEAD_PROMPTS = [
@@ -22,7 +23,7 @@ function renderText(text) {
     : <span key={index}>{part.replace(/\*\*(.+?)\*\*/g, "$1")}</span>));
 }
 
-export default function BdAgentPanel({ lead, page, onClose }) {
+export default function BdAgentPanel({ lead, page, onClose, followups, onOpenLead, onOpenCalendar }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [skill, setSkill] = useState("");
@@ -68,6 +69,8 @@ export default function BdAgentPanel({ lead, page, onClose }) {
           <button type="button" onClick={onClose} aria-label="Close BD Agent">×</button>
         </div>
       </header>
+
+      <BdMiniCalendar followups={followups} onOpenLead={onOpenLead} onOpenCalendar={onOpenCalendar} />
 
       <div className="bd-agent-body">
         {messages.length === 0 && (
