@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabase } from "@app/supabase";
 
 // Backend: Database Module/migrations/bd (001 schema, 002 seed, 003 UI functions).
 // Every write goes through a bd_* database function; the lists below mirror the seed names.
