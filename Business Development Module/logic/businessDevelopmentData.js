@@ -197,6 +197,16 @@ export async function savePlatformReplyDraft(prospectId, draftId, bodyText) {
   };
 }
 
+export async function discardPlatformReplyDraft(prospectId) {
+  const { error: draftError } = await supabase.schema("email_base").from("bd_reply_drafts")
+    .update({ status: "discarded" })
+    .eq("prospect_id", prospectId).in("status", ["draft", "failed"]);
+  if (draftError) return { error: draftError };
+  return supabase.from("bd_platform_prospects")
+    .update({ status: "new", handled_at: null, handled_by: null })
+    .eq("id", prospectId).eq("status", "drafted");
+}
+
 export async function updatePlatformProspect(id, patch) {
   return supabase.from("bd_platform_prospects").update(patch).eq("id", id);
 }

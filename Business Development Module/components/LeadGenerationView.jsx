@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  callLeadSources, fetchPlatformProspectCounts, fetchPlatformProspects, updatePlatformProspect,
+  callLeadSources, discardPlatformReplyDraft, fetchPlatformProspectCounts, fetchPlatformProspects, updatePlatformProspect,
 } from "../logic/businessDevelopmentData";
 import LeadMailboxPane from "./LeadMailboxPane";
 
@@ -108,6 +108,13 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
 
   async function restore(p) {
     const { error } = await updatePlatformProspect(p.id, { status: "new", handled_at: null, handled_by: null });
+    if (error) { setListError(error.message); return; }
+    refreshAll();
+  }
+
+  async function discardDraft(p) {
+    if (!window.confirm(`Discard the saved reply to ${p.name || p.email || "this lead"} and move it back to To review?`)) return;
+    const { error } = await discardPlatformReplyDraft(p.id);
     if (error) { setListError(error.message); return; }
     refreshAll();
   }
@@ -220,7 +227,12 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
                         {p.status === "new" && <button type="button" className="bd-text-button" onClick={() => dismiss(p)}>Dismiss</button>}
                       </>
                     )}
-                    {p.status === "drafted" && <span className="bd-leadgen-kind">Draft saved</span>}
+                    {p.status === "drafted" && (
+                      <>
+                        <span className="bd-leadgen-kind">Draft saved</span>
+                        <button type="button" className="bd-text-button" onClick={() => discardDraft(p)}>Discard draft</button>
+                      </>
+                    )}
                     {p.status === "replied" && <span className="bd-leadgen-kind added">Reply sent</span>}
                     {p.status === "added" && (
                       <>
