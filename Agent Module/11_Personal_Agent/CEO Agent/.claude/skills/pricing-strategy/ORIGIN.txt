@@ -1,0 +1,2 @@
+Source: https://github.com/guia-matthieu/clawfu-skills (commit 4108f5c), path skills/strategy/pricing-strategy
+Installed 2026-10-30 as text only (Markdown). License: see LICENSE.

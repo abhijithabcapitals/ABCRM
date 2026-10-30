@@ -1,0 +1,2 @@
+Source: https://github.com/w95/awesome-claude-corporate-skills (commit 78dbc7c), path 01-executive-leadership/executive-communication
+Installed 2026-10-30 as text only (Markdown). License: see LICENSE.

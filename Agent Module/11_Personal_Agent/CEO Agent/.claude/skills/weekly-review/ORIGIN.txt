@@ -1,0 +1,2 @@
+Source: https://github.com/thecraighewitt/skills (commit fdbf39b), path ceo/weekly-review
+Installed 2026-10-30 as text only (Markdown). License: see LICENSE.

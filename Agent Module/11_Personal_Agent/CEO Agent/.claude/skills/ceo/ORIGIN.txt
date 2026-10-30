@@ -1,0 +1,2 @@
+Source: https://github.com/pollow/c-suite-skills (commit 577d5d5), path skills/ceo
+Installed 2026-10-30 as text only (Markdown). License: see LICENSE.

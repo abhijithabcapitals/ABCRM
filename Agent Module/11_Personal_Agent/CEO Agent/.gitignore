@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+coverage/
+.env
+.env.local
+.env.*.local
+!.env.example
+*.tsbuildinfo
+supabase/.branches/
+supabase/.temp/
+.open-next/
+.wrangler/
+.dev.vars

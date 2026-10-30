@@ -1,0 +1,2 @@
+Source: https://github.com/codealive-ai/ceo-ai-os (commit 2dfe2f8), path skills/ceo-weekly-review
+Installed 2026-10-30 as text only (Markdown). License: see LICENSE.
