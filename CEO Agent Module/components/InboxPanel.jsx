@@ -34,13 +34,23 @@ const fileSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Ma
 
 // Unread count for the tab badge, plus an optional browser alert when a new
 // urgent or needs-reply conversation arrives while the CRM is open.
+// Mailboxes the user switched off in the Inbox settings (ceo.inbox_preferences); they keep syncing.
+async function fetchHiddenMailboxes(sb) {
+  const { data } = await sb.from("inbox_preferences").select("hidden_mailbox_ids").maybeSingle();
+  return data?.hidden_mailbox_ids || [];
+}
+
+// Leaves the switched-off mailboxes out of a threads query.
+const withoutHidden = (q, hidden) => (hidden.length ? q.not("mailbox_id", "in", `(${hidden.join(",")})`) : q);
+
 export function useInboxAlerts(sb) {
   const [unread, setUnread] = useState(0);
   const seenRef = useRef(null);
 
   const check = useCallback(async () => {
-    const { data, error } = await sb.schema("email_base").from("threads")
-      .select("id, subject, priority, needs_reply").contains("tags", ["ceo"]).eq("status", "new").limit(200);
+    const hidden = await fetchHiddenMailboxes(sb);
+    const { data, error } = await withoutHidden(sb.schema("email_base").from("threads")
+      .select("id, subject, priority, needs_reply").contains("tags", ["ceo"]).eq("status", "new"), hidden).limit(200);
     if (error) return;
     setUnread(data.length);
     const important = data.filter((t) => t.priority === "urgent" || t.needs_reply);
@@ -87,11 +97,13 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [hidden, setHidden] = useState([]); // mailbox ids switched off in the Inbox settings
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [alerts, setAlerts] = useState(() => (typeof Notification === "undefined" ? "unsupported" : Notification.permission));
 
   // Conversations are filtered and paged in the database, so every stored email is reachable.
-  const threadQuery = useCallback((sentFolders, from, to) => {
-    let q = sb.schema("email_base").from("threads").select(THREAD_COLUMNS, { count: "exact" }).contains("tags", ["ceo"]);
+  const threadQuery = useCallback((sentFolders, hiddenIds, from, to) => {
+    let q = withoutHidden(sb.schema("email_base").from("threads").select(THREAD_COLUMNS, { count: "exact" }).contains("tags", ["ceo"]), hiddenIds);
     q = filter === "archived" ? q.eq("status", "archived") : q.neq("status", "archived");
     if (filter === "unread") q = q.eq("status", "new");
     if (filter === "important") q = q.eq("is_important", true);
@@ -103,19 +115,21 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   }, [sb, filter, searchIds]);
 
   const load = useCallback(async () => {
-    const [acc, folderList, facts, pendingDrafts] = await Promise.all([
+    const [acc, folderList, facts, pendingDrafts, hiddenIds] = await Promise.all([
       sb.schema("email_base").from("mailboxes").select("id, address, status, last_synced_at, last_error").contains("tags", ["ceo"]).order("address"),
       sb.schema("email_base").from("mailbox_folders").select("id, mailbox_id, name, role, enabled, last_uid, message_total, last_synced_at, last_error").order("name"),
       sb.from("email_saved_facts").select("id, thread_id, subject, fact, created_at").order("created_at", { ascending: false }).limit(100),
       sb.from("email_drafts").select("id, thread_id, to_address, subject, body, status, created_at")
         .in("status", ["draft", "approved"]).order("created_at", { ascending: false }).limit(50),
+      fetchHiddenMailboxes(sb),
     ]);
     const sentFolders = [...new Set((folderList.data || []).filter((f) => f.role === "sent").map((f) => f.name))];
-    const list = await threadQuery(sentFolders, 0, pages * PAGE_SIZE - 1);
+    const list = await threadQuery(sentFolders, hiddenIds, 0, pages * PAGE_SIZE - 1);
     const firstError = [acc, folderList, list, facts, pendingDrafts].find((result) => result.error)?.error;
     if (firstError) { setError(firstError.message); return; }
     setError("");
     setAccount(acc.data || []);
+    setHidden(hiddenIds);
     setFolders(folderList.data || []);
     setThreads(list.data || []);
     setTotal(list.count ?? (list.data || []).length);
@@ -361,6 +375,16 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     onChanged?.();
   }
 
+  async function toggleMailbox(id) {
+    const next = hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id];
+    const { error: err } = await sb.from("inbox_preferences")
+      .upsert({ user_id: userId, hidden_mailbox_ids: next, updated_at: new Date().toISOString() });
+    if (err) { setError(`Could not save the Inbox setting: ${err.message}`); return; }
+    setHidden(next);
+    setPages(1);
+    onChanged?.();
+  }
+
   async function enableAlerts() {
     if (typeof Notification === "undefined") return;
     setAlerts(await Notification.requestPermission());
@@ -481,7 +505,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
       <InboxStyles />
       <div className="ceo-inbox-head">
         <div>
-          {account?.map((a) => {
+          {account?.filter((a) => !hidden.includes(a.id)).map((a) => {
             const synced = folders.filter((f) => f.mailbox_id === a.id && f.enabled);
             return (
               <div key={a.id} className="ceo-mailbox-line">
@@ -500,6 +524,22 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
         <div className="ceo-inbox-tools">
           {alerts === "default" && <button className="ceo-text-btn" type="button" onClick={enableAlerts}>Enable alerts</button>}
           <button className="btn btn-primary" type="button" onClick={syncNow} disabled={syncing}>{syncing ? "Checking…" : "Sync now"}</button>
+          <span className="ceo-gear-wrap">
+            <button type="button" className="ceo-gear" onClick={() => setSettingsOpen((o) => !o)} aria-expanded={settingsOpen}
+              title="Inbox settings" aria-label="Inbox settings">⚙</button>
+            {settingsOpen && (
+              <div className="ceo-gear-panel" role="dialog" aria-label="Mailboxes shown in the Inbox">
+                <b>Show in Inbox</b>
+                {(account || []).map((a) => (
+                  <label key={a.id} className="ceo-gear-row">
+                    <span>{a.address}</span>
+                    <input type="checkbox" role="switch" checked={!hidden.includes(a.id)} onChange={() => toggleMailbox(a.id)} />
+                  </label>
+                ))}
+                <small>A switched-off mailbox keeps syncing; it is only hidden here.</small>
+              </div>
+            )}
+          </span>
         </div>
       </div>
 
@@ -609,6 +649,11 @@ function InboxStyles() {
       .ceo-mailbox-bubble { justify-self: start; display: inline-block; max-width: 100%; font-size: 11px; font-weight: 600; line-height: 1.5; padding: 1px 9px; border: 1px solid; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .ceo-mailbox-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .ceo-inbox-tools { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+      .ceo-gear-wrap { position: relative; }
+      .ceo-gear { width: 34px; height: 34px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; font-size: 17px; cursor: pointer; }
+      .ceo-gear-panel { position: absolute; right: 0; top: 40px; z-index: 50; width: 280px; display: grid; gap: 8px; padding: 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.15); font-size: 13px; }
+      .ceo-gear-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+      .ceo-gear-panel small { color: #6b7280; font-size: 11.5px; }
       .ceo-ok { background: #ecfdf5; color: #047857; }
       .ceo-mail-review { display: grid; gap: 10px; padding: 12px; background: #f8fafc; border: 1px solid #dbe3e8; border-radius: 10px; }
       .ceo-mail-review-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }

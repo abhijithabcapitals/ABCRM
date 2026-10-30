@@ -21,6 +21,15 @@ is unchanged apart from being split into files, with all database/storage calls 
 | `styles/` | `template-module.css`: the `.btn` / `.modal` classes and `--accent` colours the components use |
 | `templates/` | Local copies of saved templates, one folder per freezone (`template.docx` + `fields.json`). See its README |
 | `docs/` | `placeholder-guide.md`: how to write a .docx template |
+| `Template Docs/` | Company templates: `<Company>/Quote · EL · Email · Social/` for Ab Capital, Traction Consulting Services, Ardentax and Catalyst. `manifest.json` lists the files per company and type |
+
+## Company templates (structure only)
+
+`<CompanyTemplatesPage />` shows a company dropdown and four columns side by side: Quote, Engagement Letter,
+Email Content (Formal) and Social Content (Informal). Companies and columns are defined in
+`logic/companyTemplates.js`. A browser can't list local folders, so after adding a file to `Template Docs/`,
+add it to `manifest.json` as `{ "name": "...", "file": "<Company>/<Type>/<file>" }`. Each column only lists
+its files for now; opening, filling and copying templates are still to be built.
 
 `index.js` re-exports everything; `package.json` lists the peer dependencies.
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 // Reply composer for one Inbox conversation, with the same flow as the Business
 // Development reply mailer: save draft, AI redraft with instructions and undo,
@@ -50,6 +51,9 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
   const [sendConfirmation, setSendConfirmation] = useState(null);
   const [verificationCode, setVerificationCode] = useState("");
   const [sendSuccess, setSendSuccess] = useState(false);
+  const [view, setView] = useState("normal"); // normal | minimized | maximized
+  const [showCc, setShowCc] = useState(false);
+  const [showAi, setShowAi] = useState(false);
 
   async function call(action, payload) {
     const { data, error: fnError } = await sb.functions.invoke("ceo-mail-reply", { body: { action, ...payload } });
@@ -246,143 +250,203 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
     onSent?.();
   }
 
-  if (loading) return <section className="ceo-reply"><p className="ceo-muted">Preparing reply…</p></section>;
+  // The composer is a Gmail-style window docked at the bottom right of the screen. It is
+  // rendered into <body> so it stays fixed while the conversation behind it scrolls.
+  const ccVisible = showCc || !!cc.trim();
+  const portal = (content) => createPortal(<><ReplyStyles />{content}</>, document.body);
+  const toggleMinimized = () => setView((v) => (v === "minimized" ? "normal" : "minimized"));
+  const toggleMaximized = () => setView((v) => (v === "maximized" ? "normal" : "maximized"));
+  const header = (
+    <header className="ceo-compose-head" onClick={view === "minimized" ? toggleMinimized : undefined}>
+      <b>{subject || "Reply"}</b>
+      {draftSaved && view !== "minimized" && <span className="ceo-compose-state">Draft saved</span>}
+      <span className="ceo-compose-ctrls">
+        <button type="button" title={view === "minimized" ? "Restore" : "Minimise"} aria-label={view === "minimized" ? "Restore" : "Minimise"}
+          onClick={(e) => { e.stopPropagation(); toggleMinimized(); }}>{view === "minimized" ? "▴" : "—"}</button>
+        <button type="button" title={view === "maximized" ? "Exit full screen" : "Full screen"} aria-label="Full screen"
+          onClick={(e) => { e.stopPropagation(); toggleMaximized(); }}>⤢</button>
+        <button type="button" title="Close" aria-label="Close" onClick={(e) => { e.stopPropagation(); onClose(); }} disabled={!!busy}>✕</button>
+      </span>
+    </header>
+  );
 
-  return (
-    <section className="ceo-reply" aria-label="Reply composer">
-      <ReplyStyles />
-      <div className="ceo-reply-head">
-        <b>Reply from {mailbox?.address || "this mailbox"}</b>
-        <span>{draftSaved ? "Draft saved" : "Unsaved changes"}</span>
-      </div>
-      <label className="ceo-reply-field">To
-        <input value={to} onChange={(e) => { setTo(e.target.value); edited(); }} disabled={!!busy} placeholder="name@example.com" />
-      </label>
-      <label className="ceo-reply-field">Cc
-        <span className="ceo-reply-inline">
-          <input value={cc} onChange={(e) => { setCc(e.target.value); edited(); }} disabled={!!busy} placeholder="Optional, separate with commas" />
-          {replyAllCc.length > 0 && <button type="button" className="ceo-text-btn" onClick={replyAll} disabled={!!busy}>Reply all</button>}
-        </span>
-      </label>
-      <label className="ceo-reply-field">Subject
-        <input value={subject} maxLength={1000} onChange={(e) => { setSubject(e.target.value); edited(); }} disabled={!!busy} />
-      </label>
-      <textarea
-        aria-label="Reply message"
-        maxLength={10000}
-        value={body}
-        onChange={(event) => {
-          setBody(event.target.value);
-          edited();
-          if (appliedRedraft && event.target.value !== appliedRedraft.text) setAppliedRedraft(null);
-        }}
-        placeholder="Write your reply…"
-      />
-      <input
-        className="ceo-reply-instructions"
-        aria-label="Redraft instructions"
-        value={instructions}
-        onChange={(event) => setInstructions(event.target.value)}
-        maxLength={2000}
-        placeholder="Optional redraft instructions, e.g. warmer and concise, suggest a call next week"
-      />
-      <div className="ceo-reply-signature">
-        <label>Signature
-          <select value={signatureId} onChange={(event) => chooseSignature(event.target.value)} disabled={!!busy}>
-            <option value="">{signatures.length ? "Choose a signature…" : "No signatures yet"}</option>
-            {signatures.map((signature) => <option key={signature.id} value={signature.id}>{signature.label || signature.name}</option>)}
-          </select>
-        </label>
-        {selectedSignature?.logo_url && <img src={selectedSignature.logo_url} alt="" title="This logo is added below the text in the sent email." />}
-        {!signatures.length && <span>Add one in Profile › Mail (click your name at the bottom of the sidebar).</span>}
-        {selectedSignature && !signed && <span className="ceo-reply-warn">Signature edited or removed. Choose it again to re-add it.</span>}
-      </div>
-      {notice && <p className="ceo-notice ceo-ok" role="status">{notice}</p>}
-      {error && !sendConfirmation && !sendSuccess && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
-      <div className="ceo-reply-footer">
-        <span>{body.length.toLocaleString("en-GB")} / 10,000</span>
-        <div>
-          <button type="button" className="ceo-text-btn" onClick={discardDraft} disabled={!!busy}>{draftId ? "Discard" : "Close"}</button>
-          <button type="button" className="ceo-reply-btn" onClick={saveDraft} disabled={!!busy}>
-            {busy === "save" ? "Saving…" : draftSaved ? "Save changes" : "Save draft"}
-          </button>
-          <button type="button" className="ceo-reply-btn" onClick={generateRedraft} disabled={!!busy || !body.trim()}
-            title="Sends your text and the recent conversation to OpenRouter for a rewrite. Nothing is emailed.">
-            {busy === "redraft" ? "Redrafting…" : showUndo ? "Redraft again" : "Redraft with AI"}
-          </button>
-          {showUndo && <button type="button" className="ceo-reply-btn" onClick={undoRedraft} disabled={!!busy}>Undo</button>}
-          <button type="button" className="btn btn-primary" onClick={prepareSend} title={sendBlockedReason || undefined}
+  if (loading) {
+    return portal(
+      <section className="ceo-compose ceo-compose-normal" role="dialog" aria-label="Reply">
+        {header}
+        <p className="ceo-compose-loading">Preparing reply…</p>
+      </section>,
+    );
+  }
+
+  return portal(<>
+    {view === "maximized" && <div className="ceo-compose-scrim" onMouseDown={() => setView("normal")} />}
+    <section className={`ceo-compose ceo-compose-${view}`} role="dialog" aria-label="Reply">
+      {header}
+      {view !== "minimized" && <>
+        <div className="ceo-compose-row ceo-compose-from"><span>From</span><b>{mailbox?.address || "this mailbox"}</b></div>
+        <div className="ceo-compose-row">
+          <span>To</span>
+          <input value={to} onChange={(e) => { setTo(e.target.value); edited(); }} disabled={!!busy} aria-label="To" />
+          {!ccVisible && <button type="button" className="ceo-compose-link" onClick={() => setShowCc(true)}>Cc</button>}
+          {replyAllCc.length > 0 && <button type="button" className="ceo-compose-link" onClick={() => { setShowCc(true); replyAll(); }} disabled={!!busy}>Reply all</button>}
+        </div>
+        {ccVisible && (
+          <div className="ceo-compose-row">
+            <span>Cc</span>
+            <input value={cc} onChange={(e) => { setCc(e.target.value); edited(); }} disabled={!!busy} aria-label="Cc" />
+          </div>
+        )}
+        <div className="ceo-compose-row">
+          <input value={subject} maxLength={1000} onChange={(e) => { setSubject(e.target.value); edited(); }} disabled={!!busy}
+            placeholder="Subject" aria-label="Subject" />
+        </div>
+        <textarea
+          className="ceo-compose-body"
+          aria-label="Reply message"
+          maxLength={10000}
+          value={body}
+          onChange={(event) => {
+            setBody(event.target.value);
+            edited();
+            if (appliedRedraft && event.target.value !== appliedRedraft.text) setAppliedRedraft(null);
+          }}
+        />
+        {selectedSignature?.logo_url && (
+          <div className="ceo-compose-logo"><img src={selectedSignature.logo_url} alt="" title="This logo is added below the text in the sent email." /></div>
+        )}
+        {(notice || (error && !sendConfirmation && !sendSuccess) || (selectedSignature && !signed) || !signatures.length) && (
+          <div className="ceo-compose-notes">
+            {notice && <p className="ceo-compose-ok" role="status">{notice}</p>}
+            {error && !sendConfirmation && !sendSuccess && <p className="ceo-compose-err" role="alert">{error}</p>}
+            {selectedSignature && !signed && <p className="ceo-compose-warn">Signature edited or removed. Choose it again to re-add it.</p>}
+            {!signatures.length && <p className="ceo-compose-warn">No signatures yet. Add one in Profile › Mail.</p>}
+          </div>
+        )}
+        {showAi && (
+          <div className="ceo-compose-ai">
+            <input value={instructions} onChange={(event) => setInstructions(event.target.value)} maxLength={2000} aria-label="Redraft instructions"
+              placeholder="Optional: warmer and concise, suggest a call next week…" />
+            <button type="button" className="ceo-compose-pill" onClick={generateRedraft} disabled={!!busy || !body.trim()}
+              title="Sends your text and the recent conversation to OpenRouter for a rewrite. Nothing is emailed.">
+              {busy === "redraft" ? "Redrafting…" : showUndo ? "Redraft again" : "Redraft"}
+            </button>
+            {showUndo && <button type="button" className="ceo-compose-pill" onClick={undoRedraft} disabled={!!busy}>Undo</button>}
+          </div>
+        )}
+        <footer className="ceo-compose-foot">
+          <button type="button" className="ceo-compose-send" onClick={prepareSend} title={sendBlockedReason || undefined}
             disabled={!!busy || !!sendBlockedReason}>
             {busy === "prepare" ? "Preparing…" : "Send"}
           </button>
-        </div>
-      </div>
-
-      {(sendConfirmation || sendSuccess) && (
-        <div className="ceo-reply-modal-backdrop">
-          <section className="ceo-reply-modal" role="dialog" aria-modal="true" aria-labelledby="ceo-send-title">
-            <header>
-              <div>
-                <h3 id="ceo-send-title">{sendSuccess ? "Reply sent" : "Confirm sending reply"}</h3>
-                <p>{sendSuccess ? "Your message was sent." : "Review the recipients and enter the one-time code to send this email."}</p>
-              </div>
-              {!sendSuccess && <button type="button" className="ceo-text-btn" onClick={() => setSendConfirmation(null)} aria-label="Cancel send">✕</button>}
-            </header>
-            <dl className="ceo-reply-recipients">
-              <dt>From</dt><dd>{sendConfirmation?.from || mailbox?.address}</dd>
-              <dt>To</dt><dd>{listText(sendConfirmation?.to) || to}</dd>
-              {(sendConfirmation?.cc?.length > 0) && <><dt>Cc</dt><dd>{listText(sendConfirmation.cc)}</dd></>}
-              <dt>Subject</dt><dd>{sendConfirmation?.subject || subject}</dd>
-            </dl>
-            {sendConfirmation && !sendSuccess && <>
-              <div className="ceo-reply-preview"><b>Message preview</b><pre>{body}</pre></div>
-              <p className="ceo-reply-code-label">Human verification code — enter this code to confirm</p>
-              <div className="ceo-reply-code">{sendConfirmation.confirmation_code}</div>
-              <label className="ceo-reply-field">Enter the 6-digit code
-                <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={verificationCode}
-                  onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
-              </label>
-              <small className="ceo-muted">Code expires at {when(sendConfirmation.expires_at)}. No email is sent until you click Send reply below.</small>
-            </>}
-            {error && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
-            <footer>
-              {sendSuccess ? (
-                <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
-              ) : <>
-                <button type="button" className="ceo-reply-btn" onClick={() => setSendConfirmation(null)} disabled={!!busy}>Cancel</button>
-                <button type="button" className="btn btn-primary" onClick={sendReply}
-                  disabled={!!busy || verificationCode !== sendConfirmation?.confirmation_code}>
-                  {busy === "send" ? "Sending…" : "Send reply"}
-                </button>
-              </>}
-            </footer>
-          </section>
-        </div>
-      )}
+          <button type="button" className={`ceo-compose-tool ${showAi ? "on" : ""}`} onClick={() => setShowAi((s) => !s)}
+            title="Redraft with AI" aria-pressed={showAi}>✦ AI</button>
+          <select className="ceo-compose-sig" value={signatureId} onChange={(event) => chooseSignature(event.target.value)} disabled={!!busy}
+            aria-label="Signature" title="Signature">
+            <option value="">{signatures.length ? "✍ Signature…" : "No signatures"}</option>
+            {signatures.map((signature) => <option key={signature.id} value={signature.id}>{signature.label || signature.name}</option>)}
+          </select>
+          <button type="button" className="ceo-compose-tool" onClick={saveDraft} disabled={!!busy} title="Save draft">
+            {busy === "save" ? "Saving…" : "Save"}
+          </button>
+          <span className="ceo-compose-count">{body.length.toLocaleString("en-GB")}/10,000</span>
+          <button type="button" className="ceo-compose-trash" onClick={discardDraft} disabled={!!busy}
+            title={draftId ? "Discard draft" : "Close"} aria-label={draftId ? "Discard draft" : "Close"}>🗑</button>
+        </footer>
+      </>}
     </section>
-  );
+
+    {(sendConfirmation || sendSuccess) && (
+      <div className="ceo-reply-modal-backdrop">
+        <section className="ceo-reply-modal" role="dialog" aria-modal="true" aria-labelledby="ceo-send-title">
+          <header>
+            <div>
+              <h3 id="ceo-send-title">{sendSuccess ? "Reply sent" : "Confirm sending reply"}</h3>
+              <p>{sendSuccess ? "Your message was sent." : "Review the recipients and enter the one-time code to send this email."}</p>
+            </div>
+            {!sendSuccess && <button type="button" className="ceo-text-btn" onClick={() => setSendConfirmation(null)} aria-label="Cancel send">✕</button>}
+          </header>
+          <dl className="ceo-reply-recipients">
+            <dt>From</dt><dd>{sendConfirmation?.from || mailbox?.address}</dd>
+            <dt>To</dt><dd>{listText(sendConfirmation?.to) || to}</dd>
+            {(sendConfirmation?.cc?.length > 0) && <><dt>Cc</dt><dd>{listText(sendConfirmation.cc)}</dd></>}
+            <dt>Subject</dt><dd>{sendConfirmation?.subject || subject}</dd>
+          </dl>
+          {sendConfirmation && !sendSuccess && <>
+            <div className="ceo-reply-preview"><b>Message preview</b><pre>{body}</pre></div>
+            <p className="ceo-reply-code-label">Human verification code — enter this code to confirm</p>
+            <div className="ceo-reply-code">{sendConfirmation.confirmation_code}</div>
+            <label className="ceo-reply-field">Enter the 6-digit code
+              <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={verificationCode}
+                onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
+            </label>
+            <small className="ceo-muted">Code expires at {when(sendConfirmation.expires_at)}. No email is sent until you click Send reply below.</small>
+          </>}
+          {error && <p className="ceo-notice ceo-error" role="alert">{error}</p>}
+          <footer>
+            {sendSuccess ? (
+              <button type="button" className="ceo-compose-send" onClick={onClose}>Done</button>
+            ) : <>
+              <button type="button" className="ceo-compose-pill" onClick={() => setSendConfirmation(null)} disabled={!!busy}>Cancel</button>
+              <button type="button" className="ceo-compose-send" onClick={sendReply}
+                disabled={!!busy || verificationCode !== sendConfirmation?.confirmation_code}>
+                {busy === "send" ? "Sending…" : "Send reply"}
+              </button>
+            </>}
+          </footer>
+        </section>
+      </div>
+    )}
+  </>);
 }
 
 function ReplyStyles() {
   return (
     <style>{`
-      .ceo-reply { display: grid; gap: 8px; padding: 12px; background: #f8fafc; border: 1px solid #dbe3e8; border-radius: 10px; }
-      .ceo-reply-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; color: #1f2a30; }
-      .ceo-reply-head span { font-size: 11.5px; color: #6b7280; }
+      .ceo-compose { position: fixed; z-index: 1004; right: 24px; bottom: 0; width: min(560px, calc(100vw - 16px)); height: min(620px, calc(100vh - 32px)); display: flex; flex-direction: column; background: #fff; border-radius: 12px 12px 0 0; box-shadow: 0 8px 40px rgba(15, 23, 42, .32); font-size: 14px; color: #1f1f1f; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+      .ceo-compose-minimized { width: min(320px, calc(100vw - 16px)); height: auto; }
+      .ceo-compose-maximized { inset: 5vh 8vw; width: auto; height: auto; border-radius: 12px; }
+      .ceo-compose-scrim { position: fixed; inset: 0; z-index: 1003; background: rgba(15, 23, 42, .4); }
+      .ceo-compose-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; background: #f2f6fc; }
+      .ceo-compose-minimized .ceo-compose-head { cursor: pointer; }
+      .ceo-compose-head b { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ceo-compose-state { font-size: 11.5px; color: #5f6368; }
+      .ceo-compose-ctrls { display: flex; gap: 2px; }
+      .ceo-compose-ctrls button { width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: #444; cursor: pointer; font-size: 14px; }
+      .ceo-compose-ctrls button:hover { background: rgba(0,0,0,.07); }
+      .ceo-compose-loading { margin: 0; padding: 16px; color: #5f6368; font-size: 13px; }
+      .ceo-compose-row { display: flex; align-items: center; gap: 8px; margin: 0 16px; padding: 7px 0; border-bottom: 1px solid #e8eaed; }
+      .ceo-compose-row > span { color: #5f6368; font-size: 13.5px; }
+      .ceo-compose-row input { flex: 1; min-width: 0; border: 0; outline: 0; font: inherit; font-size: 14px; padding: 2px 0; background: transparent; }
+      .ceo-compose-from b { font-weight: 500; font-size: 13.5px; }
+      .ceo-compose-link { border: 0; background: none; color: #444; font: inherit; font-size: 13.5px; cursor: pointer; padding: 0 2px; }
+      .ceo-compose-link:hover { text-decoration: underline; }
+      .ceo-compose-body { flex: 1; min-height: 120px; margin: 0; padding: 12px 16px; border: 0; outline: 0; resize: none; font: inherit; font-size: 14px; line-height: 1.55; }
+      .ceo-compose-maximized .ceo-compose-body { font-size: 15px; }
+      .ceo-compose-logo { padding: 0 16px 6px; }
+      .ceo-compose-logo img { max-height: 54px; max-width: 220px; border-radius: 4px; }
+      .ceo-compose-notes { display: grid; gap: 4px; padding: 0 16px 6px; font-size: 12px; }
+      .ceo-compose-notes p { margin: 0; padding: 5px 8px; border-radius: 6px; }
+      .ceo-compose-ok { background: #ecfdf5; color: #047857; }
+      .ceo-compose-err { background: #fef2f2; color: #b91c1c; }
+      .ceo-compose-warn { background: #fffbeb; color: #b45309; }
+      .ceo-compose-ai { display: flex; gap: 6px; align-items: center; margin: 0 16px 6px; padding: 6px; background: #f2f6fc; border-radius: 10px; }
+      .ceo-compose-ai input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; }
+      .ceo-compose-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 14px 12px 16px; }
+      .ceo-compose-send { border: 0; border-radius: 999px; background: #0b57d0; color: #fff; font: inherit; font-size: 14px; font-weight: 600; padding: 9px 24px; cursor: pointer; }
+      .ceo-compose-send:hover { background: #0a4cb8; }
+      .ceo-compose-send:disabled { background: #a8c7fa; cursor: default; }
+      .ceo-compose-tool, .ceo-compose-pill { border: 1px solid transparent; border-radius: 999px; background: none; color: #444; font: inherit; font-size: 13px; padding: 6px 10px; cursor: pointer; }
+      .ceo-compose-tool:hover, .ceo-compose-tool.on { background: #e8f0fe; color: #0b57d0; }
+      .ceo-compose-pill { border-color: #dadce0; background: #fff; }
+      .ceo-compose-tool:disabled, .ceo-compose-pill:disabled { opacity: .55; cursor: default; }
+      .ceo-compose-sig { max-width: 170px; font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid #dadce0; border-radius: 999px; background: #fff; color: #444; }
+      .ceo-compose-count { margin-left: auto; font-size: 11.5px; color: #80868b; }
+      .ceo-compose-trash { border: 0; background: none; font-size: 16px; padding: 6px; border-radius: 6px; cursor: pointer; }
+      .ceo-compose-trash:hover { background: rgba(0,0,0,.07); }
       .ceo-reply-field { display: grid; gap: 3px; font-size: 11.5px; font-weight: 600; color: #4b5563; }
-      .ceo-reply-field input, .ceo-reply-instructions, .ceo-reply-signature select { font: inherit; font-size: 13px; font-weight: 400; padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; min-width: 0; }
-      .ceo-reply-inline { display: flex; gap: 8px; align-items: center; }
-      .ceo-reply-inline input { flex: 1; }
-      .ceo-reply textarea { min-height: 180px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.5; padding: 9px; border: 1px solid #d1d5db; border-radius: 7px; }
-      .ceo-reply-signature { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; color: #6b7280; }
-      .ceo-reply-signature label { display: flex; align-items: center; gap: 8px; font-weight: 600; color: #4b5563; }
-      .ceo-reply-signature img { max-height: 40px; max-width: 160px; border-radius: 4px; }
-      .ceo-reply-warn { color: #b45309; }
-      .ceo-reply-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; font-size: 11.5px; color: #6b7280; }
-      .ceo-reply-footer > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-      .ceo-reply-btn { font: inherit; font-size: 13px; padding: 7px 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #1f2a30; cursor: pointer; }
-      .ceo-reply-btn:disabled { opacity: .6; cursor: default; }
-      .ceo-reply-modal-backdrop { position: fixed; inset: 0; z-index: 1003; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, .45); }
+      .ceo-reply-field input { font: inherit; font-size: 13px; font-weight: 400; padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; }
+      .ceo-reply-modal-backdrop { position: fixed; inset: 0; z-index: 1006; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, .45); }
       .ceo-reply-modal { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: grid; gap: 12px; padding: 18px; background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
       .ceo-reply-modal header { display: flex; justify-content: space-between; gap: 12px; }
       .ceo-reply-modal h3 { margin: 0; font-size: 16px; color: #1f2a30; }
@@ -395,6 +459,7 @@ function ReplyStyles() {
       .ceo-reply-preview pre { margin: 0; max-height: 200px; overflow: auto; white-space: pre-wrap; font: inherit; font-size: 12.5px; padding: 8px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 7px; }
       .ceo-reply-code-label { margin: 0; font-size: 12px; font-weight: 600; color: #4b5563; }
       .ceo-reply-code { font-size: 26px; font-weight: 700; letter-spacing: 6px; color: #0b6b70; }
+      @media (max-width: 640px) { .ceo-compose { right: 8px; } .ceo-compose-maximized { inset: 8px; } }
     `}</style>
   );
 }

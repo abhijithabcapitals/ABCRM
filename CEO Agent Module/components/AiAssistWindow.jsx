@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 // Floating, draggable AI window over an open email: the stored AI summary, key points
 // and suggested actions, plus on-demand help from OpenRouter (ceo-mail-reply "assist":
@@ -75,7 +76,8 @@ export default function AiAssistWindow({ sb, thread, when, savedFacts, onSaveFac
 
   const style = pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : undefined;
 
-  return (
+  // Rendered into <body> so it stays fixed on screen while the conversation behind it scrolls.
+  return createPortal(
     <aside ref={boxRef} className={`ceo-ai-float ${collapsed ? "ceo-ai-collapsed" : ""}`} style={style} aria-label="AI assistant">
       <AiStyles />
       <header className="ceo-ai-head" onPointerDown={startDrag} onPointerMove={drag} onPointerUp={endDrag} onPointerCancel={endDrag}
@@ -152,14 +154,15 @@ export default function AiAssistWindow({ sb, thread, when, savedFacts, onSaveFac
           </section>
         </div>
       )}
-    </aside>
+    </aside>,
+    document.body,
   );
 }
 
 function AiStyles() {
   return (
     <style>{`
-      .ceo-ai-float { position: fixed; right: 24px; bottom: 24px; z-index: 1002; width: min(360px, calc(100vw - 32px)); max-height: min(70vh, 640px); display: flex; flex-direction: column; background: rgba(255,255,255,.97); border: 1px solid #d5e5e4; border-radius: 12px; box-shadow: 0 18px 48px rgba(15,23,42,.28); }
+      .ceo-ai-float { position: fixed; right: 24px; top: 24px; z-index: 1002; width: min(360px, calc(100vw - 32px)); max-height: min(70vh, 640px); display: flex; flex-direction: column; background: rgba(255,255,255,.97); border: 1px solid #d5e5e4; border-radius: 12px; box-shadow: 0 18px 48px rgba(15,23,42,.28); }
       .ceo-ai-collapsed { max-height: none; }
       .ceo-ai-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; background: #0d7d82; color: #fff; border-radius: 11px 11px 0 0; cursor: move; user-select: none; touch-action: none; }
       .ceo-ai-collapsed .ceo-ai-head { border-radius: 11px; }
