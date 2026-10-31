@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { BarList, ErrorNote, PageHead, Panel, Spinner, useBanking, useLoad } from "./shared";
+import { ErrorNote, PageHead, Panel, Spinner, useBanking, useLoad } from "./shared";
 import { listAll, rpc } from "../services/bankingApi";
 import { money } from "../logic/pricing";
-import { Ranked, Trend, rateCell } from "./Insights";
+import { Ranked, StepBoard, Trend, rateCell } from "./Insights";
 import { bankInsight, monthSeries, MIN_DECIDED, shareInsight } from "../logic/insights";
-import { STAGES } from "../logic/constants";
 
 const CARDS = [
   ["total_leads", "Total Leads Received", "leads"], ["new_leads", "New Leads", "leads"], ["contacted", "Contacted Leads", "leads"], ["interested", "Interested Clients", "leads"],
@@ -66,6 +65,7 @@ export default function Dashboard() {
               ))}
             </div>
           </Panel>
+          <StepBoard data={data.charts.by_step} onOpen={(step) => goTo("cases", { step })} />
           <div className="bk-insights">
             <Trend title="Monthly leads" series={monthSeries(data.charts.monthly_leads)} />
             <Trend title="Monthly conversions" series={monthSeries(data.charts.monthly_conversions)} note="Leads imported from Excel count as converted, so read this with care until new leads build up." />
@@ -75,7 +75,6 @@ export default function Dashboard() {
             <Ranked title="Banks" headline={bankInsight(data.charts.bank_applications)} rows={data.charts.bank_applications} valueLabel="Applications" metricLabel="Approval" metric={rateCell} note={`Approval = approved out of approved plus rejected. * Fewer than ${MIN_DECIDED} decided, so not compared.`} />
             <Ranked title="Employee performance" headline={shareInsight(data.charts.employee_performance, "cases")} rows={data.charts.employee_performance} valueLabel="Cases" metricLabel="Approved" metric={(r) => r.approved} />
             <Ranked title="Lead sources" headline={shareInsight(data.charts.lead_sources, "leads")} rows={data.charts.lead_sources} valueLabel="Leads" metricLabel="Converted" metric={(r) => r.converted} />
-            <Panel title="Pending applications by stage"><BarList data={data.charts.pending_by_stage.map((s) => ({ label: `${s.stage}. ${STAGES[s.stage - 1]}`, value: s.value }))} /></Panel>
           </div>
         </>
       )}

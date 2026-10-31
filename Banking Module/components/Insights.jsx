@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Empty } from "./shared";
 import { MIN_DECIDED, trendSummary } from "../logic/insights";
+import { PHASES, STEPS } from "../logic/constants";
 
 const plain = (n) => Number(n).toLocaleString("en-AE", { maximumFractionDigits: 0 });
 
@@ -71,3 +72,34 @@ export const rateCell = (r) => {
   if (r.rate == null) return <span className="bk-muted">–</span>;
   return decided < MIN_DECIDED ? <span className="bk-muted" title={`Only ${decided} decided`}>{r.rate}%*</span> : <strong>{r.rate}%</strong>;
 };
+
+// All 18 steps with their case counts, grouped by phase. A zero stays visible: an empty step is information too.
+export function StepBoard({ data, onOpen }) {
+  const counts = Object.fromEntries((data || []).map((d) => [d.step, d]));
+  const total = (data || []).reduce((n, d) => n + Number(d.total), 0);
+  const open = (data || []).reduce((n, d) => n + Number(d.open), 0);
+  const max = Math.max(1, ...(data || []).map((d) => Number(d.total)));
+  return (
+    <section className="bk-insight bk-board">
+      <h3>Cases by step</h3>
+      <p className="bk-headline">{total} cases, {open} still open.</p>
+      <div className="bk-board-grid">
+        {PHASES.map(([name, a, b]) => {
+          const steps = STEPS.slice(a - 1, b).map(([label], i) => ({ n: a + i, label, ...(counts[a + i] || { total: 0, open: 0 }) }));
+          return (
+            <div className="bk-board-phase" key={name}>
+              <div className="bk-board-head"><span>{name}</span><strong>{steps.reduce((t, x) => t + Number(x.total), 0)}</strong></div>
+              {steps.map((x) => (
+                <button type="button" key={x.n} className={`bk-board-step ${Number(x.total) ? "" : "empty"}`} title={`${x.label}: ${x.total} case(s), ${x.open} open`} onClick={() => onOpen(x.n)}>
+                  <span className="bk-board-name"><em>{x.n}</em>{x.label}</span>
+                  <strong>{x.total}</strong>
+                  <i style={{ width: `${(100 * Number(x.total)) / max}%` }} />
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

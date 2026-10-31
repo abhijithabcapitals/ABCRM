@@ -35,6 +35,7 @@ export default function BankingModule({ profile }) {
   const people = useLoad(() => profiles(), []);
   const [page, setPage] = useState("dashboard");
   const [openCase, setOpenCase] = useState(null);
+  const [pageParams, setPageParams] = useState(null);
 
   const ctx = useMemo(() => {
     const perms = new Set(access.data?.permissions || []);
@@ -46,7 +47,7 @@ export default function BankingModule({ profile }) {
       personName: (id) => (people.data || []).find((x) => x.id === id)?.full_name || "–",
       personOptions: (people.data || []).map((x) => ({ value: x.id, label: x.full_name || x.id })),
       openCase: (id, tab) => setOpenCase({ id, tab }),
-      goTo: (p) => { setOpenCase(null); setPage(p); },
+      goTo: (p, params = null) => { setOpenCase(null); setPage(p); setPageParams(params); },
     };
   }, [access.data, people.data, profile]);
 
@@ -83,7 +84,7 @@ export default function BankingModule({ profile }) {
           <>
             {current === "dashboard" && <Dashboard />}
             {current === "leads" && <Leads />}
-            {current === "cases" && <Cases />}
+            {current === "cases" && <Cases key={pageParams?.step || "all"} initialStep={pageParams?.step} />}
             {current === "kyc" && <KycList />}
             {current === "banks" && <BankingPartners />}
             {current === "quotations" && <QuotationsPage />}

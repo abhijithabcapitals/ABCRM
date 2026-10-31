@@ -240,3 +240,16 @@
 
 .bk-tab-count { margin-left: 3px; padding: 1px 6px; border-radius: 999px; background: #eef2f4; color: #5f7077; font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .bk-tabs button.active .bk-tab-count { background: #0d7d82; color: #fff; }
+
+.bk-board { margin-bottom: 14px; }
+.bk-board-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+.bk-board-head { display: flex; justify-content: space-between; margin-bottom: 6px; padding-bottom: 5px; border-bottom: 2px solid #13363d; color: #13363d; font-size: 12px; font-weight: 750; }
+.bk-board-step { position: relative; display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; width: 100%; padding: 6px 2px 8px; border: 0; border-bottom: 1px solid #eef2f3; background: none; color: #43565d; text-align: left; font-size: 11.5px; line-height: 1.25; cursor: pointer; }
+.bk-board-step:hover { background: #f5fbfb; }
+.bk-board-step strong { color: #13363d; font-size: 15px; font-variant-numeric: tabular-nums; }
+.bk-board-step em { margin-right: 4px; color: #7b8990; font-style: normal; font-size: 10.5px; }
+.bk-board-step i { position: absolute; left: 0; bottom: -1px; height: 3px; border-radius: 0 2px 2px 0; background: #0d7d82; }
+.bk-board-step.empty { color: #7b8990; }
+.bk-board-step.empty strong { color: #a9b5ba; font-weight: 500; }
+@media (max-width: 1100px) { .bk-board-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .bk-board-grid { grid-template-columns: 1fr; } }

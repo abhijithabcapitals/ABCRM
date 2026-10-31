@@ -1064,6 +1064,7 @@ begin
       'employee_performance', (select coalesce(jsonb_agg(jsonb_build_object('label', who, 'value', n, 'approved', ok) order by n desc), '[]'::jsonb) from (
           select coalesce(p.full_name, 'Unassigned') who, count(*) n, count(*) filter (where c.outcome = 'Approved') ok from c left join profiles p on p.id = c.assigned_to group by 1) t),
       'lead_sources', (select coalesce(jsonb_agg(jsonb_build_object('label', lead_source, 'value', n, 'converted', ok) order by n desc), '[]'::jsonb) from (select lead_source, count(*) n, count(*) filter (where status = 'Converted') ok from l group by 1) t),
+      'by_step', (select coalesce(jsonb_agg(jsonb_build_object('step', current_stage, 'total', n, 'open', o) order by current_stage), '[]'::jsonb) from (select current_stage, count(*) n, count(*) filter (where outcome is null) o from c group by 1) t),
       'pending_by_stage', (select coalesce(jsonb_agg(jsonb_build_object('stage', current_stage, 'value', n) order by current_stage), '[]'::jsonb) from (select current_stage, count(*) n from c where outcome is null and not is_historical group by 1) t)),
     'alerts', jsonb_build_object(
       'lead_followups', (select count(*) from banking_leads where follow_up_date <= current_date and status not in ('Converted','Lost','Not Interested')),

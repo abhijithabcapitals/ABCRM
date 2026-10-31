@@ -289,6 +289,7 @@ select public.as_user('0c');
 select public.ok('dashboard hides finance from sales', public.banking_dashboard() -> 'finance' = 'null'::jsonb);
 select public.must_fail('finance report refused for sales', $$select public.banking_report('ab_revenue')$$, 'permission');
 select public.as_user('0a');
+select public.ok('step counts add up to all cases', (select sum((e ->> 'total')::int) from jsonb_array_elements(public.banking_dashboard() -> 'charts' -> 'by_step') e) = (select count(*) from public.banking_cases));
 select public.ok('every report runs', (select bool_and(jsonb_typeof(public.banking_report(n)) = 'array') from unnest(array['leads_received','lead_sources','conversion_rate','lost_leads','employee_performance','quotations_issued','quotation_conversion','applications_by_bank','applications_by_scheme','under_process','accounts_opened','rejected','returned','approval_rate','average_processing','quotation_value','bank_fees','ab_revenue','supplementary_revenue','payments_received','outstanding','refunds','pending_documents','overdue_followups','pending_agreements','pending_appointments','awaiting_bank','cases_by_employee']) n));
 select public.must_fail('unknown report refused', $$select public.banking_report('nope')$$, 'Unknown report');
 select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 3);
