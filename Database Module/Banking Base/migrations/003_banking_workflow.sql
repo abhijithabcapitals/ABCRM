@@ -1057,7 +1057,7 @@ begin
     'charts', jsonb_build_object(
       'monthly_leads', (select coalesce(jsonb_agg(jsonb_build_object('label', m, 'value', n) order by m), '[]'::jsonb) from (select to_char(lead_date, 'YYYY-MM') m, count(*) n from l group by 1) t),
       'monthly_conversions', (select coalesce(jsonb_agg(jsonb_build_object('label', m, 'value', n) order by m), '[]'::jsonb) from (select to_char(lead_date, 'YYYY-MM') m, count(*) n from l where status = 'Converted' group by 1) t),
-      'bank_applications', (select coalesce(jsonb_agg(jsonb_build_object('label', bank, 'value', n, 'approved', ok, 'rate', case when decided > 0 then round(100.0 * ok / decided) end) order by n desc), '[]'::jsonb) from (
+      'bank_applications', (select coalesce(jsonb_agg(jsonb_build_object('label', bank, 'value', n, 'approved', ok, 'rejected', decided - ok, 'rate', case when decided > 0 then round(100.0 * ok / decided) end) order by n desc), '[]'::jsonb) from (
           select b.bank_name bank, count(*) n, count(*) filter (where a.status in ('Approved','Account Opened')) ok,
                  count(*) filter (where a.status in ('Approved','Account Opened','Rejected')) decided
             from a join banking_partners b on b.id = a.bank_id group by 1) t),

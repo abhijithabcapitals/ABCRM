@@ -2,6 +2,8 @@ import { useState } from "react";
 import { BarList, ErrorNote, PageHead, Panel, Spinner, useBanking, useLoad } from "./shared";
 import { listAll, rpc } from "../services/bankingApi";
 import { money } from "../logic/pricing";
+import { Ranked, Trend, rateCell } from "./Insights";
+import { bankInsight, monthSeries, MIN_DECIDED, shareInsight } from "../logic/insights";
 import { STAGES } from "../logic/constants";
 
 const CARDS = [
@@ -64,16 +66,15 @@ export default function Dashboard() {
               ))}
             </div>
           </Panel>
-          <div className="bk-two">
-            <Panel title="Monthly leads"><BarList data={data.charts.monthly_leads} /></Panel>
-            <Panel title="Monthly conversions"><BarList data={data.charts.monthly_conversions} /></Panel>
-            <Panel title="Bank-wise applications"><BarList data={data.charts.bank_applications} /></Panel>
-            <Panel title="Bank-wise approval rate" sub="Approved out of approved plus rejected">
-              <BarList data={data.charts.bank_applications.filter((b) => b.rate != null).map((b) => ({ label: b.label, value: b.rate }))} format={(v) => `${v}%`} />
-            </Panel>
-            <Panel title="Employee performance" sub="Cases handled"><BarList data={data.charts.employee_performance} extra={(d) => `(${d.approved} approved)`} /></Panel>
-            <Panel title="Lead source performance"><BarList data={data.charts.lead_sources} extra={(d) => `(${d.converted} converted)`} /></Panel>
-            {data.finance && <Panel title="Monthly revenue" sub="Net receipts per month"><BarList data={data.finance.monthly_revenue} format={money} /></Panel>}
+          <div className="bk-insights">
+            <Trend title="Monthly leads" series={monthSeries(data.charts.monthly_leads)} />
+            <Trend title="Monthly conversions" series={monthSeries(data.charts.monthly_conversions)} note="Leads imported from Excel count as converted, so read this with care until new leads build up." />
+            {data.finance && <Trend title="Monthly revenue" series={monthSeries(data.finance.monthly_revenue)} format={money} note="Net receipts recorded in the ledger." />}
+          </div>
+          <div className="bk-insights bk-insights-2">
+            <Ranked title="Banks" headline={bankInsight(data.charts.bank_applications)} rows={data.charts.bank_applications} valueLabel="Applications" metricLabel="Approval" metric={rateCell} note={`Approval = approved out of approved plus rejected. * Fewer than ${MIN_DECIDED} decided, so not compared.`} />
+            <Ranked title="Employee performance" headline={shareInsight(data.charts.employee_performance, "cases")} rows={data.charts.employee_performance} valueLabel="Cases" metricLabel="Approved" metric={(r) => r.approved} />
+            <Ranked title="Lead sources" headline={shareInsight(data.charts.lead_sources, "leads")} rows={data.charts.lead_sources} valueLabel="Leads" metricLabel="Converted" metric={(r) => r.converted} />
             <Panel title="Pending applications by stage"><BarList data={data.charts.pending_by_stage.map((s) => ({ label: `${s.stage}. ${STAGES[s.stage - 1]}`, value: s.value }))} /></Panel>
           </div>
         </>

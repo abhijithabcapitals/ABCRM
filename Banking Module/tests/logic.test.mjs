@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parsePaymentNote } from "../logic/paymentNotes.js";
 import { quoteTotals } from "../logic/pricing.js";
+import { bankInsight, monthSeries, shareInsight, trendSummary } from "../logic/insights.js";
 import { buildAutofill, compareWithCurrent, expiryFrom } from "../logic/kycAutofill.js";
 import { readSheet, markDuplicates, suggestStatus, resolveBank, normaliseCompany, isCleanRow, colourFamily } from "../logic/excelImport.js";
 
@@ -151,4 +152,21 @@ test("expiry read only when confident and a real date", () => {
   assert.equal(expiryFrom({ extraction: { fields: [{ key: "licence_expiry_date", value: "2027-12-31", confidence: "high" }] } }), "2027-12-31");
   assert.equal(expiryFrom({ extraction: { fields: [{ key: "licence_expiry_date", value: "2027-12-31", confidence: "low" }] } }), null);
   assert.equal(expiryFrom(undefined), null);
+});
+
+test("trend compares complete months, not the running one", () => {
+  const series = monthSeries([{ label: "2026-08", value: 10 }, { label: "2026-09", value: 15 }, { label: "2026-10", value: 3 }], 12, new Date(2026, 9, 15));
+  assert.equal(series.length, 12);
+  assert.equal(series[11].partial, true);
+  assert.equal(series[0].value, 0);
+  const t = trendSummary(series);
+  assert.equal(t.latest.ym, "2026-09");
+  assert.equal(t.change, 50);
+  assert.equal(t.partial.value, 3);
+});
+test("a rate on few decided cases is not called best or worst", () => {
+  const banks = [{ label: "A", rate: 100, approved: 2, rejected: 0 }, { label: "B", rate: 80, approved: 8, rejected: 2 }, { label: "C", rate: 50, approved: 5, rejected: 5 }];
+  assert.equal(bankInsight(banks), "B approves most (80%). C approves least (50%).");
+  assert.match(bankInsight([banks[0]]), /Too few/);
+  assert.equal(shareInsight([{ label: "Unassigned", value: 4 }], "cases"), "All 4 cases are Unassigned.");
 });
