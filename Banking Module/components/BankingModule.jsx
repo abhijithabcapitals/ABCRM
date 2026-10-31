@@ -9,7 +9,7 @@ import CaseWorkspace from "./CaseWorkspace";
 import KycList from "./KycList";
 import BankingPartners from "./BankingPartners";
 import Documentation from "./Documentation";
-import { PaymentsPage, ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
+import { ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
 import Reports from "./Reports";
 import ExcelImport from "./ExcelImport";
 import Settings from "./Settings";
@@ -20,8 +20,7 @@ const NAV = [
   ["cases", "Banking Clients", "cases.view"],
   ["kyc", "General KYC", "kyc.view"],
   ["banks", "Banking Partners", "app.access"],
-  ["documentation", "Documentation", ["quotes.view", "agreements.view"]],
-  ["payments", "Payments", "payments.view"],
+  ["documentation", "Documentation", ["quotes.view", "payments.view", "agreements.view"]],
   ["applications", "Applications", "apps.view"],
   ["appointments", "Appointments", "apps.view"],
   ["tasks", "Tasks & Follow-ups", "tasks.view"],
@@ -48,7 +47,7 @@ export default function BankingModule({ profile }) {
       personOptions: (people.data || []).map((x) => ({ value: x.id, label: x.full_name || x.id })),
       openCase: (id, tab) => setOpenCase({ id, tab }),
       goTo: (p, params = null) => {
-        const doc = { quotations: "quotes", agreements: "agreements" }[p];
+        const doc = { quotations: "quotes", payments: "payments", agreements: "agreements" }[p];
         setOpenCase(null);
         setPage(doc ? "documentation" : p);
         setPageParams(doc ? { tab: doc } : params);
@@ -93,7 +92,6 @@ export default function BankingModule({ profile }) {
             {current === "kyc" && <KycList />}
             {current === "banks" && <BankingPartners />}
             {current === "documentation" && <Documentation key={pageParams?.tab || "docs"} initialTab={pageParams?.tab} />}
-            {current === "payments" && <PaymentsPage />}
             {current === "applications" && <ApplicationsPage />}
             {current === "appointments" && <AppointmentsPage />}
             {current === "tasks" && <TasksPage />}

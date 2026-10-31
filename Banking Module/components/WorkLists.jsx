@@ -28,13 +28,13 @@ export const QuotationsList = () => (
     source={() => run(table("banking_quotations").select(`*, ${CASE}, banking_partners(bank_name)`).order("created_at", { ascending: false }).limit(2000))}
     columns={[{ key: "n", label: "Number", render: (q) => `${q.quotation_number} v${q.version}` }, { key: "b", label: "Bank", render: (q) => q.banking_partners?.bank_name }, { key: "quotation_date", label: "Date", render: (q) => fmtDate(q.quotation_date) }, { key: "valid_until", label: "Valid until", render: (q) => fmtDate(q.valid_until) }, { key: "status", label: "Status", render: (q) => <Badge>{q.status}</Badge> }, { key: "total_amount", label: "Total", right: true, render: (q) => money(q.total_amount) }]} />
 );
-export function PaymentsPage() {
+export function PaymentsPage({ onRecord }) {
   const [tab, setTab] = useState("vouchers");
   return (
     <div>
-      <PageHead title="Payments" sub="Fee receipt vouchers, and the full ledger of payments, refunds, reversals and adjustments." />
-      <div className="bk-tabs" role="tablist" aria-label="Payment records">
-        {[["vouchers", "Fee Receipt Vouchers"], ["ledger", "Payment Ledger"]].map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
+      <div className="bk-filter">
+        {[["vouchers", "Fee Receipt Vouchers"], ["ledger", "Payment Ledger"]].map(([k, label]) => <button type="button" aria-pressed={tab === k} key={k} className={`bk-chip ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>{label}</button>)}
+        {onRecord && <span className="bk-push-right"><Button variant="primary" onClick={onRecord}>+ Record Payment &amp; Issue Voucher</Button></span>}
       </div>
       {tab === "vouchers" ? <Receipts /> : (
         <CaseList tab="payments"
