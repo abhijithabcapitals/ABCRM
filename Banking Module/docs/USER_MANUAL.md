@@ -29,7 +29,11 @@ Open **Business Banking** in the CRM sidebar. An administrator gives you a banki
 
 Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
-**Existing clients:** on General KYC or step 4 of a case, press **Fill from documents**. Empty fields are ticked for you. A value that differs from the saved one is shown in red and unticked, so you decide. Then press **Save KYC**.
+**Existing clients:** open the client in **Banking Clients**, or step 4 of a case, press **Fill from documents**. Empty fields are ticked for you. A value that differs from the saved one is shown in red and unticked, so you decide. Then press **Save KYC**.
+
+## Tasks
+
+**New task** starts with the client: pick an existing one, press **+ Add Client**, or tick **Others** and enter a title. Then fill Employee, Task, Priority, Date, Remarks and Status. Inside a case, the client is already known.
 
 ## Reports
 

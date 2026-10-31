@@ -4,9 +4,8 @@ import { BankingContext, ErrorNote, Spinner, useLoad } from "./shared";
 import { profiles, rpc } from "../services/bankingApi";
 import Dashboard from "./Dashboard";
 import Leads from "./Leads";
-import Cases from "./Cases";
+import Clients from "./Clients";
 import CaseWorkspace from "./CaseWorkspace";
-import KycList from "./KycList";
 import BankingPartners from "./BankingPartners";
 import Documentation from "./Documentation";
 import { ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
@@ -16,7 +15,6 @@ const NAV = [
   ["dashboard", "Dashboard", ["dashboard.view", "reports.view"]],
   ["leads", "Leads", "leads.view"],
   ["cases", "Banking Clients", "cases.view"],
-  ["kyc", "General KYC", "kyc.view"],
   ["banks", "Banking Partners", "app.access"],
   ["documentation", "Documentation", ["quotes.view", "payments.view", "agreements.view"]],
   ["applications", "Applications", "apps.view"],
@@ -85,8 +83,7 @@ export default function BankingModule({ profile }) {
           <>
             {current === "dashboard" && <Dashboard />}
             {current === "leads" && <Leads key={pageParams?.mode || "list"} initialMode={pageParams?.mode} />}
-            {current === "cases" && <Cases key={pageParams?.step || "all"} initialStep={pageParams?.step} />}
-            {current === "kyc" && <KycList />}
+            {current === "cases" && <Clients key={pageParams?.step || "all"} initialStep={pageParams?.step} />}
             {current === "banks" && <BankingPartners />}
             {current === "documentation" && <Documentation key={pageParams?.tab || "docs"} initialTab={pageParams?.tab} />}
             {current === "applications" && <ApplicationsPage />}

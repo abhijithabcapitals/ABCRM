@@ -287,3 +287,7 @@
 .bk-doc-types button { padding: 9px 13px; border: 1px solid #dbe3e6; border-radius: 8px; background: #fff; color: #43565d; font-size: 12.5px; font-weight: 650; cursor: pointer; }
 .bk-doc-types button.active { border-color: #0d7d82; background: #0d7d82; color: #fff; }
 .bk-push-right { margin-left: auto; }
+.bk-task-client { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 12px; }
+.bk-task-client .bk-field { flex: 1 1 280px; }
+.bk-task-client .bk-check { min-height: 32px; }
+.bk-task-status { max-width: 240px; margin-top: 11px; }

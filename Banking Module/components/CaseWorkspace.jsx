@@ -1,10 +1,11 @@
 import { useState } from "react";
 import KycForm from "./KycForm";
+import TaskForm from "./TaskForm";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FilePick, FormModal, KeyVals, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { expiryFrom } from "../logic/kycAutofill";
 import { insertRow, loadSettings, openFile, readDocuments, rpc, saveGenerated, run, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
 import { supabase } from "@app/supabase";
-import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, SUBMISSION_METHODS, TASK_STATUSES, TASK_TYPES, PRIORITIES } from "../logic/constants";
+import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, SUBMISSION_METHODS } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
 import { downloadLetterDocx, downloadQuoteDocx, letterDocx, printLetter, printQuote, printReceipt, quoteDocx, quoteMerge, receiptDocx } from "../logic/documents";
 
@@ -719,19 +720,18 @@ function StatusForm({ app, c, onClose, onDone }) {
 }
 
 function CaseTasks({ c }) {
-  const { can, personOptions, personName } = useBanking();
+  const { can, personName } = useBanking();
   const tasks = useLoad(() => run(table("banking_tasks").select("*").eq("case_id", c.id).order("created_at", { ascending: false })), [c.id]);
   const [edit, setEdit] = useState(null);
   return (
-    <Panel title="Tasks" actions={can("tasks.manage") && <Button variant="primary" onClick={() => setEdit({ priority: "Medium", status: "Open", assigned_to: c.assigned_to })}>New task</Button>}>
+    <Panel title="Tasks" actions={can("tasks.manage") && <Button variant="primary" onClick={() => setEdit({})}>New task</Button>}>
       <ErrorNote message={tasks.error} />
-      <DataTable rows={tasks.data || []} onRow={can("tasks.manage") ? setEdit : undefined} empty="No tasks." columns={[{ key: "task_ref", label: "Task" }, { key: "task_type", label: "Type" }, { key: "title", label: "Title" }, { key: "assigned_to", label: "Employee", render: (r) => personName(r.assigned_to) }, { key: "priority", label: "Priority" }, { key: "due_date", label: "Due", render: (r) => <span className={r.due_date && r.due_date < today() && !["Completed", "Cancelled"].includes(r.status) ? "bk-overdue" : ""}>{fmtDate(r.due_date)}</span> }, { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> }]} />
-      {edit && <FormModal title={edit.id ? edit.task_ref : "New task"} initial={edit} onClose={() => setEdit(null)} fields={taskFields(personOptions)} onSubmit={async (v) => { const row = { ...v, completed_at: v.status === "Completed" ? new Date().toISOString() : null }; if (edit.id) await updateRow("banking_tasks", edit.id, row); else await insertRow("banking_tasks", { ...row, case_id: c.id }); await tasks.reload(); }} />}
+      <DataTable rows={tasks.data || []} onRow={can("tasks.manage") ? setEdit : undefined} empty="No tasks." columns={[{ key: "task_ref", label: "Ref" }, { key: "task_type", label: "Task" }, { key: "assigned_to", label: "Employee", render: (r) => personName(r.assigned_to) }, { key: "priority", label: "Priority" }, { key: "due_date", label: "Date", render: (r) => <span className={r.due_date && r.due_date < today() && !["Completed", "Cancelled"].includes(r.status) ? "bk-overdue" : ""}>{fmtDate(r.due_date)}</span> }, { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> }]} />
+      {edit && <TaskForm task={edit} caseId={c.id} caseAssignee={c.assigned_to} onClose={() => setEdit(null)} onSaved={tasks.reload} />}
     </Panel>
   );
 }
 
-export const taskFields = (personOptions) => [{ name: "task_type", label: "Task type", type: "select", options: TASK_TYPES, required: true }, { name: "title", label: "Title" }, { name: "assigned_to", label: "Assigned employee", type: "select", options: personOptions }, { name: "priority", label: "Priority", type: "select", options: PRIORITIES, required: true }, { name: "due_date", label: "Due date", type: "date" }, { name: "status", label: "Status", type: "select", options: TASK_STATUSES, required: true }, { name: "remarks", label: "Remarks", type: "textarea", full: true }];
 
 function History({ c }) {
   const { can, personName } = useBanking();

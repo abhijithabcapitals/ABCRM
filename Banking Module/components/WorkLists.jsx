@@ -1,10 +1,10 @@
 // Cross-case lists. Opening a row goes to that case's workspace, where the actions live.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useBanking, useLoad } from "./shared";
-import { insertRow, loadSettings, run, saveGenerated, table, updateRow } from "../services/bankingApi";
+import { Badge, Button, DataTable, ErrorNote, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useBanking, useLoad } from "./shared";
+import { loadSettings, run, saveGenerated, table } from "../services/bankingApi";
 import { printReceipt, receiptDocx } from "../logic/documents";
 import { money } from "../logic/pricing";
-import { taskFields } from "./CaseWorkspace";
+import TaskForm from "./TaskForm";
 import { APP_STATUSES } from "../logic/constants";
 
 const CASE = "banking_cases(case_ref, banking_clients(display_name))";
@@ -111,9 +111,9 @@ export const AppointmentsPage = () => (
 );
 
 export function TasksPage() {
-  const { can, personOptions, personName, profile, openCase } = useBanking();
+  const { can, personName, profile, openCase } = useBanking();
   const [mine, setMine] = useState(false);
-  const tasks = useLoad(() => run(table("banking_tasks").select(`*, ${CASE}`).order("due_date", { ascending: true, nullsFirst: false }).limit(2000)), []);
+  const tasks = useLoad(() => run(table("banking_tasks").select(`*, ${CASE}, banking_clients(display_name)`).order("due_date", { ascending: true, nullsFirst: false }).limit(2000)), []);
   const follow = useLoad(() => (can("comms.view") ? run(table("banking_communications").select(`*, ${CASE}, banking_leads(company_name)`).eq("follow_up_done", false).not("follow_up_date", "is", null).order("follow_up_date").limit(500)) : Promise.resolve([])), []);
   const [edit, setEdit] = useState(null);
   const rows = (tasks.data || []).filter((t) => !mine || t.assigned_to === profile?.id);
@@ -124,12 +124,12 @@ export function TasksPage() {
     <div>
       <PageHead title="Tasks & Follow-ups" sub={`${open.length} open tasks`}>
         <label className="bk-check"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Only mine</label>
-        {can("tasks.manage") && <Button variant="primary" onClick={() => setEdit({ priority: "Medium", status: "Open" })}>New task</Button>}
+        {can("tasks.manage") && <Button variant="primary" onClick={() => setEdit({})}>New task</Button>}
       </PageHead>
       <ErrorNote message={tasks.error || follow.error} />
       <DataTable search="Search tasks…" rows={rows} onRow={can("tasks.manage") ? setEdit : (t) => t.case_id && openCase(t.case_id, "tasks")} columns={[
-        { key: "task_ref", label: "Task" }, { key: "cl", label: "Client", render: cl }, { key: "task_type", label: "Type" }, { key: "title", label: "Title" }, { key: "assigned_to", label: "Employee", render: (t) => personName(t.assigned_to) }, { key: "priority", label: "Priority" },
-        { key: "due_date", label: "Due", render: (t) => <span className={t.due_date && t.due_date < today() && ["Open", "In Progress"].includes(t.status) ? "bk-overdue" : ""}>{fmtDate(t.due_date)}</span> }, { key: "status", label: "Status", render: (t) => <Badge>{t.status}</Badge> }, { key: "completed_at", label: "Completed", render: (t) => fmtDate(t.completed_at) },
+        { key: "task_ref", label: "Ref" }, { key: "cl", label: "Client", render: (t) => t.banking_clients?.display_name || cl(t) || t.title || "Others" }, { key: "task_type", label: "Task" }, { key: "assigned_to", label: "Employee", render: (t) => personName(t.assigned_to) }, { key: "priority", label: "Priority" },
+        { key: "due_date", label: "Date", render: (t) => <span className={t.due_date && t.due_date < today() && ["Open", "In Progress"].includes(t.status) ? "bk-overdue" : ""}>{fmtDate(t.due_date)}</span> }, { key: "status", label: "Status", render: (t) => <Badge>{t.status}</Badge> }, { key: "completed_at", label: "Completed", render: (t) => fmtDate(t.completed_at) },
       ]} />
       <div className="bk-two">
         <Panel title="Employee workload">
@@ -139,7 +139,7 @@ export function TasksPage() {
           <DataTable rows={follow.data || []} onRow={(f) => f.case_id && openCase(f.case_id, "followups")} empty="None pending." columns={[{ key: "follow_up_date", label: "Due", render: (f) => <span className={f.follow_up_date < today() ? "bk-overdue" : ""}>{fmtDate(f.follow_up_date)}</span> }, { key: "c", label: "Subject", render: (f) => cl(f) || f.banking_leads?.company_name }, { key: "next_action", label: "Next action" }, { key: "assigned_to", label: "Employee", render: (f) => personName(f.assigned_to) }]} />
         </Panel>
       </div>
-      {edit && <FormModal wide title={edit.id ? edit.task_ref : "New task"} initial={edit} onClose={() => setEdit(null)} fields={taskFields(personOptions)} onSubmit={async (v) => { const row = { ...v, completed_at: v.status === "Completed" ? new Date().toISOString() : null }; if (edit.id) await updateRow("banking_tasks", edit.id, row); else await insertRow("banking_tasks", row); await tasks.reload(); }} />}
+      {edit && <TaskForm task={edit} onClose={() => setEdit(null)} onSaved={tasks.reload} />}
     </div>
   );
 }

@@ -54,7 +54,7 @@ export default function KycForm({ clientId, onSaved }) {
   const [filling, setFilling] = useState(false);
   const [partnersKey, setPartnersKey] = useState(0);
   const canEdit = can("kyc.manage");
-  useEffect(() => { if (profile.data !== null) setValues(profile.data || {}); }, [profile.data]);
+  useEffect(() => { if (!profile.loading && !profile.error) setValues(profile.data || {}); }, [profile.data, profile.loading, profile.error]);
 
   const save = async () => {
     setBusy(true); setError(null); setSaved(null);

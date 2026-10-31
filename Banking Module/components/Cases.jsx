@@ -18,7 +18,7 @@ export default function Cases({ initialStep }) {
   const rows = (list.data?.rows || []).filter((r) => !step || r.current_stage === Number(step));
   return (
     <div>
-      <PageHead title="Banking Clients" sub={`${rows.length} banking cases${step ? ` at step ${step}` : ""}. One client can have several.`}>
+      <PageHead title="All Banking Cases" sub={`${rows.length} banking cases${step ? ` at step ${step}` : ""}. One client can have several.`}>
         <select aria-label="Step" value={step} onChange={(e) => setStep(e.target.value)}><option value="">All steps</option>{STAGES.map((name, i) => <option key={name} value={i + 1}>{i + 1}. {name}</option>)}</select>
         <input type="search" placeholder="Search client or case" aria-label="Search" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="bk-check"><input type="checkbox" checked={historical} onChange={(e) => setHistorical(e.target.checked)} /> Include Excel history</label>

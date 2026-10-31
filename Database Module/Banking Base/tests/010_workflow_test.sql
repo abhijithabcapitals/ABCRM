@@ -299,6 +299,11 @@ revoke execute on function public.banking_next_number(text, date) from authentic
 set role authenticated;
 select public.must_fail('serials cannot be taken through the API', $$select public.banking_next_number('quote')$$, 'permission denied');
 
+select public.as_user('0b');
+insert into public.banking_tasks (client_id, task_type, priority, status) select client_id, 'Lead Follow-up', 'Medium', 'Open' from public.banking_cases where id = public.id('case1');
+insert into public.banking_tasks (title, task_type) values ('General errand', 'Bank Follow-up');
+select public.ok('task can be for a client or for others', (select count(*) = 2 from public.banking_tasks where (client_id is not null and case_id is null) or title = 'General errand'));
+
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));
