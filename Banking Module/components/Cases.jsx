@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Spinner, useBanking, useLoad } from "./shared";
+import { Badge, Button, ClosedSection, DataTable, ErrorNote, FormModal, PageHead, Spinner, useBanking, useLoad } from "./shared";
 import { listAll, rpc } from "../services/bankingApi";
 import { money } from "../logic/pricing";
 import { STAGES } from "../logic/constants";
@@ -15,7 +15,20 @@ export default function Cases({ initialStep }) {
   const clients = useLoad(() => listAll("banking_clients", "id, display_name, client_master_id", "display_name", true), []);
   useEffect(() => { const t = setTimeout(() => setTerm(q.trim()), 300); return () => clearTimeout(t); }, [q]);
 
-  const rows = (list.data?.rows || []).filter((r) => !step || r.current_stage === Number(step));
+  const matching = (list.data?.rows || []).filter((r) => !step || r.current_stage === Number(step));
+  const rows = matching.filter((r) => r.accounts_status !== "Closed");
+  const closed = matching.filter((r) => r.accounts_status === "Closed");
+  const columns = [
+    { key: "case_ref", label: "Case" },
+    { key: "client", label: "Client" },
+    { key: "client_master_id", label: "Client Master", render: (r) => r.client_master_id || <Badge tone="warn">Not linked</Badge> },
+    { key: "bank", label: "Bank" },
+    { key: "current_stage", label: "Stage", render: (r) => `${r.current_stage}. ${STAGES[r.current_stage - 1]}` },
+    { key: "app_status", label: "Application", render: (r) => <>{r.app_status ? <Badge>{r.app_status}</Badge> : "–"}{r.accounts_status === "Reverted" && <> <Badge tone="bad">Reverted by Accounts</Badge></>}</> },
+    { key: "employee", label: "Employee" },
+    { key: "total", label: "Quotation", right: true, render: (r) => money(r.total) },
+    { key: "received", label: "Received", right: true, render: (r) => money(r.received) },
+  ];
   return (
     <div>
       <PageHead title="All Banking Cases" sub={`${rows.length} banking cases${step ? ` at step ${step}` : ""}. One client can have several.`}>
@@ -26,18 +39,9 @@ export default function Cases({ initialStep }) {
       </PageHead>
       <ErrorNote message={list.error} />
       {list.loading && !list.data ? <Spinner /> : (
-        <DataTable rows={rows} empty="No cases at this step." onRow={(r) => openCase(r.id)} columns={[
-          { key: "case_ref", label: "Case" },
-          { key: "client", label: "Client" },
-          { key: "client_master_id", label: "Client Master", render: (r) => r.client_master_id || <Badge tone="warn">Not linked</Badge> },
-          { key: "bank", label: "Bank" },
-          { key: "current_stage", label: "Stage", render: (r) => `${r.current_stage}. ${STAGES[r.current_stage - 1]}` },
-          { key: "app_status", label: "Application", render: (r) => (r.app_status ? <Badge>{r.app_status}</Badge> : "–") },
-          { key: "employee", label: "Employee" },
-          { key: "total", label: "Quotation", right: true, render: (r) => money(r.total) },
-          { key: "received", label: "Received", right: true, render: (r) => money(r.received) },
-        ]} />
+        <DataTable rows={rows} empty="No cases at this step." onRow={(r) => openCase(r.id)} columns={columns} />
       )}
+      <ClosedSection count={closed.length} label="Closed cases"><DataTable rows={closed} onRow={(r) => openCase(r.id)} columns={columns} /></ClosedSection>
       {newCase && (
         <FormModal title="New banking case" onClose={() => setNewCase(false)} fields={[
           { name: "client", label: "Client", type: "select", required: true, options: (clients.data || []).map((c) => ({ value: c.id, label: c.display_name + (c.client_master_id ? ` (${c.client_master_id})` : "") })) },

@@ -34,7 +34,7 @@ export const SUBMISSION_METHODS = ["Direct Bank Submission by AB Capital", "Bank
 export const CHANNELS = ["Phone Call", "WhatsApp", "Email", "In Person", "Bank Relationship Manager", "Other"];
 export const TASK_TYPES = ["Lead Follow-up", "General KYC Collection", "Bank Comparison", "Document Collection", "Document Verification", "Quotation Preparation", "Payment Follow-up", "Engagement Letter", "Application Preparation", "Bank Submission", "Bank Appointment", "Bank Follow-up", "Home Ejari Issuance"];
 export const TASK_STATUSES = ["Open", "In Progress", "Completed", "Cancelled"];
-export const ROLES = ["ADMIN", "MANAGER", "SALES_EXECUTIVE", "DOCUMENT_EXECUTIVE", "FINANCE", "BANKING_EXECUTIVE", "READ_ONLY"];
+export const ROLES = ["ADMIN", "MANAGER", "SALES_EXECUTIVE", "DOCUMENT_EXECUTIVE", "FINANCE", "BANKING_EXECUTIVE", "READ_ONLY", "ACCOUNTS"];
 export const VERIFICATION = ["Unverified", "Verified", "Expired"];
 
 export const GATE_LABELS = {

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import ExcelImport from "./ExcelImport";
 import KycForm from "./KycForm";
 import NewLeadWizard from "./NewLeadWizard";
-import { Badge, Button, CommsList, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
+import { Badge, Button, ClosedSection, CommsList, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { insertRow, listAll, loadSettings, rpc, run, table, updateRow } from "../services/bankingApi";
 import { LEAD_STATUSES, PRIORITIES } from "../logic/constants";
 import { filterLeads, firstTab, leadTabs, stageOf } from "../logic/leadFilters";
@@ -11,8 +11,10 @@ const FALLBACK_SOURCES = ["Other"];
 const NO_FILTERS = { status: "", source: "", employee: "", priority: "", from: "", to: "", due: "" };
 
 export default function Leads({ initialMode }) {
-  const { can, personOptions, personName, openCase } = useBanking();
-  const leads = useLoad(() => listAll("banking_leads"), []);
+  const { can, personOptions, personName, openCase, profile } = useBanking();
+  const leads = useLoad(() => listAll("banking_leads", "*, banking_cases(accounts_status)"), []);
+  const transfers = useLoad(() => rpc("banking_reassign_list"), []);
+  const [reassign, setReassign] = useState(null);
   const settings = useLoad(() => loadSettings(), []);
   const [mode, setMode] = useState(initialMode || "list"); // list | new | import
   const [tab, setTab] = useState(null);
@@ -36,7 +38,7 @@ export default function Leads({ initialMode }) {
     { name: "license_authority", label: "License issuing authority" },
     { name: "license_number", label: "License number" },
     { name: "lead_source", label: "Lead source", type: "select", options: sources, required: true },
-    { name: "assigned_to", label: "Assigned employee", type: "select", options: personOptions },
+    ...(editing?.picked_up_at ? [] : [{ name: "assigned_to", label: "Assigned employee", type: "select", options: personOptions }]),
     { name: "follow_up_date", label: "Follow-up date", type: "date" },
     { name: "status", label: "Lead status", type: "select", options: LEAD_STATUSES.filter((s) => s !== "Converted"), required: true },
     { name: "priority", label: "Priority", type: "select", options: PRIORITIES, required: true },
@@ -46,7 +48,10 @@ export default function Leads({ initialMode }) {
   const all = leads.data || [];
   const tabs = leadTabs(all, filters, today());
   const activeTab = tab || firstTab(tabs);
-  const rows = filterLeads(all, activeTab, filters, today());
+  const isClosed = (l) => l.banking_cases?.length > 0 && l.banking_cases.every((c) => c.accounts_status === "Closed");
+  const staged = filterLeads(all, activeTab, filters, today());
+  const rows = staged.filter((l) => !isClosed(l));
+  const closedLeads = staged.filter(isClosed);
   const pickUp = async (l) => {
     setPicking(l.id); setPickError(null);
     try { await rpc("banking_lead_pick_up", { p_lead: l.id }); } catch (e) { setPickError(e.message); }
@@ -57,7 +62,16 @@ export default function Leads({ initialMode }) {
   const filtered = Object.values(filters).some(Boolean);
   const overdue = (l) => l.follow_up_date && l.follow_up_date <= today() && !["Converted", "Lost", "Not Interested"].includes(l.status);
 
-  if (detail) return <LeadDetail key={detail.id} lead={detail} onClose={() => { setDetail(null); leads.reload(); }} onEdit={() => { setEditing(detail); setDetail(null); }} onChanged={leads.reload} openCase={openCase} />;
+  const pendingOf = (l) => (transfers.data || []).find((t) => t.lead_id === l.id);
+  const canReassign = (l) => can("leads.manage") && !pendingOf(l) && (l.assigned_to === profile?.id || can("workflow.override"));
+  const respond = async (id, action) => {
+    setPickError(null);
+    try { await rpc("banking_reassign_respond", { p_id: id, p_action: action }); } catch (e) { setPickError(e.message); }
+    await transfers.reload();
+    await leads.reload();
+  };
+  const reassignForm = reassign && <FormModal title={`Reassign ${reassign.company_name}`} note="It stays with the current employee until the new one accepts." onClose={() => setReassign(null)} submitLabel="Send request" fields={[{ name: "to", label: "New employee", type: "select", options: personOptions.filter((p) => p.value !== reassign.assigned_to), required: true }, { name: "note", label: "Note", type: "textarea", full: true }]} onSubmit={async (v) => { await rpc("banking_reassign_request", { p_lead: reassign.id, p_to: v.to, p_note: v.note }); await transfers.reload(); }} />;
+  if (detail) return <>{reassignForm}<LeadDetail key={detail.id} onReassign={canReassign(detail) ? () => setReassign(detail) : null} pending={pendingOf(detail)} lead={detail} onClose={() => { setDetail(null); leads.reload(); }} onEdit={() => { setEditing(detail); setDetail(null); }} onChanged={leads.reload} openCase={openCase} /></>;
   if (mode === "import") {
     return (
       <div>
@@ -75,6 +89,13 @@ export default function Leads({ initialMode }) {
         {can("leads.manage") && <Button variant="primary" onClick={() => setMode("new")}>+ New Lead</Button>}
       </PageHead>
       <ErrorNote message={leads.error || pickError} onClose={pickError ? () => setPickError(null) : undefined} />
+      {(transfers.data || []).filter((t) => t.to_user === profile?.id).map((t) => (
+        <div className="bk-inbox bk-row" key={t.id}>
+          <span><strong>{t.from_name || "A colleague"}</strong> wants to reassign <strong>{t.company_name}</strong> to you.{t.note ? ` ${t.note}` : ""}</span>
+          <span className="bk-actions"><Button onClick={() => respond(t.id, "decline")}>Decline</Button><Button variant="primary" onClick={() => respond(t.id, "accept")}>Accept</Button></span>
+        </div>
+      ))}
+      {reassignForm}
       <div className="bk-tabs" role="tablist" aria-label="Lead stage">
         {tabs.map((t) => <button type="button" role="tab" aria-selected={activeTab === t.key} key={t.key} className={activeTab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>{t.label} <span className="bk-tab-count">{t.count}</span></button>)}
       </div>
@@ -95,12 +116,13 @@ export default function Leads({ initialMode }) {
           { key: "company_name", label: "Client / company" },
           { key: "contact_person", label: "Contact" },
           { key: "lead_source", label: "Source" },
-          { key: "assigned_to", label: "Employee", render: (r) => (r.picked_up_by || r.assigned_to ? personName(r.picked_up_by || r.assigned_to) : stageOf(r) === "new" && can("leads.manage") ? <Button variant="primary" busy={picking === r.id} onClick={(e) => { e.stopPropagation(); pickUp(r); }}>Pick Up</Button> : "–") },
+          { key: "assigned_to", label: "Employee", render: (r) => (r.picked_up_by || r.assigned_to ? <span className="bk-actions">{personName(r.assigned_to || r.picked_up_by)}{pendingOf(r) ? <Badge tone="warn">{`To ${pendingOf(r).to_name}?`}</Badge> : canReassign(r) && stageOf(r) === "pipeline" && <button type="button" className="bk-link" onClick={(e) => { e.stopPropagation(); setReassign(r); }}>Reassign</button>}</span> : stageOf(r) === "new" && can("leads.manage") ? <Button variant="primary" busy={picking === r.id} onClick={(e) => { e.stopPropagation(); pickUp(r); }}>Pick Up</Button> : "–") },
           { key: "follow_up_date", label: "Follow-up", render: (r) => <span className={overdue(r) ? "bk-overdue" : ""}>{fmtDate(r.follow_up_date)}</span> },
           { key: "priority", label: "Priority" },
           { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> },
         ]} />
       )}
+      <ClosedSection count={closedLeads.length} label="Closed"><DataTable rows={closedLeads} onRow={setDetail} columns={[{ key: "lead_ref", label: "Lead" }, { key: "lead_date", label: "Date", render: (r) => fmtDate(r.lead_date) }, { key: "company_name", label: "Client / company" }, { key: "lead_source", label: "Source" }, { key: "assigned_to", label: "Employee", render: (r) => personName(r.assigned_to) }]} /></ClosedSection>
       {editing && (
         <FormModal wide title={editing.id ? `Edit ${editing.lead_ref}` : "New lead"} fields={fields} initial={editing} onClose={() => setEditing(null)}
           onSubmit={async (v) => { if (editing.id) await updateRow("banking_leads", editing.id, v); else await insertRow("banking_leads", v); await leads.reload(); }} />
@@ -109,7 +131,7 @@ export default function Leads({ initialMode }) {
   );
 }
 
-function LeadDetail({ lead: initial, onClose, onEdit, onChanged, openCase }) {
+function LeadDetail({ lead: initial, onClose, onEdit, onChanged, openCase, onReassign, pending }) {
   const [lead, setLead] = useState(initial);
   const { can } = useBanking();
   const [clientId, setClientId] = useState(lead.client_id);
@@ -133,6 +155,8 @@ function LeadDetail({ lead: initial, onClose, onEdit, onChanged, openCase }) {
         <Button onClick={onClose}>All leads</Button>
         {clientId && <CaseLink leadId={lead.id} openCase={openCase} onClose={onClose} />}
         {can("leads.manage") && stageOf(lead) === "new" && <Button variant="primary" busy={busy} onClick={() => act(async () => { await rpc("banking_lead_pick_up", { p_lead: lead.id }); setLead(await run(table("banking_leads").select("*").eq("id", lead.id).single())); await onChanged(); })}>Pick Up</Button>}
+        {onReassign && lead.assigned_to && <Button onClick={onReassign}>Reassign</Button>}
+        {pending && <Badge tone="warn">{`Waiting for ${pending.to_name} to accept`}</Badge>}
         {can("leads.manage") && lead.status !== "Converted" && <Button onClick={onEdit}>Edit</Button>}
       </PageHead>
       <ErrorNote message={error} />

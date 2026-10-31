@@ -762,3 +762,7 @@ begin
     execute format('grant usage on sequence public.%I to authenticated', q);
   end loop;
 end $$;
+
+-- Handover to Accounts; the rules are in 011. Functions in 003 read these columns.
+alter table public.banking_cases add column if not exists accounts_status text check (accounts_status in ('With Accounts','Reverted','Closed'));
+alter table public.banking_cases add column if not exists accounts_remarks text;

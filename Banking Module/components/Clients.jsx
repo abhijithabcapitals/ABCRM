@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Cases from "./Cases";
 import KycForm from "./KycForm";
-import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Spinner, fmtDate, useBanking, useLoad } from "./shared";
+import { Badge, Button, ClosedSection, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Spinner, fmtDate, useBanking, useLoad } from "./shared";
 import { rpc, run, table } from "../services/bankingApi";
 import { STAGES } from "../logic/constants";
 import { money } from "../logic/pricing";
@@ -21,14 +21,7 @@ export default function Clients({ initialStep }) {
       <button type="button" aria-pressed={view === "cases"} className={`bk-chip ${view === "cases" ? "active" : ""}`} onClick={() => setView("cases")}>All banking cases</button>
     </div>
   );
-  if (view === "cases") return <div>{tabs}<Cases initialStep={initialStep} /></div>;
-  return (
-    <div>
-      <PageHead title="Banking Clients" sub="Leads become Banking Clients once a bank is selected and a payment is received." />
-      {tabs}
-      <ErrorNote message={clients.error} />
-      {clients.loading && !clients.data ? <Spinner /> : (
-        <DataTable search="Search client or licence…" rows={clients.data || []} onRow={(c) => setOpenId(c.id)} empty="No Banking Clients yet." columns={[
+  const columns = [
           { key: "display_name", label: "Client" },
           { key: "bank", label: "Bank" },
           { key: "license_number", label: "Licence" },
@@ -40,7 +33,18 @@ export default function Clients({ initialStep }) {
             { key: "license_expiry", label: "Licence expiry", render: (c) => fmtDate(c.license_expiry) },
           ] : []),
           ...(can("payments.view") ? [{ key: "received", label: "Received", right: true, render: (c) => money(c.received) }] : []),
-        ]} />
+  ];
+  if (view === "cases") return <div>{tabs}<Cases initialStep={initialStep} /></div>;
+  return (
+    <div>
+      <PageHead title="Banking Clients" sub="Leads become Banking Clients once a bank is selected and a payment is received." />
+      {tabs}
+      <ErrorNote message={clients.error} />
+      {clients.loading && !clients.data ? <Spinner /> : (
+        <>
+        <DataTable search="Search client or licence…" rows={(clients.data || []).filter((c) => !c.closed)} onRow={(c) => setOpenId(c.id)} empty="No Banking Clients yet." columns={columns} />
+        <ClosedSection count={(clients.data || []).filter((c) => c.closed).length} label="Closed clients"><DataTable rows={(clients.data || []).filter((c) => c.closed)} onRow={(c) => setOpenId(c.id)} columns={columns} /></ClosedSection>
+        </>
       )}
     </div>
   );
@@ -51,7 +55,7 @@ function ClientPage({ client, onBack }) {
   const tabs = [...(can("kyc.view") ? [["kyc", "KYC"]] : []), ["details", "Other Details"]];
   const [tab, setTab] = useState(tabs[0][0]);
   const [adding, setAdding] = useState(false);
-  const cases = useLoad(() => run(table("banking_cases").select("id, case_ref, title, current_stage, outcome, is_historical, created_at, banking_bank_recommendations(is_selected, banking_partners(bank_name))").eq("client_id", client.id).order("created_at", { ascending: false })), [client.id]);
+  const cases = useLoad(() => run(table("banking_cases").select("id, case_ref, title, current_stage, outcome, is_historical, accounts_status, created_at, banking_bank_recommendations(is_selected, banking_partners(bank_name))").eq("client_id", client.id).order("created_at", { ascending: false })), [client.id]);
   const bankOf = (c) => c.banking_bank_recommendations.find((r) => r.is_selected)?.banking_partners?.bank_name;
   return (
     <div>
@@ -71,7 +75,7 @@ function ClientPage({ client, onBack }) {
           <DataTable rows={cases.data || []} onRow={(c) => openCase(c.id)} empty="No banking cases yet." columns={[
             { key: "case_ref", label: "Case" }, { key: "created_at", label: "Opened", render: (c) => fmtDate(c.created_at) }, { key: "b", label: "Bank", render: bankOf },
             { key: "current_stage", label: "Step", render: (c) => `${c.current_stage}. ${STAGES[c.current_stage - 1]}` },
-            { key: "outcome", label: "Outcome", render: (c) => (c.outcome ? <Badge>{c.outcome}</Badge> : "Open") },
+            { key: "outcome", label: "Outcome", render: (c) => (c.accounts_status === "Closed" ? <Badge>Closed</Badge> : c.outcome ? <Badge>{c.outcome}</Badge> : "Open") },
           ]} />
         </>
       )}

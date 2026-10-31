@@ -12,7 +12,9 @@ insert into public.profiles (id, full_name, role) values
   ('00000000-0000-0000-0000-00000000000e', 'Finance', 'member'),
   ('00000000-0000-0000-0000-00000000000f', 'Banker', 'member'),
   ('00000000-0000-0000-0000-000000000099', 'Outsider', 'member');
+insert into public.profiles (id, full_name, role) values ('00000000-0000-0000-0000-000000000088', 'Accounts', 'member');
 insert into public.banking_user_roles values
+  ('00000000-0000-0000-0000-000000000088', 'ACCOUNTS'),
   ('00000000-0000-0000-0000-00000000000b', 'MANAGER'), ('00000000-0000-0000-0000-00000000000c', 'SALES_EXECUTIVE'),
   ('00000000-0000-0000-0000-00000000000d', 'DOCUMENT_EXECUTIVE'), ('00000000-0000-0000-0000-00000000000e', 'FINANCE'),
   ('00000000-0000-0000-0000-00000000000f', 'BANKING_EXECUTIVE');
@@ -343,6 +345,60 @@ select public.banking_payment_counter(public.id('plpay'), 'Reversal', current_da
 select public.as_user('0b');
 select public.ok('reversing the payment returns it to pipeline', (select status <> 'Converted' and picked_up_at is not null from public.banking_leads where id = public.id('pl')));
 
+-- ── Reassign with acceptance ──
+select public.as_user('0d');
+select public.must_fail('only owner or manager reassigns', format($$select public.banking_reassign_request(%L, '00000000-0000-0000-0000-00000000000b')$$, public.id('pl')), 'permission');
+select public.as_user('0c');
+insert into public.banking_leads (company_name) values ('Reassign Co');
+select public.keep('rl', (select id from public.banking_leads where company_name = 'Reassign Co'));
+select public.banking_lead_pick_up(public.id('rl'));
+select public.keep('rlcase', (public.banking_convert_lead(public.id('rl')) ->> 'case_id'));
+select public.keep('ra', public.banking_reassign_request(public.id('rl'), '00000000-0000-0000-0000-00000000000b', 'Please take over'));
+select public.ok('still with sender until accepted', (select assigned_to = '00000000-0000-0000-0000-00000000000c' from public.banking_leads where id = public.id('rl')));
+select public.must_fail('one pending at a time', format($$select public.banking_reassign_request(%L, '00000000-0000-0000-0000-00000000000f')$$, public.id('rl')), 'already waiting');
+select public.must_fail('sender cannot accept for them', format($$select public.banking_reassign_respond(%L, 'accept')$$, public.id('ra')), 'Only Manager');
+select public.as_user('0b');
+select public.ok('recipient sees the request', exists (select 1 from jsonb_array_elements(public.banking_reassign_list()) e where (e ->> 'id')::uuid = public.id('ra')));
+select public.banking_reassign_respond(public.id('ra'), 'accept');
+select public.ok('accepting tags the new employee on lead and case', (select assigned_to = '00000000-0000-0000-0000-00000000000b' and picked_up_by = assigned_to from public.banking_leads where id = public.id('rl')) and (select assigned_to = '00000000-0000-0000-0000-00000000000b' from public.banking_cases where id = public.id('rlcase')));
+select public.keep('rb', public.banking_reassign_request(public.id('rl'), '00000000-0000-0000-0000-00000000000c'));
+select public.as_user('0c');
+select public.banking_reassign_respond(public.id('rb'), 'decline');
+select public.ok('declining keeps the owner', (select assigned_to = '00000000-0000-0000-0000-00000000000b' from public.banking_leads where id = public.id('rl')));
+
+-- ── Handover to Accounts (case1 is Account Opened) ──
+select public.as_user('0b');
+select public.must_fail('unapproved case cannot go to Accounts', format($$select public.banking_send_to_accounts(%L)$$, public.id('rlcase')), 'approved');
+select public.must_fail('status cannot be set directly', format($$update public.banking_cases set accounts_status = 'Closed' where id = %L$$, public.id('case1')), 'stage tracker');
+select public.banking_send_to_accounts(public.id('case1'), 'Done');
+select public.as_user('0c');
+select public.ok('business team cannot see the case', not exists (select 1 from public.banking_cases where id = public.id('case1')));
+select public.ok('nor its quotes', not exists (select 1 from public.banking_quotations where case_id = public.id('case1')));
+select public.ok('nor in the case list', not exists (select 1 from jsonb_array_elements(public.banking_case_list(null, 1000, 0, true) -> 'rows') e where (e ->> 'id')::uuid = public.id('case1')));
+select public.must_fail('business team cannot log on it', format($$insert into public.banking_communications (case_id, channel, summary) values (%L, 'Email', 'x')$$, public.id('case1')), 'with Accounts');
+select public.as_user('0e');
+select public.must_fail('payment blocked while with Accounts', format($$select public.banking_payment_add(%L, current_date, 5, 'Cash')$$, public.id('case1')), 'with Accounts');
+select public.must_fail('finance is not Accounts', format($$select public.banking_accounts_review(%L, 'validate')$$, public.id('case1')), 'permission');
+select public.as_user('88');
+select public.ok('Accounts sees the queue', exists (select 1 from jsonb_array_elements(public.banking_accounts_queue()) e where (e ->> 'id')::uuid = public.id('case1')));
+select public.ok('Accounts sees the payments', exists (select 1 from public.banking_payments where case_id = public.id('case1')));
+select public.must_fail('revert needs remarks', format($$select public.banking_accounts_review(%L, 'revert')$$, public.id('case1')), 'fix');
+select public.banking_accounts_review(public.id('case1'), 'revert', 'Receipt missing');
+select public.as_user('0c');
+select public.ok('reverted case returns with remarks', (select accounts_status = 'Reverted' and accounts_remarks = 'Receipt missing' from public.banking_cases where id = public.id('case1')));
+insert into public.banking_communications (case_id, channel, summary) values (public.id('case1'), 'Email', 'Fixed');
+select public.as_user('0b');
+select public.banking_send_to_accounts(public.id('case1'), 'Fixed');
+select public.as_user('88');
+select public.banking_accounts_review(public.id('case1'), 'validate', 'OK');
+select public.must_fail('cannot validate twice', format($$select public.banking_accounts_review(%L, 'validate')$$, public.id('case1')), 'not waiting');
+select public.as_user('0c');
+select public.ok('closed case visible and marked', (select accounts_status = 'Closed' from public.banking_cases where id = public.id('case1')));
+select public.must_fail('closed case cannot be changed', format($$insert into public.banking_communications (case_id, channel, summary) values (%L, 'Email', 'x')$$, public.id('case1')), 'closed');
+select public.as_user('0a');
+select public.must_fail('even admin cannot change closed', format($$update public.banking_cases set title = 'x' where id = %L$$, public.id('case1')), 'closed');
+select public.ok('review history kept', (select count(*) = 4 from public.accounting_case_reviews where case_id = public.id('case1')));
+
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));
@@ -367,7 +423,7 @@ select public.as_user('0a');
 select public.ok('step counts add up to all cases', (select sum((e ->> 'total')::int) from jsonb_array_elements(public.banking_dashboard() -> 'charts' -> 'by_step') e) = (select count(*) from public.banking_cases));
 select public.ok('every report runs', (select bool_and(jsonb_typeof(public.banking_report(n)) = 'array') from unnest(array['leads_received','lead_sources','conversion_rate','lost_leads','employee_performance','quotations_issued','quotation_conversion','applications_by_bank','applications_by_scheme','under_process','accounts_opened','rejected','returned','approval_rate','average_processing','quotation_value','bank_fees','ab_revenue','supplementary_revenue','payments_received','outstanding','refunds','pending_documents','overdue_followups','pending_agreements','pending_appointments','awaiting_bank','cases_by_employee']) n));
 select public.must_fail('unknown report refused', $$select public.banking_report('nope')$$, 'Unknown report');
-select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 5);
+select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 6);
 select public.ok('timeline has entries', jsonb_array_length(public.banking_case_timeline(public.id('case1'))) > 5);
 select public.ok('activity log populated', (select count(*) > 20 from public.banking_activity_logs));
 

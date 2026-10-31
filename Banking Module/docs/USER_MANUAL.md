@@ -35,6 +35,14 @@ Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
 Every lead holds its KYC: open it in **Leads**. Once a bank is selected and a payment received, it also appears in **Banking Clients**, with its KYC and other details. Clients imported from Excel appear there once a bank is recorded, because their payments are still being reviewed.
 
+## Reassigning a lead
+
+In **In Pipeline**, press **Reassign** and choose the employee. The lead stays with you until they press **Accept** at the top of their Leads page; then they are tagged on the lead and its open cases.
+
+## Handing over to Accounts
+
+When an application is Approved or Account Opened, press **Mark complete and send to Accounts** on the case. It leaves your lists and nobody can change it. Accounts reviews it on the **Accounting** page: **Revert** returns it to you with remarks; **Validate and close** closes it. Closed cases appear greyed in a collapsed **Closed** section under the table.
+
 ## Tasks
 
 **New task** starts with the client: pick an existing one, press **+ Add Client**, or tick **Others** and enter a title. Then fill Employee, Task, Priority, Date, Remarks and Status. Inside a case, the client is already known.

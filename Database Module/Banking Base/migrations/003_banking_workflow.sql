@@ -23,7 +23,10 @@ $$;
 create or replace function public.banking_guard_case() returns trigger
 language plpgsql set search_path = public, pg_temp as $$
 begin
-  if (new.current_stage is distinct from old.current_stage or new.outcome is distinct from old.outcome)
+  if old.accounts_status in ('With Accounts','Closed') and current_setting('banking.internal', true) is distinct from '1' then
+    raise exception 'This case is % and can no longer be changed', case old.accounts_status when 'Closed' then 'closed' else 'with Accounts' end;
+  end if;
+  if (new.current_stage is distinct from old.current_stage or new.outcome is distinct from old.outcome or new.accounts_status is distinct from old.accounts_status)
      and current_setting('banking.internal', true) is distinct from '1' then
     raise exception 'Use the stage tracker to change a case stage';
   end if;
@@ -1197,9 +1200,9 @@ end $$;
 -- Case list with money and status, for the Cases page.
 create or replace function public.banking_case_list(p_search text default null, p_limit int default 100, p_offset int default 0, p_include_historical boolean default false) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
-  select jsonb_build_object('total', (select count(*) from banking_cases c join banking_clients cl on cl.id = c.client_id where banking_can('cases.view') and (p_include_historical or not c.is_historical) and (p_search is null or cl.display_name ilike '%' || p_search || '%' or c.case_ref ilike '%' || p_search || '%')),
+  select jsonb_build_object('total', (select count(*) from banking_cases c join banking_clients cl on cl.id = c.client_id where banking_can('cases.view') and c.accounts_status is distinct from 'With Accounts' and (p_include_historical or not c.is_historical) and (p_search is null or cl.display_name ilike '%' || p_search || '%' or c.case_ref ilike '%' || p_search || '%')),
    'rows', coalesce((select jsonb_agg(row_to_json(t)) from (
-    select c.id, c.case_ref, c.current_stage, c.outcome, c.is_historical, c.legacy_status, cl.id client_id, cl.display_name client, cl.client_master_id, cl.link_status, p.full_name employee,
+    select c.id, c.case_ref, c.current_stage, c.outcome, c.is_historical, c.legacy_status, c.accounts_status, c.accounts_remarks, cl.id client_id, cl.display_name client, cl.client_master_id, cl.link_status, p.full_name employee,
            b.bank_name bank, a.status app_status, q.total_amount total,
            coalesce((select sum(signed_amount) from banking_payments x where x.case_id = c.id), 0) received
       from banking_cases c join banking_clients cl on cl.id = c.client_id
@@ -1208,7 +1211,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
       left join banking_partners b on b.id = rc.bank_id
       left join lateral (select * from banking_applications ap where ap.case_id = c.id order by ap.is_active desc, ap.created_at desc limit 1) a on true
       left join lateral (select * from banking_current_quote(c.id)) q on true
-     where banking_can('cases.view') and (p_include_historical or not c.is_historical) and (p_search is null or cl.display_name ilike '%' || p_search || '%' or c.case_ref ilike '%' || p_search || '%')
+     where banking_can('cases.view') and c.accounts_status is distinct from 'With Accounts' and (p_include_historical or not c.is_historical) and (p_search is null or cl.display_name ilike '%' || p_search || '%' or c.case_ref ilike '%' || p_search || '%')
      order by c.created_at desc limit p_limit offset p_offset) t), '[]'::jsonb))
 $$;
 
@@ -1266,6 +1269,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
     select cl.id, cl.display_name, cl.license_number, cl.client_master_id, cl.link_status,
            count(distinct c.id) as cases,
            count(distinct c.id) filter (where c.outcome is null) as open_cases,
+           bool_and(c.accounts_status is not distinct from 'Closed') as closed,
            (array_agg(b.bank_name order by c.created_at desc))[1] as bank,
            case when banking_can('kyc.view') then max(k.completion_percent) end as kyc_percent,
            case when banking_can('kyc.view') then max(k.license_expiry_date) end as license_expiry,
@@ -1275,7 +1279,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
       join banking_bank_recommendations r on r.case_id = c.id and r.is_selected
       join banking_partners b on b.id = r.bank_id
       left join banking_kyc_profiles k on k.client_id = cl.id
-     where banking_can('cases.view')
+     where banking_can('cases.view') and c.accounts_status is distinct from 'With Accounts'
        and (c.is_historical or exists (select 1 from banking_payments p where p.case_id = c.id group by p.case_id having sum(p.signed_amount) > 0))
      group by cl.id) t
 $$;
@@ -1287,7 +1291,7 @@ begin
   for f in select p.oid::regprocedure sig, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
             where n.nspname = 'public' and (p.proname like 'banking\_%') loop
     execute format('revoke all on function %s from public, anon', f.sig);
-    if f.proname not in ('banking_get_or_create_client','banking_generate_checklist','banking_quote_recalc','banking_case_finance_internal','banking_touch','banking_audit','banking_append_only','banking_guard_case','banking_guard_reco','banking_kyc_percent','banking_lead_sync','banking_next_number','banking_number_taken','banking_number_format','banking_number_period','banking_generated_serial') then
+    if f.proname not in ('banking_get_or_create_client','banking_generate_checklist','banking_quote_recalc','banking_case_finance_internal','banking_touch','banking_audit','banking_append_only','banking_guard_case','banking_guard_reco','banking_kyc_percent','banking_lead_sync','banking_case_lock','banking_next_number','banking_number_taken','banking_number_format','banking_number_period','banking_generated_serial') then
       execute format('grant execute on function %s to authenticated', f.sig);
     end if;
   end loop;

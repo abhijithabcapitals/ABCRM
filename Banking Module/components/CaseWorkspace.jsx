@@ -44,6 +44,7 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
         <KeyVals items={[["Selected bank", sel ? `${sel.banking_partners?.bank_name}${sel.banking_schemes ? ` · ${sel.banking_schemes.scheme_name}` : ""}` : null], ["Application status", app?.status], ["Assigned employee", personName(c.assigned_to)], ["Total quotation", money(finance?.total)], ["Amount received", money(finance?.received)], ["Outstanding", money(finance?.outstanding)]]} />
       </div>
       <ProgressRail current={c.current_stage} shown={records ? null : shown} outcome={c.outcome} opened={app?.status === "Account Opened"} onOpen={show} />
+      <AccountsBar c={c} app={app} reload={reload} onBack={onBack} />
       <div className="bk-filter">
         <span className="bk-muted">Case records:</span>
         {RECORDS.map(([k, label]) => <button type="button" key={k} className={`bk-chip ${records === k ? "active" : ""}`} onClick={() => setRecords(records === k ? null : k)}>{label}</button>)}
@@ -63,10 +64,27 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
             <p>{STEPS[shown - 1][1]}</p>
           </div>
           <StepBody n={shown} c={c} client={client} finance={finance} gates={gates} app={app} reload={reload} goTo={show} />
-          <StepFooter n={shown} c={c} reload={reload} goTo={show} />
+          {!["Closed", "With Accounts"].includes(c.accounts_status) && <StepFooter n={shown} c={c} reload={reload} goTo={show} />}
         </>
       )}
     </div>
+  );
+}
+
+function AccountsBar({ c, app, reload, onBack }) {
+  const { can } = useBanking();
+  const [sending, setSending] = useState(false);
+  const approved = ["Approved", "Account Opened"].includes(app?.status);
+  if (c.accounts_status === "Closed") return <div className="bk-alert bk-alert-ok">Closed. Accounts validated this case{c.accounts_remarks ? `: ${c.accounts_remarks}` : ""}. It can no longer be changed.</div>;
+  if (c.accounts_status === "With Accounts") return <div className="bk-alert bk-alert-warn">This case is with Accounts for validation.</div>;
+  return (
+    <>
+      {c.accounts_status === "Reverted" && <div className="bk-alert bk-alert-error">Reverted by Accounts: {c.accounts_remarks}</div>}
+      {approved && can("cases.manage") && (
+        <div className="bk-inbox bk-row"><span><strong>Approved.</strong> When your work is complete, send it to Accounts. You lose access unless Accounts reverts it.</span><Button variant="primary" onClick={() => setSending(true)}>Mark complete and send to Accounts</Button></div>
+      )}
+      {sending && <FormModal title="Send to Accounts" note="The case leaves your lists and nobody can change it while Accounts holds it." onClose={() => setSending(false)} submitLabel="Send to Accounts" fields={[{ name: "remarks", label: "Remarks for Accounts", type: "textarea", full: true }]} onSubmit={async (v) => { await rpc("banking_send_to_accounts", { p_case: c.id, p_remarks: v.remarks }); await reload(); onBack(); }} />}
+    </>
   );
 }
 
@@ -339,7 +357,7 @@ function ClientInfo({ c, client, reload }) {
       </Panel>
       {link && <FormModal title="Client Master ID" initial={{ id: client.client_master_id }} onClose={() => setLink(false)} fields={[{ name: "id", label: "Client ID", required: true, help: "Format CL000001" }]} onSubmit={async (v) => { await rpc("banking_link_client_master", { p_client: client.id, p_master: v.id }); await reload(); }} />}
       {party && <FormModal title="Add contact" initial={{ party_role: "Primary Contact" }} onClose={() => setParty(false)} fields={[{ name: "party_role", label: "Role", required: true }, { name: "full_name", label: "Name", required: true }, { name: "mobile", label: "Mobile" }, { name: "email", label: "Email" }]} onSubmit={async (v) => { await insertRow("banking_case_parties", { ...v, case_id: c.id }); await parties.reload(); }} />}
-      {assign && <FormModal title="Assign employee" initial={{ assigned_to: c.assigned_to }} onClose={() => setAssign(false)} fields={[{ name: "assigned_to", label: "Employee", type: "select", options: personOptions, required: true }]} onSubmit={async (v) => { await updateRow("banking_cases", c.id, v); await reload(); }} />}
+      {assign && <FormModal title="Assign employee" initial={{ assigned_to: c.assigned_to }} onClose={() => setAssign(false)} fields={[{ name: "assigned_to", label: "Employee", type: "select", options: personOptions, required: true }]} note={c.lead_id ? "The new employee is tagged once they accept." : null} onSubmit={async (v) => { if (c.lead_id) await rpc("banking_reassign_request", { p_lead: c.lead_id, p_to: v.assigned_to }); else await updateRow("banking_cases", c.id, v); await reload(); }} />}
     </div>
   );
 }
