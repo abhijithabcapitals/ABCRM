@@ -268,6 +268,23 @@ select public.ok('commission hidden from sales', (select count(*) = 0 from publi
 select public.as_user('0e');
 select public.ok('commission visible to finance', (select count(*) = 1 from public.banking_commissions));
 
+-- ── Document numbers ──
+select public.as_user('0a');
+select public.ok('quote number uses the format', (select quotation_number ~ '^ABC/[0-9]{4}/[0-9]{2}/BBQ[0-9]{3}$' from public.banking_quotations where id = public.id('q2')));
+select public.ok('revision keeps the number', (select quotation_number from public.banking_quotations where id = public.id('q')) = (select quotation_number from public.banking_quotations where id = public.id('q2')));
+select public.ok('letter number uses the format', (select letter_number ~ '^ABC/[0-9]{4}/[0-9]{2}/BBE[0-9]{3}$' from public.banking_engagement_letters where id = public.id('el')));
+select public.ok('status previews the next number', public.banking_numbering_status() -> 'quote' ->> 'preview' ~ 'BBQ[0-9]{3}$');
+select public.must_fail('format needs a serial', $$select public.banking_numbering_save('quote', 'ABC', 3, 'never', 1)$$, 'SERIAL');
+insert into public.banking_generated_documents (case_id, kind, quotation_id, document_number, file_name, storage_path, local_path)
+select public.id('case1'), 'quote', public.id('q2'), quotation_number, 'x.docx', 's/x.docx', 'D:\\Quotes\\x.docx' from public.banking_quotations where id = public.id('q2');
+select public.ok('database keeps number, serial and location', (select document_serial >= 1 and local_path like 'D:%' and storage_path = 's/x.docx' from public.banking_generated_documents limit 1));
+reset role;
+select public.ok('serial restarts monthly when set', (select public.banking_number_format('ABC/{YYYY}/{MM}/BBQ{SERIAL}', 3, 7, '2027-03-05')) = 'ABC/2027/03/BBQ007' and public.banking_number_period('month', '2027-03-05') = '2027-03');
+select public.ok('serial grows past its digits', public.banking_number_format('Q{SERIAL}', 3, 1000, '2027-03-05') = 'Q1000');
+set role authenticated;
+select public.as_user('0c');
+select public.must_fail('sales cannot change numbering', $$select public.banking_numbering_save('quote', 'A{SERIAL}', 3, 'never', 1)$$, 'permission');
+
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));

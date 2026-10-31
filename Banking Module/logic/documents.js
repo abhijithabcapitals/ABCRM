@@ -100,21 +100,25 @@ export function printReceipt(p, client, c, company) {
   openPrint(`Receipt ${p.banking_receipts.receipt_number}`, `${letterhead(m)}<h1>Payment Receipt</h1><table><tr><th>Receipt no.</th><td>${esc(p.banking_receipts.receipt_number)}</td></tr><tr><th>Date</th><td>${esc(dmy(p.payment_date))}</td></tr><tr><th>Received from</th><td>${esc(client.display_name)}</td></tr><tr><th>Banking case</th><td>${esc(c.case_ref)}</td></tr><tr><th>Amount</th><td><b>${esc(money(p.amount))}</b></td></tr><tr><th>Method</th><td>${esc(p.payment_method)}</td></tr><tr><th>Reference</th><td>${esc(p.transaction_reference)}</td></tr><tr><th>Payment ref</th><td>${esc(p.payment_ref)}</td></tr><tr><th>Description</th><td>${esc(p.description)}</td></tr></table><div class="sign"><div>Received by, for ${esc(co.short_name)}</div></div>`);
 }
 
-async function renderDocx(templateFile, data, fileName) {
-  const [{ default: PizZip }, { default: Docxtemplater }, { saveAs }] = await Promise.all([import("pizzip"), import("docxtemplater"), import("file-saver")]);
+async function renderDocx(templateFile, data) {
+  const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
   const url = new URL(`../templates/${templateFile}`, import.meta.url).href;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Template ${templateFile} not found`);
   const zip = new PizZip(await res.arrayBuffer());
   const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: "{", end: "}" }, nullGetter: () => "" });
   doc.render(data);
-  saveAs(doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), fileName);
+  return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }
 
 const flatBank = (m) => ({ ...m, ba_name: m.bank_details.account_name, ba_bank: m.bank_details.bank, ba_no: m.bank_details.account_no, ba_iban: m.bank_details.iban, ba_swift: m.bank_details.swift, ba_ccy: m.bank_details.currency });
 const safe = (s) => String(s || "").replace(/[^A-Za-z0-9 _-]+/g, "").trim();
-export const downloadQuoteDocx = (m) => renderDocx("Quotation_Template.docx", flatBank(m), `Quotation ${m.quotation_number} ${safe(m.client_name)}.docx`);
-export const downloadLetterDocx = (l) => { const m = letterMerge(l); return renderDocx("Engagement_Letter_Template.docx", flatBank(m), `Engagement Letter ${m.letter_number} ${safe(m.client_name)}.docx`); };
+export const documentFileName = (number, client) => `${String(number).replace(/[/\\\\]+/g, "-")} ${safe(client)}.docx`;
+export async function quoteDocx(m) { return { blob: await renderDocx("Quotation_Template.docx", flatBank(m)), fileName: documentFileName(m.quotation_number, m.client_name) }; }
+export async function letterDocx(l) { const m = letterMerge(l); const number = l.version > 1 ? `${m.letter_number} v${l.version}` : m.letter_number; return { blob: await renderDocx("Engagement_Letter_Template.docx", flatBank(m)), fileName: documentFileName(number, m.client_name) }; }
+async function download({ blob, fileName }) { const { saveAs } = await import("file-saver"); saveAs(blob, fileName); }
+export const downloadQuoteDocx = async (m) => download(await quoteDocx(m));
+export const downloadLetterDocx = async (l) => download(await letterDocx(l));
 
 export async function exportReportXlsx(title, rows) {
   const XLSX = await import("xlsx");

@@ -1,22 +1,47 @@
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, fmtDate, fmtDateTime, useAction, useBanking, useLoad } from "./shared";
-import { insertRow, listAll, run, table, updateRow } from "../services/bankingApi";
+import { insertRow, listAll, rpc, run, table, updateRow } from "../services/bankingApi";
 import { ROLES, VERIFICATION } from "../logic/constants";
 import { money } from "../logic/pricing";
 
 export default function Settings() {
   const { can } = useBanking();
-  const [tab, setTab] = useState("commercial");
-  const tabs = [["commercial", "Commercial"], ["services", "Supplementary Services"], ["risk", "Risk Rules & Notes"], ...(can("settings.manage") ? [["access", "Users & Permissions"]] : []), ...(can("audit.view") ? [["audit", "Audit Trail"]] : [])];
+  const [tab, setTab] = useState("numbering");
+  const tabs = [["numbering", "Document Numbering"], ["commercial", "Commercial"], ["services", "Supplementary Services"], ["risk", "Risk Rules & Notes"], ...(can("settings.manage") ? [["access", "Users & Permissions"]] : []), ...(can("audit.view") ? [["audit", "Audit Trail"]] : [])];
   return (
     <div>
       <PageHead title="Settings" />
       <div className="bk-tabs">{tabs.map(([k, l]) => <button type="button" key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{l}</button>)}</div>
+      {tab === "numbering" && <Numbering />}
       {tab === "commercial" && <Commercial />}
       {tab === "services" && <Services />}
       {tab === "risk" && <Risk />}
       {tab === "access" && <Access />}
       {tab === "audit" && <Audit />}
+    </div>
+  );
+}
+
+function Numbering() {
+  const { can } = useBanking();
+  const status = useLoad(() => rpc("banking_numbering_status"), []);
+  const [edit, setEdit] = useState(null);
+  const manage = can("settings.manage");
+  const kinds = [["quote", "Quotations"], ["letter", "Engagement Letters"]];
+  return (
+    <div>
+      <ErrorNote message={status.error} />
+      {kinds.map(([k, label]) => {
+        const d = status.data?.[k];
+        return (
+          <Panel key={k} title={label} sub="Numbers are given automatically, in order. Issued documents keep their number." actions={manage && d && <Button variant="primary" onClick={() => setEdit({ k, label, ...d })}>Edit</Button>}>
+            {d && <dl className="bk-kv"><div><dt>Next number</dt><dd>{d.preview}</dd></div><div><dt>Format</dt><dd>{d.format}</dd></div><div><dt>Next serial</dt><dd>{d.next_serial}</dd></div><div><dt>Digits</dt><dd>{d.digits}</dd></div><div><dt>Serial restarts</dt><dd>{{ never: "Never: runs on continuously", year: "Each year", month: "Each month" }[d.restart]}</dd></div></dl>}
+          </Panel>
+        );
+      })}
+      {edit && <FormModal title={`Numbering · ${edit.label}`} initial={edit} onClose={() => setEdit(null)} note="In the format, {YYYY} is the year, {MM} the month and {SERIAL} the serial number. A number already used is skipped."
+        fields={[{ name: "format", label: "Format", required: true, full: true }, { name: "next_serial", label: "Next serial", type: "number", required: true }, { name: "digits", label: "Digits", type: "number", required: true }, { name: "restart", label: "Serial restarts", type: "select", required: true, options: [{ value: "never", label: "Never: runs on continuously" }, { value: "year", label: "Each year" }, { value: "month", label: "Each month" }] }]}
+        onSubmit={async (v) => { await rpc("banking_numbering_save", { p_kind: edit.k, p_format: v.format, p_digits: v.digits, p_restart: v.restart, p_next: v.next_serial }); await status.reload(); }} />}
     </div>
   );
 }

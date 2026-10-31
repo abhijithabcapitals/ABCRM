@@ -189,3 +189,17 @@ def test_crm_can_read_documents_from_listed_origin_only(tmp_path):
     body = up.json()
     print("DOC", body["doc_type"], [(f["key"], f["value"], f["confidence"]) for f in body["extraction"]["fields"]])
     assert body["id"] and body["extraction"]["fields"]
+
+
+def test_generated_documents_go_only_to_their_folder(tmp_path):
+    crm = "https://crm.example"
+    quotes = tmp_path / "Quotes Generated"
+    c = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", embed_origins=[crm], generated_folders={"quote": quotes})))
+    post = lambda kind, name: c.post(f"/api/generated/{kind}", files={"file": (name, b"x")}, headers={"Origin": crm})
+    first = post("quote", "ABC-2026-10-BBQ001 Client.docx")
+    assert first.status_code == 200 and first.headers["access-control-allow-origin"] == crm
+    assert Path(first.json()["path"]).parent == quotes
+    assert post("quote", "ABC-2026-10-BBQ001 Client.docx").json()["path"].endswith("(2).docx")
+    assert Path(post("quote", "../../escape.docx").json()["path"]).parent == quotes
+    assert post("quote", "bad.exe").status_code == 400
+    assert post("other", "a.docx").status_code == 404

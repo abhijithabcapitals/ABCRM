@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parsePaymentNote } from "../logic/paymentNotes.js";
 import { quoteTotals } from "../logic/pricing.js";
+import { documentFileName } from "../logic/documents.js";
 import { filterLeads, leadTabs, OVERDUE } from "../logic/leadFilters.js";
 import { checkTemplate, readTemplate, TEMPLATE_COLUMNS } from "../logic/leadTemplate.js";
 import { bankInsight, monthSeries, shareInsight, trendSummary } from "../logic/insights.js";
@@ -238,4 +239,8 @@ test("lead tabs count what a click will show", () => {
   assert.equal(leadTabs(leads, third, ["New"], "2026-10-31")[1].count, 1);
   assert.equal(filterLeads(leads, "", { ...none, employee: "none" }, "2026-10-31").length, 2);
   assert.equal(filterLeads(leads, "", { ...none, from: "2026-09-01", to: "2026-09-30" }, "2026-10-31").length, 1);
+});
+
+test("a document number becomes a safe file name", () => {
+  assert.equal(documentFileName("ABC/2026/10/BBQ001", "Test Trading L.L.C"), "ABC-2026-10-BBQ001 Test Trading LLC.docx");
 });

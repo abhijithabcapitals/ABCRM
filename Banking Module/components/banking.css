@@ -265,3 +265,4 @@
 .bk-nav-wrap .bk-nav { margin-bottom: 0; }
 @container (max-width: 1420px) { .bk-nav button { padding: 7px 5px; font-size: 11.5px; } }
 @container (max-width: 1240px) { .bk-nav button { padding: 7px 3px; font-size: 10.5px; letter-spacing: -.01em; } }
+.bk-subhead { margin: 0 0 6px; color: #19363d; font-size: 13px; }

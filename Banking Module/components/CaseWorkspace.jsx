@@ -2,11 +2,11 @@ import { useState } from "react";
 import KycForm from "./KycForm";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FilePick, FormModal, KeyVals, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { expiryFrom } from "../logic/kycAutofill";
-import { insertRow, loadSettings, openFile, readDocuments, rpc, run, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
+import { insertRow, loadSettings, openFile, readDocuments, rpc, saveGenerated, run, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
 import { supabase } from "@app/supabase";
 import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, SUBMISSION_METHODS, TASK_STATUSES, TASK_TYPES, PRIORITIES } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
-import { downloadLetterDocx, downloadQuoteDocx, printLetter, printQuote, printReceipt, quoteMerge } from "../logic/documents";
+import { downloadLetterDocx, downloadQuoteDocx, letterDocx, printLetter, printQuote, printReceipt, quoteDocx, quoteMerge } from "../logic/documents";
 
 // Old list pages link to a case by area; each area opens at its step.
 const AREA_STEP = { client: 2, followups: 3, kyc: 4, selection: 6, documents: 8, quotation: 9, payments: 10, agreement: 12, application: 14 };
@@ -414,9 +414,19 @@ function Quotation({ c, client, reload }) {
   const rows = quotes.data || [];
   const company = settings.data?.company;
   const merge = (q) => quoteMerge(q, client, c, company, personName(q.prepared_by));
+  const [savedKey, setSavedKey] = useState(0);
+  const [savedNote, setSavedNote] = useState(null);
+  const saveCopy = async (q) => {
+    const m = merge(q);
+    const { blob, fileName } = await quoteDocx(m);
+    const row = await saveGenerated({ kind: "quote", caseId: c.id, blob, fileName, number: q.quotation_number, quotationId: q.id });
+    setSavedNote(savedMessage(row));
+    setSavedKey((k) => k + 1);
+  };
   return (
     <Panel title="Quotations" sub="Every version is kept." actions={can("quotes.manage") && <Button variant="primary" busy={busy} onClick={() => act(() => rpc("banking_quote_create", { p_case: c.id }))}>New quotation</Button>}>
       <ErrorNote message={quotes.error || error} />
+      {savedNote && <div className={`bk-alert ${savedNote.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{savedNote.text}</div>}
       <DataTable rows={rows} empty="No quotation yet. Select a bank first." columns={[
         { key: "n", label: "Number", render: (q) => `${q.quotation_number} v${q.version}` }, { key: "b", label: "Bank", render: (q) => q.banking_partners?.bank_name },
         { key: "quotation_date", label: "Date", render: (q) => fmtDate(q.quotation_date) }, { key: "valid_until", label: "Valid until", render: (q) => fmtDate(q.valid_until) },
@@ -425,9 +435,10 @@ function Quotation({ c, client, reload }) {
           <span className="bk-actions bk-wrap">
             {["Draft", "Approval Required"].includes(q.status) && can("quotes.manage") && <Button onClick={() => setOpen(q)}>Edit</Button>}
             {q.status === "Approval Required" && can("pricing.approve") && <Button busy={busy} onClick={() => act(() => rpc("banking_quote_action", { p_quote: q.id, p_action: "approve" }))}>Approve pricing</Button>}
-            {q.status === "Draft" && can("quotes.manage") && <Button variant="primary" busy={busy} onClick={() => act(() => rpc("banking_quote_action", { p_quote: q.id, p_action: "issue" }))}>Issue</Button>}
+            {q.status === "Draft" && can("quotes.manage") && <Button variant="primary" busy={busy} onClick={() => act(async () => { await rpc("banking_quote_action", { p_quote: q.id, p_action: "issue" }); await saveCopy(q); })}>Issue</Button>}
             <Button onClick={() => printQuote(merge(q))}>Preview / PDF</Button>
             <Button onClick={() => act(() => downloadQuoteDocx(merge(q)))}>Word</Button>
+            {!["Draft", "Approval Required"].includes(q.status) && !q.is_imported && can("quotes.manage") && <Button onClick={() => act(() => saveCopy(q))}>Save to folder</Button>}
             {["Issued", "Sent"].includes(q.status) && can("quotes.manage") && <>
               <Button onClick={() => act(async () => { await rpc("banking_quote_action", { p_quote: q.id, p_action: "send" }); const m = merge(q); window.location.href = `mailto:?subject=${encodeURIComponent(`Quotation ${m.quotation_number} from ${m.company_short}`)}&body=${encodeURIComponent(`Dear ${m.client_name},\n\nPlease find attached our quotation ${m.quotation_number} for AED ${m.total_plain}, valid until ${m.valid_until}.\n\nRegards,\n${m.company_short}`)}`; })}>Send to client</Button>
               <Button variant="primary" onClick={() => setDecide({ q, action: "accept" })}>Accept offer</Button>
@@ -438,6 +449,7 @@ function Quotation({ c, client, reload }) {
           </span>
         ) },
       ]} />
+      <GeneratedDocuments key={savedKey} caseId={c.id} kind="quote" />
       {open && <QuoteEditor q={open} onClose={() => setOpen(null)} onSaved={async () => { await quotes.reload(); await reload(); }} />}
       {revise && <FormModal title={`Revise ${revise.quotation_number}`} onClose={() => setRevise(null)} fields={[{ name: "reason", label: "Reason", type: "textarea", required: true, full: true }]} submitLabel="Create new version"
         onSubmit={async (v) => { await rpc("banking_quote_revise", { p_quote: revise.id, p_reason: v.reason }); await quotes.reload(); await reload(); }} />}
@@ -565,15 +577,29 @@ function Agreement({ c, reload }) {
   const [file, setFile] = useState(null);
   const done = async () => { await letters.reload(); await reload(); };
   const { error, busy, act } = useAction(done);
+  const [savedKey, setSavedKey] = useState(0);
+  const [savedNote, setSavedNote] = useState(null);
+  const saveCopy = async (l) => {
+    const { blob, fileName } = await letterDocx(l);
+    const row = await saveGenerated({ kind: "letter", caseId: c.id, blob, fileName, number: l.letter_number, letterId: l.id });
+    setSavedNote(savedMessage(row));
+    setSavedKey((k) => k + 1);
+  };
+  const generate = () => act(async () => {
+    const id = await rpc("banking_letter_generate", { p_case: c.id });
+    await saveCopy(await run(table("banking_engagement_letters").select("*").eq("id", id).single()));
+  });
   return (
-    <Panel title="Engagement letter" sub="Generated from the accepted quotation." actions={can("agreements.manage") && <Button variant="primary" busy={busy} onClick={() => act(() => rpc("banking_letter_generate", { p_case: c.id }))}>Generate letter</Button>}>
+    <Panel title="Engagement letter" sub="Generated from the accepted quotation." actions={can("agreements.manage") && <Button variant="primary" busy={busy} onClick={generate}>Generate letter</Button>}>
       <ErrorNote message={letters.error || error} />
+      {savedNote && <div className={`bk-alert ${savedNote.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{savedNote.text}</div>}
       <DataTable rows={letters.data || []} empty="Not generated yet." columns={[
         { key: "letter_number", label: "Number", render: (l) => `${l.letter_number} v${l.version}` }, { key: "letter_date", label: "Date", render: (l) => fmtDate(l.letter_date) }, { key: "status", label: "Status", render: (l) => <Badge>{l.status}</Badge> }, { key: "signed_at", label: "Signed", render: (l) => fmtDate(l.signed_at) }, { key: "signatory_name", label: "Signatory" },
         { key: "a", label: "", render: (l) => (
           <span className="bk-actions bk-wrap">
             <Button onClick={() => printLetter(l)}>Preview / PDF</Button>
             <Button onClick={() => act(() => downloadLetterDocx(l))}>Word</Button>
+            {can("agreements.manage") && l.status !== "Cancelled" && <Button onClick={() => act(() => saveCopy(l))}>Save to folder</Button>}
             {l.signed_document_path && <Button onClick={() => act(() => openFile(l.signed_document_path))}>Signed copy</Button>}
             {can("agreements.manage") && !["Signed", "Cancelled"].includes(l.status) && <>
               {l.status === "Draft" && <Button busy={busy} onClick={() => act(() => rpc("banking_letter_action", { p_letter: l.id, p_action: "send" }))}>Sent to client</Button>}
@@ -584,6 +610,7 @@ function Agreement({ c, reload }) {
           </span>
         ) },
       ]} />
+      <GeneratedDocuments key={savedKey} caseId={c.id} kind="letter" />
       {sign && <FormModal title={`Record signature · ${sign.letter_number}`} initial={{ signed_at: today() }} onClose={() => setSign(null)} note={<>Signed document (required): <input type="file" aria-label="Signed document" onChange={(e) => setFile(e.target.files?.[0] || null)} /></>}
         fields={[{ name: "signed_at", label: "Signature date", type: "date", required: true }, { name: "signatory", label: "Signed by", required: true }]}
         onSubmit={async (v) => {
@@ -593,6 +620,27 @@ function Agreement({ c, reload }) {
           setFile(null); await done();
         }} />}
     </Panel>
+  );
+}
+
+const savedMessage = (row) => (row.local_path
+  ? { ok: true, text: `Saved to ${row.local_path}` }
+  : { ok: false, text: "Kept in the database, but not saved to the PC folder because the Client Module is not running here. Start it and press Save to folder." });
+
+function GeneratedDocuments({ caseId, kind }) {
+  const list = useLoad(() => run(table("banking_generated_documents").select("*").eq("case_id", caseId).eq("kind", kind).order("created_at", { ascending: false })), [caseId, kind]);
+  const { error, act } = useAction();
+  if (!list.data?.length) return <ErrorNote message={list.error} />;
+  return (
+    <div className="bk-mt">
+      <h4 className="bk-subhead">Generated documents</h4>
+      <ErrorNote message={list.error || error} />
+      <DataTable rows={list.data} columns={[
+        { key: "document_number", label: "Number" }, { key: "document_serial", label: "Serial", right: true }, { key: "created_at", label: "Generated", render: (r) => fmtDateTime(r.created_at) },
+        { key: "local_path", label: "Saved at", render: (r) => r.local_path || <Badge tone="warn">Not in PC folder</Badge> },
+        { key: "o", label: "", render: (r) => <button type="button" className="bk-link" onClick={() => act(() => openFile(r.storage_path))}>Open</button> },
+      ]} />
+    </div>
   );
 }
 

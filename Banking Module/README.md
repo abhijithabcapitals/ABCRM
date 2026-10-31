@@ -53,6 +53,12 @@ All document reading goes through `DOC OCR Module` (via `readDocuments` in `serv
 
 Not built: comparison against KYC, communication summaries and quotation assistance. To add them, a service runs `DOC OCR Module` (`docai`) on the file and inserts a row with `engine = 'docai'`; nothing else changes. The database gives no suggestion a path to verify a document, confirm an account, change a payment or send a quotation.
 
+## Document numbers and saved files
+
+Quotations and letters are numbered from the format in Settings > Document Numbering, by default `ABC/YYYY/MM/BBQ001` and `ABC/YYYY/MM/BBE001`. A quotation gets its number when it is created, and a letter when it is generated. A revision keeps the number with a new version. Imported Excel quotations keep their old `BQ-` numbers.
+
+A quotation is saved when issued and a letter when generated, as Word files. Each goes to private storage and, through the Client Module, to `Database Module/Generated Documents/Banking Business` on this PC (`generatedFolders` in its `config.json`). `banking_generated_documents` records the number, serial and both locations. On a PC without the Client Module, the local path stays empty until someone presses Save to folder there.
+
 ## Tests
 
 - `Database Module/Banking Base/tests/run-local.sh`: 109 checks of business rules and row-level security as signed-in users, on a throwaway Postgres.

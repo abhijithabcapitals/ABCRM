@@ -76,6 +76,21 @@ export async function readDocuments(files, onProgress) {
   return out;
 }
 
+// A generated document is kept twice: in private storage and in the office PC's folder. Its number, serial
+// and both locations are recorded in the database. The local copy needs the Client Module running.
+export async function saveGenerated({ kind, caseId, blob, fileName, number, quotationId, letterId }) {
+  const file = new File([blob], fileName, { type: blob.type });
+  const stored = await uploadFile(caseId, "generated", file);
+  let localPath = null;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${CLIENT_MODULE_URL}/api/generated/${kind}`, { method: "POST", body: form, signal: AbortSignal.timeout(15000) });
+    if (res.ok) localPath = (await res.json()).path;
+  } catch { /* Client Module not running on this PC; the storage copy is still kept */ }
+  return insertRow("banking_generated_documents", { case_id: caseId, kind, quotation_id: quotationId ?? null, letter_id: letterId ?? null, document_number: number, file_name: fileName, storage_path: stored.path, local_path: localPath });
+}
+
 // Batches staged rows so one big workbook does not hit the request size limit.
 export async function stageImport(meta, rows, onProgress) {
   const imp = await insertRow("banking_excel_imports", meta);

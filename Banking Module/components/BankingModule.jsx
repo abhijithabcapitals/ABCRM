@@ -27,7 +27,7 @@ const NAV = [
   ["tasks", "Tasks & Follow-ups", "tasks.view"],
   ["reports", "Reports", "reports.view"],
   ["import", "Excel Import", "imports.manage"],
-  ["settings", "Settings", "app.access"],
+  ["settings", "⚙ Settings", "app.access"],
 ];
 
 export default function BankingModule({ profile }) {

@@ -23,6 +23,7 @@ class Settings:
     ai_monthly_budget_usd: float = 5.0
     service_folders: dict[str, str] = field(default_factory=dict)
     embed_origins: list[str] = field(default_factory=list)  # CRM pages allowed to show this module in a frame
+    generated_folders: dict[str, Path] = field(default_factory=dict)  # kind -> folder for CRM-generated documents
 
     @classmethod
     def load(cls, path: Path | None = None, **overrides) -> "Settings":
@@ -47,6 +48,7 @@ class Settings:
             ai_monthly_budget_usd=float(ai.get("monthlyBudgetUsd", 5.0)),
             service_folders=dict(raw.get("serviceFolders", {})),
             embed_origins=[str(o).rstrip("/") for o in raw.get("embedOrigins", [])],
+            generated_folders={k: resolve(v) for k, v in raw.get("generatedFolders", {}).items()},
         )
         for k, v in overrides.items():
             setattr(s, k, v)

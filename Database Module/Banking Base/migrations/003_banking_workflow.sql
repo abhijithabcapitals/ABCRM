@@ -397,8 +397,8 @@ begin
   v_fee := coalesce(pr.service_fee, (banking_setting('default_service_fee'))::text::numeric, 0);
   select bank_name into b from banking_partners where id = r.bank_id;
   select scheme_name into s from banking_schemes where id = r.scheme_id;
-  insert into banking_quotations (case_id, recommendation_id, bank_id, scheme_id, prepared_by, valid_until, vat_mode, vat_rate, initial_deposit_memo, minimum_balance_memo)
-  values (p_case, r.id, r.bank_id, r.scheme_id, auth.uid(), current_date + coalesce((banking_setting('quotation_validity_days'))::text::int, 15),
+  insert into banking_quotations (quotation_number, case_id, recommendation_id, bank_id, scheme_id, prepared_by, valid_until, vat_mode, vat_rate, initial_deposit_memo, minimum_balance_memo)
+  values (banking_next_number('quote'), p_case, r.id, r.bank_id, r.scheme_id, auth.uid(), current_date + coalesce((banking_setting('quotation_validity_days'))::text::int, 15),
           coalesce(v_vat ->> 'mode', 'inclusive'), coalesce((v_vat ->> 'rate')::numeric, 5), pr.initial_deposit, pr.minimum_balance)
   returning id into v_q;
   if coalesce(pr.account_opening_fee, 0) + coalesce(pr.other_bank_charges, 0) > 0 then
@@ -585,7 +585,7 @@ end $$;
 -- ── Engagement letters ───────────────────────────────────────────────
 create or replace function public.banking_letter_generate(p_case uuid) returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare q banking_quotations; c banking_cases; v_id uuid; v_ver int; content jsonb;
+declare q banking_quotations; c banking_cases; v_id uuid; v_ver int; content jsonb; v_number text;
 begin
   perform banking_require('agreements.manage');
   select * into q from banking_quotations where case_id = p_case and status = 'Accepted';
@@ -594,6 +594,9 @@ begin
   select * into c from banking_cases where id = p_case;
   update banking_engagement_letters set status = 'Cancelled', remarks = 'Replaced by a new draft' where case_id = p_case and status in ('Draft','Sent to Client','Awaiting Signature');
   select coalesce(max(version), 0) + 1 into v_ver from banking_engagement_letters where case_id = p_case;
+  -- A replacement for the same quotation keeps its number with a new version.
+  select letter_number into v_number from banking_engagement_letters where case_id = p_case and quotation_id = q.id order by version desc limit 1;
+  v_number := coalesce(v_number, banking_next_number('letter'));
   select jsonb_build_object('case_ref', c.case_ref, 'client', cl.display_name, 'client_master_id', cl.client_master_id,
            'address', k.registered_address, 'bank', b.bank_name, 'scheme', s.scheme_name,
            'quotation_number', q.quotation_number, 'quotation_version', q.version, 'total', q.total_amount, 'vat_mode', q.vat_mode, 'vat_rate', q.vat_rate,
@@ -604,7 +607,7 @@ begin
     from banking_clients cl left join banking_kyc_profiles k on k.client_id = cl.id
     left join banking_partners b on b.id = q.bank_id left join banking_schemes s on s.id = q.scheme_id
    where cl.id = c.client_id;
-  insert into banking_engagement_letters (case_id, quotation_id, version, content) values (p_case, q.id, v_ver, content) returning id into v_id;
+  insert into banking_engagement_letters (letter_number, case_id, quotation_id, version, content) values (v_number, p_case, q.id, v_ver, content) returning id into v_id;
   return v_id;
 end $$;
 

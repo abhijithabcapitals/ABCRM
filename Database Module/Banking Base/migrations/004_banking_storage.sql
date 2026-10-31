@@ -17,9 +17,9 @@ begin
 
   drop policy if exists banking_docs_read on storage.objects;
   create policy banking_docs_read on storage.objects for select to authenticated
-    using (bucket_id = 'banking-documents' and (public.banking_can('docs.view') or public.banking_can('agreements.view') or public.banking_can('payments.view')));
+    using (bucket_id = 'banking-documents' and (public.banking_can('docs.view') or public.banking_can('agreements.view') or public.banking_can('payments.view') or public.banking_can('quotes.view')));
   drop policy if exists banking_docs_insert on storage.objects;
   create policy banking_docs_insert on storage.objects for insert to authenticated
-    with check (bucket_id = 'banking-documents' and (public.banking_can('docs.manage') or public.banking_can('agreements.manage') or public.banking_can('payments.manage') or public.banking_can('apps.manage') or public.banking_can('comms.manage')));
+    with check (bucket_id = 'banking-documents' and (public.banking_can('docs.manage') or public.banking_can('agreements.manage') or public.banking_can('payments.manage') or public.banking_can('apps.manage') or public.banking_can('comms.manage') or public.banking_can('quotes.manage')));
   -- no update or delete policy: stored versions are never replaced or removed from the app
 end $do$;
