@@ -33,16 +33,16 @@ Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
 ## Importing the Excel history
 
-Go to **Excel Import** and upload the workbook. Monthly Bank Account and Completed Bank are ticked by default.
+Only the AB Capital template is accepted. In **Excel Import**, download it, fill it in, and upload it. Any other Excel is refused. A file with a problem in any row must be fixed and uploaded again; nothing from it is saved.
 
-1. Check the column mapping and preview, then **Stage for review**. Nothing is live yet.
-2. **Approve clean rows** approves only high-confidence rows. Open the others with **Decide**: red rows and rows whose colour disagrees with their text always wait for you.
+1. Check the preview, then **Stage for review**. Nothing is live yet.
+2. **Approve clean rows** approves only high-confidence rows. Open the others with **Decide**. Rows from the old working sheet whose colour disagrees with their text wait for you here.
 3. **Commit approved** creates the clients, cases and applications. It can be run repeatedly; a row with the same company, bank and month is not created twice.
 4. **Payment notes to review**: confirm each transaction read from the note. A missing date or amount stays blank until you have evidence. If there is none, use "Post nothing".
 
 ## Masters
 
-Bank Partners, Schemes, Pricing and Document Checklists can all be changed without software changes. Requirements supplied so far are internal notes marked **Unverified**. When someone confirms one with the bank, record the date, source and reviewer and mark it Verified.
+Open **Banking Partners** and click a bank to manage its details and RMs, plans, pricing, document list and internal notes in one place. Standard lists are under **Standard document lists**. All of it changes without software changes. Requirements supplied so far are internal notes marked **Unverified**. When someone confirms one with the bank, record the date, source and reviewer and mark it Verified.
 
 Risk rules and internal notes are only considerations for staff. They never reject a client.
 

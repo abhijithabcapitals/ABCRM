@@ -7,7 +7,7 @@ import Leads from "./Leads";
 import Cases from "./Cases";
 import CaseWorkspace from "./CaseWorkspace";
 import KycList from "./KycList";
-import { BankPartners, BankSchemes, BankPricing, DocumentChecklists } from "./Masters";
+import BankingPartners from "./BankingPartners";
 import { QuotationsPage, PaymentsPage, AgreementsPage, ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
 import Reports from "./Reports";
 import ExcelImport from "./ExcelImport";
@@ -18,10 +18,7 @@ const NAV = [
   ["leads", "Leads", "leads.view"],
   ["cases", "Banking Clients", "cases.view"],
   ["kyc", "General KYC", "kyc.view"],
-  ["banks", "Bank Partners", "app.access"],
-  ["schemes", "Bank Schemes", "app.access"],
-  ["pricing", "Bank Pricing", "app.access"],
-  ["checklists", "Document Checklists", "app.access"],
+  ["banks", "Banking Partners", "app.access"],
   ["quotations", "Quotations", "quotes.view"],
   ["payments", "Payments", "payments.view"],
   ["agreements", "Agreements", "agreements.view"],
@@ -88,10 +85,7 @@ export default function BankingModule({ profile }) {
             {current === "leads" && <Leads />}
             {current === "cases" && <Cases />}
             {current === "kyc" && <KycList />}
-            {current === "banks" && <BankPartners />}
-            {current === "schemes" && <BankSchemes />}
-            {current === "pricing" && <BankPricing />}
-            {current === "checklists" && <DocumentChecklists />}
+            {current === "banks" && <BankingPartners />}
             {current === "quotations" && <QuotationsPage />}
             {current === "payments" && <PaymentsPage />}
             {current === "agreements" && <AgreementsPage />}

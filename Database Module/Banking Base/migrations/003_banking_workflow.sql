@@ -954,15 +954,15 @@ begin
       end if;
       v_status := coalesce(rw.decided_status, rw.suggested_status);
       if v_status is null then raise exception 'Choose a status for this row'; end if;
-      v_client := banking_get_or_create_client(m ->> 'company', null, null);
+      v_client := banking_get_or_create_client(m ->> 'company', m ->> 'license', null);
       select id into v_bank from banking_partners where upper(m ->> 'bank_raw') = any(aliases) or upper(bank_name) = upper(m ->> 'bank_raw') or bank_code = upper(m ->> 'bank_resolved') limit 1;
       if v_bank is null then raise exception 'Bank not recognised: %', m ->> 'bank_raw'; end if;
       v_month := (m ->> 'lead_date')::date;
-      insert into banking_leads (lead_date, company_name, contact_person, nationality, lead_source, status, client_id, converted_at, source_sheet, source_row, initial_notes)
-      values (coalesce(v_month, current_date), m ->> 'company', m ->> 'contact', m ->> 'nationality', coalesce(m ->> 'lead_source', 'Third Party'), 'Converted', v_client, now(), rw.source_sheet, rw.source_row,
+      insert into banking_leads (lead_date, company_name, contact_person, mobile, whatsapp, email, license_number, nationality, lead_source, status, client_id, converted_at, source_sheet, source_row, initial_notes)
+      values (coalesce(v_month, current_date), m ->> 'company', m ->> 'contact', m ->> 'mobile', m ->> 'whatsapp', m ->> 'email', m ->> 'license', m ->> 'nationality', coalesce(m ->> 'lead_source', 'Third Party'), 'Converted', v_client, now(), rw.source_sheet, rw.source_row,
               'Imported. Referred by: ' || coalesce(m ->> 'referrer', '–'))
       returning id into v_lead;
-      v_stage := case v_status when 'Account Opened' then 18 when 'Approved' then 17 when 'Rejected' then 17 when 'Returned' then 17 when 'Cancelled' then 17 else 8 end;
+      v_stage := case v_status when 'Account Opened' then 18 when 'Approved' then 17 when 'Rejected' then 17 when 'Returned' then 17 when 'Cancelled' then 17 when 'Submitted to Bank' then 15 when 'Appointment Scheduled' then 15 when 'Bank Review' then 16 when 'Additional Documents Requested' then 16 when 'Resubmission Required' then 16 when 'Client Visited Bank' then 16 when 'Application Preparation' then 14 when 'Ready for Submission' then 14 else 8 end;
       v_outcome := case v_status when 'Account Opened' then 'Approved' when 'Approved' then 'Approved' when 'Rejected' then 'Rejected' when 'Returned' then 'Returned' when 'Cancelled' then 'Cancelled' end;
       insert into banking_cases (client_id, lead_id, account_kind, current_stage, outcome, is_historical, legacy_status, title, created_at)
       values (v_client, v_lead, coalesce(m ->> 'account_kind', 'Business'), v_stage, v_outcome, true, m ->> 'status_raw', 'Historical: ' || (m ->> 'bank_raw'), coalesce(v_month::timestamptz, now()))

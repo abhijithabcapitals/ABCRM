@@ -1,103 +1,69 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import * as XLSX from "xlsx";
 import { Badge, Button, DataTable, ErrorNote, FilePick, Modal, PageHead, Panel, Spinner, fmtDateTime, useAction, useLoad } from "./shared";
 import { listAll, loadSettings, rpc, run, stageImport, table, updateRow } from "../services/bankingApi";
-import { DEFAULT_MAPPING, FIELD_LABELS, isCleanRow, markDuplicates, readSheet, sheetColumns } from "../logic/excelImport";
+import { readTemplate, TEMPLATE_VERSION } from "../logic/leadTemplate";
 import { APP_STATUSES } from "../logic/constants";
 import { exportReportXlsx } from "../logic/documents";
-
-const DEFAULT_SHEETS = ["Monthly Bank Account", "Completed Bank"];
-const IGNORED = ["Working Bank Account", "POS MACHINE", "GATEWAY", "MOFA", "CT", "AML", "CREDIT CARD"];
 
 async function sha256(buf) {
   const h = await crypto.subtle.digest("SHA-256", buf);
   return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+const TEMPLATE_URL = new URL("../templates/Lead_Import_Template.xlsx", import.meta.url).href;
+
 export default function ExcelImport() {
   const history = useLoad(() => listAll("banking_excel_imports"), []);
-  const [wizard, setWizard] = useState(null);
+  const [preview, setPreview] = useState(null);
   const [openImport, setOpenImport] = useState(null);
   const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(null);
 
   const onFile = async (file) => {
-    setError(null);
+    setError(null); setPreview(null);
     try {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { cellStyles: true, cellNF: true });
-      setWizard({ wb, name: file.name, sha: await sha256(buf), sheets: wb.SheetNames.filter((s) => DEFAULT_SHEETS.includes(s)) });
-    } catch (e) { setError(`Could not read the file: ${e.message}`); }
+      const wb = XLSX.read(buf, { cellStyles: false, cellNF: true, WTF: false });
+      const [partners, settings] = await Promise.all([listAll("banking_partners", "bank_code, bank_name, aliases", "bank_name", true), loadSettings()]);
+      const res = readTemplate(wb, XLSX, { partners, sources: settings.lead_sources || [], statuses: APP_STATUSES.filter((x) => x !== "Not Started") });
+      if (res.refused) { setError(res.refused); return; }
+      if (!res.rows.length) { setError("The template has no leads in it."); return; }
+      setPreview({ name: file.name, sha: await sha256(buf), ...res });
+    } catch { setError("This file could not be read. Use the AB Capital template."); }
   };
 
-  if (openImport) return <ImportReview imp={openImport} onBack={() => { setOpenImport(null); history.reload(); }} />;
-  if (wizard) return <Wizard wizard={wizard} setWizard={setWizard} onCancel={() => setWizard(null)} onStaged={(imp) => { setWizard(null); setOpenImport(imp); }} />;
-  return (
-    <div>
-      <PageHead title="Excel Import" sub="Upload, map, preview, review, then commit. Nothing reaches live records until a person approves it."><FilePick label="Upload workbook" accept=".xlsx,.xls" onFile={onFile} /></PageHead>
-      <ErrorNote message={error || history.error} />
-      <Panel title="Import history">
-        <DataTable rows={history.data || []} onRow={setOpenImport} empty="No imports yet." columns={[{ key: "created_at", label: "When", render: (r) => fmtDateTime(r.created_at) }, { key: "file_name", label: "File" }, { key: "sheets", label: "Sheets", render: (r) => r.sheets.join(", ") }, { key: "total_rows", label: "Rows", right: true }, { key: "committed_rows", label: "Committed", right: true }, { key: "skipped_rows", label: "Skipped", right: true }, { key: "error_rows", label: "Errors", right: true }, { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> }]} />
-      </Panel>
-    </div>
-  );
-}
-
-function Wizard({ wizard, setWizard, onCancel, onStaged }) {
-  const partners = useLoad(() => listAll("banking_partners", "bank_code, bank_name, aliases", "bank_name", true), []);
-  const settings = useLoad(() => loadSettings(), []);
-  const [mapping, setMapping] = useState(DEFAULT_MAPPING);
-  const [busy, setBusy] = useState(null);
-  const [error, setError] = useState(null);
-  const { wb, sheets } = wizard;
-  const columns = useMemo(() => [...new Set(sheets.flatMap((s) => sheetColumns(wb.Sheets[s], XLSX)))].sort(), [sheets, wb]);
-
-  const preview = useMemo(() => {
-    if (!partners.data || !settings.data) return null;
-    const summaries = [];
-    const rows = [];
-    for (const s of sheets) {
-      const r = readSheet(wb.Sheets[s], s, XLSX, { mapping, partners: partners.data, statusMap: settings.data.legacy_status_map });
-      summaries.push(r.summary);
-      rows.push(...r.rows);
-    }
-    markDuplicates(rows);
-    return { rows, summaries, clean: rows.filter(isCleanRow).length };
-  }, [sheets, wb, mapping, partners.data, settings.data]);
-
-  const toggle = (s) => setWizard({ ...wizard, sheets: sheets.includes(s) ? sheets.filter((x) => x !== s) : [...sheets, s] });
   const stage = async () => {
     setError(null);
     try {
-      const imp = await stageImport({ file_name: wizard.name, file_sha256: wizard.sha, sheets, column_mapping: mapping, total_rows: preview.rows.length }, preview.rows, (done, all) => setBusy(`Staging ${done} of ${all}`));
-      onStaged(imp);
+      const imp = await stageImport({ file_name: preview.name, file_sha256: preview.sha, sheets: ["Leads"], column_mapping: { template_version: TEMPLATE_VERSION }, total_rows: preview.rows.length }, preview.rows, (done, all) => setBusy(`Staging ${done} of ${all}`));
+      setBusy(null); setPreview(null); setOpenImport(imp);
     } catch (e) { setError(e.message); setBusy(null); }
   };
+
+  if (openImport) return <ImportReview imp={openImport} onBack={() => { setOpenImport(null); history.reload(); }} />;
   return (
     <div>
-      <PageHead title={`Import · ${wizard.name}`}><Button onClick={onCancel}>Cancel</Button><Button variant="primary" busy={!!busy} disabled={!preview?.rows.length} onClick={stage}>{busy || "Stage for review"}</Button></PageHead>
-      <ErrorNote message={error || partners.error || settings.error} />
-      <Panel title="1. Sheets" sub="Working Bank Account, POS, Payment Gateway and MOFA stay out of the initial scope.">
-        <div className="bk-checks">{wb.SheetNames.map((s) => <label className="bk-check" key={s}><input type="checkbox" checked={sheets.includes(s)} onChange={() => toggle(s)} /> {s}{IGNORED.includes(s) ? <small className="bk-muted"> (out of scope)</small> : ""}</label>)}</div>
-      </Panel>
-      <Panel title="2. Column mapping" sub="Matched by header text. Change one if a sheet names a column differently.">
-        <div className="bk-grid">
-          {Object.entries(FIELD_LABELS).map(([field, label]) => (
-            <div className="bk-field" key={field}>
-              <label htmlFor={`m-${field}`}>{label}</label>
-              <select id={`m-${field}`} value={(mapping[field] || []).find((c) => columns.includes(c)) || ""} onChange={(e) => setMapping({ ...mapping, [field]: e.target.value ? [e.target.value] : [] })}>
-                <option value="">Not mapped</option>{columns.map((c) => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-          ))}
-        </div>
-      </Panel>
-      <Panel title="3. Preview">
-        {!preview ? <Spinner /> : (
-          <>
-            <p className="bk-note">{preview.rows.length} rows read · {preview.clean} clean · {preview.rows.length - preview.clean} need a look · {preview.summaries.reduce((a, s) => a + s.skippedService, 0)} non-bank services skipped (POS, CT filing, …) · {preview.summaries.reduce((a, s) => a + s.notData, 0)} summary rows ignored.</p>
-            <DataTable pageSize={15} rows={preview.rows} columns={rowColumns} />
-          </>
-        )}
+      <PageHead title="Excel Import" sub="Only the AB Capital template is accepted. Any other Excel is refused, so the data stays clean." />
+      <ErrorNote message={error || history.error} onClose={error ? () => setError(null) : undefined} />
+      <div className="bk-entry">
+        <a className="bk-entry-card" href={TEMPLATE_URL} download="Lead_Import_Template.xlsx"><strong>1. Download template</strong><span>The official Excel, with dropdowns and required columns.</span></a>
+        <div className="bk-entry-card bk-entry-static"><strong>2. Fill it in</strong><span>One lead per row. Do not change the columns or sheets.</span></div>
+        <label className="bk-entry-card"><strong>3. Upload filled template</strong><span>It is checked first. Nothing is saved until you press Stage.</span><input type="file" accept=".xlsx" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onFile(f); }} /></label>
+      </div>
+      {preview && (
+        <Panel title={`Check · ${preview.name}`} sub={`${preview.rows.length} lead(s) read. ${preview.errors.length} problem(s).`}
+          actions={<><Button onClick={() => setPreview(null)}>Cancel</Button><Button variant="primary" disabled={preview.errors.length > 0} busy={!!busy} onClick={stage}>{busy || "Stage for review"}</Button></>}>
+          {preview.errors.length > 0 ? (
+            <>
+              <div className="bk-alert bk-alert-error">This file cannot be used until every problem is fixed. Correct them in Excel and upload again.</div>
+              <DataTable rows={preview.errors} columns={[{ key: "row", label: "Excel row" }, { key: "company", label: "Company" }, { key: "message", label: "Problem" }]} />
+            </>
+          ) : <DataTable pageSize={15} rows={preview.rows} columns={[{ key: "src", label: "Row", render: (r) => r.source_row }, { key: "c", label: "Company", render: (r) => r.mapped.company }, { key: "b", label: "Bank", render: (r) => r.mapped.bank_raw }, { key: "d", label: "Lead date", render: (r) => r.mapped.lead_date }, { key: "suggested_status", label: "Status" }, { key: "f", label: "Fee", right: true, render: (r) => r.mapped.fee ?? "–" }, { key: "p", label: "Payments", right: true, render: (r) => r.payment_candidates.length }]} />}
+        </Panel>
+      )}
+      <Panel title="Import history">
+        <DataTable rows={history.data || []} onRow={setOpenImport} empty="No imports yet." columns={[{ key: "created_at", label: "When", render: (r) => fmtDateTime(r.created_at) }, { key: "file_name", label: "File" }, { key: "sheets", label: "Sheets", render: (r) => r.sheets.join(", ") }, { key: "total_rows", label: "Rows", right: true }, { key: "committed_rows", label: "Committed", right: true }, { key: "skipped_rows", label: "Skipped", right: true }, { key: "error_rows", label: "Errors", right: true }, { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> }]} />
       </Panel>
     </div>
   );

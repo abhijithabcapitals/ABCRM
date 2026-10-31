@@ -193,3 +193,10 @@
 .bk-rank td:nth-child(3) { width: 40px; color: #43565d; }
 .bk-rank-bar i { display: block; height: 7px; border-radius: 0 4px 4px 0; background: #0d7d82; }
 @media (max-width: 760px) { .bk-insights-2 { grid-template-columns: 1fr; } }
+
+.bk-entry-card { display: flex; flex-direction: column; gap: 5px; padding: 22px; border: 1px solid #dbe3e6; border-radius: 12px; background: #fff; color: #172f35; text-decoration: none; cursor: pointer; }
+.bk-entry-card:hover { border-color: #0d7d82; background: #f5fbfb; }
+.bk-entry-static { cursor: default; }
+.bk-entry-static:hover { border-color: #dbe3e6; background: #fff; }
+.bk-entry-card strong { font-size: 16px; color: #0d7277; }
+.bk-entry-card span { color: #5f7077; font-size: 12px; }

@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parsePaymentNote } from "../logic/paymentNotes.js";
 import { quoteTotals } from "../logic/pricing.js";
+import { checkTemplate, readTemplate, TEMPLATE_COLUMNS } from "../logic/leadTemplate.js";
 import { bankInsight, monthSeries, shareInsight, trendSummary } from "../logic/insights.js";
 import { buildAutofill, compareWithCurrent, expiryFrom } from "../logic/kycAutofill.js";
 import { readSheet, markDuplicates, suggestStatus, resolveBank, normaliseCompany, isCleanRow, colourFamily } from "../logic/excelImport.js";
@@ -169,4 +170,55 @@ test("a rate on few decided cases is not called best or worst", () => {
   assert.equal(bankInsight(banks), "B approves most (80%). C approves least (50%).");
   assert.match(bankInsight([banks[0]]), /Too few/);
   assert.equal(shareInsight([{ label: "Unassigned", value: 4 }], "cases"), "All 4 cases are Unassigned.");
+});
+
+const TEMPLATE = fileURLToPath(new URL("../templates/Lead_Import_Template.xlsx", import.meta.url));
+const OPTS = { partners: [{ bank_code: "ADCB", bank_name: "ADCB", aliases: ["ADCB"] }], sources: ["Direct"], statuses: ["Approved"], today: "2026-10-31" };
+function filled(rowsByHeader) {
+  const wb = XLSX.read(readFileSync(TEMPLATE), { cellNF: true });
+  rowsByHeader.forEach((row, i) => {
+    for (const [h, v] of Object.entries(row)) {
+      const addr = XLSX.utils.encode_cell({ r: i + 1, c: TEMPLATE_COLUMNS.indexOf(h) });
+      wb.Sheets.Leads[addr] = typeof v === "number" ? { t: "n", v } : { t: "s", v };
+    }
+  });
+  const ref = XLSX.utils.decode_range(wb.Sheets.Leads["!ref"]);
+  ref.e.r = Math.max(ref.e.r, rowsByHeader.length);
+  wb.Sheets.Leads["!ref"] = XLSX.utils.encode_range(ref);
+  return wb;
+}
+const GOOD = { "Company Name": "Test LLC", Bank: "ADCB", "Account Type": "Business", "Lead Date": 46300, "Lead Source": "Direct", "Application Status": "Approved" };
+
+test("built template carries the marker and exact columns", () => {
+  assert.equal(checkTemplate(XLSX.read(readFileSync(TEMPLATE), { cellNF: true }), XLSX), null);
+});
+test("any other Excel is refused", { skip: !existsSync(WORKBOOK) }, () => {
+  assert.match(readTemplate(XLSX.read(readFileSync(WORKBOOK)), XLSX, OPTS).refused, /not the AB Capital template/);
+});
+test("changed columns are refused", () => {
+  const wb = filled([]);
+  wb.Sheets.Leads.B1 = { t: "s", v: "Name" };
+  assert.match(checkTemplate(wb, XLSX), /columns were changed/);
+  const extra = filled([]);
+  extra.Sheets.Leads[XLSX.utils.encode_cell({ r: 0, c: TEMPLATE_COLUMNS.length })] = { t: "s", v: "Mine" };
+  assert.match(checkTemplate(extra, XLSX), /Extra columns/);
+});
+test("good row reads; payments become separate candidates", () => {
+  const r = readTemplate(filled([{ ...GOOD, "Fee AED": 2000, "Payment 1 Amount": 500, "Payment 1 Date": 46296, "Payment 1 Method": "Cash" }]), XLSX, OPTS);
+  assert.deepEqual(r.errors, []);
+  assert.equal(r.rows.length, 1);
+  assert.equal(r.rows[0].mapped.bank_resolved, "ADCB");
+  assert.equal(r.rows[0].payment_candidates.length, 1);
+  assert.equal(r.rows[0].source_row, 2);
+});
+test("bad rows are all reported", () => {
+  const r = readTemplate(filled([
+    { "Company Name": "A" },
+    { ...GOOD, Bank: "Nope", "Lead Date": "01/10", "Fee AED": "abc", Email: "x" },
+    { ...GOOD, "Payment 1 Amount": 500 },
+    { ...GOOD, "Lead Date": 47000 },
+    GOOD, GOOD,
+  ]), XLSX, OPTS);
+  const has = (t) => r.errors.some((e) => e.message.includes(t));
+  for (const t of ["Bank is required", "not in Banking Partners", "real Excel date", "Fee AED must be", "Email", "has an amount but no date", "in the future", "Same company, bank and month"]) assert.ok(has(t), t);
 });
