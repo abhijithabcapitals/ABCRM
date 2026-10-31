@@ -12,7 +12,7 @@ export default function Leads() {
   const { can, personOptions, personName, openCase, goTo } = useBanking();
   const leads = useLoad(() => listAll("banking_leads"), []);
   const settings = useLoad(() => loadSettings(), []);
-  const [mode, setMode] = useState("home"); // home | new | list
+  const [mode, setMode] = useState("list"); // list | new
   const [tab, setTab] = useState("");
   const [filters, setFilters] = useState(NO_FILTERS);
   const [editing, setEditing] = useState(null);
@@ -47,26 +47,13 @@ export default function Leads() {
   const filtered = Object.values(filters).some(Boolean);
   const overdue = (l) => l.follow_up_date && l.follow_up_date <= today() && !["Converted", "Lost", "Not Interested"].includes(l.status);
 
-  if (mode === "new") return <NewLeadWizard onCancel={() => { setMode("home"); leads.reload(); }} />;
-  if (mode === "home") {
-    return (
-      <div>
-        <PageHead title="Leads" />
-        <ErrorNote message={leads.error} />
-        <div className="bk-entry">
-          {can("leads.manage") && <button type="button" onClick={() => setMode("new")}><strong>+ New Lead</strong><span>Upload the client's documents, check the details, then choose a bank and plan.</span></button>}
-          <button type="button" onClick={() => setMode("list")}><strong>View Existing Leads</strong><span>{leads.data?.length ?? "…"} leads, including those imported from Excel.</span></button>
-          {can("imports.manage") && <button type="button" onClick={() => goTo("import")}><strong>Import from Excel</strong><span>Bring in leads from the third-party working sheet and review flagged rows.</span></button>}
-        </div>
-      </div>
-    );
-  }
+  if (mode === "new") return <NewLeadWizard onCancel={() => { setMode("list"); leads.reload(); }} />;
 
   return (
     <div>
-      <PageHead title="Existing Leads" sub={`${rows.length} of ${all.length} leads`}>
-        <Button onClick={() => setMode("home")}>Back</Button>
-        {can("leads.manage") && <Button variant="primary" onClick={() => setMode("new")}>New Lead</Button>}
+      <PageHead title="Leads" sub={`${rows.length} of ${all.length} leads`}>
+        {can("imports.manage") && <Button onClick={() => goTo("import")}>Import from Excel</Button>}
+        {can("leads.manage") && <Button variant="primary" onClick={() => setMode("new")}>+ New Lead</Button>}
       </PageHead>
       <ErrorNote message={leads.error} />
       <div className="bk-tabs" role="tablist" aria-label="Lead status">

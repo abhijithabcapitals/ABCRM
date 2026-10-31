@@ -4,7 +4,7 @@ Open **Business Banking** in the CRM sidebar. An administrator gives you a banki
 
 ## The normal path
 
-In **Leads**, choose **New Lead** or **View Existing Leads**.
+**Leads** opens on your existing leads. **+ New Lead** and **Import from Excel** are at the top right.
 
 **New Lead**
 1. Upload all the documents you have. Press **Read documents and continue**. This needs the Client Module running on this PC (`Client Module\\Start-ClientModule.cmd`); without it, you type the details and the files are still saved.
