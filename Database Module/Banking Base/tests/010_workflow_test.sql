@@ -285,6 +285,8 @@ set role authenticated;
 select public.as_user('0c');
 select public.must_fail('sales cannot change numbering', $$select public.banking_numbering_save('quote', 'A{SERIAL}', 3, 'never', 1)$$, 'permission');
 
+select public.must_fail('serials cannot be taken through the API', $$select public.banking_next_number('quote')$$, 'permission denied');
+
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));

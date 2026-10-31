@@ -1242,7 +1242,7 @@ begin
   for f in select p.oid::regprocedure sig, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
             where n.nspname = 'public' and (p.proname like 'banking\_%') loop
     execute format('revoke all on function %s from public, anon', f.sig);
-    if f.proname not in ('banking_get_or_create_client','banking_generate_checklist','banking_quote_recalc','banking_case_finance_internal','banking_touch','banking_audit','banking_append_only','banking_guard_case','banking_guard_reco','banking_kyc_percent') then
+    if f.proname not in ('banking_get_or_create_client','banking_generate_checklist','banking_quote_recalc','banking_case_finance_internal','banking_touch','banking_audit','banking_append_only','banking_guard_case','banking_guard_reco','banking_kyc_percent','banking_next_number','banking_number_taken','banking_number_format','banking_number_period','banking_generated_serial') then
       execute format('grant execute on function %s to authenticated', f.sig);
     end if;
   end loop;
