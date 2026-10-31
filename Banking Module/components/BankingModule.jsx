@@ -73,11 +73,11 @@ export default function BankingModule({ profile }) {
         <header className="bk-header">
           <div><span className="bk-eyebrow">AB CAPITAL SERVICES FZE</span><h1>Business Banking</h1></div>
         </header>
-        <nav className="bk-nav" aria-label="Business Banking">
+        <div className="bk-nav-wrap"><nav className="bk-nav" aria-label="Business Banking">
           {nav.map(([k, label]) => (
-            <button type="button" key={k} className={!openCase && current === k ? "active" : ""} onClick={() => ctx.goTo(k)}>{label}</button>
+            <button type="button" key={k} data-label={label} aria-current={!openCase && current === k ? "page" : undefined} className={!openCase && current === k ? "active" : ""} onClick={() => ctx.goTo(k)}>{label}</button>
           ))}
-        </nav>
+        </nav></div>
         {openCase ? (
           <CaseWorkspace key={openCase.id} caseId={openCase.id} initialTab={openCase.tab} onBack={() => setOpenCase(null)} />
         ) : (

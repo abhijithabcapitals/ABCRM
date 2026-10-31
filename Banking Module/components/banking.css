@@ -253,3 +253,15 @@
 .bk-board-step.empty strong { color: #a9b5ba; font-weight: 500; }
 @media (max-width: 1100px) { .bk-board-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .bk-board-grid { grid-template-columns: 1fr; } }
+
+/* Module tabs: one line. They share the width, and scroll only when the screen is too narrow to fit them. */
+.bk-nav { flex-wrap: nowrap; gap: 1px; overflow-x: auto; scrollbar-width: none; }
+.bk-nav::-webkit-scrollbar { display: none; }
+.bk-nav button { display: inline-flex; flex: 1 0 auto; flex-direction: column; align-items: center; padding: 8px 8px; font-size: 12.5px; white-space: nowrap; }
+/* Reserves the bold width so the row does not shift when the selection changes. */
+.bk-nav button::after { content: attr(data-label); visibility: hidden; height: 0; overflow: hidden; font-weight: 800; }
+.bk-nav button.active, .bk-nav button.active:hover { color: #fff; background: #0d7d82; font-weight: 800; }
+.bk-nav-wrap { container-type: inline-size; margin-bottom: 18px; }
+.bk-nav-wrap .bk-nav { margin-bottom: 0; }
+@container (max-width: 1420px) { .bk-nav button { padding: 7px 5px; font-size: 11.5px; } }
+@container (max-width: 1240px) { .bk-nav button { padding: 7px 3px; font-size: 10.5px; letter-spacing: -.01em; } }
