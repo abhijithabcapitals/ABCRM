@@ -283,3 +283,6 @@
 .bk-clear { padding: 6px 8px; border: 0; background: none; color: #0d7277; font-size: 12px; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .bk-updating { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: #7b8990; font-size: 11px; }
 .bk-updating .bk-spinner { width: 12px; height: 12px; }
+.bk-doc-types { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.bk-doc-types button { padding: 9px 13px; border: 1px solid #dbe3e6; border-radius: 8px; background: #fff; color: #43565d; font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.bk-doc-types button.active { border-color: #0d7d82; background: #0d7d82; color: #fff; }

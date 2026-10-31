@@ -15,15 +15,15 @@ function CaseList({ title, sub, source, columns, tab, filter }) {
   const list = useLoad(source, []);
   return (
     <div>
-      <PageHead title={title} sub={sub}>{filter?.control}</PageHead>
+      {title ? <PageHead title={title} sub={sub}>{filter?.control}</PageHead> : null}
       <ErrorNote message={list.error} />
       {list.loading && !list.data ? <Spinner /> : <DataTable search="Search…" rows={filter?.apply ? (list.data || []).filter(filter.apply) : list.data || []} onRow={(r) => openCase(r.case_id, tab)} columns={[{ key: "ref", label: "Case", render: ref }, { key: "cl", label: "Client", render: cl }, ...columns]} />}
     </div>
   );
 }
 
-export const QuotationsPage = () => (
-  <CaseList title="Quotations" sub="All versions." tab="quotation"
+export const QuotationsList = () => (
+  <CaseList tab="quotation"
     source={() => run(table("banking_quotations").select(`*, ${CASE}, banking_partners(bank_name)`).order("created_at", { ascending: false }).limit(2000))}
     columns={[{ key: "n", label: "Number", render: (q) => `${q.quotation_number} v${q.version}` }, { key: "b", label: "Bank", render: (q) => q.banking_partners?.bank_name }, { key: "quotation_date", label: "Date", render: (q) => fmtDate(q.quotation_date) }, { key: "valid_until", label: "Valid until", render: (q) => fmtDate(q.valid_until) }, { key: "status", label: "Status", render: (q) => <Badge>{q.status}</Badge> }, { key: "total_amount", label: "Total", right: true, render: (q) => money(q.total_amount) }]} />
 );
@@ -32,8 +32,8 @@ export const PaymentsPage = () => (
     source={() => run(table("banking_payments").select(`*, ${CASE}, banking_receipts(receipt_number)`).order("payment_date", { ascending: false }).limit(2000))}
     columns={[{ key: "payment_ref", label: "Ref" }, { key: "payment_date", label: "Date", render: (p) => fmtDate(p.payment_date) }, { key: "txn_type", label: "Type" }, { key: "signed_amount", label: "Amount", right: true, render: (p) => money(p.signed_amount) }, { key: "payment_method", label: "Method" }, { key: "rc", label: "Receipt", render: (p) => p.banking_receipts?.receipt_number }]} />
 );
-export const AgreementsPage = () => (
-  <CaseList title="Agreements" tab="agreement"
+export const AgreementsList = () => (
+  <CaseList tab="agreement"
     source={() => run(table("banking_engagement_letters").select(`id, case_id, letter_number, version, status, letter_date, signed_at, signatory_name, ${CASE}`).order("created_at", { ascending: false }).limit(2000))}
     columns={[{ key: "n", label: "Number", render: (l) => `${l.letter_number} v${l.version}` }, { key: "letter_date", label: "Date", render: (l) => fmtDate(l.letter_date) }, { key: "status", label: "Status", render: (l) => <Badge>{l.status}</Badge> }, { key: "signed_at", label: "Signed", render: (l) => fmtDate(l.signed_at) }, { key: "signatory_name", label: "Signatory" }]} />
 );

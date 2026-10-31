@@ -31,6 +31,10 @@ Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
 **Existing clients:** on General KYC or step 4 of a case, press **Fill from documents**. Empty fields are ticked for you. A value that differs from the saved one is shown in red and unticked, so you decide. Then press **Save KYC**.
 
+## Documentation
+
+The **Documentation** tab lists quotations, fee receipt vouchers and agreements. **+ New Document** asks for the type and the client's case, then opens that case at the right step. A voucher is issued when a payment is recorded.
+
 ## Importing the Excel history
 
 Only the AB Capital template is accepted. In **Excel Import**, download it, fill it in, and upload it. Any other Excel is refused. A file with a problem in any row must be fixed and uploaded again; nothing from it is saved.

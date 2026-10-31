@@ -8,7 +8,8 @@ import Cases from "./Cases";
 import CaseWorkspace from "./CaseWorkspace";
 import KycList from "./KycList";
 import BankingPartners from "./BankingPartners";
-import { QuotationsPage, PaymentsPage, AgreementsPage, ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
+import Documentation from "./Documentation";
+import { PaymentsPage, ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
 import Reports from "./Reports";
 import ExcelImport from "./ExcelImport";
 import Settings from "./Settings";
@@ -19,9 +20,8 @@ const NAV = [
   ["cases", "Banking Clients", "cases.view"],
   ["kyc", "General KYC", "kyc.view"],
   ["banks", "Banking Partners", "app.access"],
-  ["quotations", "Quotations", "quotes.view"],
+  ["documentation", "Documentation", ["quotes.view", "payments.view", "agreements.view"]],
   ["payments", "Payments", "payments.view"],
-  ["agreements", "Agreements", "agreements.view"],
   ["applications", "Applications", "apps.view"],
   ["appointments", "Appointments", "apps.view"],
   ["tasks", "Tasks & Follow-ups", "tasks.view"],
@@ -47,7 +47,12 @@ export default function BankingModule({ profile }) {
       personName: (id) => (people.data || []).find((x) => x.id === id)?.full_name || "–",
       personOptions: (people.data || []).map((x) => ({ value: x.id, label: x.full_name || x.id })),
       openCase: (id, tab) => setOpenCase({ id, tab }),
-      goTo: (p, params = null) => { setOpenCase(null); setPage(p); setPageParams(params); },
+      goTo: (p, params = null) => {
+        const doc = { quotations: "quotes", agreements: "agreements" }[p];
+        setOpenCase(null);
+        setPage(doc ? "documentation" : p);
+        setPageParams(doc ? { tab: doc } : params);
+      },
     };
   }, [access.data, people.data, profile]);
 
@@ -64,7 +69,7 @@ export default function BankingModule({ profile }) {
   if (!ctx.can("app.access")) {
     return <div className="bk-root"><h1>Business Banking</h1><p className="bk-note">You do not have access to this module. Ask an administrator to assign you a banking role.</p></div>;
   }
-  const nav = NAV.filter(([, , perm]) => ctx.can(perm));
+  const nav = NAV.filter(([, , perm]) => [].concat(perm).some((p) => ctx.can(p)));
   const current = nav.some(([k]) => k === page) ? page : nav[0]?.[0];
 
   return (
@@ -87,9 +92,8 @@ export default function BankingModule({ profile }) {
             {current === "cases" && <Cases key={pageParams?.step || "all"} initialStep={pageParams?.step} />}
             {current === "kyc" && <KycList />}
             {current === "banks" && <BankingPartners />}
-            {current === "quotations" && <QuotationsPage />}
+            {current === "documentation" && <Documentation key={pageParams?.tab || "docs"} initialTab={pageParams?.tab} />}
             {current === "payments" && <PaymentsPage />}
-            {current === "agreements" && <AgreementsPage />}
             {current === "applications" && <ApplicationsPage />}
             {current === "appointments" && <AppointmentsPage />}
             {current === "tasks" && <TasksPage />}
