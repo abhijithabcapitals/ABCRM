@@ -13,7 +13,7 @@ Database for the `Banking Module`. Tables are `public.banking_*` in the CRM Supa
 
 ## Deployment
 
-**Status: not applied to any live database yet.** All migrations re-run safely.
+**Status: applied 31/10/2026 to `pnnakrhfzyxudjaghoxx`. Code not yet merged to `main`.** All migrations re-run safely.
 
 1. Back up, then apply `migrations/001`, `private/002`, `migrations/003`, `migrations/004` in that order to Supabase project `pnnakrhfzyxudjaghoxx`, using the same `supabase db query` route as `Email Base/deploy_to_crm.sh`.
 2. In the CRM: Settings > Users & Permissions, assign banking roles. CRM admins already have access.

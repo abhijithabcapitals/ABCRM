@@ -743,7 +743,8 @@ begin
     execute format('drop policy if exists %I on public.%I', t || '_read', t);
     execute format('create policy %I on public.%I for select to authenticated using (public.banking_can(%L))', t || '_read', t, r);
     execute format('drop policy if exists %I on public.%I', t || '_write', t);
-    execute format('revoke all on public.%I from anon', t);
+    -- Supabase default privileges include TRUNCATE, which bypasses RLS: start from nothing.
+    execute format('revoke all on public.%I from anon, authenticated', t);
     if w is not null then
       execute format('create policy %I on public.%I for all to authenticated using (public.banking_can(%L)) with check (public.banking_can(%L))', t || '_write', t, w, w);
       execute format('grant select, insert, update, delete on public.%I to authenticated', t);
@@ -753,4 +754,11 @@ begin
     end if;
   end loop;
 end $$;
-grant usage on all sequences in schema public to authenticated;
+do $$
+declare q text;
+begin
+  foreach q in array array['banking_lead_seq','banking_case_seq','banking_quote_seq','banking_payment_seq','banking_receipt_seq','banking_letter_seq','banking_application_seq','banking_task_seq'] loop
+    execute format('revoke all on sequence public.%I from anon, authenticated', q);
+    execute format('grant usage on sequence public.%I to authenticated', q);
+  end loop;
+end $$;
