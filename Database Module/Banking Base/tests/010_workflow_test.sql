@@ -299,7 +299,9 @@ select public.as_user('0c');
 -- The harness above grants every function for its helpers, so take this one back to test the real grant.
 reset role;
 revoke execute on function public.banking_next_number(text, date) from authenticated;
+revoke execute on function public.banking_lead_sync(uuid) from authenticated;
 set role authenticated;
+select public.must_fail('lead sync is internal', format($$select public.banking_lead_sync(%L)$$, public.id('case1')), 'permission denied');
 select public.must_fail('serials cannot be taken through the API', $$select public.banking_next_number('quote')$$, 'permission denied');
 
 select public.as_user('0b');
