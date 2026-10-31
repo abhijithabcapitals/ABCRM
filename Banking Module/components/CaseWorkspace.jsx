@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BankName } from "./BankLogo";
 import KycForm from "./KycForm";
 import TaskForm from "./TaskForm";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FilePick, FormModal, KeyVals, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
@@ -215,7 +216,7 @@ function PlanPicker({ c, reload, goTo }) {
         const range = b.bank_pricing;
         return (
           <section className="bk-bank" key={b.bank_id}>
-            <header><h4>{b.bank_name}</h4>{range?.service_fee_min != null && <span className="bk-muted">AB Capital fee guide: AED {range.service_fee_min}–{range.service_fee_max}</span>}</header>
+            <header><h4><BankName bank={b} /></h4>{range?.service_fee_min != null && <span className="bk-muted">AB Capital fee guide: AED {range.service_fee_min}–{range.service_fee_max}</span>}</header>
             {notes.length > 0 && <div className="bk-consider"><strong>Considerations for this client (internal, unverified):</strong><ul>{notes.map((n, i) => <li key={i}>{n.note}</li>)}</ul></div>}
             <div className="bk-compare">
               {cards.map((p) => {

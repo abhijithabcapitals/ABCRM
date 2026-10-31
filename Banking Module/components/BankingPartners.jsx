@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, useAction, useBanking, useLoad } from "./shared";
 import { insertRow, rpc, run, table, updateRow } from "../services/bankingApi";
+import BankLogo, { BankName } from "./BankLogo";
 import { BankPricing, BankSchemes, DocumentChecklists } from "./Masters";
 import { VERIFICATION } from "../logic/constants";
 
@@ -47,7 +48,7 @@ export default function BankingPartners() {
       <ErrorNote message={banks.error} />
       {banks.loading && !banks.data ? <Spinner /> : (
         <DataTable search="Search banks…" rows={banks.data || []} onRow={(b) => setOpenId(b.id)} columns={[
-          { key: "bank_name", label: "Bank" },
+          { key: "bank_name", label: "Bank", render: (b) => <BankName bank={b} /> },
           { key: "p", label: "Plans", right: true, render: (b) => b.banking_schemes.filter((s) => s.is_active).length },
           { key: "c", label: "Pricing rows", right: true, render: (b) => b.banking_pricing.length },
           { key: "d", label: "Document list", render: listOf },
@@ -66,6 +67,7 @@ function BankWorkspace({ bank, onBack, reload }) {
   const [section, setSection] = useState("details");
   return (
     <div>
+      <div className="bk-bank-head"><BankLogo bank={bank} size={44} /></div>
       <PageHead title={bank.bank_name} sub={NOT_POLICY}><Button onClick={onBack}>All banks</Button></PageHead>
       <div className="bk-tabs" role="tablist">
         {SECTIONS.map(([k, label]) => <button type="button" role="tab" aria-selected={section === k} key={k} className={section === k ? "active" : ""} onClick={() => setSection(k)}>{label}</button>)}

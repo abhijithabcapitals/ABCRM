@@ -77,7 +77,7 @@ export default function NewLeadWizard({ onCancel }) {
         if (found.length) { setMatches({ found, continueFlow }); setBusy(null); return; }
       }
       setMatches(null);
-      const row = await insertRow("banking_leads", { ...cleanValues(leadFields, lead), lead_date: lead.lead_date, status: "Interested", company_type: kyc.legal_structure || null, business_activity: kyc.business_activity || null, license_authority: kyc.issuing_authority || null, license_number: kyc.license_number || null });
+      const row = await insertRow("banking_leads", { ...cleanValues(leadFields, lead), lead_date: lead.lead_date, status: "Interested", picked_up_at: new Date().toISOString(), picked_up_by: lead.assigned_to || profile?.id, company_type: kyc.legal_structure || null, business_activity: kyc.business_activity || null, license_authority: kyc.issuing_authority || null, license_number: kyc.license_number || null });
       const conv = await rpc("banking_convert_lead", { p_lead: row.id, p_client: clientId || null });
       if (canKyc) {
         const profile_ = await run(table("banking_kyc_profiles").select("id").eq("client_id", conv.client_id).single());

@@ -14,7 +14,7 @@ OUT = ROOT / "Banking Module" / "templates" / "Lead_Import_Template.xlsx"
 MASTER = ROOT / "Resources" / "Banking"
 MARKER, VERSION, ROWS = "AB_CAPITAL_LEAD_TEMPLATE", 1, 2000
 
-BANKS = ["ADCB", "ADIB", "Dubai Islamic Bank", "Emirates Islamic Bank", "Emirates NBD", "FAB", "M Bank", "Mashreq", "National Bank of Fujairah", "RAKBANK", "Ruya Bank", "Sharjah Islamic Bank", "UBL Bank", "Wio Bank"]
+BANKS = ["Abu Dhabi Commercial Bank PJSC", "Abu Dhabi Islamic Bank PJSC", "Al Maryah Community Bank (Mbank)", "Dubai Islamic Bank PJSC", "Emirates Islamic Bank PJSC", "Emirates NBD Bank PJSC", "First Abu Dhabi Bank PJSC", "Mashreqbank PSC", "National Bank of Fujairah PJSC", "Ruya Community Islamic Bank", "Sharjah Islamic Bank PJSC", "The National Bank of Ras Al Khaimah PJSC (RAKBANK)", "United Bank Limited (UBL)", "Wio Bank PJSC"]
 SOURCES = ["Cold Call", "WhatsApp", "Meta Ads", "Google Ads", "Instagram", "Direct", "Campaign", "Third Party", "Employee", "Referral", "Other"]
 STATUSES = ["Document Collection", "Documents Under Review", "Documents Completed", "Application Preparation", "Ready for Submission", "Submitted to Bank", "Bank Review", "Additional Documents Requested", "Resubmission Required", "Appointment Scheduled", "Client Visited Bank", "Approved", "Account Opened", "Rejected", "Returned", "Cancelled", "On Hold"]
 METHODS = ["Bank Transfer", "Cash", "Cash Deposit", "Cheque", "Card", "Other"]

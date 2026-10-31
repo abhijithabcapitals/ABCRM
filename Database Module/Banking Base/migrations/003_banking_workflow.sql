@@ -107,6 +107,22 @@ begin
   return v_case;
 end $$;
 
+-- A lead is Converted while its case has a selected bank and money received; a reversal takes it back.
+create or replace function public.banking_lead_sync(p_case uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare c banking_cases; v_closed boolean;
+begin
+  select * into c from banking_cases where id = p_case;
+  if c.lead_id is null or c.is_historical then return; end if;
+  v_closed := exists (select 1 from banking_bank_recommendations where case_id = p_case and is_selected)
+    and (select coalesce(sum(signed_amount), 0) from banking_payments where case_id = p_case) > 0;
+  if v_closed then
+    update banking_leads set status = 'Converted', converted_at = coalesce(converted_at, now()) where id = c.lead_id and status <> 'Converted';
+  else
+    update banking_leads set status = 'Potential Client', converted_at = null where id = c.lead_id and status = 'Converted';
+  end if;
+end $$;
+
 -- One client can have many cases: an existing client is reused, never duplicated.
 create or replace function public.banking_convert_lead(p_lead uuid, p_client uuid default null, p_master text default null) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -116,11 +132,14 @@ begin
   perform banking_require('cases.manage');
   select * into l from banking_leads where id = p_lead for update;
   if l.id is null then raise exception 'Lead not found'; end if;
-  if l.status = 'Converted' then raise exception 'Lead % is already converted', l.lead_ref; end if;
+  if l.client_id is not null then raise exception 'Lead % is already converted to a client', l.lead_ref; end if;
   v_existing := p_client is not null or exists (select 1 from banking_clients where name_key = banking_name_key(l.company_name) or (nullif(l.license_number, '') is not null and license_number = l.license_number));
   v_client := coalesce(p_client, banking_get_or_create_client(l.company_name, l.license_number, p_master));
   v_case := banking_new_case(v_client, l.id, null, 'Business', l.assigned_to, 4);
-  update banking_leads set status = 'Converted', converted_at = now(), client_id = v_client where id = p_lead;
+  update banking_leads set client_id = v_client,
+         status = case when status in ('New','Contacted','Interested','Follow-up Required','Bank Options Shared') then 'Potential Client' else status end,
+         picked_up_at = coalesce(picked_up_at, now()), picked_up_by = coalesce(picked_up_by, auth.uid()), assigned_to = coalesce(assigned_to, auth.uid())
+   where id = p_lead;
   if l.contact_person is not null then
     insert into banking_case_parties (case_id, full_name, mobile, email) values (v_case, l.contact_person, coalesce(l.mobile, l.whatsapp), l.email);
   end if;
@@ -270,6 +289,7 @@ begin
     update banking_applications set status = 'Cancelled', is_active = false, status_date = now() where id = a.id;
   end if;
   perform set_config('banking.internal', '', true);
+  perform banking_lead_sync(p_case);
   return banking_generate_checklist(p_case, p_reco);
 end $$;
 
@@ -543,6 +563,7 @@ begin
   values (p_case, q.id, p_date, p_amount, p_method, p_reference, p_note, p_description, p_remarks, p_path, coalesce(p_received_by, auth.uid()), p_import_row)
   returning id, payment_ref into v_id, v_ref;
   insert into banking_receipts (payment_id) values (v_id) returning receipt_number into v_rc;
+  perform banking_lead_sync(p_case);
   return jsonb_build_object('payment_id', v_id, 'payment_ref', v_ref, 'receipt_number', v_rc);
 end $$;
 
@@ -568,6 +589,7 @@ begin
   values (o.case_id, o.quotation_id, p_type, coalesce(p_date, current_date), v_amount, coalesce(p_method, o.payment_method), p_type || ' of ' || o.payment_ref, p_reason, auth.uid(), o.id)
   returning id into v_id;
   if p_type = 'Refund' then insert into banking_refunds (payment_id, original_payment_id, reason, approved_by) values (v_id, o.id, p_reason, auth.uid()); end if;
+  perform banking_lead_sync(o.case_id);
   return v_id;
 end $$;
 
@@ -579,6 +601,7 @@ begin
   if nullif(trim(p_reason), '') is null then raise exception 'A reason is required'; end if;
   insert into banking_payments (case_id, quotation_id, txn_type, payment_date, amount, description, remarks, received_by)
   values (p_case, (banking_current_quote(p_case)).id, 'Adjustment', coalesce(p_date, current_date), p_amount, 'Adjustment', p_reason, auth.uid()) returning id into v_id;
+  perform banking_lead_sync(p_case);
   return v_id;
 end $$;
 
@@ -1193,7 +1216,7 @@ $$;
 create or replace function public.banking_plan_catalogue(p_case uuid) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
   select coalesce(jsonb_agg(jsonb_build_object(
-    'bank_id', b.id, 'bank_name', b.bank_name, 'website', b.website, 'appointment_required', b.appointment_required, 'digital_application', b.digital_application, 'processing_time', b.general_processing_time,
+    'bank_id', b.id, 'bank_name', b.bank_name, 'website', b.website, 'logo_url', b.logo_url, 'appointment_required', b.appointment_required, 'digital_application', b.digital_application, 'processing_time', b.general_processing_time,
     'bank_pricing', to_jsonb(banking_price_for(b.id, null)),
     'flags', banking_case_flags(p_case, b.id),
     'plans', (select coalesce(jsonb_agg(jsonb_build_object('scheme_id', s.id, 'scheme_name', s.scheme_name, 'account_type', s.account_type, 'version', to_jsonb(v), 'pricing', to_jsonb(banking_price_for(b.id, s.id))) order by coalesce(v.minimum_average_balance, 0), s.scheme_name), '[]'::jsonb)
@@ -1264,7 +1287,7 @@ begin
   for f in select p.oid::regprocedure sig, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
             where n.nspname = 'public' and (p.proname like 'banking\_%') loop
     execute format('revoke all on function %s from public, anon', f.sig);
-    if f.proname not in ('banking_get_or_create_client','banking_generate_checklist','banking_quote_recalc','banking_case_finance_internal','banking_touch','banking_audit','banking_append_only','banking_guard_case','banking_guard_reco','banking_kyc_percent','banking_next_number','banking_number_taken','banking_number_format','banking_number_period','banking_generated_serial') then
+    if f.proname not in ('banking_get_or_create_client','banking_generate_checklist','banking_quote_recalc','banking_case_finance_internal','banking_touch','banking_audit','banking_append_only','banking_guard_case','banking_guard_reco','banking_kyc_percent','banking_lead_sync','banking_next_number','banking_number_taken','banking_number_format','banking_number_period','banking_generated_serial') then
       execute format('grant execute on function %s to authenticated', f.sig);
     end if;
   end loop;

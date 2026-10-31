@@ -4,7 +4,7 @@ Open **Business Banking** in the CRM sidebar. An administrator gives you a banki
 
 ## The normal path
 
-**Leads** opens on your existing leads. **+ New Lead** and **Import from Excel** are at the top right.
+**Leads** has four tabs. **New Leads** have no owner: press **Pick Up** and the lead moves to **In Pipeline** under your name. It moves to **Converted** when a bank is selected and a payment received, and goes back if that payment is reversed. **Lost** holds lost, not interested and unreachable leads. **+ New Lead** and **Import from Excel** are at the top right. A lead you add yourself starts In Pipeline.
 
 **New Lead**
 1. Upload all the documents you have. Press **Read documents and continue**. This needs the Client Module running on this PC (`Client Module\\Start-ClientModule.cmd`); without it, you type the details and the files are still saved.
@@ -60,7 +60,7 @@ Only the AB Capital template is accepted. In **Leads**, press **Import from Exce
 
 ## Masters
 
-Open **Banking Partners** and click a bank to manage its details and RMs, plans, pricing, document list and internal notes in one place. Standard lists are under **Standard document lists**. All of it changes without software changes. Requirements supplied so far are internal notes marked **Unverified**. When someone confirms one with the bank, record the date, source and reviewer and mark it Verified.
+Logos come from each bank's website. To use a better logo, paste its address in the bank's **Bank logo URL**. Open **Banking Partners** and click a bank to manage its details and RMs, plans, pricing, document list and internal notes in one place. Standard lists are under **Standard document lists**. All of it changes without software changes. Requirements supplied so far are internal notes marked **Unverified**. When someone confirms one with the bank, record the date, source and reviewer and mark it Verified.
 
 Risk rules and internal notes are only considerations for staff. They never reject a client.
 

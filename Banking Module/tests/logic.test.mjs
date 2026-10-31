@@ -7,9 +7,10 @@ import { fileURLToPath } from "node:url";
 import { parsePaymentNote } from "../logic/paymentNotes.js";
 import { quoteTotals } from "../logic/pricing.js";
 import { documentFileName } from "../logic/documents.js";
-import { filterLeads, leadTabs, OVERDUE } from "../logic/leadFilters.js";
+import { filterLeads, firstTab, leadTabs, stageOf } from "../logic/leadFilters.js";
 import { checkTemplate, readTemplate, TEMPLATE_COLUMNS } from "../logic/leadTemplate.js";
 import { bankInsight, monthSeries, rangeFor, shareInsight, trendSummary } from "../logic/insights.js";
+import { bankInitials } from "../logic/bankInitials.js";
 import { buildAutofill, compareWithCurrent, expiryFrom } from "../logic/kycAutofill.js";
 import { readSheet, markDuplicates, suggestStatus, resolveBank, normaliseCompany, isCleanRow, colourFamily } from "../logic/excelImport.js";
 
@@ -225,20 +226,23 @@ test("bad rows are all reported", () => {
   for (const t of ["Bank is required", "not in Banking Partners", "real Excel date", "Fee AED must be", "Email", "has an amount but no date", "in the future", "Same company, bank and month"]) assert.ok(has(t), t);
 });
 
-test("lead tabs count what a click will show", () => {
+test("lead stages and tabs count what a click will show", () => {
   const leads = [
-    { status: "New", lead_source: "Direct", priority: "High", lead_date: "2026-10-01", follow_up_date: "2026-10-30", assigned_to: "u1" },
-    { status: "Converted", lead_source: "Third Party", priority: "Medium", lead_date: "2026-09-01", follow_up_date: "2026-10-01" },
-    { status: "New", lead_source: "Third Party", priority: "Medium", lead_date: "2026-08-01" },
+    { status: "New", lead_source: "Direct", priority: "High", lead_date: "2026-10-01", follow_up_date: "2026-10-30" },
+    { status: "Contacted", picked_up_at: "2026-10-02", lead_source: "Third Party", priority: "Medium", lead_date: "2026-09-01", assigned_to: "u1" },
+    { status: "Converted", picked_up_at: "2026-10-02", lead_source: "Third Party", priority: "Medium", lead_date: "2026-08-01", follow_up_date: "2026-10-01" },
+    { status: "Lost", lead_source: "Direct", priority: "Low", lead_date: "2026-08-01" },
   ];
-  const none = { source: "", employee: "", priority: "", from: "", to: "" };
-  const t = leadTabs(leads, none, ["New", "Lost", "Converted"], "2026-10-31");
-  assert.deepEqual(t.map((x) => [x.label, x.count]), [["All", 3], [OVERDUE, 1], ["New", 2], ["Converted", 1]]);
+  assert.deepEqual(leads.map(stageOf), ["new", "pipeline", "converted", "lost"]);
+  const none = { status: "", source: "", employee: "", priority: "", from: "", to: "", due: "" };
+  const t = leadTabs(leads, none, "2026-10-31");
+  assert.deepEqual(t.map((x) => x.count), [1, 1, 1, 1]);
   for (const x of t) assert.equal(filterLeads(leads, x.key, none, "2026-10-31").length, x.count);
-  const third = { ...none, source: "Third Party" };
-  assert.equal(leadTabs(leads, third, ["New"], "2026-10-31")[1].count, 1);
-  assert.equal(filterLeads(leads, "", { ...none, employee: "none" }, "2026-10-31").length, 2);
-  assert.equal(filterLeads(leads, "", { ...none, from: "2026-09-01", to: "2026-09-30" }, "2026-10-31").length, 1);
+  assert.equal(filterLeads(leads, "new", { ...none, due: "1" }, "2026-10-31").length, 1);
+  assert.equal(filterLeads(leads, "converted", { ...none, due: "1" }, "2026-10-31").length, 0);
+  assert.equal(filterLeads(leads, "pipeline", { ...none, employee: "u1" }, "2026-10-31").length, 1);
+  assert.equal(firstTab([{ key: "new", count: 0 }, { key: "pipeline", count: 0 }, { key: "converted", count: 3 }]), "converted");
+  assert.equal(firstTab([{ key: "new", count: 0 }]), "new");
 });
 
 test("a document number becomes a safe file name", () => {
@@ -252,4 +256,11 @@ test("quick ranges use whole calendar months", () => {
   assert.deepEqual(rangeFor("quarter", now), { from: "2025-11-01", to: "2026-01-15" });
   assert.deepEqual(rangeFor("year", now), { from: "2026-01-01", to: "2026-01-15" });
   assert.deepEqual(rangeFor("all", now), { from: "", to: "" });
+});
+
+test("bank badge initials skip legal words", () => {
+  assert.equal(bankInitials("First Abu Dhabi Bank PJSC"), "FA");
+  assert.equal(bankInitials("Mashreqbank PSC"), "MA");
+  assert.equal(bankInitials("The National Bank of Ras Al Khaimah PJSC (RAKBANK)"), "NR");
+  assert.equal(bankInitials(""), "?");
 });

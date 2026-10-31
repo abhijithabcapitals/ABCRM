@@ -5,17 +5,19 @@ import NewLeadWizard from "./NewLeadWizard";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { insertRow, listAll, loadSettings, rpc, run, table, updateRow } from "../services/bankingApi";
 import { LEAD_STATUSES, PRIORITIES } from "../logic/constants";
-import { filterLeads, leadTabs } from "../logic/leadFilters";
+import { filterLeads, firstTab, leadTabs, stageOf } from "../logic/leadFilters";
 
 const FALLBACK_SOURCES = ["Other"];
-const NO_FILTERS = { source: "", employee: "", priority: "", from: "", to: "" };
+const NO_FILTERS = { status: "", source: "", employee: "", priority: "", from: "", to: "", due: "" };
 
 export default function Leads({ initialMode }) {
   const { can, personOptions, personName, openCase } = useBanking();
   const leads = useLoad(() => listAll("banking_leads"), []);
   const settings = useLoad(() => loadSettings(), []);
   const [mode, setMode] = useState(initialMode || "list"); // list | new | import
-  const [tab, setTab] = useState("");
+  const [tab, setTab] = useState(null);
+  const [picking, setPicking] = useState(null);
+  const [pickError, setPickError] = useState(null);
   const [filters, setFilters] = useState(NO_FILTERS);
   const [editing, setEditing] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -42,9 +44,15 @@ export default function Leads({ initialMode }) {
   ], [sources, personOptions]);
 
   const all = leads.data || [];
-  const tabs = leadTabs(all, filters, LEAD_STATUSES, today());
-  const activeTab = tabs.some((t) => t.key === tab) ? tab : "";
+  const tabs = leadTabs(all, filters, today());
+  const activeTab = tab || firstTab(tabs);
   const rows = filterLeads(all, activeTab, filters, today());
+  const pickUp = async (l) => {
+    setPicking(l.id); setPickError(null);
+    try { await rpc("banking_lead_pick_up", { p_lead: l.id }); } catch (e) { setPickError(e.message); }
+    await leads.reload();
+    setPicking(null);
+  };
   const setF = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
   const filtered = Object.values(filters).some(Boolean);
   const overdue = (l) => l.follow_up_date && l.follow_up_date <= today() && !["Converted", "Lost", "Not Interested"].includes(l.status);
@@ -66,14 +74,16 @@ export default function Leads({ initialMode }) {
         {can("imports.manage") && <Button onClick={() => setMode("import")}>Import from Excel</Button>}
         {can("leads.manage") && <Button variant="primary" onClick={() => setMode("new")}>+ New Lead</Button>}
       </PageHead>
-      <ErrorNote message={leads.error} />
-      <div className="bk-tabs" role="tablist" aria-label="Lead status">
+      <ErrorNote message={leads.error || pickError} onClose={pickError ? () => setPickError(null) : undefined} />
+      <div className="bk-tabs" role="tablist" aria-label="Lead stage">
         {tabs.map((t) => <button type="button" role="tab" aria-selected={activeTab === t.key} key={t.key} className={activeTab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>{t.label} <span className="bk-tab-count">{t.count}</span></button>)}
       </div>
       <div className="bk-filter">
+        <select aria-label="Lead status" value={filters.status} onChange={setF("status")}><option value="">All statuses</option>{LEAD_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
         <select aria-label="Lead source" value={filters.source} onChange={setF("source")}><option value="">All sources</option>{sources.map((s) => <option key={s}>{s}</option>)}</select>
         <select aria-label="Employee" value={filters.employee} onChange={setF("employee")}><option value="">All employees</option><option value="none">Unassigned</option>{personOptions.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
         <select aria-label="Priority" value={filters.priority} onChange={setF("priority")}><option value="">All priorities</option>{PRIORITIES.map((p) => <option key={p}>{p}</option>)}</select>
+        <label className="bk-check"><input type="checkbox" checked={!!filters.due} onChange={(e) => setFilters((f) => ({ ...f, due: e.target.checked ? "1" : "" }))} /> Follow-up due</label>
         <label className="bk-check">From <input type="date" aria-label="From date" value={filters.from} onChange={setF("from")} /></label>
         <label className="bk-check">To <input type="date" aria-label="To date" value={filters.to} onChange={setF("to")} /></label>
         {filtered && <button type="button" className="bk-link" onClick={() => setFilters(NO_FILTERS)}>Clear filters</button>}
@@ -85,7 +95,7 @@ export default function Leads({ initialMode }) {
           { key: "company_name", label: "Client / company" },
           { key: "contact_person", label: "Contact" },
           { key: "lead_source", label: "Source" },
-          { key: "assigned_to", label: "Employee", render: (r) => personName(r.assigned_to) },
+          { key: "assigned_to", label: "Employee", render: (r) => (r.picked_up_by || r.assigned_to ? personName(r.picked_up_by || r.assigned_to) : stageOf(r) === "new" && can("leads.manage") ? <Button variant="primary" busy={picking === r.id} onClick={(e) => { e.stopPropagation(); pickUp(r); }}>Pick Up</Button> : "–") },
           { key: "follow_up_date", label: "Follow-up", render: (r) => <span className={overdue(r) ? "bk-overdue" : ""}>{fmtDate(r.follow_up_date)}</span> },
           { key: "priority", label: "Priority" },
           { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> },
@@ -99,7 +109,8 @@ export default function Leads({ initialMode }) {
   );
 }
 
-function LeadDetail({ lead, onClose, onEdit, onChanged, openCase }) {
+function LeadDetail({ lead: initial, onClose, onEdit, onChanged, openCase }) {
+  const [lead, setLead] = useState(initial);
   const { can } = useBanking();
   const [clientId, setClientId] = useState(lead.client_id);
   const canKyc = can("kyc.view");
@@ -121,6 +132,7 @@ function LeadDetail({ lead, onClose, onEdit, onChanged, openCase }) {
       <PageHead title={lead.company_name} sub={`${lead.lead_ref} · ${lead.status}`}>
         <Button onClick={onClose}>All leads</Button>
         {clientId && <CaseLink leadId={lead.id} openCase={openCase} onClose={onClose} />}
+        {can("leads.manage") && stageOf(lead) === "new" && <Button variant="primary" busy={busy} onClick={() => act(async () => { await rpc("banking_lead_pick_up", { p_lead: lead.id }); setLead(await run(table("banking_leads").select("*").eq("id", lead.id).single())); await onChanged(); })}>Pick Up</Button>}
         {can("leads.manage") && lead.status !== "Converted" && <Button onClick={onEdit}>Edit</Button>}
       </PageHead>
       <ErrorNote message={error} />

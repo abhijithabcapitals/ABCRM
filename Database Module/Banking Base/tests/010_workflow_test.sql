@@ -55,6 +55,7 @@ select public.as_user('0a');
 select public.ok('CRM admin has access', (public.banking_my_access() ->> 'role') = 'ADMIN' and jsonb_array_length(public.banking_my_access() -> 'permissions') > 20);
 
 -- ── Masters from seed ──
+select public.ok('official names kept with old names as aliases', (select bank_name = 'Abu Dhabi Commercial Bank PJSC' and 'ADCB' = any(aliases) and website is not null from public.banking_partners where bank_code = 'ADCB'));
 select public.ok('12 brief banks plus Mashreq and SIB', (select count(*) from public.banking_partners) = 14);
 select public.ok('checklists unverified by default', not exists (select 1 from public.banking_checklist_templates where verification_status <> 'Unverified'));
 select public.ok('standard list has 16 items', (select count(*) from public.banking_checklist_items i join public.banking_checklist_templates t on t.id = i.template_id where t.template_code = 'STANDARD') = 16);
@@ -197,7 +198,7 @@ select public.must_fail('banker cannot override', format($$select public.banking
 select public.as_user('0b');
 select public.keep('el', public.banking_letter_generate(public.id('case1')));
 select public.ok('letter links accepted quote', (select quotation_id = public.id('q2') from public.banking_engagement_letters where id = public.id('el')));
-select public.ok('letter snapshot has bank', (select content ->> 'bank' = 'M Bank' from public.banking_engagement_letters where id = public.id('el')));
+select public.ok('letter snapshot has bank', (select content ->> 'bank' = 'Al Maryah Community Bank (Mbank)' from public.banking_engagement_letters where id = public.id('el')));
 select public.must_fail('signing needs the signed file', format($$select public.banking_letter_action(%L, 'sign')$$, public.id('el')), 'Upload');
 select public.banking_letter_action(public.id('el'), 'send');
 select public.banking_letter_action(public.id('el'), 'sign', 'c/el/signed.pdf', current_date, 'Asha');
@@ -316,6 +317,32 @@ select public.ok('selected bank alone is still a lead', not exists (select 1 fro
 select public.as_user('0c');
 select public.ok('sales list hides money', (select bool_and(e -> 'received' = 'null'::jsonb) from jsonb_array_elements(public.banking_client_list()) e));
 
+-- ── Lead pipeline ──
+select public.as_user('0c');
+insert into public.banking_leads (company_name) values ('Pipeline Co');
+select public.keep('pl', (select id from public.banking_leads where company_name = 'Pipeline Co'));
+select public.ok('new lead is not picked up', (select picked_up_at is null from public.banking_leads where id = public.id('pl')));
+select public.banking_lead_pick_up(public.id('pl'));
+select public.ok('pick up assigns the employee', (select assigned_to = '00000000-0000-0000-0000-00000000000c' and picked_up_by = assigned_to and status = 'Contacted' from public.banking_leads where id = public.id('pl')));
+select public.as_user('0b');
+select public.must_fail('second person cannot pick up', format($$select public.banking_lead_pick_up(%L)$$, public.id('pl')), 'Already picked up by Sales');
+select public.as_user('0e');
+select public.must_fail('finance cannot pick up', format($$select public.banking_lead_pick_up(%L)$$, public.id('pl')), 'permission');
+select public.as_user('0b');
+select public.keep('plcase', (public.banking_convert_lead(public.id('pl')) ->> 'case_id'));
+select public.ok('opening a case is not Converted', (select status <> 'Converted' from public.banking_leads where id = public.id('pl')));
+insert into public.banking_bank_recommendations (case_id, bank_id) select public.id('plcase'), id from public.banking_partners where bank_code = 'WIO';
+select public.ok('bank chosen', public.banking_select_bank(public.id('plcase'), (select id from public.banking_bank_recommendations where case_id = public.id('plcase'))) >= 0);
+select public.ok('bank alone is not Converted', (select status <> 'Converted' from public.banking_leads where id = public.id('pl')));
+select public.as_user('0e');
+select public.keep('plpay', (public.banking_payment_add(public.id('plcase'), current_date, 100, 'Cash') ->> 'payment_id'));
+select public.as_user('0b');
+select public.ok('bank plus payment is Converted', (select status = 'Converted' and converted_at is not null from public.banking_leads where id = public.id('pl')));
+select public.as_user('0e');
+select public.banking_payment_counter(public.id('plpay'), 'Reversal', current_date, 'Bounced');
+select public.as_user('0b');
+select public.ok('reversing the payment returns it to pipeline', (select status <> 'Converted' and picked_up_at is not null from public.banking_leads where id = public.id('pl')));
+
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));
@@ -340,7 +367,7 @@ select public.as_user('0a');
 select public.ok('step counts add up to all cases', (select sum((e ->> 'total')::int) from jsonb_array_elements(public.banking_dashboard() -> 'charts' -> 'by_step') e) = (select count(*) from public.banking_cases));
 select public.ok('every report runs', (select bool_and(jsonb_typeof(public.banking_report(n)) = 'array') from unnest(array['leads_received','lead_sources','conversion_rate','lost_leads','employee_performance','quotations_issued','quotation_conversion','applications_by_bank','applications_by_scheme','under_process','accounts_opened','rejected','returned','approval_rate','average_processing','quotation_value','bank_fees','ab_revenue','supplementary_revenue','payments_received','outstanding','refunds','pending_documents','overdue_followups','pending_agreements','pending_appointments','awaiting_bank','cases_by_employee']) n));
 select public.must_fail('unknown report refused', $$select public.banking_report('nope')$$, 'Unknown report');
-select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 4);
+select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 5);
 select public.ok('timeline has entries', jsonb_array_length(public.banking_case_timeline(public.id('case1'))) > 5);
 select public.ok('activity log populated', (select count(*) > 20 from public.banking_activity_logs));
 

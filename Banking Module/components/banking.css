@@ -291,3 +291,7 @@
 .bk-task-client .bk-field { flex: 1 1 280px; }
 .bk-task-client .bk-check { min-height: 32px; }
 .bk-task-status { max-width: 240px; margin-top: 11px; }
+.bk-logo { display: inline-grid; flex-shrink: 0; place-items: center; overflow: hidden; border: 1px solid #e1e8ea; border-radius: 7px; background: #fff; color: #0d7277; font-weight: 800; letter-spacing: -.02em; }
+.bk-logo img { width: 78%; height: 78%; object-fit: contain; }
+.bk-bank-name { display: inline-flex; align-items: center; gap: 9px; }
+.bk-bank-head { margin-bottom: 8px; }
