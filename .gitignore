@@ -30,3 +30,8 @@ Thumbs.db
 
 # Local API keys - never commit
 Api Secrets/
+
+# Client workbook and signed agreements (confidential, stay on this PC)
+Resources/
+Database Module/Banking Base/data/
+Database Module/Banking Base/private/

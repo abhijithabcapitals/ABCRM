@@ -1182,6 +1182,7 @@ export default function Sidebar({
           { key: "mytasks", Icon: IconMyTasks, label: "Hot Alerts" },
           { key: "dashboard", Icon: IconDashboard, label: "Dashboard" },
           { key: "business-development", Icon: IconBoard, label: "Business Development" },
+          { key: "business-banking", Icon: IconClients, label: "Business Banking" },
           { key: "quotations", Icon: IconFile, label: "Document Generator" },
           ...(profile?.role === "admin"
             ? [
