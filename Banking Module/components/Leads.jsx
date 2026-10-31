@@ -3,15 +3,18 @@ import NewLeadWizard from "./NewLeadWizard";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { insertRow, listAll, loadSettings, rpc, run, table, updateRow } from "../services/bankingApi";
 import { LEAD_STATUSES, PRIORITIES } from "../logic/constants";
+import { filterLeads, leadTabs } from "../logic/leadFilters";
 
 const FALLBACK_SOURCES = ["Other"];
+const NO_FILTERS = { source: "", employee: "", priority: "", from: "", to: "" };
 
 export default function Leads() {
   const { can, personOptions, personName, openCase, goTo } = useBanking();
   const leads = useLoad(() => listAll("banking_leads"), []);
   const settings = useLoad(() => loadSettings(), []);
   const [mode, setMode] = useState("home"); // home | new | list
-  const [statusFilter, setStatusFilter] = useState("");
+  const [tab, setTab] = useState("");
+  const [filters, setFilters] = useState(NO_FILTERS);
   const [editing, setEditing] = useState(null);
   const [detail, setDetail] = useState(null);
   const sources = settings.data?.lead_sources || FALLBACK_SOURCES;
@@ -36,7 +39,12 @@ export default function Leads() {
     { name: "initial_notes", label: "Initial discussion notes", type: "textarea", full: true },
   ], [sources, personOptions]);
 
-  const rows = (leads.data || []).filter((l) => !statusFilter || l.status === statusFilter);
+  const all = leads.data || [];
+  const tabs = leadTabs(all, filters, LEAD_STATUSES, today());
+  const activeTab = tabs.some((t) => t.key === tab) ? tab : "";
+  const rows = filterLeads(all, activeTab, filters, today());
+  const setF = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
+  const filtered = Object.values(filters).some(Boolean);
   const overdue = (l) => l.follow_up_date && l.follow_up_date <= today() && !["Converted", "Lost", "Not Interested"].includes(l.status);
 
   if (mode === "new") return <NewLeadWizard onCancel={() => { setMode("home"); leads.reload(); }} />;
@@ -56,14 +64,24 @@ export default function Leads() {
 
   return (
     <div>
-      <PageHead title="Existing Leads" sub={`${leads.data?.length ?? 0} leads`}>
+      <PageHead title="Existing Leads" sub={`${rows.length} of ${all.length} leads`}>
         <Button onClick={() => setMode("home")}>Back</Button>
-        <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All statuses</option>{LEAD_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
         {can("leads.manage") && <Button variant="primary" onClick={() => setMode("new")}>New Lead</Button>}
       </PageHead>
       <ErrorNote message={leads.error} />
+      <div className="bk-tabs" role="tablist" aria-label="Lead status">
+        {tabs.map((t) => <button type="button" role="tab" aria-selected={activeTab === t.key} key={t.key} className={activeTab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>{t.label} <span className="bk-tab-count">{t.count}</span></button>)}
+      </div>
+      <div className="bk-filter">
+        <select aria-label="Lead source" value={filters.source} onChange={setF("source")}><option value="">All sources</option>{sources.map((s) => <option key={s}>{s}</option>)}</select>
+        <select aria-label="Employee" value={filters.employee} onChange={setF("employee")}><option value="">All employees</option><option value="none">Unassigned</option>{personOptions.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
+        <select aria-label="Priority" value={filters.priority} onChange={setF("priority")}><option value="">All priorities</option>{PRIORITIES.map((p) => <option key={p}>{p}</option>)}</select>
+        <label className="bk-check">From <input type="date" aria-label="From date" value={filters.from} onChange={setF("from")} /></label>
+        <label className="bk-check">To <input type="date" aria-label="To date" value={filters.to} onChange={setF("to")} /></label>
+        {filtered && <button type="button" className="bk-link" onClick={() => setFilters(NO_FILTERS)}>Clear filters</button>}
+      </div>
       {leads.loading && !leads.data ? <Spinner /> : (
-        <DataTable search="Search name, phone, email…" rows={rows} onRow={setDetail} columns={[
+        <DataTable empty="No leads match these filters." search="Search name, phone, email…" rows={rows} onRow={setDetail} columns={[
           { key: "lead_ref", label: "Lead" },
           { key: "lead_date", label: "Date", render: (r) => fmtDate(r.lead_date) },
           { key: "company_name", label: "Client / company" },

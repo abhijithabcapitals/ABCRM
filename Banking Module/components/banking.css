@@ -237,3 +237,6 @@
   .bk-rail-phases { flex-wrap: wrap; }
   .bk-phase { flex-basis: 30%; }
 }
+
+.bk-tab-count { margin-left: 3px; padding: 1px 6px; border-radius: 999px; background: #eef2f4; color: #5f7077; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.bk-tabs button.active .bk-tab-count { background: #0d7d82; color: #fff; }

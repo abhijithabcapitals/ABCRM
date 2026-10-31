@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parsePaymentNote } from "../logic/paymentNotes.js";
 import { quoteTotals } from "../logic/pricing.js";
+import { filterLeads, leadTabs, OVERDUE } from "../logic/leadFilters.js";
 import { checkTemplate, readTemplate, TEMPLATE_COLUMNS } from "../logic/leadTemplate.js";
 import { bankInsight, monthSeries, shareInsight, trendSummary } from "../logic/insights.js";
 import { buildAutofill, compareWithCurrent, expiryFrom } from "../logic/kycAutofill.js";
@@ -221,4 +222,20 @@ test("bad rows are all reported", () => {
   ]), XLSX, OPTS);
   const has = (t) => r.errors.some((e) => e.message.includes(t));
   for (const t of ["Bank is required", "not in Banking Partners", "real Excel date", "Fee AED must be", "Email", "has an amount but no date", "in the future", "Same company, bank and month"]) assert.ok(has(t), t);
+});
+
+test("lead tabs count what a click will show", () => {
+  const leads = [
+    { status: "New", lead_source: "Direct", priority: "High", lead_date: "2026-10-01", follow_up_date: "2026-10-30", assigned_to: "u1" },
+    { status: "Converted", lead_source: "Third Party", priority: "Medium", lead_date: "2026-09-01", follow_up_date: "2026-10-01" },
+    { status: "New", lead_source: "Third Party", priority: "Medium", lead_date: "2026-08-01" },
+  ];
+  const none = { source: "", employee: "", priority: "", from: "", to: "" };
+  const t = leadTabs(leads, none, ["New", "Lost", "Converted"], "2026-10-31");
+  assert.deepEqual(t.map((x) => [x.label, x.count]), [["All", 3], [OVERDUE, 1], ["New", 2], ["Converted", 1]]);
+  for (const x of t) assert.equal(filterLeads(leads, x.key, none, "2026-10-31").length, x.count);
+  const third = { ...none, source: "Third Party" };
+  assert.equal(leadTabs(leads, third, ["New"], "2026-10-31")[1].count, 1);
+  assert.equal(filterLeads(leads, "", { ...none, employee: "none" }, "2026-10-31").length, 2);
+  assert.equal(filterLeads(leads, "", { ...none, from: "2026-09-01", to: "2026-09-30" }, "2026-10-31").length, 1);
 });
