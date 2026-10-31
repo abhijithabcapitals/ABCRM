@@ -304,6 +304,18 @@ insert into public.banking_tasks (client_id, task_type, priority, status) select
 insert into public.banking_tasks (title, task_type) values ('General errand', 'Bank Follow-up');
 select public.ok('task can be for a client or for others', (select count(*) = 2 from public.banking_tasks where (client_id is not null and case_id is null) or title = 'General errand'));
 
+select public.as_user('0b');
+select public.ok('client with bank and payment is a Banking Client', exists (select 1 from jsonb_array_elements(public.banking_client_list()) e where (e ->> 'received')::numeric > 0));
+select public.ok('imported client listed before payments are reviewed', exists (select 1 from jsonb_array_elements(public.banking_client_list()) e where e ->> 'display_name' = 'Old Co LLC'));
+insert into public.banking_leads (company_name) values ('No Payment Yet LLC');
+select public.keep('lead9', (select id from public.banking_leads where company_name = 'No Payment Yet LLC'));
+select public.keep('conv9', (public.banking_convert_lead(public.id('lead9')) ->> 'case_id'));
+insert into public.banking_bank_recommendations (case_id, bank_id) select public.id('conv9'), id from public.banking_partners where bank_code = 'FAB';
+select public.ok('bank selected', public.banking_select_bank(public.id('conv9'), (select id from public.banking_bank_recommendations where case_id = public.id('conv9'))) >= 0);
+select public.ok('selected bank alone is still a lead', not exists (select 1 from jsonb_array_elements(public.banking_client_list()) e where e ->> 'display_name' = 'No Payment Yet LLC'));
+select public.as_user('0c');
+select public.ok('sales list hides money', (select bool_and(e -> 'received' = 'null'::jsonb) from jsonb_array_elements(public.banking_client_list()) e));
+
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));
@@ -328,7 +340,7 @@ select public.as_user('0a');
 select public.ok('step counts add up to all cases', (select sum((e ->> 'total')::int) from jsonb_array_elements(public.banking_dashboard() -> 'charts' -> 'by_step') e) = (select count(*) from public.banking_cases));
 select public.ok('every report runs', (select bool_and(jsonb_typeof(public.banking_report(n)) = 'array') from unnest(array['leads_received','lead_sources','conversion_rate','lost_leads','employee_performance','quotations_issued','quotation_conversion','applications_by_bank','applications_by_scheme','under_process','accounts_opened','rejected','returned','approval_rate','average_processing','quotation_value','bank_fees','ab_revenue','supplementary_revenue','payments_received','outstanding','refunds','pending_documents','overdue_followups','pending_agreements','pending_appointments','awaiting_bank','cases_by_employee']) n));
 select public.must_fail('unknown report refused', $$select public.banking_report('nope')$$, 'Unknown report');
-select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 3);
+select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 4);
 select public.ok('timeline has entries', jsonb_array_length(public.banking_case_timeline(public.id('case1'))) > 5);
 select public.ok('activity log populated', (select count(*) > 20 from public.banking_activity_logs));
 

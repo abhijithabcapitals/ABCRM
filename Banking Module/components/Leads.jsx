@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import ExcelImport from "./ExcelImport";
+import KycForm from "./KycForm";
 import NewLeadWizard from "./NewLeadWizard";
-import { Badge, Button, CommsList, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
+import { Badge, Button, CommsList, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { insertRow, listAll, loadSettings, rpc, run, table, updateRow } from "../services/bankingApi";
 import { LEAD_STATUSES, PRIORITIES } from "../logic/constants";
 import { filterLeads, leadTabs } from "../logic/leadFilters";
@@ -48,6 +49,7 @@ export default function Leads({ initialMode }) {
   const filtered = Object.values(filters).some(Boolean);
   const overdue = (l) => l.follow_up_date && l.follow_up_date <= today() && !["Converted", "Lost", "Not Interested"].includes(l.status);
 
+  if (detail) return <LeadDetail key={detail.id} lead={detail} onClose={() => { setDetail(null); leads.reload(); }} onEdit={() => { setEditing(detail); setDetail(null); }} onChanged={leads.reload} openCase={openCase} />;
   if (mode === "import") {
     return (
       <div>
@@ -93,46 +95,53 @@ export default function Leads({ initialMode }) {
         <FormModal wide title={editing.id ? `Edit ${editing.lead_ref}` : "New lead"} fields={fields} initial={editing} onClose={() => setEditing(null)}
           onSubmit={async (v) => { if (editing.id) await updateRow("banking_leads", editing.id, v); else await insertRow("banking_leads", v); await leads.reload(); }} />
       )}
-      {detail && <LeadDetail lead={detail} onClose={() => setDetail(null)} onEdit={() => { setEditing(detail); setDetail(null); }} onChanged={leads.reload} openCase={openCase} />}
     </div>
   );
 }
 
 function LeadDetail({ lead, onClose, onEdit, onChanged, openCase }) {
   const { can } = useBanking();
+  const [clientId, setClientId] = useState(lead.client_id);
+  const canKyc = can("kyc.view");
+  const [tab, setTab] = useState(canKyc ? "kyc" : "followups");
   const [matches, setMatches] = useState(null);
   const { error, busy, act } = useAction();
 
   const check = () => act(async () => setMatches(await rpc("banking_find_clients", { p_name: lead.company_name, p_license: lead.license_number })));
-  const convert = (clientId) => act(async () => {
-    const r = await rpc("banking_convert_lead", { p_lead: lead.id, p_client: clientId });
+  const start = (id) => act(async () => {
+    const r = await rpc("banking_convert_lead", { p_lead: lead.id, p_client: id });
+    setClientId(r.client_id);
+    setMatches(null);
     await onChanged();
-    onClose();
-    openCase(r.case_id, "client");
   });
+  const tabs = [...(canKyc ? [["kyc", "KYC"]] : []), ["details", "Lead Details"], ["followups", "Follow-ups"]];
 
   return (
-    <Modal wide title={`${lead.lead_ref} · ${lead.company_name}`} onClose={onClose}>
-      <ErrorNote message={error} />
-      <div className="bk-actions bk-mb">
-        {lead.status === "Converted" && <CaseLink leadId={lead.id} openCase={openCase} onClose={onClose} />}
+    <div>
+      <PageHead title={lead.company_name} sub={`${lead.lead_ref} · ${lead.status}`}>
+        <Button onClick={onClose}>All leads</Button>
+        {clientId && <CaseLink leadId={lead.id} openCase={openCase} onClose={onClose} />}
         {can("leads.manage") && lead.status !== "Converted" && <Button onClick={onEdit}>Edit</Button>}
-        {can("leads.manage") && lead.status !== "Converted" && <Button variant="primary" busy={busy} onClick={check}>Convert to client</Button>}
+      </PageHead>
+      <ErrorNote message={error} />
+      <div className="bk-tabs" role="tablist" aria-label="Lead record">
+        {tabs.map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
       </div>
-      {matches && (
-        <Panel title="Existing clients with this name or licence" sub="Reuse one rather than creating a duplicate. One client can have many banking cases.">
-          {matches.map((m) => (
-            <div className="bk-row" key={m.id}>
-              <span>{m.display_name} · {m.license_number || "no licence"} · {m.client_master_id || "not linked to Client Master"} · {m.cases} case(s)</span>
-              <Button busy={busy} onClick={() => convert(m.id)}>Use this client</Button>
-            </div>
-          ))}
-          {!matches.length && <p className="bk-note">No match found.</p>}
-          <Button variant="primary" busy={busy} onClick={() => convert(null)}>{matches.length ? "Different client: create new" : "Create client and case"}</Button>
+      {tab === "kyc" && (clientId ? <KycForm clientId={clientId} /> : (
+        <Panel title="KYC not started" sub="Starting KYC opens a banking case for this lead." actions={can("leads.manage") && <Button variant="primary" busy={busy} onClick={check}>Start KYC</Button>}>
+          {matches && (
+            <>
+              <p className="bk-note">Existing clients with this name or licence. Reuse one rather than creating a duplicate.</p>
+              {matches.map((m) => <div className="bk-row" key={m.id}><span>{m.display_name} · {m.license_number || "no licence"} · {m.cases} case(s)</span><Button busy={busy} onClick={() => start(m.id)}>Use this client</Button></div>)}
+              {!matches.length && <p className="bk-note">No match found.</p>}
+              <div className="bk-mt"><Button variant="primary" busy={busy} onClick={() => start(null)}>{matches.length ? "Different client: create new" : "Create and start KYC"}</Button></div>
+            </>
+          )}
         </Panel>
-      )}
-      <CommsList leadId={lead.id} />
-    </Modal>
+      ))}
+      {tab === "details" && <Panel title="Lead details"><KeyVals items={[["Lead date", fmtDate(lead.lead_date)], ["Contact", lead.contact_person], ["Mobile", lead.mobile], ["WhatsApp", lead.whatsapp], ["Email", lead.email], ["Nationality", lead.nationality], ["Licence", lead.license_number], ["Authority", lead.license_authority], ["Activity", lead.business_activity], ["Source", lead.lead_source], ["Priority", lead.priority], ["Follow-up", fmtDate(lead.follow_up_date)], ["Notes", lead.initial_notes]]} /></Panel>}
+      {tab === "followups" && <CommsList leadId={lead.id} />}
+    </div>
   );
 }
 

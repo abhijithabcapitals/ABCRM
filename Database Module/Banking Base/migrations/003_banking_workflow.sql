@@ -1235,6 +1235,28 @@ begin
   return v_doc;
 end $$;
 
+-- A lead becomes a Banking Client once a bank is selected and a payment received. Excel history has its
+-- payments still under review, so a selected bank is enough there.
+create or replace function public.banking_client_list() returns jsonb
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(jsonb_agg(row_to_json(t) order by t.display_name), '[]'::jsonb) from (
+    select cl.id, cl.display_name, cl.license_number, cl.client_master_id, cl.link_status,
+           count(distinct c.id) as cases,
+           count(distinct c.id) filter (where c.outcome is null) as open_cases,
+           (array_agg(b.bank_name order by c.created_at desc))[1] as bank,
+           case when banking_can('kyc.view') then max(k.completion_percent) end as kyc_percent,
+           case when banking_can('kyc.view') then max(k.license_expiry_date) end as license_expiry,
+           case when banking_can('payments.view') then coalesce(sum((select sum(p.signed_amount) from banking_payments p where p.case_id = c.id)), 0) end as received
+      from banking_clients cl
+      join banking_cases c on c.client_id = cl.id
+      join banking_bank_recommendations r on r.case_id = c.id and r.is_selected
+      join banking_partners b on b.id = r.bank_id
+      left join banking_kyc_profiles k on k.client_id = cl.id
+     where banking_can('cases.view')
+       and (c.is_historical or exists (select 1 from banking_payments p where p.case_id = c.id group by p.case_id having sum(p.signed_amount) > 0))
+     group by cl.id) t
+$$;
+
 -- ── Function access ──────────────────────────────────────────────────
 do $$
 declare f record;

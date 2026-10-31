@@ -1,43 +1,45 @@
-// Every client, with their KYC and banking cases inside. Cases stays one click away for work across clients.
+// Clients past bank selection and payment, with KYC and other details inside. Cases stays one click away for work across clients.
 import { useState } from "react";
 import Cases from "./Cases";
 import KycForm from "./KycForm";
-import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Spinner, fmtDate, useBanking, useLoad } from "./shared";
+import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Spinner, fmtDate, useBanking, useLoad } from "./shared";
 import { rpc, run, table } from "../services/bankingApi";
 import { STAGES } from "../logic/constants";
+import { money } from "../logic/pricing";
 
 export default function Clients({ initialStep }) {
   const [view, setView] = useState(initialStep ? "cases" : "clients");
   const [openId, setOpenId] = useState(null);
   const { can } = useBanking();
-  const canKyc = can("kyc.view");
-  const clients = useLoad(() => run(table("banking_clients").select(`id, display_name, license_number, client_master_id, link_status, banking_cases(id, outcome)${canKyc ? ", banking_kyc_profiles(completion_percent, license_expiry_date, issuing_authority)" : ""}`).order("display_name").limit(5000)), [canKyc]);
+  const clients = useLoad(() => rpc("banking_client_list"), []);
   const open = (clients.data || []).find((c) => c.id === openId);
   if (open) return <ClientPage client={open} onBack={() => { setOpenId(null); clients.reload(); }} />;
 
   const tabs = (
     <div className="bk-filter">
-      <button type="button" aria-pressed={view === "clients"} className={`bk-chip ${view === "clients" ? "active" : ""}`} onClick={() => setView("clients")}>Clients ({clients.data?.length ?? "…"})</button>
+      <button type="button" aria-pressed={view === "clients"} className={`bk-chip ${view === "clients" ? "active" : ""}`} onClick={() => setView("clients")}>Banking Clients ({clients.data?.length ?? "…"})</button>
       <button type="button" aria-pressed={view === "cases"} className={`bk-chip ${view === "cases" ? "active" : ""}`} onClick={() => setView("cases")}>All banking cases</button>
     </div>
   );
   if (view === "cases") return <div>{tabs}<Cases initialStep={initialStep} /></div>;
   return (
     <div>
-      <PageHead title="Banking Clients" sub="Open a client for their KYC and banking cases." />
+      <PageHead title="Banking Clients" sub="Leads become Banking Clients once a bank is selected and a payment is received." />
       {tabs}
       <ErrorNote message={clients.error} />
       {clients.loading && !clients.data ? <Spinner /> : (
-        <DataTable search="Search client or licence…" rows={clients.data || []} onRow={(c) => setOpenId(c.id)} empty="No clients yet." columns={[
+        <DataTable search="Search client or licence…" rows={clients.data || []} onRow={(c) => setOpenId(c.id)} empty="No Banking Clients yet." columns={[
           { key: "display_name", label: "Client" },
+          { key: "bank", label: "Bank" },
           { key: "license_number", label: "Licence" },
           { key: "client_master_id", label: "Client Master", render: (c) => c.client_master_id || <Badge tone="warn">Not linked</Badge> },
-          { key: "n", label: "Cases", right: true, render: (c) => c.banking_cases.length },
-          { key: "o", label: "Open", right: true, render: (c) => c.banking_cases.filter((x) => !x.outcome).length },
-          ...(canKyc ? [
-            { key: "k", label: "KYC", right: true, render: (c) => `${c.banking_kyc_profiles?.completion_percent ?? 0}%` },
-            { key: "x", label: "Licence expiry", render: (c) => fmtDate(c.banking_kyc_profiles?.license_expiry_date) },
+          { key: "cases", label: "Cases", right: true },
+          { key: "open_cases", label: "Open", right: true },
+          ...(can("kyc.view") ? [
+            { key: "kyc_percent", label: "KYC", right: true, render: (c) => `${c.kyc_percent ?? 0}%` },
+            { key: "license_expiry", label: "Licence expiry", render: (c) => fmtDate(c.license_expiry) },
           ] : []),
+          ...(can("payments.view") ? [{ key: "received", label: "Received", right: true, render: (c) => money(c.received) }] : []),
         ]} />
       )}
     </div>
@@ -46,7 +48,7 @@ export default function Clients({ initialStep }) {
 
 function ClientPage({ client, onBack }) {
   const { can, openCase, personOptions } = useBanking();
-  const tabs = [...(can("kyc.view") ? [["kyc", "KYC"]] : []), ["cases", "Banking Cases"]];
+  const tabs = [...(can("kyc.view") ? [["kyc", "KYC"]] : []), ["details", "Other Details"]];
   const [tab, setTab] = useState(tabs[0][0]);
   const [adding, setAdding] = useState(false);
   const cases = useLoad(() => run(table("banking_cases").select("id, case_ref, title, current_stage, outcome, is_historical, created_at, banking_bank_recommendations(is_selected, banking_partners(bank_name))").eq("client_id", client.id).order("created_at", { ascending: false })), [client.id]);
@@ -58,12 +60,14 @@ function ClientPage({ client, onBack }) {
         {can("cases.manage") && <Button variant="primary" onClick={() => setAdding(true)}>+ New banking case</Button>}
       </PageHead>
       <div className="bk-tabs" role="tablist" aria-label="Client record">
-        {tabs.map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}{k === "cases" && cases.data ? ` (${cases.data.length})` : ""}</button>)}
+        {tabs.map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
       </div>
       {tab === "kyc" && <KycForm clientId={client.id} />}
-      {tab === "cases" && (
+      {tab === "details" && (
         <>
           <ErrorNote message={cases.error} />
+          <div className="bk-panel"><KeyVals items={[["Bank", client.bank], ["Client Master", client.client_master_id || "Not linked"], ["Licence", client.license_number], ["Banking cases", client.cases], ["Open cases", client.open_cases], ...(can("payments.view") ? [["Total received", money(client.received)]] : [])]} /></div>
+          <h4 className="bk-subhead">Banking cases</h4>
           <DataTable rows={cases.data || []} onRow={(c) => openCase(c.id)} empty="No banking cases yet." columns={[
             { key: "case_ref", label: "Case" }, { key: "created_at", label: "Opened", render: (c) => fmtDate(c.created_at) }, { key: "b", label: "Bank", render: bankOf },
             { key: "current_stage", label: "Step", render: (c) => `${c.current_stage}. ${STAGES[c.current_stage - 1]}` },

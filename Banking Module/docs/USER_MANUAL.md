@@ -29,7 +29,11 @@ Open **Business Banking** in the CRM sidebar. An administrator gives you a banki
 
 Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
-**Existing clients:** open the client in **Banking Clients**, or step 4 of a case, press **Fill from documents**. Empty fields are ticked for you. A value that differs from the saved one is shown in red and unticked, so you decide. Then press **Save KYC**.
+**Existing leads and clients:** open the lead in **Leads**, the client in **Banking Clients**, or step 4 of a case, press **Fill from documents**. Empty fields are ticked for you. A value that differs from the saved one is shown in red and unticked, so you decide. Then press **Save KYC**.
+
+## Leads and Banking Clients
+
+Every lead holds its KYC: open it in **Leads**. Once a bank is selected and a payment received, it also appears in **Banking Clients**, with its KYC and other details. Clients imported from Excel appear there once a bank is recorded, because their payments are still being reviewed.
 
 ## Tasks
 
