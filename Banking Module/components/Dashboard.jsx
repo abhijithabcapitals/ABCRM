@@ -3,7 +3,7 @@ import { ErrorNote, PageHead, Panel, Spinner, useBanking, useLoad } from "./shar
 import { listAll, rpc } from "../services/bankingApi";
 import { money } from "../logic/pricing";
 import { Ranked, StepBoard, Trend, rateCell } from "./Insights";
-import { bankInsight, monthSeries, MIN_DECIDED, shareInsight } from "../logic/insights";
+import { bankInsight, monthSeries, MIN_DECIDED, QUICK_RANGES, rangeFor, shareInsight } from "../logic/insights";
 
 const CARDS = [
   ["total_leads", "Total Leads Received", "leads"], ["new_leads", "New Leads", "leads"], ["contacted", "Contacted Leads", "leads"], ["interested", "Interested Clients", "leads"],
@@ -20,21 +20,32 @@ const ALERTS = [
 export default function Dashboard() {
   const { goTo, personOptions } = useBanking();
   const [filters, setFilters] = useState({ from: "", to: "", bank: "", employee: "" });
+  const [quick, setQuick] = useState("all");
   const banks = useLoad(() => listAll("banking_partners", "id, bank_name", "bank_name", true), []);
   const { data, loading, error } = useLoad(
     () => rpc("banking_dashboard", { p_from: filters.from || null, p_to: filters.to || null, p_bank: filters.bank || null, p_employee: filters.employee || null }),
     [filters],
   );
   const set = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
+  const setDate = (k) => (e) => { setQuick(null); set(k)(e); };
+  const pickRange = (k) => { setQuick(k); setFilters((f) => ({ ...f, ...rangeFor(k) })); };
+  const clear = () => { setQuick("all"); setFilters({ from: "", to: "", bank: "", employee: "" }); };
+  const active = (filters.from || filters.to ? 1 : 0) + (filters.bank ? 1 : 0) + (filters.employee ? 1 : 0);
 
   return (
     <div>
-      <PageHead title="Dashboard" sub="Every figure is calculated from the records in this module.">
-        <input type="date" aria-label="From date" value={filters.from} onChange={set("from")} />
-        <input type="date" aria-label="To date" value={filters.to} onChange={set("to")} />
-        <select aria-label="Bank" value={filters.bank} onChange={set("bank")}><option value="">All banks</option>{(banks.data || []).map((b) => <option key={b.id} value={b.id}>{b.bank_name}</option>)}</select>
-        <select aria-label="Employee" value={filters.employee} onChange={set("employee")}><option value="">All employees</option>{personOptions.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
-      </PageHead>
+      <PageHead title="Dashboard" sub="Every figure is calculated from the records in this module." />
+      <div className="bk-filterbar" role="group" aria-label="Dashboard filters">
+        <div className="bk-quick">
+          {QUICK_RANGES.map(([k, label]) => <button type="button" key={k} aria-pressed={quick === k} className={quick === k ? "active" : ""} onClick={() => pickRange(k)}>{label}</button>)}
+        </div>
+        <label className={filters.from ? "on" : ""}><span>From</span><input type="date" value={filters.from} max={filters.to || undefined} onChange={setDate("from")} /></label>
+        <label className={filters.to ? "on" : ""}><span>To</span><input type="date" value={filters.to} min={filters.from || undefined} onChange={setDate("to")} /></label>
+        <label className={filters.bank ? "on" : ""}><span>Bank</span><select value={filters.bank} onChange={set("bank")}><option value="">All banks</option>{(banks.data || []).map((b) => <option key={b.id} value={b.id}>{b.bank_name}</option>)}</select></label>
+        <label className={filters.employee ? "on" : ""}><span>Employee</span><select value={filters.employee} onChange={set("employee")}><option value="">All employees</option>{personOptions.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select></label>
+        {active > 0 && <button type="button" className="bk-clear" onClick={clear}>Clear {active} filter{active === 1 ? "" : "s"}</button>}
+        {loading && data && <span className="bk-updating" role="status"><span className="bk-spinner" />Updating</span>}
+      </div>
       <ErrorNote message={error} />
       {loading && !data && <Spinner />}
       {data && (

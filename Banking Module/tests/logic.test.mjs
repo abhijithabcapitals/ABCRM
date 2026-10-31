@@ -9,7 +9,7 @@ import { quoteTotals } from "../logic/pricing.js";
 import { documentFileName } from "../logic/documents.js";
 import { filterLeads, leadTabs, OVERDUE } from "../logic/leadFilters.js";
 import { checkTemplate, readTemplate, TEMPLATE_COLUMNS } from "../logic/leadTemplate.js";
-import { bankInsight, monthSeries, shareInsight, trendSummary } from "../logic/insights.js";
+import { bankInsight, monthSeries, rangeFor, shareInsight, trendSummary } from "../logic/insights.js";
 import { buildAutofill, compareWithCurrent, expiryFrom } from "../logic/kycAutofill.js";
 import { readSheet, markDuplicates, suggestStatus, resolveBank, normaliseCompany, isCleanRow, colourFamily } from "../logic/excelImport.js";
 
@@ -243,4 +243,13 @@ test("lead tabs count what a click will show", () => {
 
 test("a document number becomes a safe file name", () => {
   assert.equal(documentFileName("ABC/2026/10/BBQ001", "Test Trading L.L.C"), "ABC-2026-10-BBQ001 Test Trading LLC.docx");
+});
+
+test("quick ranges use whole calendar months", () => {
+  const now = new Date(2026, 0, 15);
+  assert.deepEqual(rangeFor("month", now), { from: "2026-01-01", to: "2026-01-15" });
+  assert.deepEqual(rangeFor("last", now), { from: "2025-12-01", to: "2025-12-31" });
+  assert.deepEqual(rangeFor("quarter", now), { from: "2025-11-01", to: "2026-01-15" });
+  assert.deepEqual(rangeFor("year", now), { from: "2026-01-01", to: "2026-01-15" });
+  assert.deepEqual(rangeFor("all", now), { from: "", to: "" });
 });

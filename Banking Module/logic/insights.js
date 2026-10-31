@@ -50,3 +50,15 @@ export function shareInsight(rows, noun) {
   const share = Math.round((100 * top.value) / total);
   return share === 100 ? `All ${total} ${noun} are ${top.label}.` : `${top.label} accounts for ${share}% of ${total} ${noun}.`;
 }
+
+// Quick date ranges for the dashboard. Local calendar dates, as the user reads them.
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export const QUICK_RANGES = [["all", "All time"], ["month", "This month"], ["last", "Last month"], ["quarter", "Last 3 months"], ["year", "This year"]];
+export function rangeFor(key, now = new Date()) {
+  const y = now.getFullYear(), m = now.getMonth();
+  if (key === "month") return { from: ymd(new Date(y, m, 1)), to: ymd(now) };
+  if (key === "last") return { from: ymd(new Date(y, m - 1, 1)), to: ymd(new Date(y, m, 0)) };
+  if (key === "quarter") return { from: ymd(new Date(y, m - 2, 1)), to: ymd(now) };
+  if (key === "year") return { from: ymd(new Date(y, 0, 1)), to: ymd(now) };
+  return { from: "", to: "" };
+}

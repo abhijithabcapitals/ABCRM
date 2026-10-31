@@ -266,3 +266,20 @@
 @container (max-width: 1420px) { .bk-nav button { padding: 7px 5px; font-size: 11.5px; } }
 @container (max-width: 1240px) { .bk-nav button { padding: 7px 3px; font-size: 10.5px; letter-spacing: -.01em; } }
 .bk-subhead { margin: 0 0 6px; color: #19363d; font-size: 13px; }
+
+/* The CRM's global styles make form controls full width; controls in a row size to their content. */
+.bk-actions input, .bk-actions select, .bk-filter input, .bk-filter select, .bk-filterbar input, .bk-filterbar select, .bk-check input { width: auto; margin: 0; }
+.bk-filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; padding: 8px 10px; border: 1px solid #e6ebed; border-radius: 10px; background: #fff; }
+.bk-quick { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: #f1f4f5; }
+.bk-quick button { padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: #5f7077; font-size: 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
+.bk-quick button:hover { color: #0d7277; }
+.bk-quick button.active { background: #0d7d82; color: #fff; }
+.bk-filterbar label { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 9px; border: 1px solid #dbe3e6; border-radius: 8px; background: #fff; transition: border-color .12s ease, background .12s ease; }
+.bk-filterbar label:hover { border-color: #b7d4d5; }
+.bk-filterbar label span { color: #7b8990; font-size: 11px; font-weight: 700; }
+.bk-filterbar label.on { border-color: #0d7d82; background: #e8f6f6; }
+.bk-filterbar label.on span { color: #0d7277; }
+.bk-root .bk-filterbar label input, .bk-root .bk-filterbar label select { max-width: 170px; padding: 5px 2px; border: 0; background: transparent; font-size: 12px; outline-offset: 2px; }
+.bk-clear { padding: 6px 8px; border: 0; background: none; color: #0d7277; font-size: 12px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.bk-updating { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: #7b8990; font-size: 11px; }
+.bk-updating .bk-spinner { width: 12px; height: 12px; }
