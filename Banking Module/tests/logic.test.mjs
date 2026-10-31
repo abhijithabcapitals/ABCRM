@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parsePaymentNote } from "../logic/paymentNotes.js";
 import { quoteTotals } from "../logic/pricing.js";
-import { buildAutofill } from "../logic/kycAutofill.js";
+import { buildAutofill, compareWithCurrent, expiryFrom } from "../logic/kycAutofill.js";
 import { readSheet, markDuplicates, suggestStatus, resolveBank, normaliseCompany, isCleanRow, colourFamily } from "../logic/excelImport.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
@@ -139,4 +139,16 @@ test("autofill maps fields, skips low confidence, keeps conflicts for a person",
   assert.equal(a.conflicts.legal_name.length, 2);
   assert.equal(a.shareholders.length, 1);
   assert.equal(a.sources.license_number, "licence.pdf");
+});
+
+test("existing client: empty fields offered, matches hidden, differences flagged", () => {
+  const auto = { values: { legal_name: "TEST LLC", license_number: "9", vat_trn: "1" }, sources: { legal_name: "a", license_number: "a", vat_trn: "a" } };
+  const rows = compareWithCurrent(auto, { legal_name: "Test LLC", license_number: "8", vat_trn: "" }, { vat_trn: "VAT TRN" });
+  assert.deepEqual(rows.map((r) => [r.field, r.state]), [["license_number", "differs"], ["vat_trn", "new"]]);
+  assert.equal(rows[1].label, "VAT TRN");
+});
+test("expiry read only when confident and a real date", () => {
+  assert.equal(expiryFrom({ extraction: { fields: [{ key: "licence_expiry_date", value: "2027-12-31", confidence: "high" }] } }), "2027-12-31");
+  assert.equal(expiryFrom({ extraction: { fields: [{ key: "licence_expiry_date", value: "2027-12-31", confidence: "low" }] } }), null);
+  assert.equal(expiryFrom(undefined), null);
 });

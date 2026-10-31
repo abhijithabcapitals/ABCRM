@@ -54,3 +54,21 @@ export function buildAutofill(docs) {
   if (values.vat_trn && values.vat_registered === undefined) values.vat_registered = true;
   return { values, sources, conflicts, shareholders: [...people.values()] };
 }
+
+// Rows for the review table on an existing client. "new": field is empty. "differs": a person must decide.
+export function compareWithCurrent(auto, current, labels = {}) {
+  const rows = [];
+  for (const [field, read] of Object.entries(auto.values)) {
+    const now = current[field];
+    const empty = now === undefined || now === null || now === "";
+    if (!empty && norm(now) === norm(read)) continue;
+    rows.push({ field, label: labels[field] || field, current: now, read, source: auto.sources[field], state: empty ? "new" : "differs" });
+  }
+  return rows;
+}
+
+// The expiry date a document states, if the Document Module read one with enough confidence.
+export function expiryFrom(doc) {
+  const f = (doc?.extraction?.fields || []).find((x) => /expiry/i.test(x.key || "") && x.confidence !== "low");
+  return /^\d{4}-\d{2}-\d{2}$/.test(f?.value || "") ? f.value : null;
+}

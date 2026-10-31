@@ -1,7 +1,8 @@
 import { useState } from "react";
 import KycForm from "./KycForm";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FilePick, FormModal, KeyVals, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
-import { insertRow, loadSettings, openFile, rpc, run, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
+import { expiryFrom } from "../logic/kycAutofill";
+import { insertRow, loadSettings, openFile, readDocuments, rpc, run, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
 import { supabase } from "@app/supabase";
 import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, STAGES, STEPS, SUBMISSION_METHODS, TASK_STATUSES, TASK_TYPES, PRIORITIES } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
@@ -316,7 +317,11 @@ function Documents({ c, reload }) {
   const upload = (line, file) => act(async () => {
     const u = await uploadFile(c.id, "documents", file);
     let expiry = null;
-    if (line.banking_document_types?.has_expiry) { const typed = window.prompt(`Expiry date of "${line.requirement_label}" (YYYY-MM-DD). Leave blank if not known.`) || ""; if (/^\d{4}-\d{2}-\d{2}$/.test(typed.trim())) expiry = typed.trim(); }
+    if (line.banking_document_types?.has_expiry) {
+      // Read by the Document Module where it is running; otherwise ask.
+      try { expiry = expiryFrom((await readDocuments([file]))[0]); } catch { /* not reachable on this PC */ }
+      if (!expiry) { const typed = window.prompt(`Expiry date of "${line.requirement_label}" (YYYY-MM-DD). Leave blank if not known.`) || ""; if (/^\d{4}-\d{2}-\d{2}$/.test(typed.trim())) expiry = typed.trim(); }
+    }
     await rpc("banking_document_add_version", { p_checklist: line.id, p_path: u.path, p_file: u.name, p_mime: u.mime, p_size: u.size, p_sha: u.sha256, p_expiry: expiry, p_remarks: null });
   });
   return (

@@ -29,6 +29,8 @@ In **Leads**, choose **New Lead** or **View Existing Leads**.
 
 Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
+**Existing clients:** on General KYC or step 4 of a case, press **Fill from documents**. Empty fields are ticked for you. A value that differs from the saved one is shown in red and unticked, so you decide. Then press **Save KYC**.
+
 ## Importing the Excel history
 
 Go to **Excel Import** and upload the workbook. Monthly Bank Account and Completed Bank are ticked by default.

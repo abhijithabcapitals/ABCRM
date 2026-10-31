@@ -46,7 +46,7 @@ Same pattern as the Business Development Module. The Main Module imports this fo
 
 ## Assistant and OCR
 
-New Lead autofill reads uploads through the local Document Module (`Client Module`, this PC only) and fills the form for a person to check. It works on licences, VAT and CT certificates, passports with a readable MRZ and similar; on another PC, or with the module off, staff type the details.
+All document reading goes through `DOC OCR Module` (via `readDocuments` in `services/bankingApi.js`): New Lead, **Fill from documents** on any client's KYC, and expiry dates on checklist uploads. New Lead autofill reads uploads through the local Document Module (`Client Module`, this PC only) and fills the form for a person to check. It works on licences, VAT and CT certificates, passports with a readable MRZ and similar; on another PC, or with the module off, staff type the details.
 
 `banking_ai_suggestions` is the review queue for every engine. A rules engine fills it today: missing documents, expiring documents, possible duplicate clients. Staff accept (which can open a task) or dismiss.
 

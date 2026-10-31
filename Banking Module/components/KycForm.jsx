@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import KycDocumentFill from "./KycDocumentFill";
 import { Badge, Button, DataTable, ErrorNote, FormGrid, FormModal, Panel, Spinner, cleanValues, fmtDate, useBanking, useLoad } from "./shared";
 import { insertRow, run, table, updateRow } from "../services/bankingApi";
 
@@ -50,6 +51,8 @@ export default function KycForm({ clientId, onSaved }) {
   const [saved, setSaved] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [filling, setFilling] = useState(false);
+  const [partnersKey, setPartnersKey] = useState(0);
   const canEdit = can("kyc.manage");
   useEffect(() => { if (profile.data !== null) setValues(profile.data || {}); }, [profile.data]);
 
@@ -72,15 +75,19 @@ export default function KycForm({ clientId, onSaved }) {
       <ErrorNote message={profile.error || error} />
       {saved && <div className="bk-alert bk-alert-ok">{saved}</div>}
       <Panel title="Company information" sub={`Complete: ${profile.data?.completion_percent ?? 0}%. Reused across every bank application of this client.`}
-        actions={canEdit && <Button variant="primary" busy={busy} onClick={save}>Save KYC</Button>}>
+        actions={canEdit && <><Button onClick={() => setFilling(true)}>Fill from documents</Button><Button variant="primary" busy={busy} onClick={save}>Save KYC</Button></>}>
         <fieldset disabled={!canEdit}><FormGrid fields={toFields(COMPANY)} values={values} setValues={setValues} /></fieldset>
       </Panel>
-      <Shareholders profileId={profile.data?.id} />
+      <Shareholders key={partnersKey} profileId={profile.data?.id} />
       <Panel title="Business information"><fieldset disabled={!canEdit}><FormGrid fields={toFields(BUSINESS)} values={values} setValues={setValues} /></fieldset></Panel>
       <Panel title="Facts used by the document checklist" sub="Anything left 'Not known yet' appears on the checklist as To Confirm. After changing these, regenerate the checklist on the Documents tab.">
         <fieldset disabled={!canEdit}><FormGrid fields={FACTS} values={values} setValues={setValues} /></fieldset>
       </Panel>
       {canEdit && <Button variant="primary" busy={busy} onClick={save}>Save KYC</Button>}
+      {filling && (
+        <KycDocumentFill clientId={clientId} profileId={profile.data?.id} values={values} labels={Object.fromEntries(ALL.map((f) => [f.name, f.label]))} onClose={() => setFilling(false)}
+          onApply={(filled) => { setValues((v) => ({ ...v, ...filled })); setPartnersKey((k) => k + 1); setSaved(`${Object.keys(filled).length} field(s) filled from documents. Check them, then press Save KYC.`); }} />
+      )}
     </div>
   );
 }
