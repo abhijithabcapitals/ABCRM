@@ -23,6 +23,9 @@ export const STEPS = [
 ];
 export const STAGES = STEPS.map(([name]) => name);
 
+// Steps grouped so the whole journey fits one line: [phase name, first step, last step].
+export const PHASES = [["Lead", 1, 3], ["KYC & Bank", 4, 6], ["Documents", 7, 8], ["Commercial", 9, 11], ["Agreement", 12, 13], ["Bank Process", 14, 18]];
+
 export const LEAD_STATUSES = ["New", "Contacted", "Interested", "Follow-up Required", "Bank Options Shared", "Potential Client", "Quotation Sent", "Negotiation", "Converted", "Lost", "Not Interested", "Unreachable"];
 export const PRIORITIES = ["Low", "Medium", "High", "Urgent"];
 export const DOC_STATUSES = ["Not Requested", "Requested", "Received", "Under Review", "Verified", "Rejected", "Resubmission Required", "Not Applicable"];

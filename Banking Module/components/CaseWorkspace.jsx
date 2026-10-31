@@ -4,7 +4,7 @@ import { Badge, Button, CommsList, DataTable, ErrorNote, FilePick, FormModal, Ke
 import { expiryFrom } from "../logic/kycAutofill";
 import { insertRow, loadSettings, openFile, readDocuments, rpc, run, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
 import { supabase } from "@app/supabase";
-import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, STAGES, STEPS, SUBMISSION_METHODS, TASK_STATUSES, TASK_TYPES, PRIORITIES } from "../logic/constants";
+import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, SUBMISSION_METHODS, TASK_STATUSES, TASK_TYPES, PRIORITIES } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
 import { downloadLetterDocx, downloadQuoteDocx, printLetter, printQuote, printReceipt, quoteMerge } from "../logic/documents";
 
@@ -41,17 +41,7 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
       <div className="bk-case-top">
         <KeyVals items={[["Selected bank", sel ? `${sel.banking_partners?.bank_name}${sel.banking_schemes ? ` · ${sel.banking_schemes.scheme_name}` : ""}` : null], ["Application status", app?.status], ["Assigned employee", personName(c.assigned_to)], ["Total quotation", money(finance?.total)], ["Amount received", money(finance?.received)], ["Outstanding", money(finance?.outstanding)]]} />
       </div>
-      <div className="bk-tracker" aria-label="Workflow steps">
-        {STEPS.map(([name], i) => {
-          const n = i + 1;
-          const state = n < c.current_stage ? "done" : n === c.current_stage ? "now" : "next";
-          return (
-            <button type="button" key={name} className={`bk-step bk-step-${state} ${!records && n === shown ? "bk-step-open" : ""}`} aria-current={n === c.current_stage ? "step" : undefined} title={name} onClick={() => show(n)}>
-              <span>{state === "done" ? "✓" : n}</span><small>{name}</small>
-            </button>
-          );
-        })}
-      </div>
+      <ProgressRail current={c.current_stage} shown={records ? null : shown} outcome={c.outcome} opened={app?.status === "Account Opened"} onOpen={show} />
       <div className="bk-filter">
         <span className="bk-muted">Case records:</span>
         {RECORDS.map(([k, label]) => <button type="button" key={k} className={`bk-chip ${records === k ? "active" : ""}`} onClick={() => setRecords(records === k ? null : k)}>{label}</button>)}
@@ -74,6 +64,55 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
           <StepFooter n={shown} c={c} reload={reload} goTo={show} />
         </>
       )}
+    </div>
+  );
+}
+
+function ProgressRail({ current, shown, outcome, opened, onOpen }) {
+  const [hover, setHover] = useState(null);
+  const finished = current === STEPS.length && opened;
+  const stopped = ["Rejected", "Returned", "Cancelled"].includes(outcome);
+  const done = finished ? STEPS.length : current - 1;
+  const percent = Math.round((100 * done) / STEPS.length);
+  const focus = hover || shown || current;
+  const phaseOf = (n) => PHASES.find(([, a, b]) => n >= a && n <= b);
+  const [phaseName, phaseStart, phaseEnd] = phaseOf(focus);
+  return (
+    <div className={`bk-rail ${stopped ? "stopped" : ""}`}>
+      <div className="bk-rail-top">
+        <div className="bk-rail-percent"><strong>{percent}%</strong><span>complete</span></div>
+        <div className="bk-rail-now">
+          {finished ? <strong>Account opened. Case complete.</strong> : stopped ? <strong>Stopped at step {current}: {outcome}</strong> : <strong>Now: {STEPS[current - 1][0]}</strong>}
+          {!finished && !stopped && current < STEPS.length && <span>Next: {STEPS[current][0]}</span>}
+        </div>
+        <span className="bk-rail-count">Step {current} of {STEPS.length}</span>
+      </div>
+      <div className="bk-rail-phases" onMouseLeave={() => setHover(null)}>
+        {PHASES.map(([name, a, b]) => {
+          const steps = [];
+          for (let n = a; n <= b; n++) steps.push(n);
+          const phaseDone = (finished || current > b);
+          const inPhase = current >= a && current <= b;
+          return (
+            <div className="bk-phase" key={name} style={{ flexGrow: b - a + 1 }}>
+              <div className={`bk-phase-name ${inPhase ? "now" : ""}`}><span>{phaseDone ? "✓ " : ""}{name}</span></div>
+              <div className="bk-segments">
+                {steps.map((n) => {
+                  const state = n < current || finished ? "done" : n === current ? "now" : "next";
+                  return <button type="button" key={n} className={`bk-seg bk-seg-${state} ${n === shown ? "open" : ""}`} aria-label={`Step ${n}: ${STEPS[n - 1][0]}`} aria-current={n === current ? "step" : undefined} title={STEPS[n - 1][0]} onMouseEnter={() => setHover(n)} onFocus={() => setHover(n)} onBlur={() => setHover(null)} onClick={() => onOpen(n)} />;
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="bk-rail-steps" aria-label={`${phaseName} steps`}>
+        {STEPS.slice(phaseStart - 1, phaseEnd).map(([name], i) => {
+          const n = phaseStart + i;
+          const state = n < current || finished ? "done" : n === current ? "now" : "next";
+          return <button type="button" key={name} className={`bk-rail-step ${state} ${n === focus ? "focus" : ""}`} onClick={() => onOpen(n)}><span aria-hidden="true">{state === "done" ? "✓" : n}</span>{name}</button>;
+        })}
+      </div>
     </div>
   );
 }
