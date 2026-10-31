@@ -1,8 +1,8 @@
 // Cross-case lists. Opening a row goes to that case's workspace, where the actions live.
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useBanking, useLoad } from "./shared";
-import { insertRow, loadSettings, run, table, updateRow } from "../services/bankingApi";
-import { printReceipt } from "../logic/documents";
+import { insertRow, loadSettings, run, saveGenerated, table, updateRow } from "../services/bankingApi";
+import { printReceipt, receiptDocx } from "../logic/documents";
 import { money } from "../logic/pricing";
 import { taskFields } from "./CaseWorkspace";
 import { APP_STATUSES } from "../logic/constants";
@@ -46,21 +46,35 @@ export function PaymentsPage({ onRecord }) {
 }
 
 function Receipts() {
-  const { openCase } = useBanking();
-  const list = useLoad(() => run(table("banking_payments").select("*, banking_receipts(receipt_number, issued_on), banking_cases(id, case_ref, banking_clients(display_name))").eq("txn_type", "Payment").order("payment_date", { ascending: false }).limit(2000)), []);
+  const { can, openCase } = useBanking();
+  const list = useLoad(() => run(table("banking_payments").select("*, banking_receipts(receipt_number, issued_on), banking_cases(id, case_ref, banking_clients(display_name)), banking_generated_documents(local_path, created_at)").eq("txn_type", "Payment").order("payment_date", { ascending: false }).limit(2000)), []);
   const countered = useLoad(() => run(table("banking_payments").select("reverses_payment_id, txn_type").not("reverses_payment_id", "is", null).limit(2000)), []);
   const settings = useLoad(() => loadSettings(), []);
   const stateOf = (p) => (countered.data || []).find((x) => x.reverses_payment_id === p.id)?.txn_type;
   const [error, setError] = useState(null);
+  const [note, setNote] = useState(null);
   const print = (e, p) => {
     e.stopPropagation();
     setError(null);
     try { printReceipt(p, { display_name: p.banking_cases?.banking_clients?.display_name }, { case_ref: p.banking_cases?.case_ref }, settings.data?.company); } catch (err) { setError(err.message); }
   };
+  const saveCopy = async (e, p) => {
+    e.stopPropagation();
+    setError(null); setNote(null);
+    try {
+      const client = { display_name: p.banking_cases?.banking_clients?.display_name };
+      const { blob, fileName, number } = await receiptDocx(p, client, { case_ref: p.banking_cases?.case_ref }, settings.data?.company);
+      const row = await saveGenerated({ kind: "receipt", caseId: p.case_id, blob, fileName, number, paymentId: p.id });
+      setNote(row.local_path ? `Saved to ${row.local_path}` : "Kept in the database, but not saved to the PC folder because the Client Module is not running here.");
+      await list.reload();
+    } catch (err) { setError(err.message); }
+  };
+  const savedAt = (p) => (p.banking_generated_documents || []).map((d) => d.local_path).find(Boolean);
   if (list.loading && !list.data) return <Spinner />;
   return (
     <div>
       <ErrorNote message={list.error || countered.error || settings.error || error} />
+      {note && <div className="bk-alert bk-alert-ok">{note}</div>}
       <DataTable search="Search vouchers…" rows={(list.data || []).filter((p) => p.banking_receipts)} onRow={(p) => openCase(p.case_id, "payments")} empty="No fee receipt vouchers yet. They are created when a payment is recorded." columns={[
         { key: "v", label: "Voucher", render: (p) => p.banking_receipts.receipt_number },
         { key: "payment_date", label: "Date", render: (p) => fmtDate(p.payment_date) },
@@ -69,7 +83,8 @@ function Receipts() {
         { key: "amount", label: "Amount", right: true, render: (p) => money(p.amount) },
         { key: "payment_method", label: "Method" },
         { key: "s", label: "State", render: (p) => (stateOf(p) ? <Badge tone="warn">{stateOf(p) === "Reversal" ? "Reversed" : "Refunded"}</Badge> : <Badge tone="good">Valid</Badge>) },
-        { key: "a", label: "", render: (p) => <Button onClick={(e) => print(e, p)}>Print / PDF</Button> },
+        { key: "f", label: "Saved at", render: (p) => savedAt(p) || <Badge tone="warn">Not in PC folder</Badge> },
+        { key: "a", label: "", render: (p) => <span className="bk-actions"><Button onClick={(e) => print(e, p)}>Print / PDF</Button>{can("payments.manage") && <Button onClick={(e) => saveCopy(e, p)}>Save to folder</Button>}</span> },
       ]} />
     </div>
   );

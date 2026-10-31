@@ -285,6 +285,14 @@ set role authenticated;
 select public.as_user('0c');
 select public.must_fail('sales cannot change numbering', $$select public.banking_numbering_save('quote', 'A{SERIAL}', 3, 'never', 1)$$, 'permission');
 
+select public.as_user('0e');
+insert into public.banking_generated_documents (case_id, kind, payment_id, document_number, file_name, storage_path, local_path)
+values (public.id('case1'), 'receipt', public.id('p1'), 'RC-000012', 'r.docx', 's/r.docx', 'D:\\Receipt Generated\\r.docx');
+select public.ok('voucher keeps number, serial and location', (select document_serial = 12 and local_path like '%Receipt Generated%' from public.banking_generated_documents where kind = 'receipt'));
+select public.must_fail('finance cannot record a quote file', format($$insert into public.banking_generated_documents (case_id, kind, document_number, file_name, storage_path) values (%L, 'quote', 'x', 'x', 'x')$$, public.id('case1')), 'row-level security');
+select public.as_user('0d');
+select public.ok('voucher files hidden without payment access', (select count(*) = 0 from public.banking_generated_documents where kind = 'receipt'));
+select public.as_user('0c');
 -- The harness above grants every function for its helpers, so take this one back to test the real grant.
 reset role;
 revoke execute on function public.banking_next_number(text, date) from authenticated;

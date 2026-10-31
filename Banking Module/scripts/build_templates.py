@@ -110,6 +110,18 @@ LETTER = LETTERHEAD + table([[cell("To", 1200, True), cell("{client_name}", 3800
     [cell("Date:", 4500), cell("Date:", 4500)],
 ], [4500, 4500])
 
+RECEIPT = LETTERHEAD + para("Fee Receipt Voucher", bold=True, size=32, color="13363D", after=120) + table([
+    [cell("Voucher no.", 2600, True, fill="EEF2F3"), cell("{receipt_number}", 6400)],
+    [cell("Date", 2600, True, fill="EEF2F3"), cell("{payment_date}", 6400)],
+    [cell("Received from", 2600, True, fill="EEF2F3"), cell("{client_name}", 6400)],
+    [cell("Banking case", 2600, True, fill="EEF2F3"), cell("{case_ref}", 6400)],
+    [cell("Amount", 2600, True, fill="EEF2F3"), cell("{amount}", 6400, True)],
+    [cell("Method", 2600, True, fill="EEF2F3"), cell("{method}", 6400)],
+    [cell("Reference", 2600, True, fill="EEF2F3"), cell("{reference}", 6400)],
+    [cell("Payment ref", 2600, True, fill="EEF2F3"), cell("{payment_ref}", 6400)],
+    [cell("Description", 2600, True, fill="EEF2F3"), cell("{description}", 6400)],
+], [2600, 6400]) + para("\u00a0", after=500) + para("Received by, for {company_short}", after=40) + para("Authorized Signatory")
+
 NS = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
       'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"')
 
@@ -127,7 +139,7 @@ def build(path, body, logo):
 
 
 logo = logo_bytes()
-for name, body in (("Quotation_Template.docx", QUOTE), ("Engagement_Letter_Template.docx", LETTER)):
+for name, body in (("Quotation_Template.docx", QUOTE), ("Engagement_Letter_Template.docx", LETTER), ("Fee_Receipt_Voucher_Template.docx", RECEIPT)):
     build(OUT / name, body, logo)
     if MASTER.exists():
         shutil.copy(OUT / name, MASTER / name)

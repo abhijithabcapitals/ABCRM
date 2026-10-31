@@ -6,7 +6,7 @@ import { insertRow, loadSettings, openFile, readDocuments, rpc, saveGenerated, r
 import { supabase } from "@app/supabase";
 import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, SUBMISSION_METHODS, TASK_STATUSES, TASK_TYPES, PRIORITIES } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
-import { downloadLetterDocx, downloadQuoteDocx, letterDocx, printLetter, printQuote, printReceipt, quoteDocx, quoteMerge } from "../logic/documents";
+import { downloadLetterDocx, downloadQuoteDocx, letterDocx, printLetter, printQuote, printReceipt, quoteDocx, quoteMerge, receiptDocx } from "../logic/documents";
 
 // Old list pages link to a case by area; each area opens at its step.
 const AREA_STEP = { client: 2, followups: 3, kyc: 4, selection: 6, documents: 8, quotation: 9, payments: 10, agreement: 12, application: 14 };
@@ -523,6 +523,16 @@ function Payments({ c, client, finance, reload }) {
   const methods = settings.data?.payment_methods || [];
   const done = async () => { await pays.reload(); await reload(); };
   const { error, act } = useAction();
+  const [savedKey, setSavedKey] = useState(0);
+  const [savedNote, setSavedNote] = useState(null);
+  const saveVoucher = async (p) => {
+    const { blob, fileName, number } = await receiptDocx(p, client, c, settings.data?.company);
+    const row = await saveGenerated({ kind: "receipt", caseId: c.id, blob, fileName, number, paymentId: p.id });
+    setSavedNote(savedMessage(row));
+    setSavedKey((k) => k + 1);
+  };
+  // The payment stands even if saving its file fails; the failure is shown and can be retried.
+  const voucherFor = (paymentId) => act(async () => saveVoucher(await run(table("banking_payments").select("*, banking_receipts(receipt_number, issued_on)").eq("id", paymentId).single())));
   return (
     <div>
       <Panel title="Payment summary">
@@ -531,13 +541,15 @@ function Payments({ c, client, finance, reload }) {
       <Panel title="Payment ledger" sub="Each entry is its own record. Mistakes are reversed, never edited."
         actions={<>{can("payments.manage") && <Button variant="primary" onClick={() => setAdding(true)}>Record payment</Button>}{can("payments.refund") && <Button onClick={() => setAdjust(true)}>Adjustment</Button>}</>}>
         <ErrorNote message={pays.error || error} />
+        {savedNote && <div className={`bk-alert ${savedNote.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{savedNote.text}</div>}
         <DataTable rows={pays.data || []} empty="No payments recorded." columns={[
           { key: "payment_ref", label: "Ref" }, { key: "payment_date", label: "Date", render: (r) => fmtDate(r.payment_date) }, { key: "txn_type", label: "Type", render: (r) => <Badge tone={r.txn_type === "Payment" ? "good" : "warn"}>{r.txn_type}</Badge> },
           { key: "signed_amount", label: "Amount", right: true, render: (r) => money(r.signed_amount) }, { key: "payment_method", label: "Method" }, { key: "transaction_reference", label: "Reference" },
           { key: "reference_note", label: "Note" }, { key: "received_by", label: "Received by", render: (r) => r.received_by_text || personName(r.received_by) }, { key: "remarks", label: "Remarks" },
           { key: "a", label: "", render: (r) => (
             <span className="bk-actions">
-              {r.banking_receipts && <Button onClick={() => printReceipt(r, client, c, settings.data?.company)}>Receipt {r.banking_receipts.receipt_number}</Button>}
+              {r.banking_receipts && <Button onClick={() => printReceipt(r, client, c, settings.data?.company)}>Voucher {r.banking_receipts.receipt_number}</Button>}
+              {r.banking_receipts && can("payments.manage") && <Button onClick={() => act(() => saveVoucher(r))}>Save to folder</Button>}
               {r.document_path && <Button onClick={() => act(() => openFile(r.document_path))}>Proof</Button>}
               {r.txn_type === "Payment" && can("payments.manage") && <Button onClick={() => setCounter({ p: r, type: "Reversal" })}>Reverse</Button>}
               {r.txn_type === "Payment" && can("payments.refund") && <Button onClick={() => setCounter({ p: r, type: "Refund" })}>Refund</Button>}
@@ -545,7 +557,8 @@ function Payments({ c, client, finance, reload }) {
           ) },
         ]} />
       </Panel>
-      {adding && <PaymentForm c={c} methods={methods} onClose={() => setAdding(false)} onDone={done} />}
+      <GeneratedDocuments key={savedKey} caseId={c.id} kind="receipt" />
+      {adding && <PaymentForm c={c} methods={methods} onClose={() => setAdding(false)} onDone={async (paymentId) => { await done(); await voucherFor(paymentId); }} />}
       {counter && <FormModal title={`${counter.type} of ${counter.p.payment_ref} (${money(counter.p.amount)})`} initial={{ date: today() }} onClose={() => setCounter(null)}
         fields={[{ name: "date", label: "Date", type: "date", required: true }, ...(counter.type === "Refund" ? [{ name: "amount", label: "Refund amount (blank: the unrefunded balance)", type: "number" }] : []), { name: "reason", label: "Reason", type: "textarea", required: true, full: true }]}
         onSubmit={async (v) => { await rpc("banking_payment_counter", { p_payment: counter.p.id, p_type: counter.type, p_date: v.date, p_reason: v.reason, p_amount: v.amount ?? null }); await done(); }} />}
@@ -559,13 +572,13 @@ function Payments({ c, client, finance, reload }) {
 function PaymentForm({ c, methods, onClose, onDone }) {
   const [file, setFile] = useState(null);
   return (
-    <FormModal wide title="Record payment" initial={{ date: today() }} onClose={onClose} submitLabel="Record and issue receipt"
+    <FormModal wide title="Record payment" initial={{ date: today() }} onClose={onClose} submitLabel="Record and issue voucher"
       fields={[{ name: "date", label: "Payment date", type: "date", required: true }, { name: "amount", label: "Amount (AED)", type: "number", required: true }, { name: "method", label: "Payment method", type: "select", options: methods, required: true }, { name: "reference", label: "Transaction reference" }, { name: "note", label: "Reference note" }, { name: "description", label: "Description" }, { name: "remarks", label: "Remarks", type: "textarea", full: true }]}
       note={<>Proof (optional): <input type="file" aria-label="Proof of payment" onChange={(e) => setFile(e.target.files?.[0] || null)} /></>}
       onSubmit={async (v) => {
         const u = file ? await uploadFile(c.id, "payments", file) : null;
-        await rpc("banking_payment_add", { p_case: c.id, p_date: v.date, p_amount: v.amount, p_method: v.method, p_reference: v.reference, p_note: v.note, p_description: v.description, p_remarks: v.remarks, p_path: u?.path ?? null });
-        await onDone();
+        const added = await rpc("banking_payment_add", { p_case: c.id, p_date: v.date, p_amount: v.amount, p_method: v.method, p_reference: v.reference, p_note: v.note, p_description: v.description, p_remarks: v.remarks, p_path: u?.path ?? null });
+        await onDone(added.payment_id);
       }} />
   );
 }

@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { quoteMerge, letterMerge } from "../logic/documents.js";
+import { quoteMerge, letterMerge, receiptMerge } from "../logic/documents.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const here = fileURLToPath(new URL("..", import.meta.url));
@@ -58,5 +58,12 @@ test("letter template renders terms from the snapshot", () => {
     terms: { understanding: "Open with {{bank}}.", scope_title: "Best Effort", scope: ["Process"], fee_intro: "Fees", payment_terms: ["{{vat_statement}}"], ab_responsibilities: ["Prepare"], client_responsibilities: ["Provide"], limitations: "No guarantee", reps: "FATF" } } };
   const text = render("Engagement_Letter_Template.docx", flat(letterMerge(l)));
   for (const s of ["Open with Mashreq.", "Business Bank Account", "inclusive of applicable UAE VAT", "No guarantee", "Client Signature"]) assert.ok(text.includes(s), s);
+  assert.ok(!/\{[#/]?\w+\}/.test(text), "no placeholder left");
+});
+
+test("voucher template renders", () => {
+  const p = { payment_date: "2026-11-01", amount: 500, payment_method: "Cash", payment_ref: "BP-1", banking_receipts: { receipt_number: "RC-000001" } };
+  const text = render("Fee_Receipt_Voucher_Template.docx", receiptMerge(p, { display_name: "Client LLC" }, { case_ref: "BC-1" }, company));
+  for (const s of ["Fee Receipt Voucher", "RC-000001", "Client LLC", "AED 500", "Cash", "01/11/2026"]) assert.ok(text.includes(s), s);
   assert.ok(!/\{[#/]?\w+\}/.test(text), "no placeholder left");
 });

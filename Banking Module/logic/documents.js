@@ -116,6 +116,11 @@ const safe = (s) => String(s || "").replace(/[^A-Za-z0-9 _-]+/g, "").trim();
 export const documentFileName = (number, client) => `${String(number).replace(/[/\\\\]+/g, "-")} ${safe(client)}.docx`;
 export async function quoteDocx(m) { return { blob: await renderDocx("Quotation_Template.docx", flatBank(m)), fileName: documentFileName(m.quotation_number, m.client_name) }; }
 export async function letterDocx(l) { const m = letterMerge(l); const number = l.version > 1 ? `${m.letter_number} v${l.version}` : m.letter_number; return { blob: await renderDocx("Engagement_Letter_Template.docx", flatBank(m)), fileName: documentFileName(number, m.client_name) }; }
+export function receiptMerge(p, client, c, company) {
+  const co = company || FALLBACK_COMPANY;
+  return { company_name: co.name, company_short: co.short_name, company_website: co.website, company_email: co.email, company_mobile: co.mobile, receipt_number: p.banking_receipts?.receipt_number, payment_date: dmy(p.payment_date), client_name: client.display_name, case_ref: c.case_ref, amount: money(p.amount), method: p.payment_method || "", reference: p.transaction_reference || "", payment_ref: p.payment_ref, description: p.description || "" };
+}
+export async function receiptDocx(p, client, c, company) { const m = receiptMerge(p, client, c, company); return { blob: await renderDocx("Fee_Receipt_Voucher_Template.docx", m), fileName: documentFileName(m.receipt_number, m.client_name), number: m.receipt_number }; }
 async function download({ blob, fileName }) { const { saveAs } = await import("file-saver"); saveAs(blob, fileName); }
 export const downloadQuoteDocx = async (m) => download(await quoteDocx(m));
 export const downloadLetterDocx = async (l) => download(await letterDocx(l));
