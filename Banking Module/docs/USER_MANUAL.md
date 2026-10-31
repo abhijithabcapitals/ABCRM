@@ -39,7 +39,7 @@ Under **Payments**, **+ Record Payment & Issue Voucher** does the same for a pay
 
 ## Importing the Excel history
 
-Only the AB Capital template is accepted. In **Excel Import**, download it, fill it in, and upload it. Any other Excel is refused. A file with a problem in any row must be fixed and uploaded again; nothing from it is saved.
+Only the AB Capital template is accepted. In **Leads**, press **Import from Excel**, download it, fill it in, and upload it. Any other Excel is refused. A file with a problem in any row must be fixed and uploaded again; nothing from it is saved.
 
 1. Check the preview, then **Stage for review**. Nothing is live yet.
 2. **Approve clean rows** approves only high-confidence rows. Open the others with **Decide**. Rows from the old working sheet whose colour disagrees with their text wait for you here.

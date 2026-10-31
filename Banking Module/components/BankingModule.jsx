@@ -11,7 +11,6 @@ import BankingPartners from "./BankingPartners";
 import Documentation from "./Documentation";
 import { ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
 import Reports from "./Reports";
-import ExcelImport from "./ExcelImport";
 import Settings from "./Settings";
 
 const NAV = [
@@ -25,7 +24,6 @@ const NAV = [
   ["appointments", "Appointments", "apps.view"],
   ["tasks", "Tasks & Follow-ups", "tasks.view"],
   ["reports", "Reports", "reports.view"],
-  ["import", "Excel Import", "imports.manage"],
   ["settings", "⚙ Settings", "app.access"],
 ];
 
@@ -47,6 +45,7 @@ export default function BankingModule({ profile }) {
       personOptions: (people.data || []).map((x) => ({ value: x.id, label: x.full_name || x.id })),
       openCase: (id, tab) => setOpenCase({ id, tab }),
       goTo: (p, params = null) => {
+        if (p === "import") { setOpenCase(null); setPage("leads"); setPageParams({ mode: "import" }); return; }
         const doc = { quotations: "quotes", payments: "payments", agreements: "agreements" }[p];
         setOpenCase(null);
         setPage(doc ? "documentation" : p);
@@ -87,7 +86,7 @@ export default function BankingModule({ profile }) {
         ) : (
           <>
             {current === "dashboard" && <Dashboard />}
-            {current === "leads" && <Leads />}
+            {current === "leads" && <Leads key={pageParams?.mode || "list"} initialMode={pageParams?.mode} />}
             {current === "cases" && <Cases key={pageParams?.step || "all"} initialStep={pageParams?.step} />}
             {current === "kyc" && <KycList />}
             {current === "banks" && <BankingPartners />}
@@ -96,7 +95,6 @@ export default function BankingModule({ profile }) {
             {current === "appointments" && <AppointmentsPage />}
             {current === "tasks" && <TasksPage />}
             {current === "reports" && <Reports />}
-            {current === "import" && <ExcelImport />}
             {current === "settings" && <Settings />}
           </>
         )}

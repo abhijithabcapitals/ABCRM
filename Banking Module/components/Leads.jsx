@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import ExcelImport from "./ExcelImport";
 import NewLeadWizard from "./NewLeadWizard";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { insertRow, listAll, loadSettings, rpc, run, table, updateRow } from "../services/bankingApi";
@@ -8,11 +9,11 @@ import { filterLeads, leadTabs } from "../logic/leadFilters";
 const FALLBACK_SOURCES = ["Other"];
 const NO_FILTERS = { source: "", employee: "", priority: "", from: "", to: "" };
 
-export default function Leads() {
-  const { can, personOptions, personName, openCase, goTo } = useBanking();
+export default function Leads({ initialMode }) {
+  const { can, personOptions, personName, openCase } = useBanking();
   const leads = useLoad(() => listAll("banking_leads"), []);
   const settings = useLoad(() => loadSettings(), []);
-  const [mode, setMode] = useState("list"); // list | new
+  const [mode, setMode] = useState(initialMode || "list"); // list | new | import
   const [tab, setTab] = useState("");
   const [filters, setFilters] = useState(NO_FILTERS);
   const [editing, setEditing] = useState(null);
@@ -47,12 +48,20 @@ export default function Leads() {
   const filtered = Object.values(filters).some(Boolean);
   const overdue = (l) => l.follow_up_date && l.follow_up_date <= today() && !["Converted", "Lost", "Not Interested"].includes(l.status);
 
+  if (mode === "import") {
+    return (
+      <div>
+        <div className="bk-mb"><Button onClick={() => { setMode("list"); leads.reload(); }}>Back to leads</Button></div>
+        <ExcelImport />
+      </div>
+    );
+  }
   if (mode === "new") return <NewLeadWizard onCancel={() => { setMode("list"); leads.reload(); }} />;
 
   return (
     <div>
       <PageHead title="Leads" sub={`${rows.length} of ${all.length} leads`}>
-        {can("imports.manage") && <Button onClick={() => goTo("import")}>Import from Excel</Button>}
+        {can("imports.manage") && <Button onClick={() => setMode("import")}>Import from Excel</Button>}
         {can("leads.manage") && <Button variant="primary" onClick={() => setMode("new")}>+ New Lead</Button>}
       </PageHead>
       <ErrorNote message={leads.error} />
