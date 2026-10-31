@@ -33,7 +33,9 @@ Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
 ## Documentation
 
-The **Documentation** tab lists quotations, fee receipt vouchers and agreements. **+ New Document** asks for the type and the client's case, then opens that case at the right step. A voucher is issued when a payment is recorded.
+The **Documentation** tab lists quotations and agreements. **+ New Document** asks for the type and the client's case, then opens that case at the right step.
+
+Fee receipt vouchers are in the **Payments** tab. A voucher is issued when a payment is recorded on a case.
 
 ## Importing the Excel history
 

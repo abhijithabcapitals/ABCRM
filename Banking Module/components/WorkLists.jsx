@@ -1,7 +1,8 @@
 // Cross-case lists. Opening a row goes to that case's workspace, where the actions live.
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useBanking, useLoad } from "./shared";
-import { insertRow, run, table, updateRow } from "../services/bankingApi";
+import { insertRow, loadSettings, run, table, updateRow } from "../services/bankingApi";
+import { printReceipt } from "../logic/documents";
 import { money } from "../logic/pricing";
 import { taskFields } from "./CaseWorkspace";
 import { APP_STATUSES } from "../logic/constants";
@@ -27,11 +28,53 @@ export const QuotationsList = () => (
     source={() => run(table("banking_quotations").select(`*, ${CASE}, banking_partners(bank_name)`).order("created_at", { ascending: false }).limit(2000))}
     columns={[{ key: "n", label: "Number", render: (q) => `${q.quotation_number} v${q.version}` }, { key: "b", label: "Bank", render: (q) => q.banking_partners?.bank_name }, { key: "quotation_date", label: "Date", render: (q) => fmtDate(q.quotation_date) }, { key: "valid_until", label: "Valid until", render: (q) => fmtDate(q.valid_until) }, { key: "status", label: "Status", render: (q) => <Badge>{q.status}</Badge> }, { key: "total_amount", label: "Total", right: true, render: (q) => money(q.total_amount) }]} />
 );
-export const PaymentsPage = () => (
-  <CaseList title="Payments" sub="The full ledger: payments, refunds, reversals and adjustments." tab="payments"
-    source={() => run(table("banking_payments").select(`*, ${CASE}, banking_receipts(receipt_number)`).order("payment_date", { ascending: false }).limit(2000))}
-    columns={[{ key: "payment_ref", label: "Ref" }, { key: "payment_date", label: "Date", render: (p) => fmtDate(p.payment_date) }, { key: "txn_type", label: "Type" }, { key: "signed_amount", label: "Amount", right: true, render: (p) => money(p.signed_amount) }, { key: "payment_method", label: "Method" }, { key: "rc", label: "Receipt", render: (p) => p.banking_receipts?.receipt_number }]} />
-);
+export function PaymentsPage() {
+  const [tab, setTab] = useState("vouchers");
+  return (
+    <div>
+      <PageHead title="Payments" sub="Fee receipt vouchers, and the full ledger of payments, refunds, reversals and adjustments." />
+      <div className="bk-tabs" role="tablist" aria-label="Payment records">
+        {[["vouchers", "Fee Receipt Vouchers"], ["ledger", "Payment Ledger"]].map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
+      </div>
+      {tab === "vouchers" ? <Receipts /> : (
+        <CaseList tab="payments"
+          source={() => run(table("banking_payments").select(`*, ${CASE}, banking_receipts(receipt_number)`).order("payment_date", { ascending: false }).limit(2000))}
+          columns={[{ key: "payment_ref", label: "Ref" }, { key: "payment_date", label: "Date", render: (p) => fmtDate(p.payment_date) }, { key: "txn_type", label: "Type" }, { key: "signed_amount", label: "Amount", right: true, render: (p) => money(p.signed_amount) }, { key: "payment_method", label: "Method" }, { key: "rc", label: "Voucher", render: (p) => p.banking_receipts?.receipt_number }]} />
+      )}
+    </div>
+  );
+}
+
+function Receipts() {
+  const { openCase } = useBanking();
+  const list = useLoad(() => run(table("banking_payments").select("*, banking_receipts(receipt_number, issued_on), banking_cases(id, case_ref, banking_clients(display_name))").eq("txn_type", "Payment").order("payment_date", { ascending: false }).limit(2000)), []);
+  const countered = useLoad(() => run(table("banking_payments").select("reverses_payment_id, txn_type").not("reverses_payment_id", "is", null).limit(2000)), []);
+  const settings = useLoad(() => loadSettings(), []);
+  const stateOf = (p) => (countered.data || []).find((x) => x.reverses_payment_id === p.id)?.txn_type;
+  const [error, setError] = useState(null);
+  const print = (e, p) => {
+    e.stopPropagation();
+    setError(null);
+    try { printReceipt(p, { display_name: p.banking_cases?.banking_clients?.display_name }, { case_ref: p.banking_cases?.case_ref }, settings.data?.company); } catch (err) { setError(err.message); }
+  };
+  if (list.loading && !list.data) return <Spinner />;
+  return (
+    <div>
+      <ErrorNote message={list.error || countered.error || settings.error || error} />
+      <DataTable search="Search vouchers…" rows={(list.data || []).filter((p) => p.banking_receipts)} onRow={(p) => openCase(p.case_id, "payments")} empty="No fee receipt vouchers yet. They are created when a payment is recorded." columns={[
+        { key: "v", label: "Voucher", render: (p) => p.banking_receipts.receipt_number },
+        { key: "payment_date", label: "Date", render: (p) => fmtDate(p.payment_date) },
+        { key: "r", label: "Case", render: (p) => p.banking_cases?.case_ref },
+        { key: "c", label: "Client", render: (p) => p.banking_cases?.banking_clients?.display_name },
+        { key: "amount", label: "Amount", right: true, render: (p) => money(p.amount) },
+        { key: "payment_method", label: "Method" },
+        { key: "s", label: "State", render: (p) => (stateOf(p) ? <Badge tone="warn">{stateOf(p) === "Reversal" ? "Reversed" : "Refunded"}</Badge> : <Badge tone="good">Valid</Badge>) },
+        { key: "a", label: "", render: (p) => <Button onClick={(e) => print(e, p)}>Print / PDF</Button> },
+      ]} />
+    </div>
+  );
+}
+
 export const AgreementsList = () => (
   <CaseList tab="agreement"
     source={() => run(table("banking_engagement_letters").select(`id, case_id, letter_number, version, status, letter_date, signed_at, signatory_name, ${CASE}`).order("created_at", { ascending: false }).limit(2000))}

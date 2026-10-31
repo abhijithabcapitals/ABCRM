@@ -1,15 +1,12 @@
-// Quotations, fee receipt vouchers and agreements in one place. A document always belongs to a banking
+// Quotations and agreements in one place. A document always belongs to a banking
 // case, so New Document picks the type and the case, then opens that case at the step that creates it.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, Modal, PageHead, Spinner, fmtDate, useBanking, useLoad } from "./shared";
-import { loadSettings, rpc, run, table } from "../services/bankingApi";
-import { money } from "../logic/pricing";
-import { printReceipt } from "../logic/documents";
+import { Button, DataTable, ErrorNote, Modal, PageHead, Spinner, useBanking, useLoad } from "./shared";
+import { rpc } from "../services/bankingApi";
 import { AgreementsList, QuotationsList } from "./WorkLists";
 
 const GROUPS = [
   { key: "quotes", label: "Quotations", perm: "quotes.view", area: "quotation", create: "quotes.manage", hint: "Opens the Quotation step." },
-  { key: "receipts", label: "Fee Receipt Vouchers", perm: "payments.view", area: "payments", create: "payments.manage", hint: "Opens the Payment step. Recording a payment issues its voucher." },
   { key: "agreements", label: "Agreements (Engagement Letters)", perm: "agreements.view", area: "agreement", create: "agreements.manage", hint: "Opens the Agreement step. It needs an accepted quotation." },
 ];
 
@@ -21,46 +18,15 @@ export default function Documentation({ initialTab }) {
   const creatable = GROUPS.filter((g) => can(g.create));
   return (
     <div>
-      <PageHead title="Documentation" sub="Every quotation, fee receipt voucher and agreement.">
+      <PageHead title="Documentation" sub="Every quotation and agreement.">
         {creatable.length > 0 && <Button variant="primary" onClick={() => setCreating(true)}>+ New Document</Button>}
       </PageHead>
       <div className="bk-tabs" role="tablist" aria-label="Document type">
         {groups.map((g) => <button type="button" role="tab" aria-selected={tab === g.key} key={g.key} className={tab === g.key ? "active" : ""} onClick={() => setTab(g.key)}>{g.label}</button>)}
       </div>
       {tab === "quotes" && <QuotationsList />}
-      {tab === "receipts" && <Receipts />}
       {tab === "agreements" && <AgreementsList />}
       {creating && <NewDocument types={creatable} defaultType={tab} onClose={() => setCreating(false)} />}
-    </div>
-  );
-}
-
-function Receipts() {
-  const { openCase } = useBanking();
-  const list = useLoad(() => run(table("banking_payments").select("*, banking_receipts(receipt_number, issued_on), banking_cases(id, case_ref, banking_clients(display_name))").eq("txn_type", "Payment").order("payment_date", { ascending: false }).limit(2000)), []);
-  const countered = useLoad(() => run(table("banking_payments").select("reverses_payment_id, txn_type").not("reverses_payment_id", "is", null).limit(2000)), []);
-  const settings = useLoad(() => loadSettings(), []);
-  const stateOf = (p) => (countered.data || []).find((x) => x.reverses_payment_id === p.id)?.txn_type;
-  const [error, setError] = useState(null);
-  const print = (e, p) => {
-    e.stopPropagation();
-    setError(null);
-    try { printReceipt(p, { display_name: p.banking_cases?.banking_clients?.display_name }, { case_ref: p.banking_cases?.case_ref }, settings.data?.company); } catch (err) { setError(err.message); }
-  };
-  if (list.loading && !list.data) return <Spinner />;
-  return (
-    <div>
-      <ErrorNote message={list.error || countered.error || settings.error || error} />
-      <DataTable search="Search vouchers…" rows={(list.data || []).filter((p) => p.banking_receipts)} onRow={(p) => openCase(p.case_id, "payments")} empty="No fee receipt vouchers yet. They are created when a payment is recorded." columns={[
-        { key: "v", label: "Voucher", render: (p) => p.banking_receipts.receipt_number },
-        { key: "payment_date", label: "Date", render: (p) => fmtDate(p.payment_date) },
-        { key: "r", label: "Case", render: (p) => p.banking_cases?.case_ref },
-        { key: "c", label: "Client", render: (p) => p.banking_cases?.banking_clients?.display_name },
-        { key: "amount", label: "Amount", right: true, render: (p) => money(p.amount) },
-        { key: "payment_method", label: "Method" },
-        { key: "s", label: "State", render: (p) => (stateOf(p) ? <Badge tone="warn">{stateOf(p) === "Reversal" ? "Reversed" : "Refunded"}</Badge> : <Badge tone="good">Valid</Badge>) },
-        { key: "a", label: "", render: (p) => <Button onClick={(e) => print(e, p)}>Print / PDF</Button> },
-      ]} />
     </div>
   );
 }

@@ -20,7 +20,7 @@ const NAV = [
   ["cases", "Banking Clients", "cases.view"],
   ["kyc", "General KYC", "kyc.view"],
   ["banks", "Banking Partners", "app.access"],
-  ["documentation", "Documentation", ["quotes.view", "payments.view", "agreements.view"]],
+  ["documentation", "Documentation", ["quotes.view", "agreements.view"]],
   ["payments", "Payments", "payments.view"],
   ["applications", "Applications", "apps.view"],
   ["appointments", "Appointments", "apps.view"],
