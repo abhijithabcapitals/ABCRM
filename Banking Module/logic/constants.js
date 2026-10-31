@@ -1,25 +1,27 @@
 // Fixed vocabularies. These mirror the check constraints in Banking Base/migrations/001.
 // Anything commercial (fees, requirements, sources) lives in the database, not here.
 
-export const STAGES = [
-  "Lead Received",
-  "Initial Contact and Discussion",
-  "General KYC Collection",
-  "Bank Options and Scheme Presentation",
-  "Client Bank Selection",
-  "Bank-Specific Document Checklist",
-  "Document Collection and Verification",
-  "Quotation Generation",
-  "Payment Collection",
-  "Client Acceptance",
-  "Engagement Letter Generation",
-  "Client Signature and Agreement",
-  "Application Preparation",
-  "Bank Submission / Appointment",
-  "Bank Review and Follow-up",
-  "Approved / Rejected / Returned",
-  "Completed Application",
+export const STEPS = [
+  ["Lead Received", "Import client details from the third-party Excel working sheet, or add the lead here."],
+  ["Lead Verification & Assignment", "Check duplicates, validate contact details and assign an employee."],
+  ["Initial Client Contact", "Call the client, understand requirements and explain the banking service."],
+  ["General KYC Collection", "Collect basic company, shareholder and business information."],
+  ["Bank Options & Schemes Shared", "Present available banks, account schemes, fees and eligibility conditions."],
+  ["Client Bank Selection", "Client selects the preferred bank and account scheme."],
+  ["Bank-Specific Document Checklist", "Generate the required document checklist based on the selected bank."],
+  ["Document Collection & Verification", "Request, receive, review and verify documents."],
+  ["Quotation Generation", "Generate an offer with bank charges, AB Capital fees and supplementary services."],
+  ["Payment Collection", "Receive advance or instalment payments and issue receipts."],
+  ["Client Offer Acceptance", "Obtain formal acceptance of the quotation."],
+  ["Engagement Letter Generation", "Generate and send the engagement letter."],
+  ["Signed Agreement Received", "Receive and upload the signed engagement letter."],
+  ["Application Preparation", "Prepare the complete application and supporting documents."],
+  ["Bank Submission / Appointment", "Submit directly to the bank or arrange a client appointment."],
+  ["Bank Follow-up & Processing", "Track bank review, additional requirements and application progress."],
+  ["Bank Decision", "Track approval, rejection or return for additional action."],
+  ["Account Opened – Completion", "Record account opening confirmation and close the banking case."],
 ];
+export const STAGES = STEPS.map(([name]) => name);
 
 export const LEAD_STATUSES = ["New", "Contacted", "Interested", "Follow-up Required", "Bank Options Shared", "Potential Client", "Quotation Sent", "Negotiation", "Converted", "Lost", "Not Interested", "Unreachable"];
 export const PRIORITIES = ["Low", "Medium", "High", "Urgent"];

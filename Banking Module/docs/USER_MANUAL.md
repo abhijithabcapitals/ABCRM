@@ -4,18 +4,30 @@ Open **Business Banking** in the CRM sidebar. An administrator gives you a banki
 
 ## The normal path
 
-1. **Leads**: add a lead, log calls under its history, set a follow-up date.
-2. **Convert to client**: the CRM lists existing clients with that name or licence. Reuse one if it is the same company. One client can have many cases.
-3. **General KYC**: save what you have; partial is fine. Answer the "facts" section, because the checklist depends on it.
-4. **Bank Selection**: add banks and schemes to compare, mark them presented, record the client's response, then **Select this bank**. This builds the document checklist. Changing bank later needs a reason, and the old selection stays on record.
-5. **Documents**: upload against each line. A new file is only "Received"; a Document Executive opens it and marks it Verified. Lines marked To Confirm depend on a KYC fact not yet answered.
-6. **Quotation**: New quotation starts with the bank fee and the default AED 2,000 service fee. Add Home Ejari only if the client wants it. Changing a default needs a reason, and a large cut goes to a manager. Save, Issue, Send, then Accept or Reject. To change an issued quotation, use Revise.
-7. **Payments**: record each payment separately; a receipt is created for each. Fix a mistake with Reverse. Never re-enter over it.
-8. **Agreement**: Generate letter after acceptance, download or print it, then Record signature with the signed scan attached.
-9. **Application**: Open application, tick form prepared, and move the status along. Submission is refused until documents, payment and signature are in place. An authorised user can override with a written justification.
-10. **Status**: Approved and Account Opened are separate steps. Mark Account Opened only when the bank confirms the account exists.
+In **Leads**, choose **New Lead** or **View Existing Leads**.
 
-The stage tracker at the top of a case can be clicked to move forward or back. Moving back needs remarks.
+**New Lead**
+1. Upload all the documents you have. Press **Read documents and continue**. This needs the Client Module running on this PC (`Client Module\\Start-ClientModule.cmd`); without it, you type the details and the files are still saved.
+2. Green fields were read from documents, so check them. Amber fields are missing, so fill them. **Show only what is missing** is on by default.
+3. **Save and select bank** opens the case at the bank and plan page.
+
+**Inside a case**, the 18 steps run along the top. Do the page for the current step and press **Complete step and continue**. If something is missing, the message lists it. An authorised user can continue by exception with a written justification. Any step can be opened to look at; **Return case to this step** moves a case back, with remarks.
+
+| Step | What you do there |
+|---|---|
+| 1-3 Lead, Verification, Contact | Review the lead, link Client Master, assign an employee, log the call |
+| 4 General KYC | Finish the company, partner and business details |
+| 5-6 Bank Options, Selection | See every bank's plans and charges, then **Select this plan**. The document list is built and you go to step 7 |
+| 7-8 Checklist, Collection | Files uploaded earlier are already linked. Upload the rest. A Document Executive marks each Verified; uploading never verifies |
+| 9 Quotation | Starts with the bank fee and default AED 2,000 service fee. Add Home Ejari only if wanted |
+| 10 Payment | Record each payment separately; a receipt is created. Fix mistakes with Reverse |
+| 11 Acceptance | Accept the issued quotation |
+| 12-13 Agreement | Generate the letter, then record the signature with the signed scan |
+| 14-15 Application, Submission | Open the application, tick form prepared, submit or book an appointment |
+| 16-17 Follow-up, Decision | Update the status as the bank responds |
+| 18 Completion | Mark Account Opened only when the bank confirms the account exists |
+
+Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
 ## Importing the Excel history
 

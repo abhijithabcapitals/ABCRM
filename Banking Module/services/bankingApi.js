@@ -54,6 +54,28 @@ export async function searchClientMaster(name) {
   return (body.clients || []).filter((c) => JSON.stringify(c).toUpperCase().includes(needle)).slice(0, 20);
 }
 
+// Reads files through the local Document Module (Client Module on this PC), then clears them from its staging area.
+export async function readDocuments(files, onProgress) {
+  const call = async (path, init) => {
+    const res = await fetch(`${CLIENT_MODULE_URL}${path}`, init);
+    if (!res.ok && res.status !== 409 && res.status !== 400) throw new Error(`Document Module: ${res.status}`);
+    return res.json();
+  };
+  const batch = await call("/api/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const out = [];
+  for (let i = 0; i < files.length; i++) {
+    const form = new FormData();
+    form.append("file", files[i]);
+    const r = await call(`/api/batches/${batch.batch}/files`, { method: "POST", body: form });
+    if (r.id) {
+      out.push(r);
+      await fetch(`${CLIENT_MODULE_URL}/api/batches/${batch.batch}/files/${r.id}`, { method: "DELETE" }).catch(() => {});
+    }
+    onProgress?.(i + 1);
+  }
+  return out;
+}
+
 // Batches staged rows so one big workbook does not hit the request size limit.
 export async function stageImport(meta, rows, onProgress) {
   const imp = await insertRow("banking_excel_imports", meta);

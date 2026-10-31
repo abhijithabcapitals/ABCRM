@@ -3,18 +3,18 @@ import KycForm from "./KycForm";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FilePick, FormModal, KeyVals, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { insertRow, loadSettings, openFile, rpc, run, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
 import { supabase } from "@app/supabase";
-import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, STAGES, SUBMISSION_METHODS, TASK_STATUSES, TASK_TYPES, PRIORITIES } from "../logic/constants";
+import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, STAGES, STEPS, SUBMISSION_METHODS, TASK_STATUSES, TASK_TYPES, PRIORITIES } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
 import { downloadLetterDocx, downloadQuoteDocx, printLetter, printQuote, printReceipt, quoteMerge } from "../logic/documents";
 
-const TABS = [
-  ["overview", "Overview"], ["client", "Client Information"], ["kyc", "General KYC"], ["selection", "Bank Selection"], ["documents", "Documents"], ["quotation", "Quotation"],
-  ["payments", "Payments"], ["agreement", "Agreement"], ["application", "Application"], ["followups", "Follow-ups"], ["tasks", "Tasks"], ["history", "Activity History"],
-];
+// Old list pages link to a case by area; each area opens at its step.
+const AREA_STEP = { client: 2, followups: 3, kyc: 4, selection: 6, documents: 8, quotation: 9, payments: 10, agreement: 12, application: 14 };
+const RECORDS = [["overview", "Overview"], ["tasks", "Tasks"], ["followups", "Follow-ups"], ["history", "Activity History"]];
 
 export default function CaseWorkspace({ caseId, initialTab, onBack }) {
   const { personName, can } = useBanking();
-  const [tab, setTab] = useState(initialTab || "overview");
+  const [step, setStep] = useState(AREA_STEP[initialTab] || null);
+  const [records, setRecords] = useState(["tasks", "history", "overview"].includes(initialTab) ? initialTab : null);
   const load = useLoad(async () => {
     const c = await run(table("banking_cases").select("*, banking_clients(*)").eq("id", caseId).single());
     const [finance, gates, app, sel] = await Promise.all([
@@ -31,6 +31,8 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
   const { c, finance, gates, app, sel } = load.data;
   const client = c.banking_clients;
   const reload = load.reload;
+  const shown = step || c.current_stage;
+  const show = (n) => { setRecords(null); setStep(n); };
 
   return (
     <div>
@@ -38,47 +40,172 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
       <div className="bk-case-top">
         <KeyVals items={[["Selected bank", sel ? `${sel.banking_partners?.bank_name}${sel.banking_schemes ? ` · ${sel.banking_schemes.scheme_name}` : ""}` : null], ["Application status", app?.status], ["Assigned employee", personName(c.assigned_to)], ["Total quotation", money(finance?.total)], ["Amount received", money(finance?.received)], ["Outstanding", money(finance?.outstanding)]]} />
       </div>
-      <StageTracker c={c} gates={gates} reload={reload} />
-      <div className="bk-tabs" role="tablist">
-        {TABS.map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
+      <div className="bk-tracker" aria-label="Workflow steps">
+        {STEPS.map(([name], i) => {
+          const n = i + 1;
+          const state = n < c.current_stage ? "done" : n === c.current_stage ? "now" : "next";
+          return (
+            <button type="button" key={name} className={`bk-step bk-step-${state} ${!records && n === shown ? "bk-step-open" : ""}`} aria-current={n === c.current_stage ? "step" : undefined} title={name} onClick={() => show(n)}>
+              <span>{state === "done" ? "✓" : n}</span><small>{name}</small>
+            </button>
+          );
+        })}
       </div>
-      {tab === "overview" && <Overview c={c} gates={gates} app={app} reload={reload} />}
-      {tab === "client" && <ClientInfo c={c} client={client} reload={reload} />}
-      {tab === "kyc" && <KycForm clientId={c.client_id} onSaved={reload} />}
-      {tab === "selection" && <BankSelection c={c} reload={reload} />}
-      {tab === "documents" && <Documents c={c} reload={reload} />}
-      {tab === "quotation" && <Quotation c={c} client={client} reload={reload} />}
-      {tab === "payments" && <Payments c={c} client={client} finance={finance} reload={reload} />}
-      {tab === "agreement" && <Agreement c={c} reload={reload} />}
-      {tab === "application" && <Application c={c} gates={gates} reload={reload} />}
-      {tab === "followups" && <CommsList caseId={c.id} clientId={c.client_id} />}
-      {tab === "tasks" && <CaseTasks c={c} />}
-      {tab === "history" && <History c={c} />}
+      <div className="bk-filter">
+        <span className="bk-muted">Case records:</span>
+        {RECORDS.map(([k, label]) => <button type="button" key={k} className={`bk-chip ${records === k ? "active" : ""}`} onClick={() => setRecords(records === k ? null : k)}>{label}</button>)}
+      </div>
+      {records ? (
+        <>
+          {records === "overview" && <Overview c={c} gates={gates} app={app} reload={reload} />}
+          {records === "tasks" && <CaseTasks c={c} />}
+          {records === "followups" && <CommsList caseId={c.id} clientId={c.client_id} />}
+          {records === "history" && <History c={c} />}
+        </>
+      ) : (
+        <>
+          <div className="bk-step-head">
+            <span className="bk-eyebrow">STEP {shown} OF {STEPS.length}{shown < c.current_stage ? " · COMPLETED" : shown > c.current_stage ? " · NOT REACHED YET" : " · CURRENT"}</span>
+            <h3>{STEPS[shown - 1][0]}</h3>
+            <p>{STEPS[shown - 1][1]}</p>
+          </div>
+          <StepBody n={shown} c={c} client={client} finance={finance} gates={gates} app={app} reload={reload} goTo={show} />
+          <StepFooter n={shown} c={c} reload={reload} goTo={show} />
+        </>
+      )}
     </div>
   );
 }
 
-function StageTracker({ c, gates, reload }) {
-  const { can } = useBanking();
-  const [target, setTarget] = useState(null);
-  const canMove = can("cases.manage");
+function StepBody({ n, c, client, finance, gates, app, reload, goTo }) {
+  if (n === 1) return <LeadStep c={c} />;
+  if (n === 2) return <ClientInfo c={c} client={client} reload={reload} />;
+  if (n === 3) return <CommsList caseId={c.id} clientId={c.client_id} />;
+  if (n === 4) return <KycForm clientId={c.client_id} onSaved={reload} />;
+  if (n === 5 || n === 6) return <PlanPicker c={c} reload={reload} goTo={goTo} />;
+  if (n === 7 || n === 8) return <Documents c={c} reload={reload} />;
+  if (n === 9 || n === 11) return <Quotation c={c} client={client} reload={reload} />;
+  if (n === 10) return <Payments c={c} client={client} finance={finance} reload={reload} />;
+  if (n === 12 || n === 13) return <Agreement c={c} reload={reload} />;
+  if (n >= 14 && n <= 17) return <Application c={c} gates={gates} reload={reload} />;
   return (
-    <div className="bk-tracker" aria-label="Workflow stages">
-      {STAGES.map((s, i) => {
-        const n = i + 1;
-        const state = n < c.current_stage ? "done" : n === c.current_stage ? "now" : "next";
+    <>
+      {app?.status === "Account Opened" ? <div className="bk-alert bk-alert-ok">Account opening recorded. This case is complete.</div> : <div className="bk-alert bk-alert-warn">Not complete yet. Record "Account Opened" on the application once the bank confirms.</div>}
+      <Application c={c} gates={gates} reload={reload} />
+    </>
+  );
+}
+
+function LeadStep({ c }) {
+  const lead = useLoad(() => (c.lead_id ? run(table("banking_leads").select("*").eq("id", c.lead_id).maybeSingle()) : Promise.resolve(null)), [c.lead_id]);
+  const l = lead.data;
+  return (
+    <Panel title="Lead details">
+      <ErrorNote message={lead.error} />
+      {!l ? <p className="bk-note">{lead.loading ? "Loading…" : "This case was opened directly, without a lead."}</p> : (
+        <KeyVals items={[["Lead", l.lead_ref], ["Lead date", fmtDate(l.lead_date)], ["Company", l.company_name], ["Contact", l.contact_person], ["Mobile", l.mobile], ["WhatsApp", l.whatsapp], ["Email", l.email], ["Nationality", l.nationality], ["Source", l.lead_source], ["Notes", l.initial_notes], ...(l.source_sheet ? [["Imported from", `${l.source_sheet} row ${l.source_row}`]] : [])]} />
+      )}
+    </Panel>
+  );
+}
+
+function StepFooter({ n, c, reload, goTo }) {
+  const { can } = useBanking();
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [override, setOverride] = useState(false);
+  const [back, setBack] = useState(false);
+  const canMove = can("cases.manage");
+  const friendly = (m) => Object.entries(GATE_LABELS).reduce((t, [k, label]) => t.replaceAll(k, label), m).replace(/Cannot move to stage (\d+)/, "Cannot continue to step $1");
+  const advance = async () => {
+    setBusy(true); setError(null);
+    try {
+      await rpc("banking_move_stage", { p_case: c.id, p_to: c.current_stage + 1 });
+      await reload();
+      goTo(c.current_stage + 1);
+    } catch (e) { setError(friendly(e.message)); }
+    setBusy(false);
+  };
+  return (
+    <div className="bk-step-foot">
+      <ErrorNote message={error} />
+      <div className="bk-step-buttons">
+        <Button disabled={n <= 1} onClick={() => goTo(n - 1)}>Previous step</Button>
+        <span className="bk-actions">
+          {canMove && n < c.current_stage && <Button onClick={() => setBack(true)}>Return case to this step</Button>}
+          {error && can("workflow.override") && <Button onClick={() => setOverride(true)}>Continue by exception</Button>}
+          {n !== c.current_stage && n < STEPS.length && <Button onClick={() => goTo(n + 1)}>Next step</Button>}
+          {n !== c.current_stage && <Button onClick={() => goTo(c.current_stage)}>Go to current step</Button>}
+          {canMove && n === c.current_stage && n < STEPS.length && <Button variant="primary" busy={busy} onClick={advance}>Complete step and continue</Button>}
+        </span>
+      </div>
+      {override && <FormModal title={`Continue to step ${c.current_stage + 1} by exception`} note={error} onClose={() => setOverride(false)} submitLabel="Continue" fields={[{ name: "why", label: "Justification", type: "textarea", required: true, full: true }]} onSubmit={async (v) => { await rpc("banking_move_stage", { p_case: c.id, p_to: c.current_stage + 1, p_override: v.why }); setError(null); await reload(); goTo(c.current_stage + 1); }} />}
+      {back && <FormModal title={`Return case to step ${n}: ${STEPS[n - 1][0]}`} onClose={() => setBack(false)} submitLabel="Return" fields={[{ name: "why", label: "Remarks", type: "textarea", required: true, full: true }]} onSubmit={async (v) => { await rpc("banking_move_stage", { p_case: c.id, p_to: n, p_remarks: v.why }); await reload(); }} />}
+    </div>
+  );
+}
+
+function PlanPicker({ c, reload, goTo }) {
+  const { can } = useBanking();
+  const cat = useLoad(() => rpc("banking_plan_catalogue", { p_case: c.id }), [c.id]);
+  const sel = useLoad(() => run(table("banking_bank_recommendations").select("id, bank_id, scheme_id").eq("case_id", c.id).eq("is_selected", true).maybeSingle()), [c.id]);
+  const [bank, setBank] = useState("");
+  const [choice, setChoice] = useState(null);
+  const banks = cat.data || [];
+  const shown = banks.filter((b) => !bank || b.bank_id === bank);
+  const current = sel.data;
+  const manage = can("cases.manage");
+  const fee = (p) => (p ? Number(p.account_opening_fee || 0) + Number(p.other_bank_charges || 0) : 0);
+  const choose = async (v) => {
+    await rpc("banking_choose_plan", { p_case: c.id, p_bank: choice.bank.bank_id, p_scheme: choice.plan?.scheme_id ?? null, p_reason: v.reason ?? null });
+    await sel.reload();
+    if (c.current_stage < 7) {
+      try { await rpc("banking_move_stage", { p_case: c.id, p_to: 7 }); await reload(); goTo(7); return; } catch { /* a missing requirement shows when they press continue */ }
+    }
+    await reload();
+  };
+  return (
+    <Panel title="Choose a bank and plan" sub="Charges and conditions come from AB Capital's internal data, not verified bank policy. Showing a plan never implies approval: the bank decides."
+      actions={<select aria-label="Filter by bank" value={bank} onChange={(e) => setBank(e.target.value)}><option value="">All banks</option>{banks.map((b) => <option key={b.bank_id} value={b.bank_id}>{b.bank_name}</option>)}</select>}>
+      <ErrorNote message={cat.error || sel.error} />
+      {cat.loading && !cat.data ? <Spinner /> : shown.map((b) => {
+        const notes = (b.flags?.notes || []).filter((n) => n.relevant);
+        const cards = b.plans.length ? b.plans : [null];
+        const range = b.bank_pricing;
         return (
-          <button type="button" key={s} className={`bk-step bk-step-${state}`} disabled={!canMove || n === c.current_stage} title={s} onClick={() => setTarget(n)}>
-            <span>{n}</span><small>{s}</small>
-          </button>
+          <section className="bk-bank" key={b.bank_id}>
+            <header><h4>{b.bank_name}</h4>{range?.service_fee_min != null && <span className="bk-muted">AB Capital fee guide: AED {range.service_fee_min}–{range.service_fee_max}</span>}</header>
+            {notes.length > 0 && <div className="bk-consider"><strong>Considerations for this client (internal, unverified):</strong><ul>{notes.map((n, i) => <li key={i}>{n.note}</li>)}</ul></div>}
+            <div className="bk-compare">
+              {cards.map((p) => {
+                const v = p?.version || {};
+                const isSel = current && current.bank_id === b.bank_id && (current.scheme_id ?? null) === (p?.scheme_id ?? null);
+                return (
+                  <article key={p?.scheme_id || "none"} className={`bk-option ${isSel ? "selected" : ""}`}>
+                    <header><h4>{p?.scheme_name || "No plan recorded yet"}</h4>{isSel && <Badge tone="good">Selected</Badge>}</header>
+                    {p?.account_type && <p className="bk-muted">{p.account_type}</p>}
+                    <KeyVals items={[
+                      ["Min. average balance", v.minimum_average_balance != null ? money(v.minimum_average_balance) : "Not recorded"],
+                      ["Fee if below balance", v.below_balance_fee != null ? money(v.below_balance_fee) : "Not recorded"],
+                      ["Monthly fee", v.monthly_fee != null ? money(v.monthly_fee) : "Not recorded"],
+                      ["Initial deposit", v.initial_deposit != null ? money(v.initial_deposit) : "Not recorded"],
+                      ["Bank opening charges", p?.pricing && fee(p.pricing) > 0 ? money(fee(p.pricing)) : "Not recorded"],
+                      ["Physical office", v.physical_office_required == null ? "Not recorded" : v.physical_office_required ? "Required" : "Not required"],
+                      ["Processing time", v.processing_time || b.processing_time || "Not recorded"],
+                      ["Data", v.verification_status || "Unverified"],
+                    ]} />
+                    {v.internal_notes && <p className="bk-muted bk-mt">{v.internal_notes}</p>}
+                    {manage && !isSel && <div className="bk-mt"><Button variant="primary" onClick={() => setChoice({ bank: b, plan: p })}>Select this plan</Button></div>}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
         );
       })}
-      {target && (
-        <FormModal title={`Move to stage ${target}: ${STAGES[target - 1]}`} onClose={() => setTarget(null)} submitLabel="Move" note={gates && target > c.current_stage ? "If a requirement is not met the move is refused and lists what is missing. An authorised user can then enter a justification." : null}
-          fields={[{ name: "remarks", label: target < c.current_stage ? "Remarks (required to move back)" : "Remarks", type: "textarea", full: true, required: target < c.current_stage }, ...(can("workflow.override") ? [{ name: "override", label: "Override justification (only to bypass an unmet requirement)", type: "textarea", full: true }] : [])]}
-          onSubmit={async (v) => { await rpc("banking_move_stage", { p_case: c.id, p_to: target, p_remarks: v.remarks, p_override: v.override }); await reload(); }} />
-      )}
-    </div>
+      {choice && <FormModal title={`Select ${choice.bank.bank_name}${choice.plan ? ` · ${choice.plan.scheme_name}` : ""}`} onClose={() => setChoice(null)} submitLabel="Select and build document list" note="This builds the client's document checklist for this bank. An earlier selection stays on record."
+        fields={current ? [{ name: "reason", label: "Reason for changing the bank", type: "textarea", required: true, full: true }] : []} onSubmit={choose} />}
+    </Panel>
   );
 }
 
@@ -175,94 +302,6 @@ function ClientInfo({ c, client, reload }) {
   );
 }
 
-function BankSelection({ c, reload }) {
-  const { can } = useBanking();
-  const cmp = useLoad(() => rpc("banking_compare", { p_case: c.id }), [c.id]);
-  const banks = useLoad(() => run(table("banking_partners").select("id, bank_name").eq("is_active", true).order("bank_name")), []);
-  const schemes = useLoad(() => run(table("banking_schemes").select("id, bank_id, scheme_name").eq("is_active", true).order("scheme_name")), []);
-  const [adding, setAdding] = useState(false);
-  const [bankId, setBankId] = useState("");
-  const [response, setResponse] = useState(null);
-  const [select, setSelect] = useState(null);
-  const { error, busy, act } = useAction(async () => { await cmp.reload(); await reload(); });
-  const rows = cmp.data || [];
-  const hasSelected = rows.some((r) => r.is_selected);
-  return (
-    <div>
-      <Panel title="Bank comparison" sub="Options for this client. Showing an option never implies approval: the bank decides."
-        actions={can("cases.manage") && <Button variant="primary" onClick={() => setAdding(true)}>Add option</Button>}>
-        <ErrorNote message={cmp.error || error} />
-        {cmp.loading && !cmp.data ? <Spinner /> : !rows.length ? <p className="bk-note">Add the banks and schemes to compare.</p> : (
-          <div className="bk-compare">
-            {rows.map((r) => {
-              const v = r.scheme_version || {};
-              const p = r.pricing || {};
-              return (
-                <article key={r.id} className={`bk-option ${r.is_selected ? "selected" : ""}`}>
-                  <header><h4>{r.bank_name}</h4>{r.is_selected ? <Badge tone="good">Selected</Badge> : r.deselected_at ? <Badge tone="plain">Previously selected</Badge> : null}</header>
-                  <p className="bk-muted">{r.scheme_name || "No scheme chosen"}{r.account_type ? ` · ${r.account_type}` : ""}</p>
-                  <KeyVals items={[
-                    ["Bank charges", money(Number(p.account_opening_fee || 0) + Number(p.other_bank_charges || 0))],
-                    ["Min. balance", money(v.minimum_average_balance ?? v.minimum_balance ?? p.minimum_balance)],
-                    ["Below-balance fee", money(v.below_balance_fee)], ["Monthly fee", money(v.monthly_fee)],
-                    ["Initial deposit", money(v.initial_deposit ?? p.initial_deposit)],
-                    ["Required documents", r.required_documents],
-                    ["Physical office", v.physical_office_required == null ? "Not recorded" : v.physical_office_required ? "Required" : "Not required"],
-                    ["Appointment", r.appointment_required == null ? "Not recorded" : r.appointment_required ? "Required" : "Not required"],
-                    ["Processing time", v.processing_time || r.general_processing_time || "Not recorded"],
-                    ["Eligibility", v.eligibility_conditions], ["Data status", v.verification_status ? `${v.verification_status}${v.source ? ` · ${v.source}` : ""}` : null],
-                    ["Recommendation", r.internal_recommendation], ["Remarks", r.remarks], ["Client response", r.client_response],
-                    ["Presented", r.presented_at ? `${fmtDate(r.presented_at)} by ${r.presented_by_name || "–"}` : null],
-                  ]} />
-                  {(r.flags?.notes || []).filter((n) => n.relevant).length > 0 && (
-                    <div className="bk-consider"><strong>Considerations (internal, unverified):</strong><ul>{r.flags.notes.filter((n) => n.relevant).map((n, i) => <li key={i}>{n.note}</li>)}</ul></div>
-                  )}
-                  {can("cases.manage") && (
-                    <div className="bk-actions bk-mt">
-                      <Button busy={busy} onClick={() => act(async () => { const { data: u } = await supabase.auth.getUser(); await updateRow("banking_bank_recommendations", r.id, { presented_at: new Date().toISOString(), presented_by: u.user?.id }); })}>Mark presented</Button>
-                      <Button onClick={() => setResponse(r)}>Client response</Button>
-                      {!r.is_selected && <Button variant="primary" onClick={() => setSelect(r)}>Select this bank</Button>}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-      {adding && <AddOption c={c} banks={banks.data || []} schemes={schemes.data || []} bankId={bankId} setBankId={setBankId} onClose={() => setAdding(false)} onDone={cmp.reload} />}
-      {response && <FormModal title={`Client response · ${response.bank_name}`} initial={response} onClose={() => setResponse(null)} fields={[{ name: "client_response", label: "Client response", type: "textarea", full: true }, { name: "internal_recommendation", label: "Internal recommendation", type: "textarea", full: true }, { name: "remarks", label: "Remarks", type: "textarea", full: true }, { name: "is_preferred", label: "Client's preferred bank", type: "bool" }]} onSubmit={async (v) => { await updateRow("banking_bank_recommendations", response.id, v); await cmp.reload(); }} />}
-      {select && <FormModal title={`Select ${select.bank_name}`} onClose={() => setSelect(null)} submitLabel="Select bank" note="This generates the client's document checklist for this bank. Earlier selections and checklists stay on record."
-        fields={hasSelected ? [{ name: "reason", label: "Reason for changing the bank", type: "textarea", required: true, full: true }] : []}
-        onSubmit={async (v) => { await rpc("banking_select_bank", { p_case: c.id, p_reco: select.id, p_reason: v.reason ?? null }); await cmp.reload(); await reload(); }} />}
-    </div>
-  );
-}
-
-function AddOption({ c, banks, schemes, bankId, setBankId, onClose, onDone }) {
-  const [schemeId, setSchemeId] = useState("");
-  const [rec, setRec] = useState("");
-  const [error, setError] = useState(null);
-  const save = async () => {
-    try {
-      const ver = schemeId ? await run(table("banking_scheme_versions").select("id").eq("scheme_id", schemeId).order("version", { ascending: false }).limit(1).maybeSingle()) : null;
-      await insertRow("banking_bank_recommendations", { case_id: c.id, bank_id: bankId, scheme_id: schemeId || null, scheme_version_id: ver?.id ?? null, internal_recommendation: rec || null });
-      await onDone(); onClose();
-    } catch (e) { setError(e.message); }
-  };
-  return (
-    <Modal title="Add bank option" onClose={onClose}>
-      <ErrorNote message={error} />
-      <div className="bk-grid">
-        <div className="bk-field"><label htmlFor="o-b">Bank *</label><select id="o-b" value={bankId} onChange={(e) => { setBankId(e.target.value); setSchemeId(""); }}><option value="">Select…</option>{banks.map((b) => <option key={b.id} value={b.id}>{b.bank_name}</option>)}</select></div>
-        <div className="bk-field"><label htmlFor="o-s">Scheme</label><select id="o-s" value={schemeId} onChange={(e) => setSchemeId(e.target.value)}><option value="">Not chosen yet</option>{schemes.filter((s) => s.bank_id === bankId).map((s) => <option key={s.id} value={s.id}>{s.scheme_name}</option>)}</select></div>
-        <div className="bk-field bk-full"><label htmlFor="o-r">Internal recommendation</label><textarea id="o-r" value={rec} onChange={(e) => setRec(e.target.value)} /></div>
-      </div>
-      <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!bankId} onClick={save}>Add</Button></div>
-    </Modal>
-  );
-}
-
 function Documents({ c, reload }) {
   const { can, personName } = useBanking();
   const list = useLoad(() => run(table("banking_case_checklists").select("*, banking_partners(bank_name), banking_document_types(has_expiry,is_information,is_sensitive)").eq("case_id", c.id).order("is_current", { ascending: false }).order("sort_order")), [c.id]);
@@ -282,7 +321,7 @@ function Documents({ c, reload }) {
   });
   return (
     <Panel title="Document checklist" sub={current[0] ? `${current[0].banking_partners?.bank_name || "Standard"}: ${verified} verified, ${missing} missing of ${current.length}` : "Select a bank to generate the checklist."}
-      actions={can("docs.manage") && current.length > 0 && <Button busy={busy} onClick={() => act(() => rpc("banking_regenerate_checklist", { p_case: c.id }))}>Regenerate from KYC</Button>}>
+      actions={can("docs.manage") && current.length > 0 && <><Button busy={busy} onClick={() => act(async () => { for (const l of current.filter((x) => x.status === "Not Requested")) await rpc("banking_checklist_set_status", { p_checklist: l.id, p_status: "Requested" }); })}>Mark all as requested</Button><Button busy={busy} onClick={() => act(() => rpc("banking_regenerate_checklist", { p_case: c.id }))}>Regenerate from KYC</Button></>}>
       <ErrorNote message={list.error || error} />
       <p className="bk-note">Requirements come from AB Capital's internal list and are not verified bank policy. Uploading a file never verifies it.</p>
       <DataTable pageSize={60} rows={current} empty="No checklist yet." columns={[

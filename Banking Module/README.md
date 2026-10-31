@@ -16,7 +16,8 @@ Same pattern as the Business Development Module. The Main Module imports this fo
 | Path | Purpose |
 |---|---|
 | `components/BankingModule.jsx` | Shell, permissions, navigation |
-| `components/CaseWorkspace.jsx` | Case header, 17-stage tracker, 12 tabs |
+| `components/NewLeadWizard.jsx` | New lead: upload documents, autofill, fill what is missing |
+| `components/CaseWorkspace.jsx` | Case header, guided 18 steps, plan picker |
 | `components/{Dashboard,Leads,Cases,KycForm,KycList,Masters,WorkLists,Reports,ExcelImport,Settings}.jsx` | Pages |
 | `logic/excelImport.js`, `paymentNotes.js` | Workbook reading, status/colour rules, payment note parsing |
 | `logic/pricing.js` | Live quotation preview; the database recalculates on save |
@@ -45,9 +46,11 @@ Same pattern as the Business Development Module. The Main Module imports this fo
 
 ## Assistant and OCR
 
+New Lead autofill reads uploads through the local Document Module (`Client Module`, this PC only) and fills the form for a person to check. It works on licences, VAT and CT certificates, passports with a readable MRZ and similar; on another PC, or with the module off, staff type the details.
+
 `banking_ai_suggestions` is the review queue for every engine. A rules engine fills it today: missing documents, expiring documents, possible duplicate clients. Staff accept (which can open a task) or dismiss.
 
-Not built: OCR, extraction, classification, comparison against KYC, communication summaries and quotation assistance. To add them, a service runs `DOC OCR Module` (`docai`) on the file and inserts a row with `engine = 'docai'`; nothing else changes. The database gives no suggestion a path to verify a document, confirm an account, change a payment or send a quotation.
+Not built: comparison against KYC, communication summaries and quotation assistance. To add them, a service runs `DOC OCR Module` (`docai`) on the file and inserts a row with `engine = 'docai'`; nothing else changes. The database gives no suggestion a path to verify a document, confirm an account, change a payment or send a quotation.
 
 ## Tests
 

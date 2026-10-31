@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parsePaymentNote } from "../logic/paymentNotes.js";
 import { quoteTotals } from "../logic/pricing.js";
+import { buildAutofill } from "../logic/kycAutofill.js";
 import { readSheet, markDuplicates, suggestStatus, resolveBank, normaliseCompany, isCleanRow, colourFamily } from "../logic/excelImport.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
@@ -123,4 +124,19 @@ test("real workbook: monthly and completed sheets parse", { skip: !existsSync(WO
   const first = m.rows[0];
   assert.equal(first.month_label, "2024-08");
   assert.equal(first.source_row, 4);
+});
+
+test("autofill maps fields, skips low confidence, keeps conflicts for a person", () => {
+  const a = buildAutofill([
+    { name: "licence.pdf", extraction: { fields: [{ key: "legal_name", value: "Test LLC", confidence: "high" }, { key: "licence_number", value: "123", confidence: "medium" }, { key: "website", value: "bad", confidence: "low" }, { key: "jurisdiction", value: "Free Zone", confidence: "high" }], people: [], rows: [] } },
+    { name: "moa.pdf", extraction: { fields: [{ key: "legal_name", value: "Other LLC", confidence: "high" }], people: [], rows: [{ list: "shareholders", item: { name: "Asha", ownership: "60%", nationality: "Indian" } }] } },
+    { name: "pp.jpg", extraction: { fields: [], people: [{ name: "Asha", nationality: "IND" }], rows: [] } },
+  ]);
+  assert.equal(a.values.legal_name, "Test LLC");
+  assert.equal(a.values.license_number, "123");
+  assert.equal(a.values.website, undefined);
+  assert.equal(a.values.is_free_zone, true);
+  assert.equal(a.conflicts.legal_name.length, 2);
+  assert.equal(a.shareholders.length, 1);
+  assert.equal(a.sources.license_number, "licence.pdf");
 });

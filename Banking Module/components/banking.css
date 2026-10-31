@@ -139,3 +139,27 @@
   .bk-matrix td { display: table-cell; }
   .bk-matrix td::before { content: none; }
 }
+
+.bk-step-open { outline: 2px solid #0d7d82; outline-offset: -2px; }
+.bk-step-head { margin-bottom: 12px; padding: 14px 16px; border-left: 3px solid #0d7d82; border-radius: 0 10px 10px 0; background: #fff; }
+.bk-step-head h3 { margin: 3px 0 2px; font-size: 18px; color: #13363d; }
+.bk-step-head p { margin: 0; color: #5f7077; }
+.bk-step-foot { position: sticky; bottom: 0; margin-top: 12px; padding: 11px 14px; border: 1px solid #e6ebed; border-radius: 10px; background: #fff; box-shadow: 0 -4px 14px #0f242b0f; }
+.bk-step-buttons { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.bk-bank { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #eef2f3; }
+.bk-bank > header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.bk-bank > header h4 { margin: 0; font-size: 15px; color: #13363d; }
+.bk-bank .bk-consider { margin: 0 0 9px; }
+.bk-entry { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.bk-entry button { display: flex; flex-direction: column; gap: 5px; padding: 22px; border: 1px solid #dbe3e6; border-radius: 12px; background: #fff; color: #172f35; text-align: left; cursor: pointer; }
+.bk-entry button:hover { border-color: #0d7d82; background: #f5fbfb; }
+.bk-entry strong { font-size: 17px; color: #0d7277; }
+.bk-entry span { color: #5f7077; font-size: 12px; }
+.bk-wizard-steps { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.bk-wizard-steps span { padding: 6px 12px; border-radius: 999px; background: #eef2f4; color: #5f7077; font-size: 12px; font-weight: 700; }
+.bk-wizard-steps span.active { background: #0d7d82; color: #fff; }
+.bk-drop { display: block; padding: 30px; border: 2px dashed #b7d4d5; border-radius: 12px; background: #f8fcfc; text-align: center; cursor: pointer; }
+.bk-drop input { display: none; }
+.bk-field-auto input, .bk-field-auto select, .bk-field-auto textarea { border-color: #7cc4a1 !important; background: #f3fbf6 !important; }
+.bk-field-missing input, .bk-field-missing select, .bk-field-missing textarea { border-color: #e2b65a !important; background: #fffaf0 !important; }
+.bk-field-from { color: #1f6e49; font-size: 10.5px; }

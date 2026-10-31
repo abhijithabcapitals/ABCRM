@@ -6,7 +6,7 @@ import { STAGES } from "../logic/constants";
 
 export default function Cases() {
   const { can, openCase, personOptions } = useBanking();
-  const [historical, setHistorical] = useState(false);
+  const [historical, setHistorical] = useState(true);
   const [q, setQ] = useState("");
   const [term, setTerm] = useState("");
   const [newCase, setNewCase] = useState(false);
@@ -42,8 +42,8 @@ export default function Cases() {
           { name: "title", label: "Title" },
           { name: "assigned", label: "Assigned employee", type: "select", options: personOptions },
         ]} initial={{ kind: "Business" }} onSubmit={async (v) => {
-          const id = await rpc("banking_new_case", { p_client: v.client, p_title: v.title, p_kind: v.kind, p_assigned: v.assigned, p_stage: 3 });
-          openCase(id, "kyc");
+          const id = await rpc("banking_new_case", { p_client: v.client, p_title: v.title, p_kind: v.kind, p_assigned: v.assigned, p_stage: 4 });
+          openCase(id);
         }} />
       )}
     </div>

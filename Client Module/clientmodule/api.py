@@ -26,7 +26,7 @@ import logging
 from typing import Any
 
 from fastapi import Body, FastAPI, File, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from docai import PipelineError, document_types
 
@@ -51,7 +51,19 @@ def create_app(settings: Settings) -> FastAPI:
         host = (request.headers.get("host") or "").split(":")[0]
         if host not in LOCAL_HOSTS:  # blocks DNS-rebinding pages from reaching the API
             return JSONResponse({"error": "Local access only."}, status_code=403)
-        response = await call_next(request)
+        # The CRM's Business Banking page reads documents and looks up clients here; only listed origins may.
+        origin = (request.headers.get("origin") or "").rstrip("/")
+        shared = origin in settings.embed_origins and request.url.path.startswith(("/api/batches", "/api/clients"))
+        if request.method == "OPTIONS" and shared:
+            response = Response(status_code=204)
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+        else:
+            response = await call_next(request)
+        if shared:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         if settings.embed_origins:  # only the listed CRM origins may frame the module

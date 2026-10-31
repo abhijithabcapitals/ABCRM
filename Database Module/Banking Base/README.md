@@ -8,6 +8,7 @@ Database for the `Banking Module`. Tables are `public.banking_*` in the CRM Supa
 | `private/002_banking_seed.sql` | Roles, settings, banks, document types, checklists, risk rules, schemes from the deck. **Git-ignored and on this PC only**: the repository is public and this holds the company's bank details and internal notes. Back it up separately |
 | `migrations/003_banking_workflow.sql` | Workflow functions, gates, quotes, ledger, import, dashboard, reports |
 | `migrations/004_banking_storage.sql` | Private bucket and policies (skipped on plain Postgres) |
+| `migrations/005_banking_18_steps.sql` | Moves cases to the 18-step workflow |
 | `tests/run-local.sh` | Runs everything on a throwaway Postgres. Never touches Supabase |
 | `data/` | Local extracts, if any. Git-ignored |
 
@@ -15,7 +16,7 @@ Database for the `Banking Module`. Tables are `public.banking_*` in the CRM Supa
 
 **Status: applied 31/10/2026 to `pnnakrhfzyxudjaghoxx`. Code not yet merged to `main`.** All migrations re-run safely.
 
-1. Back up, then apply `migrations/001`, `private/002`, `migrations/003`, `migrations/004` in that order to Supabase project `pnnakrhfzyxudjaghoxx`, using the same `supabase db query` route as `Email Base/deploy_to_crm.sh`.
+1. Back up, then apply `migrations/001`, `private/002`, `migrations/003`, `migrations/004`, `migrations/005` in that order to Supabase project `pnnakrhfzyxudjaghoxx`, using the same `supabase db query` route as `Email Base/deploy_to_crm.sh`.
 2. In the CRM: Settings > Users & Permissions, assign banking roles. CRM admins already have access.
 3. Check by hand: create a lead, convert it, select a bank, upload a file, issue and accept a quotation, record a payment, generate and sign a letter, open an application, then run one small Excel import.
 4. Merge the code to `main`. The GitHub Pages workflow deploys it. Merge after step 1, otherwise users see a setup message in the tab.

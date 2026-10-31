@@ -12,7 +12,7 @@ trap '"$BIN/pg_ctl.exe" -D "$DATA" -m immediate stop >/dev/null; rm -rf "$DATA"'
 PSQL=("$BIN/psql.exe" -U postgres -p "$PORT" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -q)
 "${PSQL[@]}" -f "$HERE/000_stub.sql" >/dev/null || exit 1
 for pass in 1 2; do
-  for f in "$HERE"/../migrations/001_*.sql "$HERE"/../private/002_*.sql "$HERE"/../migrations/003_*.sql "$HERE"/../migrations/004_*.sql; do
+  for f in "$HERE"/../migrations/001_*.sql "$HERE"/../private/002_*.sql "$HERE"/../migrations/003_*.sql "$HERE"/../migrations/004_*.sql "$HERE"/../migrations/005_*.sql; do
     "${PSQL[@]}" -f "$f" >/dev/null 2>"$DATA/err" || { echo "FAILED pass $pass: $f"; cat "$DATA/err"; exit 1; }
   done
   echo "migrations pass $pass ok"

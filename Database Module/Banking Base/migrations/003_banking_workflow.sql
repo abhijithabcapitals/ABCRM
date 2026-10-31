@@ -119,7 +119,7 @@ begin
   if l.status = 'Converted' then raise exception 'Lead % is already converted', l.lead_ref; end if;
   v_existing := p_client is not null or exists (select 1 from banking_clients where name_key = banking_name_key(l.company_name) or (nullif(l.license_number, '') is not null and license_number = l.license_number));
   v_client := coalesce(p_client, banking_get_or_create_client(l.company_name, l.license_number, p_master));
-  v_case := banking_new_case(v_client, l.id, null, 'Business', l.assigned_to, 3);
+  v_case := banking_new_case(v_client, l.id, null, 'Business', l.assigned_to, 4);
   update banking_leads set status = 'Converted', converted_at = now(), client_id = v_client where id = p_lead;
   if l.contact_person is not null then
     insert into banking_case_parties (case_id, full_name, mobile, email) values (v_case, l.contact_person, coalesce(l.mobile, l.whatsapp), l.email);
@@ -670,12 +670,12 @@ revoke all on function public.banking_case_finance_internal(uuid) from public, a
 create or replace function public.banking_stage_gates(p_stage int) returns text[]
 language sql immutable set search_path = public, pg_temp as $$
   select case
-    when p_stage = 6 then array['bank_selected']
-    when p_stage between 7 and 10 then array['bank_selected']
-    when p_stage in (11, 12) then array['bank_selected','quotation_accepted']
-    when p_stage = 13 then array['bank_selected','quotation_accepted','letter_signed']
-    when p_stage = 14 then array['bank_selected','quotation_accepted','letter_signed','documents_verified','payment_received','form_prepared']
-    when p_stage >= 15 then array['bank_selected','quotation_accepted','letter_signed','documents_verified','payment_received','form_prepared','submitted']
+    when p_stage in (5, 6) then array['kyc_completed']
+    when p_stage between 7 and 11 then array['kyc_completed','bank_selected']
+    when p_stage in (12, 13) then array['kyc_completed','bank_selected','quotation_accepted']
+    when p_stage = 14 then array['kyc_completed','bank_selected','quotation_accepted','letter_signed']
+    when p_stage = 15 then array['kyc_completed','bank_selected','quotation_accepted','letter_signed','documents_verified','payment_received','form_prepared']
+    when p_stage >= 16 then array['kyc_completed','bank_selected','quotation_accepted','letter_signed','documents_verified','payment_received','form_prepared','submitted']
     else '{}'::text[] end
 $$;
 
@@ -686,7 +686,7 @@ begin
   perform banking_require('cases.manage');
   select * into c from banking_cases where id = p_case for update;
   if c.id is null then raise exception 'Case not found'; end if;
-  if p_to not between 1 and 17 then raise exception 'Unknown stage'; end if;
+  if p_to not between 1 and 18 then raise exception 'Unknown stage'; end if;
   if p_to = c.current_stage then return; end if;
   if p_to < c.current_stage and nullif(trim(p_remarks), '') is null then raise exception 'Remarks are required to move a case backward'; end if;
   if p_to > c.current_stage then
@@ -770,7 +770,7 @@ begin
   end if;
   if p_status in ('Ready for Submission','Submitted to Bank') then
     g := banking_gate_status(a.case_id);
-    select array_agg(x) into unmet from unnest(banking_stage_gates(14)) x
+    select array_agg(x) into unmet from unnest(banking_stage_gates(15)) x
      where not coalesce((g ->> x)::boolean, false) and not (x = 'letter_signed' and a.override_justification is not null);
     if unmet is not null and nullif(trim(p_override), '') is null then
       raise exception 'Cannot move to "%": not yet met: %', p_status, array_to_string(unmet, ', ');
@@ -787,10 +787,10 @@ begin
   insert into banking_application_status_history (application_id, previous_status, new_status, remarks, supporting_document_path, next_follow_up, is_override)
   values (p_app, a.status, p_status, coalesce(p_override, p_remarks), p_path, p_next, v_is_override);
   v_outcome := case p_status when 'Approved' then 'Approved' when 'Account Opened' then 'Approved' when 'Rejected' then 'Rejected' when 'Returned' then 'Returned' when 'Cancelled' then 'Cancelled' end;
-  v_stage := case when p_status = 'Account Opened' then 17
-                  when p_status in ('Approved','Rejected','Returned') then 16
-                  when p_status in ('Bank Review','Additional Documents Requested','Resubmission Required','Client Visited Bank') then 15
-                  when p_status in ('Submitted to Bank','Appointment Scheduled') then 14 end;
+  v_stage := case when p_status = 'Account Opened' then 18
+                  when p_status in ('Approved','Rejected','Returned') then 17
+                  when p_status in ('Bank Review','Additional Documents Requested','Resubmission Required','Client Visited Bank') then 16
+                  when p_status in ('Submitted to Bank','Appointment Scheduled') then 15 end;
   perform set_config('banking.internal', '1', true);
   update banking_cases set outcome = coalesce(v_outcome, case when outcome in ('Returned') then null else outcome end) where id = a.case_id;
   if v_stage is not null then
@@ -962,7 +962,7 @@ begin
       values (coalesce(v_month, current_date), m ->> 'company', m ->> 'contact', m ->> 'nationality', coalesce(m ->> 'lead_source', 'Third Party'), 'Converted', v_client, now(), rw.source_sheet, rw.source_row,
               'Imported. Referred by: ' || coalesce(m ->> 'referrer', '–'))
       returning id into v_lead;
-      v_stage := case v_status when 'Account Opened' then 17 when 'Approved' then 16 when 'Rejected' then 16 when 'Returned' then 16 when 'Cancelled' then 16 when 'On Hold' then 7 else 7 end;
+      v_stage := case v_status when 'Account Opened' then 18 when 'Approved' then 17 when 'Rejected' then 17 when 'Returned' then 17 when 'Cancelled' then 17 else 8 end;
       v_outcome := case v_status when 'Account Opened' then 'Approved' when 'Approved' then 'Approved' when 'Rejected' then 'Rejected' when 'Returned' then 'Returned' when 'Cancelled' then 'Cancelled' end;
       insert into banking_cases (client_id, lead_id, account_kind, current_stage, outcome, is_historical, legacy_status, title, created_at)
       values (v_client, v_lead, coalesce(m ->> 'account_kind', 'Business'), v_stage, v_outcome, true, m ->> 'status_raw', 'Historical: ' || (m ->> 'bank_raw'), coalesce(v_month::timestamptz, now()))
@@ -1184,6 +1184,52 @@ language sql stable security definer set search_path = public, pg_temp as $$
      where banking_can('cases.view') and (p_include_historical or not c.is_historical) and (p_search is null or cl.display_name ilike '%' || p_search || '%' or c.case_ref ilike '%' || p_search || '%')
      order by c.created_at desc limit p_limit offset p_offset) t), '[]'::jsonb))
 $$;
+
+-- ── Plan picker: every active bank with its plans, charges and internal notes for this case ──
+create or replace function public.banking_plan_catalogue(p_case uuid) returns jsonb
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'bank_id', b.id, 'bank_name', b.bank_name, 'website', b.website, 'appointment_required', b.appointment_required, 'digital_application', b.digital_application, 'processing_time', b.general_processing_time,
+    'bank_pricing', to_jsonb(banking_price_for(b.id, null)),
+    'flags', banking_case_flags(p_case, b.id),
+    'plans', (select coalesce(jsonb_agg(jsonb_build_object('scheme_id', s.id, 'scheme_name', s.scheme_name, 'account_type', s.account_type, 'version', to_jsonb(v), 'pricing', to_jsonb(banking_price_for(b.id, s.id))) order by coalesce(v.minimum_average_balance, 0), s.scheme_name), '[]'::jsonb)
+        from banking_schemes s left join lateral (select * from banking_scheme_versions sv where sv.scheme_id = s.id order by sv.version desc limit 1) v on true
+       where s.bank_id = b.id and s.is_active and s.deleted_at is null)
+  ) order by b.bank_name), '[]'::jsonb)
+  from banking_partners b where b.is_active and b.deleted_at is null and banking_can('cases.view')
+$$;
+
+-- Selects a bank and plan in one step; adds the option if it was not on the shortlist.
+create or replace function public.banking_choose_plan(p_case uuid, p_bank uuid, p_scheme uuid default null, p_reason text default null) returns int
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_reco uuid; v_ver uuid;
+begin
+  perform banking_require('cases.manage');
+  select id into v_reco from banking_bank_recommendations where case_id = p_case and bank_id = p_bank and scheme_id is not distinct from p_scheme limit 1;
+  if v_reco is null then
+    select id into v_ver from banking_scheme_versions where scheme_id = p_scheme order by version desc limit 1;
+    insert into banking_bank_recommendations (case_id, bank_id, scheme_id, scheme_version_id, presented_at, presented_by)
+    values (p_case, p_bank, p_scheme, v_ver, now(), auth.uid()) returning id into v_reco;
+  end if;
+  return banking_select_bank(p_case, v_reco, p_reason);
+end $$;
+
+-- A KYC file received before any bank is chosen. The checklist links it later; it is never verified here.
+create or replace function public.banking_kyc_add_document(p_client uuid, p_doc_code text, p_shareholder uuid, p_path text, p_file text, p_mime text, p_size bigint, p_sha text, p_expiry date default null) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_type banking_document_types; v_doc uuid; k uuid;
+begin
+  perform banking_require('docs.manage');
+  select * into v_type from banking_document_types where doc_code = p_doc_code;
+  if v_type.id is null then raise exception 'Choose a document type for %', p_file; end if;
+  insert into banking_documents (client_id, document_type_id, shareholder_id, title, current_version, expiry_date)
+  values (p_client, v_type.id, p_shareholder, v_type.doc_name, 1, p_expiry) returning id into v_doc;
+  insert into banking_document_versions (document_id, version, storage_path, file_name, mime_type, size_bytes, sha256, expiry_date)
+  values (v_doc, 1, p_path, p_file, p_mime, p_size, p_sha, p_expiry);
+  select id into k from banking_kyc_profiles where client_id = p_client;
+  if k is not null then insert into banking_kyc_documents (kyc_profile_id, document_id) values (k, v_doc) on conflict do nothing; end if;
+  return v_doc;
+end $$;
 
 -- ── Function access ──────────────────────────────────────────────────
 do $$

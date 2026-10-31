@@ -28,6 +28,12 @@ const FACTS = [
 const toFields = (list) => list.map(([name, label, type]) => ({ name, label, type: type || "text", full: type === "textarea" }));
 const ALL = [...toFields(COMPANY), ...toFields(BUSINESS), ...FACTS];
 
+// The fields the database counts toward 100% (banking_kyc_percent), which step 5 requires.
+const NEEDED = ["legal_name", "license_number", "license_expiry_date", "issuing_authority", "legal_structure", "business_activity", "registered_address", "office_address", "company_email", "company_phone", "nature_of_business", "source_of_funds", "expected_monthly_turnover", "countries_of_transactions", "reason_for_account", "business_description"];
+const mark = (fields) => fields.map((f) => (NEEDED.includes(f.name) ? { ...f, needed: true, label: `${f.label} *` } : f));
+export const KYC_SECTIONS = [["Company information", mark(toFields(COMPANY))], ["Business information", mark(toFields(BUSINESS))], ["Checklist facts", FACTS]];
+export const KYC_REQUIRED_FIELDS = ALL.filter((f) => NEEDED.includes(f.name));
+
 const SH_FIELDS = [
   { name: "full_name", label: "Full name", required: true }, { name: "nationality", label: "Nationality" },
   { name: "ownership_percent", label: "Ownership %", type: "number" }, { name: "shareholder_type", label: "Shareholder type", type: "select", options: ["Individual", "Corporate"], required: true },

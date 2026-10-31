@@ -174,3 +174,18 @@ def test_frame_and_health_only_for_crm_origins(tmp_path):
     assert "access-control-allow-origin" not in c.get("/api/health", headers={"origin": "https://evil.example"}).headers
     closed = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "e", embed_origins=[])))
     assert closed.get("/").headers["x-frame-options"] == "DENY"
+
+
+def test_crm_can_read_documents_from_listed_origin_only(tmp_path):
+    crm = "https://crm.example"
+    c = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", embed_origins=[crm], virus_scan=False, ai_enabled=False)))
+    pre = c.options("/api/batches", headers={"Origin": crm, "Access-Control-Request-Method": "POST"})
+    assert pre.status_code == 204 and pre.headers["access-control-allow-origin"] == crm
+    assert "access-control-allow-origin" not in c.get("/api/clients", headers={"Origin": "https://evil.example"}).headers
+    batch = c.post("/api/batches", json={}, headers={"Origin": crm}).json()["batch"]
+    text = "COMMERCIAL LICENSE\nLicense No: 123456\nCompany Name: TEST TRADING LLC\nExpiry Date: 31/12/2027\n"
+    up = c.post(f"/api/batches/{batch}/files", files={"file": ("trade licence.txt", text.encode(), "text/plain")}, headers={"Origin": crm})
+    assert up.status_code == 200 and up.headers["access-control-allow-origin"] == crm
+    body = up.json()
+    print("DOC", body["doc_type"], [(f["key"], f["value"], f["confidence"]) for f in body["extraction"]["fields"]])
+    assert body["id"] and body["extraction"]["fields"]

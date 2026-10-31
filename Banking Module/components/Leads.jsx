@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import NewLeadWizard from "./NewLeadWizard";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
-import { insertRow, listAll, loadSettings, rpc, updateRow } from "../services/bankingApi";
+import { insertRow, listAll, loadSettings, rpc, run, table, updateRow } from "../services/bankingApi";
 import { LEAD_STATUSES, PRIORITIES } from "../logic/constants";
 
 const FALLBACK_SOURCES = ["Other"];
@@ -9,6 +10,7 @@ export default function Leads() {
   const { can, personOptions, personName, openCase, goTo } = useBanking();
   const leads = useLoad(() => listAll("banking_leads"), []);
   const settings = useLoad(() => loadSettings(), []);
+  const [mode, setMode] = useState("home"); // home | new | list
   const [statusFilter, setStatusFilter] = useState("");
   const [editing, setEditing] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -37,12 +39,27 @@ export default function Leads() {
   const rows = (leads.data || []).filter((l) => !statusFilter || l.status === statusFilter);
   const overdue = (l) => l.follow_up_date && l.follow_up_date <= today() && !["Converted", "Lost", "Not Interested"].includes(l.status);
 
+  if (mode === "new") return <NewLeadWizard onCancel={() => { setMode("home"); leads.reload(); }} />;
+  if (mode === "home") {
+    return (
+      <div>
+        <PageHead title="Leads" />
+        <ErrorNote message={leads.error} />
+        <div className="bk-entry">
+          {can("leads.manage") && <button type="button" onClick={() => setMode("new")}><strong>+ New Lead</strong><span>Upload the client's documents, check the details, then choose a bank and plan.</span></button>}
+          <button type="button" onClick={() => setMode("list")}><strong>View Existing Leads</strong><span>{leads.data?.length ?? "…"} leads, including those imported from Excel.</span></button>
+          {can("imports.manage") && <button type="button" onClick={() => goTo("import")}><strong>Import from Excel</strong><span>Bring in leads from the third-party working sheet and review flagged rows.</span></button>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <PageHead title="Leads" sub={`${leads.data?.length ?? 0} leads`}>
+      <PageHead title="Existing Leads" sub={`${leads.data?.length ?? 0} leads`}>
+        <Button onClick={() => setMode("home")}>Back</Button>
         <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All statuses</option>{LEAD_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
-        {can("imports.manage") && <Button onClick={() => goTo("import")}>Import from Excel</Button>}
-        {can("leads.manage") && <Button variant="primary" onClick={() => setEditing({ lead_date: today(), status: "New", priority: "Medium", lead_source: "Other" })}>New lead</Button>}
+        {can("leads.manage") && <Button variant="primary" onClick={() => setMode("new")}>New Lead</Button>}
       </PageHead>
       <ErrorNote message={leads.error} />
       {leads.loading && !leads.data ? <Spinner /> : (
@@ -84,6 +101,7 @@ function LeadDetail({ lead, onClose, onEdit, onChanged, openCase }) {
     <Modal wide title={`${lead.lead_ref} · ${lead.company_name}`} onClose={onClose}>
       <ErrorNote message={error} />
       <div className="bk-actions bk-mb">
+        {lead.status === "Converted" && <CaseLink leadId={lead.id} openCase={openCase} onClose={onClose} />}
         {can("leads.manage") && lead.status !== "Converted" && <Button onClick={onEdit}>Edit</Button>}
         {can("leads.manage") && lead.status !== "Converted" && <Button variant="primary" busy={busy} onClick={check}>Convert to client</Button>}
       </div>
@@ -102,4 +120,10 @@ function LeadDetail({ lead, onClose, onEdit, onChanged, openCase }) {
       <CommsList leadId={lead.id} />
     </Modal>
   );
+}
+
+function CaseLink({ leadId, openCase, onClose }) {
+  const found = useLoad(() => run(table("banking_cases").select("id, case_ref").eq("lead_id", leadId).limit(1).maybeSingle()), [leadId]);
+  if (!found.data) return null;
+  return <Button variant="primary" onClick={() => { onClose(); openCase(found.data.id); }}>Open case {found.data.case_ref}</Button>;
 }

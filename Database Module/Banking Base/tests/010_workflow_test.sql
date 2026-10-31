@@ -207,15 +207,18 @@ select public.ok('application links signed letter', (select engagement_letter_id
 select public.must_fail('only one active application', format($$select public.banking_application_open(%L)$$, public.id('case1')), 'already');
 
 -- ── Stage tracker ──
-select public.must_fail('stage 14 blocked by unverified docs', format($$select public.banking_move_stage(%L, 14)$$, public.id('case1')), 'documents_verified');
-select public.banking_move_stage(public.id('case1'), 13, 'Agreement signed');
+select public.must_fail('stage 15 blocked by unverified docs', format($$select public.banking_move_stage(%L, 15)$$, public.id('case1')), 'documents_verified');
+select public.as_user('0d');
+update public.banking_kyc_profiles set legal_name='T',license_number='L',license_expiry_date=current_date+90,issuing_authority='A',legal_structure='LLC',business_activity='B',registered_address='R',office_address='O',company_email='e',company_phone='p',nature_of_business='N',source_of_funds='S',expected_monthly_turnover=1,countries_of_transactions='UAE',reason_for_account='R',business_description='B' where id = public.id('kyc');
+select public.as_user('0b');
+select public.banking_move_stage(public.id('case1'), 14, 'Agreement signed');
 select public.must_fail('moving back needs remarks', format($$select public.banking_move_stage(%L, 5)$$, public.id('case1')), 'Remarks');
 select public.as_user('0c');
-select public.must_fail('sales cannot override gate', format($$select public.banking_move_stage(%L, 14, null, 'just because')$$, public.id('case1')), 'workflow.override');
+select public.must_fail('sales cannot override gate', format($$select public.banking_move_stage(%L, 15, null, 'just because')$$, public.id('case1')), 'workflow.override');
 select public.as_user('0b');
-select public.banking_move_stage(public.id('case1'), 14, null, 'Director instruction');
-select public.ok('override recorded with unmet gates', (select is_override and unmet_gates is not null from public.banking_case_stage_history where to_stage = 14 and case_id = public.id('case1') limit 1));
-select public.banking_move_stage(public.id('case1'), 13, 'Back to prepare');
+select public.banking_move_stage(public.id('case1'), 15, null, 'Director instruction');
+select public.ok('override recorded with unmet gates', (select is_override and unmet_gates is not null from public.banking_case_stage_history where to_stage = 15 and case_id = public.id('case1') limit 1));
+select public.banking_move_stage(public.id('case1'), 14, 'Back to prepare');
 
 -- ── Application status ──
 select public.as_user('0f');
@@ -228,16 +231,16 @@ select public.as_user('0f');
 select public.banking_application_update(public.id('app'), '{"form_prepared":true,"submission_method":"Digital Application"}');
 select public.banking_application_set_status(public.id('app'), 'Ready for Submission');
 select public.banking_application_set_status(public.id('app'), 'Submitted to Bank', 'Sent', current_date + 3);
-select public.ok('submitted does not mean opened', (select outcome is null and current_stage = 14 from public.banking_cases where id = public.id('case1')));
+select public.ok('submitted does not mean opened', (select outcome is null and current_stage = 15 from public.banking_cases where id = public.id('case1')));
 select public.as_user('0b');
 select public.must_fail('bank cannot change after submission', format($$select public.banking_select_bank(%L, %L, 'Change')$$, public.id('case1'), public.id('r_rak')), 'already with the bank');
 select public.as_user('0f');
 select public.banking_application_set_status(public.id('app'), 'Bank Review');
 select public.must_fail('rejection needs remarks', format($$select public.banking_application_set_status(%L, 'Rejected')$$, public.id('app')), 'Remarks');
 select public.banking_application_set_status(public.id('app'), 'Approved');
-select public.ok('approved is not opened', (select status = 'Approved' from public.banking_applications where id = public.id('app')) and (select current_stage = 16 from public.banking_cases where id = public.id('case1')));
+select public.ok('approved is not opened', (select status = 'Approved' from public.banking_applications where id = public.id('app')) and (select current_stage = 17 from public.banking_cases where id = public.id('case1')));
 select public.banking_application_set_status(public.id('app'), 'Account Opened');
-select public.ok('opened completes the case', (select current_stage = 17 and outcome = 'Approved' from public.banking_cases where id = public.id('case1')));
+select public.ok('opened completes the case', (select current_stage = 18 and outcome = 'Approved' from public.banking_cases where id = public.id('case1')));
 select public.ok('status history complete', (select count(*) from public.banking_application_status_history where application_id = public.id('app')) = 6);
 
 -- ── Excel import ──
@@ -265,6 +268,18 @@ select public.ok('commission hidden from sales', (select count(*) = 0 from publi
 select public.as_user('0e');
 select public.ok('commission visible to finance', (select count(*) = 1 from public.banking_commissions));
 
+-- ── Guided flow additions ──
+select public.as_user('0b');
+select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));
+select public.ok('catalogue lists banks with plans', (select count(*) from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3')))) = 14 and exists (select 1 from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3'))) e where jsonb_array_length(e -> 'plans') > 0));
+select public.ok('choose plan creates option and checklist', public.banking_choose_plan(public.id('case3'), (select id from public.banking_partners where bank_code = 'ADCB'), (select s.id from public.banking_schemes s join public.banking_partners b on b.id = s.bank_id where b.bank_code = 'ADCB' limit 1)) > 0);
+select public.as_user('0d');
+select public.keep('kdoc', public.banking_kyc_add_document((select client_id from public.banking_cases where id = public.id('case3')), 'MOA', null, 'x/y.pdf', 'y.pdf', 'application/pdf', 1, 'z'));
+select public.ok('checklist reuses KYC upload as Received', public.banking_regenerate_checklist(public.id('case3')) > 0);
+select public.ok('reused file still needs verifying', (select status = 'Received' and verified_by is null from public.banking_case_checklists where case_id = public.id('case3') and is_current and document_id = public.id('kdoc')));
+select public.as_user('0c');
+select public.must_fail('sales cannot add KYC file', format($$select public.banking_kyc_add_document(%L, 'MOA', null, 'a', 'b', 'c', 1, 'd')$$, (select client_id from public.banking_cases where id = public.id('case3'))), 'permission');
+
 -- ── Assistant, dashboard, reports ──
 select public.as_user('0b');
 select public.ok('assistant queues, changes no status', public.banking_ai_refresh(public.id('case1')) >= 0 and (select status = 'Account Opened' from public.banking_applications where id = public.id('app')));
@@ -276,7 +291,7 @@ select public.must_fail('finance report refused for sales', $$select public.bank
 select public.as_user('0a');
 select public.ok('every report runs', (select bool_and(jsonb_typeof(public.banking_report(n)) = 'array') from unnest(array['leads_received','lead_sources','conversion_rate','lost_leads','employee_performance','quotations_issued','quotation_conversion','applications_by_bank','applications_by_scheme','under_process','accounts_opened','rejected','returned','approval_rate','average_processing','quotation_value','bank_fees','ab_revenue','supplementary_revenue','payments_received','outstanding','refunds','pending_documents','overdue_followups','pending_agreements','pending_appointments','awaiting_bank','cases_by_employee']) n));
 select public.must_fail('unknown report refused', $$select public.banking_report('nope')$$, 'Unknown report');
-select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 2);
+select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 3);
 select public.ok('timeline has entries', jsonb_array_length(public.banking_case_timeline(public.id('case1'))) > 5);
 select public.ok('activity log populated', (select count(*) > 20 from public.banking_activity_logs));
 
