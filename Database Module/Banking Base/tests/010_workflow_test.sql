@@ -285,6 +285,10 @@ set role authenticated;
 select public.as_user('0c');
 select public.must_fail('sales cannot change numbering', $$select public.banking_numbering_save('quote', 'A{SERIAL}', 3, 'never', 1)$$, 'permission');
 
+-- The harness above grants every function for its helpers, so take this one back to test the real grant.
+reset role;
+revoke execute on function public.banking_next_number(text, date) from authenticated;
+set role authenticated;
 select public.must_fail('serials cannot be taken through the API', $$select public.banking_next_number('quote')$$, 'permission denied');
 
 -- ── Guided flow additions ──
