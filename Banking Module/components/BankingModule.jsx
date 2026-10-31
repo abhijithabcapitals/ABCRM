@@ -10,11 +10,10 @@ import KycList from "./KycList";
 import BankingPartners from "./BankingPartners";
 import Documentation from "./Documentation";
 import { ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
-import Reports from "./Reports";
 import Settings from "./Settings";
 
 const NAV = [
-  ["dashboard", "Dashboard", "dashboard.view"],
+  ["dashboard", "Dashboard", ["dashboard.view", "reports.view"]],
   ["leads", "Leads", "leads.view"],
   ["cases", "Banking Clients", "cases.view"],
   ["kyc", "General KYC", "kyc.view"],
@@ -23,7 +22,6 @@ const NAV = [
   ["applications", "Applications", "apps.view"],
   ["appointments", "Appointments", "apps.view"],
   ["tasks", "Tasks & Follow-ups", "tasks.view"],
-  ["reports", "Reports", "reports.view"],
   ["settings", "⚙ Settings", "app.access"],
 ];
 
@@ -94,7 +92,6 @@ export default function BankingModule({ profile }) {
             {current === "applications" && <ApplicationsPage />}
             {current === "appointments" && <AppointmentsPage />}
             {current === "tasks" && <TasksPage />}
-            {current === "reports" && <Reports />}
             {current === "settings" && <Settings />}
           </>
         )}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Reports from "./Reports";
 import { ErrorNote, PageHead, Panel, Spinner, useBanking, useLoad } from "./shared";
 import { listAll, rpc } from "../services/bankingApi";
 import { money } from "../logic/pricing";
@@ -18,6 +19,23 @@ const ALERTS = [
 ];
 
 export default function Dashboard() {
+  const { can } = useBanking();
+  const views = [["overview", "Overview", "dashboard.view"], ["reports", "Reports", "reports.view"]].filter(([, , perm]) => can(perm));
+  const [view, setView] = useState(views[0]?.[0]);
+  return (
+    <div>
+      {views.length > 1 && (
+        <div className="bk-tabs" role="tablist" aria-label="Dashboard view">
+          {views.map(([k, label]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
+        </div>
+      )}
+      {view === "overview" && <Overview />}
+      {view === "reports" && <Reports />}
+    </div>
+  );
+}
+
+function Overview() {
   const { goTo, personOptions } = useBanking();
   const [filters, setFilters] = useState({ from: "", to: "", bank: "", employee: "" });
   const [quick, setQuick] = useState("all");

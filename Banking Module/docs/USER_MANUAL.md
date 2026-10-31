@@ -31,6 +31,10 @@ Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
 **Existing clients:** on General KYC or step 4 of a case, press **Fill from documents**. Empty fields are ticked for you. A value that differs from the saved one is shown in red and unticked, so you decide. Then press **Save KYC**.
 
+## Reports
+
+Reports are on the **Dashboard**, under the **Reports** view, with filters and export to Excel or PDF.
+
 ## Documentation
 
 The **Documentation** tab holds Quotations, Payments and Agreements. **+ New Document** asks for the type and the client's case, then opens that case at the right step.
