@@ -10,7 +10,7 @@ import { quoteMerge, letterMerge, receiptMerge } from "../logic/documents.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const here = fileURLToPath(new URL("..", import.meta.url));
-const sql = readdirSync(join(here, "../Database Module/Banking Base/migrations")).map((f) => readFileSync(join(here, "../Database Module/Banking Base/migrations", f), "utf8")).join("\n");
+const sql = ["Banking Base", "Accounting Base"].flatMap((base) => { const dir = join(here, "../Database Module", base, "migrations"); return readdirSync(dir).map((f) => readFileSync(join(dir, f), "utf8")); }).join("\n");
 const src = ["components", "services"].flatMap((d) => readdirSync(join(here, d)).filter((f) => /\.jsx?$/.test(f)).map((f) => readFileSync(join(here, d, f), "utf8"))).join("\n");
 
 const fns = {};
