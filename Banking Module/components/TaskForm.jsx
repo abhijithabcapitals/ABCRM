@@ -32,7 +32,7 @@ export default function TaskForm({ task, caseId, caseAssignee, onClose, onSaved 
     e.preventDefault();
     setError(null);
     if (!caseId && !others && !clientId && !keepsCase) { setError("Choose a client from the list, add a new client, or select Others."); flagMissing(["t-client"]); return; }
-    if (others && !title.trim()) { setError("Enter a title for this task."); flagMissing(["t-title"]); return; }
+    if (others && !title.trim()) { setError("Enter a title for this task."); flagMissing(["f-title"]); return; }
     setBusy(true);
     try {
       // A client's task links to their latest case, so it opens from there.
