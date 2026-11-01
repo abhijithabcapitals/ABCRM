@@ -95,6 +95,10 @@ def create_app(settings: Settings) -> FastAPI:
     def tax_page():
         return FileResponse(PACKAGE_DIR / "static" / "tax.html", media_type="text/html")
 
+    @app.get("/brand/logo.webp", include_in_schema=False)
+    def brand_logo():
+        return FileResponse(PACKAGE_DIR / "static" / "ab-capital-logo.webp", media_type="image/webp")
+
     @app.get("/api/tax-compliance")
     def tax_compliance():
         return compliance(master.read())

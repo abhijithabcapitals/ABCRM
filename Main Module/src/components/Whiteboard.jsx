@@ -468,7 +468,7 @@ export default function Whiteboard({ whiteboard, profile, onBack }) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#fafafa", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - var(--brand-footer-h))", background: "#fafafa", overflow: "hidden" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid #e5e7eb", background: "#fff", flexShrink: 0 }}>
         <button onClick={onBack} style={{ border: "none", background: "none", cursor: "pointer", color: "#6b7280", fontSize: 20, lineHeight: 1, padding: "2px 4px" }}>←</button>

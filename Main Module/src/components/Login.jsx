@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../supabase";
+import { BrandLogo, COPYRIGHT } from "./Brand";
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -31,6 +32,9 @@ export default function Login({ onLogin }) {
       style={{
         minHeight: "100vh",
         display: "flex",
+        flexDirection: "column",
+        gap: 16,
+        padding: 16,
         alignItems: "center",
         justifyContent: "center",
         background: "#f5f5f4",
@@ -47,8 +51,10 @@ export default function Login({ onLogin }) {
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>AB Capital</div>
-          <div style={{ fontSize: 13, color: "#888", marginTop: 4 }}>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <BrandLogo height={84} />
+          </div>
+          <div style={{ fontSize: 13, color: "#888", marginTop: 10 }}>
             Internal workspace
           </div>
         </div>
@@ -143,6 +149,7 @@ export default function Login({ onLogin }) {
           Contact your admin to get access
         </div>
       </div>
+      <div style={{ fontSize: 11, color: "#6b7f82", textAlign: "center" }}>{COPYRIGHT}</div>
     </div>
   );
 }

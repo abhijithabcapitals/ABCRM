@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../supabase";
 import Notifications from "./Notifications";
+import { BrandLogo } from "./Brand";
 import { IconDashboard, IconMyTasks, IconSettings, IconTrash, IconEdit, IconPalette, IconFolderPlus, IconFile, IconClients, IconList, IconPlus, IconCheck, IconBoard, IconSparkles, IconMail } from "./icons";
 
 // Map the emoji used in context-menu configs to the shared SVG icon set.
@@ -1165,10 +1166,8 @@ export default function Sidebar({
         style={{ padding: "16px 16px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}
       >
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.01em" }}>
-            AB Capital
-          </div>
-          <div style={{ fontSize: 11, color: "#6f9295", marginTop: 2 }}>
+          <BrandLogo height={40} plate />
+          <div style={{ fontSize: 11, color: "#6f9295", marginTop: 6 }}>
             Internal workspace
           </div>
         </div>

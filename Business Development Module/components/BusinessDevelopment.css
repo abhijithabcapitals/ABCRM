@@ -470,7 +470,7 @@
 .bd-shell { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100%; }
 .bd-shell-agent { grid-template-columns: minmax(0, 1fr) 380px; }
 .bd-shell-main { min-width: 0; }
-.bd-agent { position: sticky; top: 0; display: flex; flex-direction: column; height: 100vh; border-left: 1px solid #e3e9eb; background: #fff; color: #172f35; }
+.bd-agent { position: sticky; top: 0; display: flex; flex-direction: column; height: calc(100vh - var(--brand-footer-h)); border-left: 1px solid #e3e9eb; background: #fff; color: #172f35; }
 .bd-agent-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 16px 12px; border-bottom: 1px solid #edf1f2; }
 .bd-agent-head strong { display: block; font-size: 14px; }
 .bd-agent-head small { display: block; max-width: 250px; overflow: hidden; color: #718087; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }

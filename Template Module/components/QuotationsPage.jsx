@@ -19,7 +19,7 @@ export default function Quotations({ profile }) {
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: "#f7f8fa" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "calc(100vh - var(--brand-footer-h))", overflow: "hidden", background: "#f7f8fa" }}>
       {/* Header */}
       <div style={{ padding: "22px 40px 0", background: "#fff", borderBottom: "1px solid #ebebeb" }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1a1a1a", margin: 0, letterSpacing: "-0.3px" }}>

@@ -10,7 +10,7 @@ export default function CompanyTemplatesPage({ manifest = defaultManifest }) {
   const company = COMPANIES.find((c) => c.key === companyKey) || COMPANIES[0];
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", background: "#f7f8fa" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "calc(100vh - var(--brand-footer-h))", overflow: "hidden", background: "#f7f8fa" }}>
       {/* Header */}
       <div
         style={{

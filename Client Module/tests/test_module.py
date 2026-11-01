@@ -33,6 +33,16 @@ def env(tmp_path):
     return TestClient(app), s, storage
 
 
+def test_pages_carry_branding(env):
+    c, _, _ = env
+    logo = c.get("/brand/logo.webp")
+    assert logo.status_code == 200 and logo.headers["content-type"] == "image/webp"
+    for page in ("/", "/tax"):
+        html = c.get(page).text
+        assert "/brand/logo.webp" in html
+        assert "All Rights Reserved, AB Capital Services FZC Dubai, UAE" in html
+
+
 def upload(c, batch, name):
     with open(SAMPLES / name, "rb") as fh:
         r = c.post(f"/api/batches/{batch}/files", files={"file": (name, fh)})
