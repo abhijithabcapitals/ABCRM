@@ -302,3 +302,12 @@
 .bk-closed-body:hover { opacity: .85; }
 .bk-inbox { margin-bottom: 12px; padding: 10px 14px; border: 1px solid #b7d4d5; border-radius: 10px; background: #f0fafa; }
 .bk-inbox strong { color: #0d7277; }
+.bk-desk { display: grid; grid-template-columns: minmax(280px, 2fr) minmax(0, 3fr); gap: 14px; align-items: start; }
+.bk-desk-list { max-height: 460px; overflow-y: auto; }
+.bk-desk-list details { padding: 6px 0; border-bottom: 1px solid #eef2f3; }
+.bk-desk-list summary { color: #19363d; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.bk-desk-item { display: flex; align-items: flex-start; padding: 4px 0 4px 14px; cursor: pointer; }
+.bk-desk-item:hover { background: #f5fbfb; }
+.bk-desk-total { margin: 10px 0 0; text-align: right; }
+.bk-desk-total strong { color: #13363d; font-size: 16px; }
+@media (max-width: 900px) { .bk-desk { grid-template-columns: 1fr; } }

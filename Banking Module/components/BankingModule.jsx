@@ -8,6 +8,7 @@ import Clients from "./Clients";
 import CaseWorkspace from "./CaseWorkspace";
 import BankingPartners from "./BankingPartners";
 import Documentation from "./Documentation";
+import ServiceDesk from "@template-hub/components/ServiceDesk";
 import { ApplicationsPage, AppointmentsPage, TasksPage } from "./WorkLists";
 import Settings from "./Settings";
 
@@ -17,6 +18,7 @@ const NAV = [
   ["cases", "Banking Clients", "cases.view"],
   ["banks", "Banking Partners", "app.access"],
   ["documentation", "Documentation", ["quotes.view", "payments.view", "agreements.view"]],
+  ["services", "Services", "app.access"],
   ["applications", "Applications", "apps.view"],
   ["appointments", "Appointments", "apps.view"],
   ["tasks", "Tasks & Follow-ups", "tasks.view"],
@@ -86,6 +88,7 @@ export default function BankingModule({ profile }) {
             {current === "cases" && <Clients key={pageParams?.step || "all"} initialStep={pageParams?.step} />}
             {current === "banks" && <BankingPartners />}
             {current === "documentation" && <Documentation key={pageParams?.tab || "docs"} initialTab={pageParams?.tab} />}
+            {current === "services" && <ServiceDesk department="Business Banking" profile={profile} />}
             {current === "applications" && <ApplicationsPage />}
             {current === "appointments" && <AppointmentsPage />}
             {current === "tasks" && <TasksPage />}

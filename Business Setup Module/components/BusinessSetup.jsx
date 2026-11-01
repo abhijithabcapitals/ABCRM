@@ -1,9 +1,12 @@
-// Empty starting point for the Business Setup tab; development comes later.
-export default function BusinessSetup() {
+// Business Setup tab: the department's services and documents. The case workflow comes later.
+import "@banking/components/banking.css";
+import ServiceDesk from "@template-hub/components/ServiceDesk";
+
+export default function BusinessSetup({ profile }) {
   return (
-    <div style={{ padding: "28px clamp(18px, 3vw, 42px)" }}>
-      <h1 style={{ margin: "0 0 6px", fontSize: 26, color: "#13363d" }}>Business Setup</h1>
-      <p style={{ margin: 0, color: "#6b7a81", fontSize: 13 }}>This module is not built yet.</p>
+    <div className="bk-root">
+      <header className="bk-header"><span className="bk-eyebrow">AB CAPITAL SERVICES FZE</span><h1>Business Setup</h1></header>
+      <ServiceDesk department="Business Setup" profile={profile} />
     </div>
   );
 }

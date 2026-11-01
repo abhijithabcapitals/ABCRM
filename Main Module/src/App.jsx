@@ -13,8 +13,8 @@ const WhiteboardView = lazy(() => import("./components/Whiteboard"));
 const Settings = lazy(() => import("./components/Settings"));
 const MyTasks = lazy(() => import("./components/MyTasks"));
 const TemplateHub = lazy(() => import("@template-hub/components/TemplateHub"));
-const Clients = lazy(() => import("./components/Clients"));
 const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
+const TaxHub = lazy(() => import("@client-module/crm/TaxHub"));
 const ClientsHub = lazy(() => import("@client-module/crm/ClientsHub"));
 const BusinessBanking = lazy(() => import("@banking"));
 const AccountingPage = lazy(() => import("@accounting"));
@@ -493,12 +493,12 @@ export default function App() {
         {view === "clients" && <ClientsHub profile={profile} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "business-banking" && <BusinessBanking profile={profile} />}
-        {view === "accounts" && <AccountingPage />}
-        {view === "business-setup" && <BusinessSetup />}
+        {view === "accounts" && <AccountingPage profile={profile} />}
+        {view === "business-setup" && <BusinessSetup profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
         {view === "email-agent" && profile?.role === "admin" && <EmailAgent />}
         {view === "tax" && (
-          <Clients profile={profile} page="/tax" title="Tax Compliance" subtitle="Tax Agent · VAT, Corporate Tax & renewals" />
+          <TaxHub profile={profile} />
         )}
         {view === "profile" && <Profile profile={profile} />}
         {view === "settings" && profile?.role === "admin" && (

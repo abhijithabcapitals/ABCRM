@@ -410,6 +410,35 @@ select public.ok('outsider gets no clients', public.client_base_list() = '[]'::j
 select public.as_user('0e');
 select public.ok('no KYC or lead details without permission', (select bool_and(e -> 'business_activity' = 'null'::jsonb and e -> 'contact_person' = 'null'::jsonb) from jsonb_array_elements(public.client_base_list()) e));
 
+-- ── Service catalogue ──
+select public.as_user('0c');
+select public.ok('12 service groups in 4 departments', (select count(*) = 12 and count(distinct department) = 4 from public.service_categories));
+select public.ok('every service from the list is there', (select count(*) from public.service_items) = 198);
+select public.ok('departments follow the table', (select department = 'Business Banking' from public.service_categories where name like 'Corporate Banking%') and (select department = 'Business Setup' from public.service_categories where name like 'PRO%') and (select department = 'Business Setup' from public.service_categories where name like 'Corporate Secretarial%' and sort_order = 9) and (select department = 'Accounting' from public.service_categories where name like 'Business Advisory%' and sort_order = 11) and (select department = 'Business Setup' from public.service_categories where name like 'Company Liquidation%' and sort_order = 10));
+select public.ok('four departments mapped to tabs', (select count(*) = 4 from public.service_departments));
+select public.must_fail('document needs a client', $$select public.hub_document_create('{"doc_type":"quote","department":"Accounting","lines":[{"description":"A","amount":1}]}')$$, 'client name');
+select public.must_fail('document needs a service', $$select public.hub_document_create('{"doc_type":"quote","department":"Accounting","client_name":"C","lines":[]}')$$, 'service');
+select public.keep('hq', (public.hub_document_create('{"doc_type":"quote","department":"Tax Compliance","client_name":"C LLC","services":["VAT Registration"],"vat_mode":"exclusive","lines":[{"description":"VAT Registration","amount":1000},{"description":"VAT Return Filing","amount":500}],"total_amount":1}')).id);
+select public.ok('server sets total, VAT, number and serial', (select total_amount = 1575 and vat_amount = 75 and document_number ~ '^ABC/[0-9]{4}/[0-9]{2}/TCQ001$' and document_serial = 1 from public.hub_documents where id = public.id('hq')));
+select public.keep('hl', (public.hub_document_create('{"doc_type":"letter","department":"Tax Compliance","client_name":"C LLC","lines":[{"description":"A","amount":1}]}')).id);
+select public.ok('letter has its own series', (select document_number ~ 'TCE001$' from public.hub_documents where id = public.id('hl')));
+select public.keep('hq2', (public.hub_document_create('{"doc_type":"quote","department":"Tax Compliance","client_name":"D","lines":[{"description":"A","amount":1}]}')).id);
+select public.ok('quote serial runs on', (select document_serial = 2 from public.hub_documents where id = public.id('hq2')));
+select public.keep('hb', (public.hub_document_create('{"doc_type":"quote","department":"Business Banking","client_name":"D","lines":[{"description":"A","amount":1}]}')).id);
+select public.ok('Business Banking shares the banking series', (select document_number ~ 'BBQ[0-9]{3}$' from public.hub_documents where id = public.id('hb')));
+select public.keep('hm', (public.hub_document_create('{"doc_type":"mail","department":"Accounting","client_name":"D","mail_subject":"S","mail_body":"B","lines":[{"description":"A","amount":1}]}')).id);
+select public.ok('mail draft stored without a number', (select document_number is null and mail_subject = 'S' from public.hub_documents where id = public.id('hm')));
+select public.hub_document_attach(public.id('hq'), 's/x.docx', 'D:\\x.docx');
+select public.ok('document keeps its locations', (select storage_path = 's/x.docx' and local_path like 'D:%' from public.hub_documents where id = public.id('hq')));
+select public.must_fail('documents cannot be edited directly', format($$update public.hub_documents set total_amount = 1 where id = %L$$, public.id('hq')), 'permission denied');
+select public.as_user('0d');
+select public.hub_document_attach(public.id('hq'), 'hacked', 'hacked');
+select public.ok('another user cannot change the locations', (select storage_path = 's/x.docx' from public.hub_documents where id = public.id('hq')));
+reset role;
+revoke execute on function public.hub_next_number(text, text) from authenticated;
+set role authenticated;
+select public.must_fail('numbers cannot be taken through the API', $$select public.hub_next_number('Accounting', 'quote')$$, 'permission denied');
+
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));

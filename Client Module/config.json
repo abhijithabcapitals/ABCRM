@@ -10,7 +10,13 @@
   "generatedFolders": {
     "quote": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Banking Business\\Quotes Generated",
     "letter": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Banking Business\\Enagements Generated",
-    "receipt": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Banking Business\\Receipt Generated"
+    "receipt": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Banking Business\\Receipt Generated",
+    "setup_quote": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Business Setup\\Quotes Generated",
+    "setup_letter": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Business Setup\\Engagements Generated",
+    "accounting_quote": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Accounting\\Quotes Generated",
+    "accounting_letter": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Accounting\\Engagements Generated",
+    "tax_quote": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Tax Compliance\\Quotes Generated",
+    "tax_letter": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Tax Compliance\\Engagements Generated"
   },
   "ai": {
     "enabled": true,

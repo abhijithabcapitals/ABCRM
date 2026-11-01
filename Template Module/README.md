@@ -1,6 +1,6 @@
 # Template Module
 
-Source of the CRM's **Template Hub** tab. `components/TemplateHub.jsx` is the live page, loaded through the `@template-hub` alias in `Main Module/vite.config.js`, and reuses the CRM's shared Supabase client and icons through `@app`. Its templates, generated files and CRM task behaviour stay connected to the existing Supabase schema. `components/CompanyLibrary.jsx` lists the Word files under `Template Docs/`; a file added there appears at the next deploy.
+Source of the CRM's **Template Hub** tab. `components/TemplateHub.jsx` is the live page, loaded through the `@template-hub` alias in `Main Module/vite.config.js`, and reuses the CRM's shared Supabase client and icons through `@app`. Its templates, generated files and CRM task behaviour stay connected to the existing Supabase schema. `components/ServiceDesk.jsx` generates quotations, engagement letters and mail drafts for any service; Template Hub shows every department, and each department's tab shows only its own. `components/CompanyLibrary.jsx` lists the Word files under `Template Docs/`; a file added there appears at the next deploy.
 
 The rest of this README describes the earlier split copy (`QuotationsPage` and its parts), kept for reuse in another CRM. The Template Hub tab does not use it.
 
