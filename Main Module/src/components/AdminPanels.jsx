@@ -198,7 +198,8 @@ const needsRole = (tabs) => tabs.some((t) => NEEDS_DATA_ROLE.has(t));
 
 function Onboard({ onClose, onDone }) {
   const staff = useLoad(async () => check(await supabase.from("hr_employees").select("*").is("profile_id", null).neq("status", "Left").order("employee_code")), []);
-  const [v, setV] = useState({ employee_id: "", email: "", password: "", confirm: "", data_role: "" });
+  const [v, setV] = useState({ employee_id: "", full_name: "", department: "", designation: "", email: "", password: "", confirm: "", data_role: "" });
+  const [isNew, setIsNew] = useState(false); // new person: their HR Base record is created with the login
   const [tabs, setTabs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -206,7 +207,8 @@ function Onboard({ onClose, onDone }) {
   const pick = (e) => { const emp = (staff.data || []).find((x) => x.id === e.target.value); setV((s) => ({ ...s, employee_id: e.target.value, email: emp?.work_email || s.email })); };
   const submit = async () => {
     const bad = [];
-    if (!v.employee_id) bad.push(["ob-employee", "the employee"]);
+    if (isNew && !v.full_name.trim()) bad.push(["ob-name", "the full name"]);
+    if (!isNew && !v.employee_id) bad.push(["ob-employee", "the employee"]);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) bad.push(["ob-email", "a valid login email"]);
     if (v.password.length < 8) bad.push(["ob-password", "a password of at least 8 characters"]);
     if (v.password !== v.confirm) bad.push(["ob-confirm", "the same password again"]);
@@ -214,13 +216,20 @@ function Onboard({ onClose, onDone }) {
     if (needsRole(tabs) && !v.data_role) bad.push(["ob-role", "a data role for the chosen tabs"]);
     if (bad.length) { setError(`Please provide ${bad.map((b) => b[1]).join(", ")}.`); flagMissing(bad.map((b) => b[0])); return; }
     setBusy(true); setError(null);
-    try { await adminUsers({ action: "onboard_member", employee_id: v.employee_id, email: v.email.trim(), password: v.password, tabs, data_role: needsRole(tabs) ? v.data_role : null }); await onDone(); onClose(); } catch (e) { setError(e.message); setBusy(false); }
+    try { await adminUsers({ action: "onboard_member", ...(isNew ? { new_employee: { full_name: v.full_name.trim(), department: v.department.trim() || null, designation: v.designation.trim() || null } } : { employee_id: v.employee_id }), email: v.email.trim(), password: v.password, tabs, data_role: needsRole(tabs) ? v.data_role : null }); await onDone(); onClose(); } catch (e) { setError(e.message); setBusy(false); }
   };
   return (
     <Modal wide title="Onboard member" onClose={onClose}>
       <ErrorNote message={error || staff.error} onClose={() => setError(null)} />
       <div className="bk-grid">
-        <div className="bk-field bk-full"><label htmlFor="ob-employee">Employee <em>*</em></label><select id="ob-employee" value={v.employee_id} onChange={pick}><option value="">Select from HR Base…</option>{(staff.data || []).map((e) => <option key={e.id} value={e.id}>{e.employee_code} · {e.full_name}{e.designation ? ` · ${e.designation}` : ""}</option>)}</select>{staff.data && !staff.data.length && <small>No employees without a login. Add them in the Employees tab first.</small>}</div>
+        <div className="bk-field bk-full">
+          <label className="bk-check"><input type="checkbox" checked={isNew} onChange={(e) => { setIsNew(e.target.checked); setV((s) => ({ ...s, employee_id: "" })); }} /> New person, not in HR Base yet</label>
+        </div>
+        {isNew ? <>
+          <div className="bk-field bk-full"><label htmlFor="ob-name">Full name <em>*</em></label><input id="ob-name" autoComplete="off" value={v.full_name} onChange={set("full_name")} /><small>They are added to HR Base with the next employee code.</small></div>
+          <div className="bk-field"><label htmlFor="ob-department">Department</label><input id="ob-department" autoComplete="off" value={v.department} onChange={set("department")} /></div>
+          <div className="bk-field"><label htmlFor="ob-designation">Designation</label><input id="ob-designation" autoComplete="off" value={v.designation} onChange={set("designation")} /></div>
+        </> : <div className="bk-field bk-full"><label htmlFor="ob-employee">Employee <em>*</em></label><select id="ob-employee" value={v.employee_id} onChange={pick}><option value="">Select from HR Base…</option>{(staff.data || []).map((e) => <option key={e.id} value={e.id}>{e.employee_code} · {e.full_name}{e.designation ? ` · ${e.designation}` : ""}</option>)}</select>{staff.data && !staff.data.length && <small>No employees without a login. Tick "New person" above.</small>}</div>}
         <div className="bk-field bk-full"><label htmlFor="ob-email">Username (login email) <em>*</em></label><input id="ob-email" type="email" autoComplete="off" value={v.email} onChange={set("email")} /></div>
         <div className="bk-field"><label htmlFor="ob-password">Password <em>*</em></label><input id="ob-password" type="password" autoComplete="new-password" value={v.password} onChange={set("password")} /></div>
         <div className="bk-field"><label htmlFor="ob-confirm">Confirm password <em>*</em></label><input id="ob-confirm" type="password" autoComplete="new-password" value={v.confirm} onChange={set("confirm")} /></div>
