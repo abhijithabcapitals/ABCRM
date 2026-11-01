@@ -19,6 +19,8 @@ export const updateRow = async (name, id, values) => check(await supabase.from(n
 // { role: 'hr' | 'manager' | 'employee' | 'none', employee_id }
 export const myAccess = () => rpc("hr_my_access");
 export const expiringDocuments = () => rpc("hr_documents_expiring");
+export const employeeTasks = () => rpc("hr_employee_tasks");
+export const dashboardNumbers = () => rpc("hr_dashboard");
 
 // Stores a file in the private bucket under the employee's folder and returns the path. Stored files are never replaced.
 export async function uploadDocument(employeeId, file) {

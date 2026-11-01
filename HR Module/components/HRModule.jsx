@@ -4,16 +4,17 @@ import { ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import "./hr.css";
 import { myAccess } from "../services/hrApi";
 import { firstTab, tabsFor } from "../logic/tabs";
+import Dashboard from "./Dashboard";
 import Employees from "./Employees";
 import Documents from "./Documents";
 
-// Tabs that exist so far. Later tasks add Dashboard, Leave, Attendance, Payroll and Settings here.
-const SCREENS = { employees: Employees, documents: Documents };
+// Tabs that exist so far. Later tasks add Leave, Attendance, Payroll and Settings here.
+const SCREENS = { dashboard: Dashboard, employees: Employees, documents: Documents };
 const BUILT = new Set(Object.keys(SCREENS));
 
 export default function HRModule({ profile, onOpenTask }) {
   const access = useLoad(myAccess, []);
-  const [page, setPage] = useState("employees");
+  const [page, setPage] = useState("dashboard");
   const role = access.data?.role;
   const tabs = tabsFor(role, BUILT);
   const current = firstTab(tabs, page);

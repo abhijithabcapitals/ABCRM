@@ -4,3 +4,17 @@
 .hr-file-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
 .hr-days { color: #5f7077; font-size: 11px; }
 .hr-access-msg { max-width: 560px; }
+
+/* Dashboard */
+.hr-card-note { color: #7b8990; font-size: 11px; }
+.hr-quiet { margin: 0; }
+.hr-warning { margin: 0 0 10px; padding: 8px 10px; border: 1px solid #ecd596; border-radius: 7px; background: #fdf3dc; color: #7a560c; font-size: 12px; font-weight: 600; }
+.hr-tasks { display: flex; flex-direction: column; gap: 6px; }
+.hr-task { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; width: 100%; padding: 9px 11px; border: 1px solid #e6ebed; border-radius: 8px; background: #fff; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.hr-task:hover, .hr-task:focus-visible { border-color: #b7d4d5; background: #f7fbfb; }
+.hr-task-overdue { border-color: #f0c4c1; border-left: 4px solid #c8453d; background: #fff8f7; }
+.hr-task-overdue:hover, .hr-task-overdue:focus-visible { border-color: #e3a29d; background: #fff1f0; }
+.hr-task-title { font-weight: 600; overflow-wrap: anywhere; }
+.hr-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.hr-task-due { color: #5f7077; }
+.hr-task-due-late { color: #a53d36; font-weight: 700; }

@@ -201,6 +201,85 @@ reset role;
 select public.ok('hr_documents has RLS on', (select relrowsecurity from pg_class where oid = 'public.hr_documents'::regclass));
 select public.ok('hr_documents_expiring is security definer, fixed search_path, not open to anon', (select prosecdef and proconfig::text ilike '%search_path=public, pg_temp%' and not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('public', oid, 'execute') and has_function_privilege('authenticated', oid, 'execute') from pg_proc where proname = 'hr_documents_expiring'));
 
+-- ── dashboard and task view (004) ──
+reset role;
+insert into public.profiles (id, full_name, role) values
+  ('00000000-0000-0000-0000-00000000000f', 'Twin', 'member'),
+  ('00000000-0000-0000-0000-000000000010', 'Twin', 'member'),
+  ('00000000-0000-0000-0000-000000000011', 'Gone Person', 'member');
+insert into public.hr_employees (id, employee_code, full_name, profile_id, status) values
+  ('10000000-0000-0000-0000-0000000000f1', 'E-T1', 'Twin', '00000000-0000-0000-0000-00000000000f', 'Active'),
+  ('10000000-0000-0000-0000-0000000000f2', 'E-T2', 'Twin', '00000000-0000-0000-0000-000000000010', 'Active'),
+  ('10000000-0000-0000-0000-0000000000f3', 'E-X', 'Gone Person', '00000000-0000-0000-0000-000000000011', 'Left'),
+  ('10000000-0000-0000-0000-0000000000f4', 'E-N', 'Nobody Linked', null, 'Active');
+insert into public.spaces (id, name) values ('20000000-0000-0000-0000-000000000001', 'S1'), ('20000000-0000-0000-0000-000000000002', 'S2');
+insert into public.folders (id, space_id, name) values ('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'F1');
+insert into public.lists (id, space_id, folder_id, name) values ('40000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'L1');
+-- 'Approved' is a Complete status in S1 only; 'Review' is In Progress; 'Parked' is Auto in the space but explicitly Complete on the list.
+insert into public.space_statuses (space_id, name, is_complete, status_category) values
+  ('20000000-0000-0000-0000-000000000001', 'Approved', true, 'complete'),
+  ('20000000-0000-0000-0000-000000000001', 'Review', false, 'in_progress'),
+  ('20000000-0000-0000-0000-000000000001', 'Parked', null, null);
+insert into public.space_statuses (space_id, list_id, name, is_complete, status_category) values
+  ('20000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'Parked', true, 'complete');
+create function public.dubai_today() returns date language sql stable as $$ select (now() at time zone 'Asia/Dubai')::date $$;
+insert into public.tasks (title, assignees, due_date, status, date_done, date_closed, deleted_at, space_id, folder_id, list_id) values
+  ('A overdue',  '{Report}', public.dubai_today() - 1, 'To Do', null, null, null, '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001'),
+  ('B tomorrow', '{Report}', public.dubai_today() + 1, 'To Do', null, null, null, '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001'),
+  ('C done',     '{Report}', public.dubai_today() - 3, 'Done', current_date, null, null, '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001'),
+  ('D deleted',  '{Report}', public.dubai_today() - 3, 'To Do', null, null, now(), '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001'),
+  ('E closed',   '{Report}', public.dubai_today() - 3, 'Cancelled', null, current_date, null, '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001'),
+  ('F approved', '{Report}', public.dubai_today() - 3, 'Approved', null, null, null, '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001'),
+  ('G review',   '{Report}', null, 'Review', null, null, null, '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001'),
+  ('H shared',   '{Report,"Other Employee"}', public.dubai_today(), 'To Do', null, null, null, '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001'),
+  ('I manager',  '{Manager}', null, 'To Do', null, null, null, null, null, '40000000-0000-0000-0000-000000000001'),
+  ('J twin',     '{Twin}', null, 'To Do', null, null, null, '20000000-0000-0000-0000-000000000001', null, null),
+  ('K leaver',   '{"Gone Person"}', null, 'To Do', null, null, null, null, null, null),
+  ('L nobody',   '{"Nobody Linked"}', null, 'To Do', null, null, null, null, null, null),
+  ('M other space', '{"Other Employee"}', null, 'Approved', null, null, null, '20000000-0000-0000-0000-000000000002', null, null),
+  ('N parked',   '{Report}', null, 'Parked', null, null, null, '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001');
+
+set role authenticated;
+select public.as_user('0b');
+select public.ok('HR sees every linked active employee''s open tasks', (select count(*) = 9 from public.hr_employee_tasks()));
+select public.ok('done, closed, deleted, Complete-status, Left-employee and no-login tasks are left out', (select not exists (select 1 from public.hr_employee_tasks() where title in ('C done', 'D deleted', 'E closed', 'F approved', 'K leaver', 'L nobody', 'N parked'))));
+select public.ok('a Complete status in another space does not close the task', (select count(*) = 1 from public.hr_employee_tasks() where title = 'M other space'));
+select public.ok('a custom In Progress status stays open', (select count(*) = 1 from public.hr_employee_tasks() where title = 'G review'));
+select public.ok('overdue is true only before today in Dubai', (select count(*) = 1 and bool_and(title = 'A overdue') from public.hr_employee_tasks() where overdue));
+select public.ok('due today and no due date are not overdue', (select not bool_or(overdue) from public.hr_employee_tasks() where title in ('H shared', 'G review')));
+select public.ok('a task shared by two assignees shows under both employees', (select count(distinct employee_id) = 2 from public.hr_employee_tasks() where title = 'H shared'));
+select public.ok('same name on two employees sets duplicate_name', (select count(*) = 2 and bool_and(duplicate_name) from public.hr_employee_tasks() where title = 'J twin'));
+select public.ok('unique names are not flagged', (select not bool_or(duplicate_name) from public.hr_employee_tasks() where title <> 'J twin'));
+select public.ok('rows carry the scope the CRM needs to open the task', (select space_id = '20000000-0000-0000-0000-000000000001' and folder_id = '30000000-0000-0000-0000-000000000001' and list_id = '40000000-0000-0000-0000-000000000001' from public.hr_employee_tasks() where title = 'A overdue'));
+select public.ok('space and folder come from the list when the task has none', (select space_id = '20000000-0000-0000-0000-000000000001' and folder_id = '30000000-0000-0000-0000-000000000001' from public.hr_employee_tasks() where title = 'I manager'));
+select public.ok('employee name is returned', (select bool_and(employee_name is not null) from public.hr_employee_tasks()));
+select public.ok('overdue rows come first', (select overdue from public.hr_employee_tasks() limit 1));
+select public.as_user('0c');
+select public.ok('manager sees self and direct report tasks only', (select count(*) = 5 and bool_and(employee_name in ('Manager', 'Report')) from public.hr_employee_tasks()));
+select public.as_user('0d');
+select public.ok('employee sees only own tasks', (select count(*) = 4 and bool_and(employee_name = 'Report') from public.hr_employee_tasks()));
+select public.as_user('0e');
+select public.ok('another employee sees only their own', (select count(*) = 2 and bool_and(employee_name = 'Other Employee') from public.hr_employee_tasks()));
+select public.as_user('0f');
+select public.ok('a duplicate-name employee sees only their own row, flagged', (select count(*) = 1 and bool_and(duplicate_name) and bool_and(employee_id = '10000000-0000-0000-0000-0000000000f1') from public.hr_employee_tasks()));
+select public.as_user('99');
+select public.ok('outsider gets no tasks', (select count(*) = 0 from public.hr_employee_tasks()));
+
+-- dashboard numbers, scoped the same way
+select public.as_user('0b');
+select public.ok('HR dashboard: headcount counts active employees only', (public.hr_dashboard() ->> 'headcount')::int = 6);
+select public.ok('HR dashboard: pending leave and present today are 0 for now', (public.hr_dashboard() ->> 'pending_leave')::int = 0 and (public.hr_dashboard() ->> 'present_today')::int = 0);
+select public.ok('HR dashboard: expiring documents match the document alert list', (public.hr_dashboard() ->> 'expiring_documents')::int = (select count(*) from public.hr_documents_expiring()) and (public.hr_dashboard() ->> 'expiring_documents')::int > 0);
+select public.as_user('0c');
+select public.ok('manager dashboard: self and reports, no documents', (public.hr_dashboard() ->> 'headcount')::int = 2 and (public.hr_dashboard() ->> 'expiring_documents')::int = 0);
+select public.as_user('0d');
+select public.ok('employee dashboard: own numbers, own documents', (public.hr_dashboard() ->> 'headcount')::int = 1 and (public.hr_dashboard() ->> 'expiring_documents')::int = (select count(*) from public.hr_documents_expiring()));
+select public.as_user('99');
+select public.ok('outsider dashboard is all zeros', (select bool_and(value::int = 0) from jsonb_each_text(public.hr_dashboard())));
+reset role;
+select public.ok('dashboard keys are exactly the four agreed', (select array_agg(k order by k) = array['expiring_documents', 'headcount', 'pending_leave', 'present_today'] from (select jsonb_object_keys(public.hr_dashboard()) k) q));
+select public.ok('dashboard functions are security definer, fixed search_path, closed to anon and public', (select count(*) = 2 and bool_and(prosecdef and proconfig::text ilike '%search_path=public, pg_temp%' and not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('public', oid, 'execute') and has_function_privilege('authenticated', oid, 'execute')) from pg_proc where proname in ('hr_employee_tasks', 'hr_dashboard')));
+
 -- ── hardening ──
 select public.ok('every HR table has RLS on', (select bool_and(relrowsecurity) from pg_class where oid in ('public.hr_employees'::regclass, 'public.hr_access'::regclass, 'public.hr_audit_log'::regclass, 'public.hr_employee_personal'::regclass)));
 select public.ok('helper functions are security definer with fixed search_path', (select count(*) = 5 and bool_and(prosecdef and proconfig::text ilike '%search_path=public, pg_temp%') from pg_proc where proname in ('hr_is_admin_or_hr', 'hr_my_employee_id', 'hr_manages', 'hr_my_access', 'hr_audit')));
