@@ -16,8 +16,12 @@ export const listDocuments = async (department) => {
   if (department) q = q.eq("department", department);
   return check(await q);
 };
-export const clientNames = async () => {
-  try { return (check(await supabase.rpc("client_base_list")) || []).map((c) => c.display_name); } catch { return []; }
+export const updateMail = async (id, subject, body) => check(await supabase.rpc("hub_mail_update", { p_id: id, p_subject: subject, p_body: body }));
+export const numberingStatus = async () => check(await supabase.rpc("hub_numbering_status"));
+export const saveNumbering = async (department, kind, v) => check(await supabase.rpc("hub_numbering_save", { p_department: department, p_kind: kind, p_format: v.format, p_digits: v.digits, p_restart: v.restart, p_next: v.next_serial }));
+export const loadVouchers = async () => check(await supabase.from("voucher_register").select("*").order("created_at", { ascending: false }).limit(5000));
+export const clientDetails = async () => {
+  try { return check(await supabase.rpc("client_base_list")) || []; } catch { return []; }
 };
 
 // Keeps the file in private storage and, where the Client Module runs, in the office folder.

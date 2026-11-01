@@ -22,11 +22,16 @@ QUOTE = LETTERHEAD + para("Quotation", bold=True, size=32, color="13363D", after
     [cell("Quotation no.", 1800, True), cell("{document_number}", 2700), cell("Date", 1800, True), cell("{document_date}", 2700)],
     [cell("Client", 1800, True), cell("{client_name}", 2700), cell("Valid until", 1800, True), cell("{valid_until}", 2700)],
     [cell("Attention", 1800, True), cell("{contact_name}", 2700), cell("Department", 1800, True), cell("{department}", 2700)],
+    [cell("Email", 1800, True), cell("{contact_email}", 2700), cell("Phone", 1800, True), cell("{contact_phone}", 2700)],
+    [cell("Licence no.", 1800, True), cell("{license_number}", 2700), cell("VAT TRN", 1800, True), cell("{vat_trn}", 2700)],
+    [cell("Address", 1800, True), cell("{client_address}", 2700), cell("", 1800), cell("", 2700)],
 ], [1800, 2700, 1800, 2700]) + FEES("Total quotation amount") + para("{vat_statement}{#has_vat} VAT: AED {vat}.{/has_vat}", size=18) + para("{notes}") + PAYMENT + para("Government, authority and other third-party fees are excluded unless listed above. Outcomes rest with the relevant authority or third party.", size=17, color="46565C")
 
 LETTER = LETTERHEAD + table([
     [cell("To", 1200, True), cell("{client_name}", 3800), cell("Date", 1200, True), cell("{document_date}", 2800)],
     [cell("Attention", 1200, True), cell("{contact_name}", 3800), cell("Ref", 1200, True), cell("{document_number}", 2800)],
+    [cell("Address", 1200, True), cell("{client_address}", 3800), cell("Licence no.", 1200, True), cell("{license_number}", 2800)],
+    [cell("Email", 1200, True), cell("{contact_email}", 3800), cell("Phone", 1200, True), cell("{contact_phone}", 2800)],
 ], [1200, 3800, 1200, 2800]) + para("Dear Sir / Madam,") + para("Sub: Engagement Letter", bold=True) + para("Greetings from {company_short}.") + para("Thank you for providing us with the opportunity to add value to your business.") + heading("A. OUR UNDERSTANDING OF YOUR REQUIREMENTS") + para("{understanding}") + heading("B. SCOPE OF SERVICE") + para("{#scope}{text}{/scope}", bullet=True) + heading("C. OUR FEES") + para("{fee_intro}") + FEES("Total") + heading("D. PAYMENT TERMS") + para("{#payment_terms}{text}{/payment_terms}", bullet=True) + heading("E. RESPONSIBILITIES OF AB CAPITAL") + para("{#ab_responsibilities}{text}{/ab_responsibilities}", bullet=True) + heading("F. RESPONSIBILITIES OF THE CLIENT") + para("{#client_responsibilities}{text}{/client_responsibilities}", bullet=True) + heading("G. LIMITATIONS AND DISCLAIMERS") + para("{limitations}") + heading("H. REPS & WARRANTIES") + para("{reps}") + PAYMENT + table([
     [cell("Sincerely,", 4500, True), cell("Accepted By", 4500, True)],
     [cell(" ", 4500), cell(" ", 4500)], [cell(" ", 4500), cell(" ", 4500)],

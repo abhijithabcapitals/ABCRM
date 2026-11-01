@@ -6,6 +6,6 @@ Its existing tables and storage keep their names, because live data and other co
 
 | Path | Purpose |
 |---|---|
-| `migrations/001_generated_documents.sql` | Every quotation, engagement letter and mail draft with its number, serial and locations (services come from `Services Base`). Numbers: `ABC/YYYY/MM/<BS, AC or TC><Q or E>001`; Business Banking shares its own `BBQ`/`BBE` series |
+| `migrations/001_generated_documents.sql` | Every quotation, engagement letter and mail draft with its number, serial and locations (services come from `Services Base`). Numbers follow the format per department and type set under Template Hub > Settings, by default `ABC/YYYY/MM/<BS, AC or TC><Q or E>001`; Business Banking shares its own `BBQ`/`BBE` series. A mail keeps its document's number |
 
 Run it after Banking Base and Services Base.

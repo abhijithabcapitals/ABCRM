@@ -1,80 +1,115 @@
-// Pick services, enter fees, then generate a quotation, an engagement letter or a mail draft.
+// Client details, then services and fees, then a quotation; its engagement letter is the next step. Each keeps a mail draft.
 // Used by Template Hub (every department) and by each department's own tab (only its services).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { clientNames, createDocument, listDocuments, loadCatalogue, loadHubSettings, openStored, renderTemplate, saveFile } from "../services/hubApi";
-import { DEPARTMENTS, fileNameFor, folderKind, letterData, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs";
+import { clientDetails, createDocument, listDocuments, loadCatalogue, loadHubSettings, openStored, renderTemplate, saveFile, updateMail } from "../services/hubApi";
+import { addLine, checkReady, DEPARTMENTS, fileNameFor, folderKind, letterData, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs";
 
-const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail draft" };
+const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
+const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
 const inDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
 export default function ServiceDesk({ department, profile }) {
   const catalogue = useLoad(loadCatalogue, []);
   const settings = useLoad(loadHubSettings, []);
-  const names = useLoad(clientNames, []);
+  const known = useLoad(clientDetails, []);
   const [dept, setDept] = useState(department || DEPARTMENTS[0]);
-  const [picked, setPicked] = useState({}); // service name -> { fee, category }
-  const [q, setQ] = useState("");
-  const [form, setForm] = useState({ client: "", contact: "", email: "", vat_mode: "inclusive", valid_until: inDays(15), notes: "" });
+  const [lines, setLines] = useState([]);
+  const [service, setService] = useState("");
+  const [fee, setFee] = useState("");
+  const [form, setForm] = useState({ client: "", contact: "", email: "", phone: "", address: "", license: "", trn: "", vat_mode: "inclusive", valid_until: inDays(15), notes: "" });
+  const [last, setLast] = useState(null);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
   const [mail, setMail] = useState(null);
   const docs = useLoad(() => listDocuments(department || null), [department]);
+  const mailPanel = useRef(null);
+  useEffect(() => { if (mail) mailPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); }, [mail?.id]);
+
+  const mailOf = (d) => (docs.data || []).find((x) => x.doc_type === "mail" && x.parent_id === d.id);
+  // The draft stays with its document and opens from the document's mail icon.
+  const openMail = (d) => {
+    const m = mailOf(d);
+    if (m) setMail({ id: m.id, subject: m.mail_subject, body: m.mail_body, number: d.document_number, label: LABEL[d.doc_type], email: d.contact_email });
+  };
+  const mailButton = (d) => (mailOf(d) ? <button type="button" className={`bk-mail-icon${mail?.id === mailOf(d).id ? " active" : ""}`} title={`Draft mail for ${d.document_number}`} aria-label={`Open draft mail for ${d.document_number}`} onClick={() => openMail(d)}><MailIcon /></button> : null);
 
   const categories = useMemo(() => (catalogue.data || []).filter((c) => c.department === dept), [catalogue.data, dept]);
-  const lines = Object.entries(picked).map(([description, v]) => ({ description, amount: v.fee === "" ? null : Number(v.fee) }));
   const totals = serviceTotals(lines, form.vat_mode, 5);
-  const needle = q.trim().toLowerCase();
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const toggle = (name, category) => setPicked((p) => { const n = { ...p }; if (n[name]) delete n[name]; else n[name] = { fee: "", category }; return n; });
-  const chooseDept = (d) => { setDept(d); setPicked({}); setMail(null); };
-
-  const validate = () => {
-    if (!form.client.trim()) return "Enter the client name.";
-    if (!lines.length) return "Choose at least one service.";
-    if (lines.some((l) => l.amount === null || Number.isNaN(l.amount) || l.amount < 0)) return "Enter a fee for every chosen service.";
-    return null;
+  const chooseDept = (d) => { setDept(d); setLines([]); setService(""); setFee(""); setMail(null); };
+  // Choosing an existing client fills in what the CRM holds; everything stays editable.
+  const pickClient = (e) => {
+    const name = e.target.value;
+    const c = (known.data || []).find((x) => x.display_name === name);
+    setForm((f) => (c ? { ...f, client: name, contact: c.contact_person || f.contact, email: c.email || f.email, phone: c.phone || f.phone, address: c.registered_address || f.address, license: c.license_number || f.license, trn: c.vat_trn || f.trn } : { ...f, client: name }));
   };
-  const payload = (doc_type, extra = {}) => ({ doc_type, department: dept, client_name: form.client, contact_name: form.contact || null, contact_email: form.email || null, services: Object.keys(picked), lines, vat_mode: form.vat_mode, vat_rate: 5, valid_until: form.valid_until || null, notes: form.notes || null, ...extra });
+  const add = () => {
+    const r = addLine(lines, service, fee);
+    if (r.error) { setError(r.error); return; }
+    setError(null); setLines(r.lines); setService(""); setFee("");
+  };
 
-  const generate = async (type) => {
-    const bad = validate();
+  const payload = (doc_type, extra = {}) => ({ doc_type, department: dept, client_name: form.client, contact_name: form.contact || null, contact_email: form.email || null, contact_phone: form.phone || null, client_address: form.address || null, license_number: form.license || null, vat_trn: form.trn || null, services: lines.map((l) => l.description), lines, vat_mode: form.vat_mode, vat_rate: 5, valid_until: form.valid_until || null, notes: form.notes || null, ...extra });
+
+  // Files a generated document and keeps its mail draft beside it.
+  const finish = async (doc, type) => {
+    const company = settings.data?.company;
+    const limitations = [...new Set((catalogue.data || []).filter((c) => c.service_items.some((x) => doc.services.includes(x.name))).map((c) => c.limitation).filter(Boolean))];
+    const data = type === "quote" ? quoteData(doc, company) : letterData(doc, company, settings.data?.engagement_terms, limitations);
+    const blob = await renderTemplate(type === "quote" ? "Service_Quotation_Template.docx" : "Service_Engagement_Template.docx", data);
+    const fileName = fileNameFor(doc.document_number, doc.client_name);
+    const saved = await saveFile(doc, folderKind(doc.department, type), blob, fileName);
+    const { saveAs } = await import("file-saver");
+    saveAs(blob, fileName);
+    setNote({ ok: !!saved.local, text: `${LABEL[type]} ${doc.document_number} created. ${saved.local ? `Saved to ${saved.local}` : "Kept in the database, but not in the PC folder because the Client Module is not running here."}` });
+    // The mail carries the document's reference number and is stored beside it.
+    const draft = mailDraft({ type, client: doc.client_name, contact: doc.contact_name, services: doc.services, number: doc.document_number, total: doc.total_amount, validUntil: doc.valid_until, sender: profile?.full_name, company: company?.short_name });
+    if (!mailOf(doc)) await createDocument({ doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email, services: doc.services, lines: doc.lines, vat_mode: doc.vat_mode, vat_rate: doc.vat_rate, mail_subject: draft.subject, mail_body: draft.body });
+    await docs.reload();
+    setLast(doc);
+  };
+
+  const generateQuote = async () => {
+    const bad = checkReady(form, lines);
     if (bad) { setError(bad); return; }
-    setBusy(type); setError(null); setNote(null);
+    setBusy("quote"); setError(null); setNote(null);
     try {
-      const doc = await createDocument(payload(type));
-      const company = settings.data?.company;
-      const limitations = [...new Set(Object.values(picked).map((v) => v.category?.limitation).filter(Boolean))];
-      const data = type === "quote" ? quoteData(doc, company) : letterData(doc, company, settings.data?.engagement_terms, limitations);
-      const blob = await renderTemplate(type === "quote" ? "Service_Quotation_Template.docx" : "Service_Engagement_Template.docx", data);
-      const fileName = fileNameFor(doc.document_number, doc.client_name);
-      const saved = await saveFile(doc, folderKind(dept, type), blob, fileName);
-      const { saveAs } = await import("file-saver");
-      saveAs(blob, fileName);
-      setNote({ ok: !!saved.local, text: `${LABEL[type]} ${doc.document_number} created. ${saved.local ? `Saved to ${saved.local}` : "Kept in the database, but not in the PC folder because the Client Module is not running here."}` });
-      setMail(mailDraft({ type, client: doc.client_name, contact: doc.contact_name, services: doc.services, number: doc.document_number, total: doc.total_amount, validUntil: doc.valid_until, sender: profile?.full_name, company: company?.short_name }));
-      await docs.reload();
+      const doc = await createDocument(payload("quote"));
+      setMail(null);
+      await finish(doc, "quote");
     } catch (e) { setError(e.message); }
     setBusy(null);
   };
 
-  const draftOnly = () => {
-    const bad = validate();
-    if (bad) { setError(bad); return; }
-    setError(null); setNote(null);
-    setMail(mailDraft({ type: "quote", client: form.client, contact: form.contact, services: Object.keys(picked), total: totals.total, validUntil: form.valid_until, sender: profile?.full_name, company: settings.data?.company?.short_name }));
+  // The next step of a quote: the database copies everything from it.
+  const generateLetter = async (q) => {
+    setBusy(`letter-${q.id}`); setError(null); setNote(null);
+    try {
+      const doc = await createDocument({ doc_type: "letter", parent_id: q.id });
+      setMail(null);
+      await finish(doc, "letter");
+    } catch (e) { setError(e.message); }
+    setBusy(null);
   };
+
   const saveDraft = async () => {
     setBusy("mail"); setError(null);
-    try { await createDocument(payload("mail", { mail_subject: mail.subject, mail_body: mail.body })); await docs.reload(); setNote({ ok: true, text: "Mail draft saved." }); } catch (e) { setError(e.message); }
+    try { await updateMail(mail.id, mail.subject, mail.body); await docs.reload(); setNote({ ok: true, text: "Mail changes saved." }); } catch (e) { setError(e.message); }
+    setBusy(null);
+  };
+  // A document whose file failed to save can be filed again under the same number.
+  const refile = async (d) => {
+    setBusy(`file-${d.id}`); setError(null);
+    try { await finish(d, d.doc_type); } catch (e) { setError(e.message); }
     setBusy(null);
   };
   const copy = async () => {
     try { await navigator.clipboard.writeText(`${mail.subject}\n\n${mail.body}`); setNote({ ok: true, text: "Copied." }); } catch { setError("Could not copy here. Select the text and copy it."); }
   };
-  const mailto = mail ? `mailto:${encodeURIComponent(form.email)}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}` : "#";
+  const mailto = mail ? `mailto:${encodeURIComponent(mail.email || form.email)}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}` : "#";
 
   if (catalogue.loading && !catalogue.data) return <Spinner />;
   return (
@@ -82,60 +117,73 @@ export default function ServiceDesk({ department, profile }) {
       <ErrorNote message={catalogue.error || settings.error || error} onClose={error ? () => setError(null) : undefined} />
       {note && <div className={`bk-alert ${note.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{note.text}</div>}
       {!department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>}
-      <div className="bk-desk">
-        <Panel title="1. Choose services" sub={`${dept}: ${categories.map((c) => c.focus).filter(Boolean).join(" · ")}`}>
-          <input className="bk-search" type="search" placeholder="Search services…" aria-label="Search services" value={q} onChange={(e) => setQ(e.target.value)} />
-          <div className="bk-desk-list">
-            {categories.map((c) => {
-              const items = c.service_items.filter((s) => !needle || s.name.toLowerCase().includes(needle));
-              if (!items.length) return null;
-              return (
-                <details key={c.id} open={!!needle || categories.length === 1}>
-                  <summary>{c.name} <span className="bk-tab-count">{items.length}</span></summary>
-                  {items.map((s) => <label className="bk-check bk-desk-item" key={s.id}><input type="checkbox" checked={!!picked[s.name]} onChange={() => toggle(s.name, c)} /> {s.name}</label>)}
-                </details>
-              );
-            })}
+      <Panel title="1. Client details" sub="Choose an existing client to fill these in, or type them for a new one.">
+        <div className="bk-grid">
+          <div className="bk-field"><label htmlFor="d-client">Client name <em>*</em></label><input id="d-client" list="d-clients" value={form.client} onChange={pickClient} autoComplete="off" /><datalist id="d-clients">{(known.data || []).map((c) => <option key={c.id} value={c.display_name} />)}</datalist></div>
+          <div className="bk-field"><label htmlFor="d-contact">Contact person <em>*</em></label><input id="d-contact" value={form.contact} onChange={set("contact")} /></div>
+          <div className="bk-field"><label htmlFor="d-email">Email <em>*</em></label><input id="d-email" type="email" value={form.email} onChange={set("email")} /></div>
+          <div className="bk-field"><label htmlFor="d-phone">Phone <em>*</em></label><input id="d-phone" value={form.phone} onChange={set("phone")} /></div>
+          <div className="bk-field"><label htmlFor="d-license">Licence number</label><input id="d-license" value={form.license} onChange={set("license")} /></div>
+          <div className="bk-field"><label htmlFor="d-trn">VAT TRN</label><input id="d-trn" value={form.trn} onChange={set("trn")} /></div>
+          <div className="bk-field bk-full"><label htmlFor="d-address">Address <em>*</em></label><input id="d-address" value={form.address} onChange={set("address")} /></div>
+        </div>
+      </Panel>
+      <Panel title="2. Services and fees" sub={`${dept}: add each service with the fee offered.`}>
+        <div className="bk-add-line">
+          <div className="bk-field"><label htmlFor="d-service">Service offered</label>
+            <select id="d-service" value={service} onChange={(e) => setService(e.target.value)}>
+              <option value="">Select a service…</option>
+              {categories.map((c) => <optgroup key={c.id} label={c.name}>{c.service_items.filter((s) => !lines.some((l) => l.description === s.name)).map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}</optgroup>)}
+            </select>
           </div>
-        </Panel>
-        <Panel title="2. Client and fees">
-          <div className="bk-grid">
-            <div className="bk-field"><label htmlFor="d-client">Client name <em>*</em></label><input id="d-client" list="d-clients" value={form.client} onChange={set("client")} autoComplete="off" /><datalist id="d-clients">{(names.data || []).map((n) => <option key={n} value={n} />)}</datalist></div>
-            <div className="bk-field"><label htmlFor="d-contact">Contact person</label><input id="d-contact" value={form.contact} onChange={set("contact")} /></div>
-            <div className="bk-field"><label htmlFor="d-email">Email</label><input id="d-email" type="email" value={form.email} onChange={set("email")} /></div>
-            <div className="bk-field"><label htmlFor="d-vat">VAT treatment</label><select id="d-vat" value={form.vat_mode} onChange={set("vat_mode")}><option value="inclusive">Fees include VAT</option><option value="exclusive">VAT added on top</option><option value="none">No VAT</option></select></div>
-            <div className="bk-field"><label htmlFor="d-valid">Quotation valid until</label><input id="d-valid" type="date" value={form.valid_until} onChange={set("valid_until")} /></div>
-            <div className="bk-field bk-full"><label htmlFor="d-notes">Notes on the quotation</label><textarea id="d-notes" rows={2} value={form.notes} onChange={set("notes")} /></div>
+          <div className="bk-field"><label htmlFor="d-fee">Fee offered (AED)</label><input id="d-fee" type="number" min="0" step="any" value={fee} onChange={(e) => setFee(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} /></div>
+          <Button variant="primary" onClick={add}>+ Add service</Button>
+        </div>
+        {lines.length > 0 && (
+          <div className="bk-table-wrap bk-mt">
+            <table className="bk-table">
+              <thead><tr><th>#</th><th>Service</th><th className="bk-right">Fee (AED)</th><th /></tr></thead>
+              <tbody>{lines.map((l, i) => <tr key={l.description}><td data-label="#">{i + 1}</td><td data-label="Service">{l.description}</td><td data-label="Fee" className="bk-right">{Number(l.amount).toLocaleString("en-AE")}</td><td><button type="button" className="bk-link" onClick={() => setLines((x) => x.filter((y) => y !== l))}>Remove</button></td></tr>)}</tbody>
+            </table>
           </div>
-          <div className="bk-mt">
-            {!lines.length && <p className="bk-note">Chosen services appear here for their fees.</p>}
-            {Object.keys(picked).map((name) => (
-              <div className="bk-row" key={name}><span>{name}</span><span className="bk-actions"><input type="number" min="0" step="any" aria-label={`Fee for ${name}`} placeholder="Fee (AED)" style={{ width: 120 }} value={picked[name].fee} onChange={(e) => setPicked((p) => ({ ...p, [name]: { ...p[name], fee: e.target.value } }))} /><button type="button" className="bk-link" onClick={() => toggle(name)}>Remove</button></span></div>
-            ))}
-            {lines.length > 0 && <p className="bk-desk-total">Total <strong>AED {totals.total.toLocaleString("en-AE", { maximumFractionDigits: 2 })}</strong>{form.vat_mode !== "none" && <small className="bk-muted"> (VAT {totals.vat.toLocaleString("en-AE", { maximumFractionDigits: 2 })})</small>}</p>}
-          </div>
-          <div className="bk-actions bk-mt">
-            <Button variant="primary" busy={busy === "quote"} onClick={() => generate("quote")}>Generate Quotation</Button>
-            <Button variant="primary" busy={busy === "letter"} onClick={() => generate("letter")}>Generate Engagement Letter</Button>
-            <Button onClick={draftOnly}>Mail draft only</Button>
-          </div>
-        </Panel>
-      </div>
+        )}
+        <div className="bk-grid bk-mt">
+          <div className="bk-field"><label htmlFor="d-vat">VAT treatment</label><select id="d-vat" value={form.vat_mode} onChange={set("vat_mode")}><option value="inclusive">Fees include VAT</option><option value="exclusive">VAT added on top</option><option value="none">No VAT</option></select></div>
+          <div className="bk-field"><label htmlFor="d-valid">Quotation valid until</label><input id="d-valid" type="date" value={form.valid_until} onChange={set("valid_until")} /></div>
+          <div className="bk-field bk-full"><label htmlFor="d-notes">Notes on the quotation</label><textarea id="d-notes" rows={2} value={form.notes} onChange={set("notes")} /></div>
+        </div>
+        {lines.length > 0 && <p className="bk-desk-total">Total <strong>AED {totals.total.toLocaleString("en-AE", { maximumFractionDigits: 2 })}</strong>{form.vat_mode !== "none" && <small className="bk-muted"> (VAT {totals.vat.toLocaleString("en-AE", { maximumFractionDigits: 2 })})</small>}</p>}
+      </Panel>
+      <Panel title="3. Generate" sub="The engagement letter is the next step after the quote.">
+        <div className="bk-actions">
+          <Button variant="primary" busy={busy === "quote"} onClick={generateQuote}>Generate Quote + Mail</Button>
+        </div>
+      </Panel>
+      {last && (
+        <div className="bk-inbox bk-row">
+          <span className="bk-mail-result">{mailButton(last)}<span><strong>{LABEL[last.doc_type]} {last.document_number}</strong> generated. Open the mail icon for its draft.{last.doc_type === "quote" && " When the client accepts, generate the engagement letter."}</span></span>
+          {last.doc_type === "quote" && <Button variant="primary" busy={busy === `letter-${last.id}`} onClick={() => generateLetter(last)}>Generate Engagement Letter + Mail</Button>}
+        </div>
+      )}
       {mail && (
-        <Panel title="Mail draft" sub="Nothing is sent from the CRM. Attach the file and send it yourself."
-          actions={<><Button onClick={copy}>Copy</Button><a className="bk-btn bk-btn-secondary" href={mailto}>Open in email</a><Button busy={busy === "mail"} onClick={saveDraft}>Save draft</Button></>}>
+        <div ref={mailPanel}>
+        <Panel title={`Mail for ${mail.label || "document"}${mail.number ? ` ${mail.number}` : ""}`} sub="Nothing is sent from the CRM. Attach the file and send it yourself."
+          actions={<><Button onClick={copy}>Copy</Button><a className="bk-btn bk-btn-secondary" href={mailto}>Open in email</a><Button busy={busy === "mail"} onClick={saveDraft}>Save changes</Button><Button onClick={() => setMail(null)}>Close</Button></>}>
           <div className="bk-field bk-mb"><label htmlFor="m-subj">Subject</label><input id="m-subj" value={mail.subject} onChange={(e) => setMail({ ...mail, subject: e.target.value })} /></div>
           <div className="bk-field"><label htmlFor="m-body">Message</label><textarea id="m-body" rows={12} value={mail.body} onChange={(e) => setMail({ ...mail, body: e.target.value })} /></div>
         </Panel>
+        </div>
       )}
       <Panel title="Generated documents">
         <ErrorNote message={docs.error} />
-        <DataTable search="Search…" rows={docs.data || []} empty="Nothing generated yet." columns={[
+        <DataTable search="Search…" rows={(docs.data || []).filter((d) => d.doc_type !== "mail")} empty="Nothing generated yet." columns={[
           { key: "doc_type", label: "Type", render: (d) => <Badge>{LABEL[d.doc_type]}</Badge> }, { key: "document_number", label: "Number" }, { key: "document_serial", label: "Serial", right: true },
           { key: "client_name", label: "Client" }, ...(department ? [] : [{ key: "department", label: "Department" }]), { key: "services", label: "Services", render: (d) => d.services.join(", ") },
           { key: "total_amount", label: "Total", right: true, render: (d) => `AED ${Number(d.total_amount).toLocaleString("en-AE")}` }, { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
-          { key: "local_path", label: "Saved at", render: (d) => d.local_path || (d.doc_type === "mail" ? "–" : <Badge tone="warn">Not in PC folder</Badge>) },
-          { key: "o", label: "", render: (d) => (d.storage_path ? <button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>Open</button> : d.doc_type === "mail" ? <button type="button" className="bk-link" onClick={() => { setMail({ subject: d.mail_subject, body: d.mail_body }); window.scrollTo?.(0, 0); }}>View</button> : null) },
+          { key: "local_path", label: "Saved at", render: (d) => d.local_path || <Badge tone="warn">Not in PC folder</Badge> },
+          { key: "mail", label: "Mail", render: mailButton },
+          { key: "next", label: "Next step", render: (d) => (d.doc_type !== "quote" ? "–" : (docs.data || []).some((x) => x.doc_type === "letter" && x.parent_id === d.id) ? <Badge tone="good">Letter generated</Badge> : <Button busy={busy === `letter-${d.id}`} onClick={() => generateLetter(d)}>Engagement Letter + Mail</Button>) },
+          { key: "o", label: "", render: (d) => (d.storage_path ? <button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>Open</button> : <Button busy={busy === `file-${d.id}`} onClick={() => refile(d)}>Create file</Button>) },
         ]} />
       </Panel>
     </div>

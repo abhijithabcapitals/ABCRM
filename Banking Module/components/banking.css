@@ -311,3 +311,9 @@
 .bk-desk-total { margin: 10px 0 0; text-align: right; }
 .bk-desk-total strong { color: #13363d; font-size: 16px; }
 @media (max-width: 900px) { .bk-desk { grid-template-columns: 1fr; } }
+.bk-add-line { display: grid; grid-template-columns: minmax(0, 3fr) minmax(120px, 1fr) auto; gap: 10px; align-items: end; }
+@media (max-width: 760px) { .bk-add-line { grid-template-columns: 1fr; } }
+.bk-mail-icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 1px solid #b9d6d8; border-radius: 8px; background: #fff; color: #0f6f73; cursor: pointer; }
+.bk-mail-icon:hover, .bk-mail-icon.active { background: #0f6f73; color: #fff; }
+.bk-mail-icon:focus-visible { outline: 2px solid #0f6f73; outline-offset: 2px; }
+.bk-mail-result { display: inline-flex; align-items: center; gap: 10px; }

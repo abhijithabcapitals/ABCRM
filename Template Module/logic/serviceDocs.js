@@ -4,6 +4,24 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
 const dmy = (d) => { if (!d) return ""; const [y, m, day] = String(d).slice(0, 10).split("-"); return `${day}/${m}/${y}`; };
 
+// What must be filled in before a document is generated. Returns the first problem, or null.
+export function checkReady(form, lines) {
+  const missing = [["client", "client name"], ["contact", "contact person"], ["email", "email"], ["phone", "phone"], ["address", "address"]].filter(([k]) => !String(form[k] || "").trim()).map(([, label]) => label);
+  if (missing.length) return `Fill in the client details first: ${missing.join(", ")}.`;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "Enter a valid email.";
+  if (!lines.length) return "Add at least one service with its fee.";
+  return null;
+}
+
+// A service goes on the list only once, and only with a fee.
+export function addLine(lines, name, fee) {
+  if (!name) return { error: "Choose a service." };
+  const amount = Number(fee);
+  if (fee === "" || fee === null || !Number.isFinite(amount) || amount < 0) return { error: "Enter the fee offered." };
+  if (lines.some((l) => l.description === name)) return { error: "That service is already added." };
+  return { lines: [...lines, { description: name, amount }] };
+}
+
 export const DEPARTMENTS = ["Business Setup", "Accounting", "Tax Compliance", "Business Banking"];
 
 export function serviceTotals(lines, mode = "inclusive", rate = 5) {
@@ -28,7 +46,7 @@ function common(doc, company) {
   return {
     company_name: co.name || "", company_short: co.short_name || "AB Capital Services FZE", company_website: co.website || "", company_email: co.email || "", company_mobile: co.mobile || "",
     ba_name: bank.account_name || "", ba_bank: bank.bank || "", ba_no: bank.account_no || "", ba_iban: bank.iban || "", ba_swift: bank.swift || "", ba_ccy: bank.currency || "",
-    client_name: doc.client_name, contact_name: doc.contact_name || "", document_number: doc.document_number || "", document_date: dmy(doc.created_at), department: doc.department,
+    client_name: doc.client_name, contact_name: doc.contact_name || "", contact_email: doc.contact_email || "", contact_phone: doc.contact_phone || "", client_address: doc.client_address || "", license_number: doc.license_number || "", vat_trn: doc.vat_trn || "", document_number: doc.document_number || "", document_date: dmy(doc.created_at), department: doc.department,
     lines: (doc.lines || []).map((l, i) => ({ no: i + 1, description: l.description, amount: plain(l.amount) })),
     total: plain(doc.total_amount), vat_statement: vatStatement(doc.vat_mode, doc.vat_rate), notes: doc.notes || "",
   };

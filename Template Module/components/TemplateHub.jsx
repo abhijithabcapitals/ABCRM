@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "@app/supabase";
 import CompanyLibrary from "./CompanyLibrary";
 import ServiceDesk from "./ServiceDesk";
+import HubNumbering from "./HubNumbering";
+import VoucherRegister from "./VoucherRegister";
 // Heavy document/spreadsheet libs (pizzip, docxtemplater, xlsx, jszip,
 // file-saver ≈ 500KB) are loaded on demand — only when a doc is generated or an
 // Excel file is parsed — so opening this view stays light.
@@ -370,6 +372,8 @@ export default function Quotations({ profile }) {
             { key: "generate", label: "Generate" },
             { key: "templates", label: "Templates" },
             { key: "library", label: "Company Library" },
+            { key: "vouchers", label: "Voucher Register" },
+            { key: "settings", label: "⚙ Settings" },
           ].map((t) => (
             <button
               key={t.key}
@@ -394,6 +398,10 @@ export default function Quotations({ profile }) {
       <div style={{ flex: 1, overflowY: "auto", padding: "28px 40px" }}>
         {loading ? (
           <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading…</div>
+        ) : tab === "vouchers" ? (
+          <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><VoucherRegister /></div>
+        ) : tab === "settings" ? (
+          <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><HubNumbering /></div>
         ) : tab === "services" ? (
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><ServiceDesk profile={profile} /></div>
         ) : tab === "library" ? (
