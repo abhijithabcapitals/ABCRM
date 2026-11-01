@@ -13,7 +13,7 @@
 //   { action: "create_user", email, password, full_name, role }
 //   { action: "delete_user", user_id }
 //   { action: "update_role", user_id, role }
-//   { action: "onboard_member", employee_id, email, password, tabs, data_role }
+//   { action: "onboard_member", employee_id | new_employee: { full_name, department?, designation? }, email, password, tabs, data_role }
 //   { action: "set_access", user_id, tabs, data_role }
 //   { action: "reset_password", user_id, password }
 //   { action: "set_suspended", user_id, suspended }
@@ -86,11 +86,22 @@ Deno.serve(async (req: Request) => {
       const tabs = cleanTabs(body.tabs);
       if (!email || password.length < 8) return json({ error: "An email and an 8+ character password are required." }, 400);
       if (!tabs.length) return json({ error: "Choose at least one tab." }, 400);
-      const { data: employee } = await admin.from("hr_employees").select("id, employee_code, full_name, profile_id").eq("id", String(body.employee_id || "")).maybeSingle();
-      if (!employee) return json({ error: "Choose an employee from HR Base." }, 400);
-      if (employee.profile_id) return json({ error: `${employee.employee_code} already has a login.` }, 400);
+      const fresh = body.new_employee;
+      const freshName = String(fresh?.full_name || "").trim();
+      let employee: { id: string | null; employee_code: string; full_name: string; profile_id?: string | null };
+      if (fresh) {
+        if (!freshName) return json({ error: "Enter the person's full name." }, 400);
+        const { data: sameEmail } = await admin.from("hr_employees").select("employee_code").ilike("work_email", email).limit(1);
+        if (sameEmail?.length) return json({ error: `This email already belongs to employee ${sameEmail[0].employee_code}. Select them from HR Base instead.` }, 400);
+        employee = { id: null, employee_code: "", full_name: freshName };
+      } else {
+        const { data: found } = await admin.from("hr_employees").select("id, employee_code, full_name, profile_id").eq("id", String(body.employee_id || "")).maybeSingle();
+        if (!found) return json({ error: "Choose an employee from HR Base." }, 400);
+        if (found.profile_id) return json({ error: `${found.employee_code} already has a login.` }, 400);
+        employee = found;
+      }
       const { data: made, error: makeErr } = await admin.auth.admin.createUser({
-        email, password, email_confirm: true, user_metadata: { full_name: employee.full_name, employee_code: employee.employee_code },
+        email, password, email_confirm: true, user_metadata: { full_name: employee.full_name, ...(employee.employee_code ? { employee_code: employee.employee_code } : {}) },
       });
       if (makeErr) return json({ error: makeErr.message }, 400);
       const id = made.user.id;
@@ -98,14 +109,28 @@ Deno.serve(async (req: Request) => {
         const { error: pErr } = await admin.from("profiles").upsert({ id, email, full_name: employee.full_name, role: "member" });
         if (pErr) throw new Error(pErr.message);
         await setAccess(id, tabs, body.data_role);
-        const { error: eErr } = await admin.from("hr_employees").update({ profile_id: id, updated_at: new Date().toISOString() }).eq("id", employee.id);
-        if (eErr) throw new Error(eErr.message);
+        if (fresh) {
+          // Next free number; retry if another admin takes the same code at the same moment.
+          const { data: codes } = await admin.from("hr_employees").select("employee_code");
+          let next = Math.max(0, ...(codes || []).map((c) => /^\d+$/.test(c.employee_code) ? Number(c.employee_code) : 0)) + 1;
+          for (let attempt = 0; ; attempt++, next++) {
+            const { error: hrErr } = await admin.from("hr_employees").insert({
+              employee_code: String(next), full_name: freshName, work_email: email, status: "Active", profile_id: id,
+              department: String(fresh.department || "").trim() || null, designation: String(fresh.designation || "").trim() || null,
+            });
+            if (!hrErr) { employee.employee_code = String(next); break; }
+            if (hrErr.code !== "23505" || attempt >= 4) throw new Error(hrErr.message);
+          }
+        } else {
+          const { error: eErr } = await admin.from("hr_employees").update({ profile_id: id, updated_at: new Date().toISOString() }).eq("id", employee.id);
+          if (eErr) throw new Error(eErr.message);
+        }
       } catch (e) {
         // No half-made logins: remove it so the admin can simply try again.
         await admin.auth.admin.deleteUser(id);
         return json({ error: (e as Error).message }, 400);
       }
-      await audit("onboard_member", email, { employee_code: employee.employee_code, tabs, data_role: body.data_role || null });
+      await audit("onboard_member", email, { employee_code: employee.employee_code, new_employee: !!fresh, tabs, data_role: body.data_role || null });
       return json({ ok: true, user_id: id });
     }
 

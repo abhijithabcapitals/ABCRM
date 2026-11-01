@@ -5,6 +5,8 @@ import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, Panel, Spinner, 
 import { flagMissing } from "@banking/components/Attention";
 import { supabase } from "../supabase";
 import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE } from "../tabs";
+import { TriggersPanel } from "./AdminTriggers";
+import { cronText } from "./triggerSchedule";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
@@ -131,9 +133,11 @@ export function JobsPanel() {
   return (
     <div>
       <ErrorNote message={jobs.error || error} onClose={() => setError(null)} />
-      <p className="bk-note">Background work on a schedule. Pausing email-base-sync or email-agent-run also stops the OpenRouter spending they cause, and stops new mail arriving or being checked until resumed.</p>
+      <TriggersPanel onChanged={jobs.reload} />
+      <h4 className="bk-subhead">System jobs</h4>
+      <p className="bk-note">Background work on a schedule. Pausing email-base-sync or email-agent-run also stops the OpenRouter spending they cause, and stops new mail arriving or being checked until resumed. Pausing admin-trigger-dispatcher stops every trigger above. Times are Dubai time; the raw schedule beneath each is in UTC.</p>
       {jobs.loading && !jobs.data ? <Spinner /> : <DataTable rows={(jobs.data || []).map((j) => ({ ...j, id: j.jobid }))} empty="No scheduled jobs." columns={[
-        { key: "jobname", label: "Job" }, { key: "schedule", label: "Schedule" }, { key: "last_run", label: "Last run", render: (j) => when(j.last_run) },
+        { key: "jobname", label: "Job" }, { key: "schedule", label: "Schedule", render: (j) => <span>{cronText(j.schedule) || j.schedule}{cronText(j.schedule) && <small className="bk-admin-detail">{j.schedule} UTC</small>}</span> }, { key: "last_run", label: "Last run", render: (j) => when(j.last_run) },
         { key: "last_status", label: "Last result", render: (j) => (j.last_status ? <Badge tone={j.last_status === "succeeded" ? "good" : j.last_status === "failed" ? "bad" : undefined}>{j.last_status}</Badge> : "–") },
         { key: "failed_24h", label: "Failed, 24 hours", right: true }, { key: "active", label: "State", render: (j) => <Badge tone={j.active ? "good" : "warn"}>{j.active ? "Running" : "Paused"}</Badge> },
         { key: "a", label: "", render: (j) => <Button busy={busy === j.jobid} onClick={() => toggle(j)}>{j.active ? "Pause" : "Resume"}</Button> },
@@ -198,7 +202,8 @@ const needsRole = (tabs) => tabs.some((t) => NEEDS_DATA_ROLE.has(t));
 
 function Onboard({ onClose, onDone }) {
   const staff = useLoad(async () => check(await supabase.from("hr_employees").select("*").is("profile_id", null).neq("status", "Left").order("employee_code")), []);
-  const [v, setV] = useState({ employee_id: "", email: "", password: "", confirm: "", data_role: "" });
+  const [v, setV] = useState({ employee_id: "", full_name: "", department: "", designation: "", email: "", password: "", confirm: "", data_role: "" });
+  const [isNew, setIsNew] = useState(false); // new person: their HR Base record is created with the login
   const [tabs, setTabs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -206,7 +211,8 @@ function Onboard({ onClose, onDone }) {
   const pick = (e) => { const emp = (staff.data || []).find((x) => x.id === e.target.value); setV((s) => ({ ...s, employee_id: e.target.value, email: emp?.work_email || s.email })); };
   const submit = async () => {
     const bad = [];
-    if (!v.employee_id) bad.push(["ob-employee", "the employee"]);
+    if (isNew && !v.full_name.trim()) bad.push(["ob-name", "the full name"]);
+    if (!isNew && !v.employee_id) bad.push(["ob-employee", "the employee"]);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) bad.push(["ob-email", "a valid login email"]);
     if (v.password.length < 8) bad.push(["ob-password", "a password of at least 8 characters"]);
     if (v.password !== v.confirm) bad.push(["ob-confirm", "the same password again"]);
@@ -214,13 +220,20 @@ function Onboard({ onClose, onDone }) {
     if (needsRole(tabs) && !v.data_role) bad.push(["ob-role", "a data role for the chosen tabs"]);
     if (bad.length) { setError(`Please provide ${bad.map((b) => b[1]).join(", ")}.`); flagMissing(bad.map((b) => b[0])); return; }
     setBusy(true); setError(null);
-    try { await adminUsers({ action: "onboard_member", employee_id: v.employee_id, email: v.email.trim(), password: v.password, tabs, data_role: needsRole(tabs) ? v.data_role : null }); await onDone(); onClose(); } catch (e) { setError(e.message); setBusy(false); }
+    try { await adminUsers({ action: "onboard_member", ...(isNew ? { new_employee: { full_name: v.full_name.trim(), department: v.department.trim() || null, designation: v.designation.trim() || null } } : { employee_id: v.employee_id }), email: v.email.trim(), password: v.password, tabs, data_role: needsRole(tabs) ? v.data_role : null }); await onDone(); onClose(); } catch (e) { setError(e.message); setBusy(false); }
   };
   return (
     <Modal wide title="Onboard member" onClose={onClose}>
       <ErrorNote message={error || staff.error} onClose={() => setError(null)} />
       <div className="bk-grid">
-        <div className="bk-field bk-full"><label htmlFor="ob-employee">Employee <em>*</em></label><select id="ob-employee" value={v.employee_id} onChange={pick}><option value="">Select from HR Base…</option>{(staff.data || []).map((e) => <option key={e.id} value={e.id}>{e.employee_code} · {e.full_name}{e.designation ? ` · ${e.designation}` : ""}</option>)}</select>{staff.data && !staff.data.length && <small>No employees without a login. Add them in the Employees tab first.</small>}</div>
+        <div className="bk-field bk-full">
+          <label className="bk-check"><input type="checkbox" checked={isNew} onChange={(e) => { setIsNew(e.target.checked); setV((s) => ({ ...s, employee_id: "" })); }} /> New person, not in HR Base yet</label>
+        </div>
+        {isNew ? <>
+          <div className="bk-field bk-full"><label htmlFor="ob-name">Full name <em>*</em></label><input id="ob-name" autoComplete="off" value={v.full_name} onChange={set("full_name")} /><small>They are added to HR Base with the next employee code.</small></div>
+          <div className="bk-field"><label htmlFor="ob-department">Department</label><input id="ob-department" autoComplete="off" value={v.department} onChange={set("department")} /></div>
+          <div className="bk-field"><label htmlFor="ob-designation">Designation</label><input id="ob-designation" autoComplete="off" value={v.designation} onChange={set("designation")} /></div>
+        </> : <div className="bk-field bk-full"><label htmlFor="ob-employee">Employee <em>*</em></label><select id="ob-employee" value={v.employee_id} onChange={pick}><option value="">Select from HR Base…</option>{(staff.data || []).map((e) => <option key={e.id} value={e.id}>{e.employee_code} · {e.full_name}{e.designation ? ` · ${e.designation}` : ""}</option>)}</select>{staff.data && !staff.data.length && <small>No employees without a login. Tick "New person" above.</small>}</div>}
         <div className="bk-field bk-full"><label htmlFor="ob-email">Username (login email) <em>*</em></label><input id="ob-email" type="email" autoComplete="off" value={v.email} onChange={set("email")} /></div>
         <div className="bk-field"><label htmlFor="ob-password">Password <em>*</em></label><input id="ob-password" type="password" autoComplete="new-password" value={v.password} onChange={set("password")} /></div>
         <div className="bk-field"><label htmlFor="ob-confirm">Confirm password <em>*</em></label><input id="ob-confirm" type="password" autoComplete="new-password" value={v.confirm} onChange={set("confirm")} /></div>
