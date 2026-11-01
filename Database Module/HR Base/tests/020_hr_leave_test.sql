@@ -8,11 +8,16 @@ truncate public.t_result;
 insert into public.profiles (id, full_name, role) values
   ('00000000-0000-0000-0000-0000000000a1', 'Leave Manager', 'member'),
   ('00000000-0000-0000-0000-0000000000a2', 'Leave Report', 'member'),
-  ('00000000-0000-0000-0000-0000000000a3', 'Leave Loner', 'member');
+  ('00000000-0000-0000-0000-0000000000a3', 'Leave Loner', 'member'),
+  ('00000000-0000-0000-0000-0000000000a4', 'Leave HR Member', 'member'),
+  ('00000000-0000-0000-0000-0000000000a5', 'Leave Admin', 'admin');
+insert into public.hr_access (profile_id) values ('00000000-0000-0000-0000-0000000000a4');
 insert into public.hr_employees (id, employee_code, full_name, profile_id, manager_id) values
   ('20000000-0000-0000-0000-0000000000a1', 'L-M', 'Leave Manager', '00000000-0000-0000-0000-0000000000a1', null),
   ('20000000-0000-0000-0000-0000000000a2', 'L-R', 'Leave Report', '00000000-0000-0000-0000-0000000000a2', '20000000-0000-0000-0000-0000000000a1'),
-  ('20000000-0000-0000-0000-0000000000a3', 'L-L', 'Leave Loner', '00000000-0000-0000-0000-0000000000a3', null);
+  ('20000000-0000-0000-0000-0000000000a3', 'L-L', 'Leave Loner', '00000000-0000-0000-0000-0000000000a3', null),
+  ('20000000-0000-0000-0000-0000000000a4', 'L-H', 'Leave HR Member', '00000000-0000-0000-0000-0000000000a4', null),
+  ('20000000-0000-0000-0000-0000000000a5', 'L-A', 'Leave Admin', '00000000-0000-0000-0000-0000000000a5', null);
 
 create table public.t_ids (label text primary key, id uuid);
 grant all on public.t_ids to authenticated;
@@ -149,6 +154,21 @@ select public.ok('employee reads own balances rows only', (select count(*) = 1 f
 select public.as_user('99');
 select public.must_fail('outsider cannot request', $$select public.t_req('x', 'a2', 'Annual', '2027-03-01', '2027-03-02')$$, 'yourself');
 select public.must_fail('outsider cannot read balance', $$select * from public.hr_leave_balance('20000000-0000-0000-0000-0000000000a2', 2026)$$, 'not allowed');
+
+-- ── HR-list member and admin with linked employee rows cannot decide their own leave ──
+select public.as_user('a4');
+select public.ok('HR member with employee row files own leave', (select jsonb_array_length(public.t_req('h1', 'a4', 'Annual', '2027-03-01', '2027-03-02') -> 'ids') = 1));
+select public.must_fail('HR member cannot approve own leave', format($$select public.hr_leave_decide(%L, true, null)$$, public.tid('h1#1')), 'own');
+select public.must_fail('HR member cannot reject own leave', format($$select public.hr_leave_decide(%L, false, null)$$, public.tid('h1#1')), 'own');
+select public.as_user('a5');
+select public.ok('admin with employee row files own leave', (select jsonb_array_length(public.t_req('h2', 'a5', 'Annual', '2027-03-08', '2027-03-09') -> 'ids') = 1));
+select public.must_fail('admin cannot approve own leave', format($$select public.hr_leave_decide(%L, true, null)$$, public.tid('h2#1')), 'own');
+select public.as_user('0b');
+select public.hr_leave_decide(public.tid('h1#1'), true, null);
+select public.ok('another HR member can approve the HR member leave', (select status = 'approved' from public.hr_leave_requests where id = public.tid('h1#1')));
+select public.as_user('a4');
+select public.hr_leave_decide(public.tid('h2#1'), true, null);
+select public.ok('HR member can approve the admin leave', (select status = 'approved' from public.hr_leave_requests where id = public.tid('h2#1')));
 
 reset role;
 select public.ok('leave tables have RLS on', (select bool_and(relrowsecurity) from pg_class where oid in ('public.hr_settings'::regclass, 'public.hr_holidays'::regclass, 'public.hr_leave_types'::regclass, 'public.hr_leave_balances'::regclass, 'public.hr_leave_requests'::regclass)));

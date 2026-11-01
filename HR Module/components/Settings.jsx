@@ -5,9 +5,10 @@ import { check, run, table } from "../services/hrApi";
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]; // extract(dow) 0..6
 
 // HR only. The database refuses these writes for anyone else. Nothing here is pre-filled with statutory values: HR enters them.
-export default function Settings() {
-  const access = useLoad(async () => run(table("hr_access").select("profile_id, granted_at")), []);
-  const profiles = useLoad(async () => run(table("profiles").select("id, full_name").order("full_name")), []);
+export default function Settings({ profile }) {
+  const isAdmin = profile?.role === "admin"; // display only: the database still enforces who may change the HR list
+  const access = useLoad(async () => (isAdmin ? run(table("hr_access").select("profile_id, granted_at")) : []), [isAdmin]);
+  const profiles = useLoad(async () => (isAdmin ? run(table("profiles").select("id, full_name").order("full_name")) : []), [isAdmin]);
   const types = useLoad(async () => run(table("hr_leave_types").select("*").order("name")), []);
   const holidays = useLoad(async () => run(table("hr_holidays").select("*").order("holiday_date")), []);
   const settings = useLoad(async () => run(table("hr_settings").select("*").eq("id", 1).single()), []);
@@ -33,6 +34,7 @@ export default function Settings() {
       <PageHead title="Settings" sub="HR access, leave types, holidays, working week and payroll basis. Visible to HR only." />
       <ErrorNote message={error || access.error || types.error || holidays.error || settings.error} onClose={() => setError(null)} />
 
+      {isAdmin ? (
       <Panel title="HR access list" sub="People here see and change all HR data. Administrators always have access." actions={<Button onClick={() => setModal("access")}>+ Add person</Button>}>
         <DataTable rows={(access.data || []).map((a) => ({ ...a, id: a.profile_id }))} empty="No one on the list." columns={[
           { key: "name", label: "Person", render: (a) => nameOf[a.profile_id] || a.profile_id },
@@ -40,6 +42,9 @@ export default function Settings() {
           { key: "x", label: "", render: (a) => <Button onClick={() => guard(async () => check(await table("hr_access").delete().eq("profile_id", a.profile_id)), access.reload)}>Remove</Button> },
         ]} />
       </Panel>
+      ) : (
+        <Panel title="HR access list"><p className="bk-note hr-quiet">An administrator manages the HR access list.</p></Panel>
+      )}
 
       <Panel title="Leave types" sub="Start empty. Enter the entitlements your policy sets; leave annual days blank for no limit." actions={<Button variant="primary" onClick={() => setModal({ kind: "type", row: { paid: true } })}>+ Add leave type</Button>}>
         <DataTable rows={types.data || []} empty="No leave types yet." columns={[
@@ -70,7 +75,7 @@ export default function Settings() {
         <PayDays value={settings.data?.pay_days_basis} onSave={(v) => guard(async () => check(await table("hr_settings").update({ pay_days_basis: v }).eq("id", 1)), settings.reload)} />
       </Panel>
 
-      {modal === "access" && <FormModal title="Add to HR access list" submitLabel="Add" initial={{}} onClose={() => setModal(null)}
+      {isAdmin && modal === "access" && <FormModal title="Add to HR access list" submitLabel="Add" initial={{}} onClose={() => setModal(null)}
         fields={[{ name: "profile_id", label: "Person", type: "select", required: true, options: (profiles.data || []).filter((p) => !hrIds.has(p.id)).map((p) => ({ value: p.id, label: p.full_name })) }]}
         onSubmit={async (v) => { check(await table("hr_access").insert({ profile_id: v.profile_id })); await access.reload(); }} />}
       {modal?.kind === "type" && <FormModal title={modal.row.id ? "Edit leave type" : "Add leave type"} initial={modal.row} onClose={() => setModal(null)}
