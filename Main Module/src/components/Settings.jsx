@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { IconClose } from "./icons";
-import IntegrationsPanel from "@integrations";
+import IntegrationsPanel, { EmailAccountsPanel } from "@integrations";
 import { AiUsagePanel, AuditPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
 
 const DEFAULT_COL_WIDTHS = { member: 220, email: 240, role: 130, joined: 140, actions: 60 };
@@ -242,6 +242,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             { key: "storage", label: "💾 Database & Storage" },
             { key: "jobs", label: "⏱ Scheduled Jobs" },
             { key: "usage", label: "📊 Email Usage" },
+            { key: "email-accounts", label: "📧 Email Accounts" },
             { key: "integrations", label: "🔌 Integrations" },
             { key: "audit", label: "📜 Audit Log" },
           ].map((tab) => (
@@ -503,6 +504,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
         )}
 
         {/* ── INTEGRATIONS TAB (admin only) ── */}
+        {activeTab === "email-accounts" && profile?.role === "admin" && <EmailAccountsPanel supabase={supabase} />}
         {activeTab === "integrations" && profile?.role === "admin" && <IntegrationsPanel supabase={supabase} />}
 
         {/* ── USAGE TAB (admin only) ── */}

@@ -119,6 +119,23 @@ export class SmtpClient {
     return reply;
   }
 
+  /** Logs in and disconnects. Nothing is sent. Used by Settings > Email Accounts. */
+  async verify(user: string, pass: string, heloHost: string) {
+    try {
+      this.conn = await Deno.connectTls({ hostname: this.host, port: this.port });
+    } catch (e) {
+      throw new SmtpError(`Could not reach ${this.host}:${this.port}: ${(e as Error).message}`);
+    }
+    try {
+      await this.expect(null, [220], "Connection");
+      await this.expect(`EHLO ${heloHost}`, [250], "EHLO");
+      await this.expect(`AUTH PLAIN ${base64(enc.encode(`\0${user}\0${pass}`))}`, [235], "Login");
+      try { await this.expect("QUIT", [221], "QUIT"); } catch { /* the login already worked */ }
+    } finally {
+      try { this.conn.close(); } catch { /* already closed */ }
+    }
+  }
+
   async send(user: string, pass: string, from: string, recipients: string[], raw: Uint8Array) {
     try {
       this.conn = await Deno.connectTls({ hostname: this.host, port: this.port });

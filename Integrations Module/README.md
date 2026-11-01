@@ -1,25 +1,44 @@
 # Integrations Module
 
-One list of every external service the CRM may connect to (AI models, WhatsApp, Meta, Google, Microsoft,
-n8n/Zapier, accounting software, payments) and the exact Supabase secret names each one uses.
+Admin screens for connecting the CRM to outside services, and the store for their credentials.
 
 | Path | Purpose |
 |---|---|
-| `registry.json` | The list: integration, status (`in_use` / `ready` / `planned`), what uses it, and each secret's name, purpose and where to get it. Names only, never values |
-| `components/IntegrationsPanel.jsx` | **Settings → Integrations** tab (admins only): searchable list with a dot per secret showing whether it is set |
-| `supabase/integrations-status/index.ts` | Edge Function that tells admins which secrets have a value. Returns true/false only, never a value |
-| `supabase/_shared/secrets.ts` | Helper every new Edge Function should use: `requireSecret("NAME")` gives a clear "add it in Supabase" error when missing |
+| `components/EmailAccountsPanel.jsx` | **Settings → Email Accounts**: add a mailbox by username and password; it syncs into Email Base |
+| `components/IntegrationsPanel.jsx` | **Settings → Integrations**: every app in `registry.json`, plus custom apps, with write-only fields |
+| `registry.json` | The app list: status (`in_use` / `ready` / `planned`), what uses it, each credential's name, purpose and source. Names only, never values. `envOnly` apps are read directly by background functions and stay in Supabase secrets |
+| `supabase/crm-connections/index.ts` | Edge Function for both screens (admins only). Tests a mailbox login before saving. Never returns a value |
+| `supabase/migrations/001_credentials.sql` | `admin_credential_set`, `admin_credential_delete`, `credential_get`, `integration_credentials`, `email_base.mailboxes.login_user` |
+| `supabase/_shared/secrets.ts` | Helper for new Edge Functions: `requireSecret(adminClient, "NAME")` |
 
-## Adding a value
+## How credentials are stored
 
-Supabase → Edge Functions → Secrets → add the name exactly as listed. No redeploy is needed. The
-Integrations tab shows it as set after **Refresh**.
+Values are encrypted in Supabase Vault as `crm_cred:<NAME>`. Admins can write and remove them through
+`admin_credential_set` / `admin_credential_delete`. Only the service role (Edge Functions) can read one, through
+`credential_get`, so no browser, including an admin's, can read a value back. Each change is written to
+`admin_audit` with the credential's name and never its value. `integration_credentials` holds labels only.
 
-## Building a new integration
+A value saved in Settings wins over an Edge Function secret of the same name.
 
-1. Make sure its secrets are in `registry.json`; set `status` to `in_use` once deployed code reads them.
-2. In the function, `import { requireSecret } from "./secrets.ts"` and read every secret through it.
-3. Deploy the function with `secrets.ts` and `registry.json` placed next to its `index.ts` (the deployed
-   bundle is flat). The same applies when redeploying `integrations-status` after editing `registry.json`.
+## Email accounts
 
-Real values belong only in Supabase secrets: never in this repo, in code, in chat or in a `.env` that is committed.
+The password is stored as `MAIL_PASSWORD_<ADDRESS>`, the same name the older Edge Function secrets use, so
+`ceo-mail-sync` and `ceo-mail-reply` read Vault first and then the secret. `ceo-mail-sync` syncs every enabled
+mailbox in `email_base.mailboxes`; each run's budget is shared, so more mailboxes means slower backfill.
+
+Limits: implicit TLS only (usually ports 993 and 465; the clients do not support STARTTLS on 587). Providers that
+refuse password sign-in, such as Microsoft 365 and Outlook.com, need OAuth and cannot be added this way. Gmail,
+Yahoo and similar need an app password. Pausing keeps the stored mail; there is no delete from this screen.
+
+## What is connected
+
+Saving a credential does not build a connection. Only apps with status `in_use` do anything today. To build one:
+
+1. In the function, read each value with `requireSecret` and deploy `secrets.ts` next to `index.ts`.
+2. Set the app's `status` to `in_use` and fill in `usedBy` in `registry.json`.
+
+## Deploying crm-connections
+
+It imports the IMAP and SMTP clients from its siblings, so copy these into one `supabase/functions` folder and
+deploy with `--project-ref pnnakrhfzyxudjaghoxx --use-api`: `crm-connections`,
+`ceo-mail-sync` and `ceo-mail-reply` (from `CEO Agent Module/supabase`).
