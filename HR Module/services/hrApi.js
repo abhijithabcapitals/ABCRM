@@ -66,3 +66,23 @@ export const leaveBalance = (employee, year) => rpc("hr_leave_balance", { p_empl
 // Attendance. hr_attendance_month returns one row per in-scope employee per day (status null = nothing recorded and not leave, holiday or weekend).
 export const attendanceMonth = (year, month) => rpc("hr_attendance_month", { p_year: year, p_month: month });
 export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => rpc("hr_attendance_set", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null });
+
+// Payroll. Figures come only from the database. Run writes go through functions; hr_pay_details is HR-only by RLS.
+export const payruns = () => run(table("hr_pay_runs").select("*").order("period_month", { ascending: false }));
+export const payrunLines = (runId) => run(table("hr_pay_lines").select("*").eq("run_id", runId));
+export const myPayLines = async () => {
+  const rows = await run(table("hr_pay_lines").select("id, net, earnings, deductions, adjustments, notes, blockers, hr_pay_runs(period_month)"));
+  return rows.sort((a, b) => b.hr_pay_runs.period_month.localeCompare(a.hr_pay_runs.period_month));
+};
+export const payrollEmployees = () => run(table("hr_employees").select("id, employee_code, full_name").order("full_name"));
+export const payrollSettings = () => run(table("hr_settings").select("*").eq("id", 1).single());
+export const payrunCreate = (month) => rpc("hr_payrun_create", { p_month: month });
+export const payrunRecalc = (id) => rpc("hr_payrun_recalc", { p_run: id });
+export const payrunAdjust = (line, label, amount) => rpc("hr_payrun_adjust", { p_line: line, p_label: label, p_amount: amount });
+export const payrunApprove = (id, ackSamePerson) => rpc("hr_payrun_approve", { p_run: id, p_ack_same_person: !!ackSamePerson });
+export const payrunDelete = (id) => rpc("hr_payrun_delete", { p_run: id });
+export const gratuity = (employee, exitDate) => rpc("hr_gratuity", { p_employee: employee, p_exit: exitDate });
+// Lists get a masked IBAN. The full IBAN is read only for the HR edit form.
+export const payDetailsList = () => rpc("hr_pay_details_list");
+export const payDetailFull = (id) => run(table("hr_pay_details").select("*").eq("id", id).single());
+export const savePayDetail = async (id, values) => { check(id ? await table("hr_pay_details").update(values).eq("id", id) : await table("hr_pay_details").insert(values)); };

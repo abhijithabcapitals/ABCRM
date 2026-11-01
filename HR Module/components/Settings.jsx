@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { Button, DataTable, ErrorNote, FormGrid, FormModal, PageHead, Panel, Spinner, cleanValues, fmtDate, useLoad } from "@banking/components/shared";
 import { check, run, table } from "../services/hrApi";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]; // extract(dow) 0..6
@@ -51,6 +51,7 @@ export default function Settings({ profile }) {
           { key: "name", label: "Name" },
           { key: "paid", label: "Paid", render: (t) => (t.paid ? "Paid" : "Unpaid") },
           { key: "annual_days", label: "Annual days", render: (t) => t.annual_days ?? "No limit" },
+          { key: "half_pay_note", label: "Payroll", render: (t) => (t.half_pay_note ? "Review note" : "") },
           { key: "x", label: "", render: (t) => <><Button onClick={() => setModal({ kind: "type", row: t })}>Edit</Button> <Button onClick={() => remove("hr_leave_types", t.id, types.reload)}>Remove</Button></> },
         ]} />
       </Panel>
@@ -71,17 +72,17 @@ export default function Settings({ profile }) {
         </div>
       </Panel>
 
-      <Panel title="Payroll" sub="Pay days basis needs confirmation before payroll uses it. It stays empty until HR confirms the correct figure.">
-        <PayDays value={settings.data?.pay_days_basis} onSave={(v) => guard(async () => check(await table("hr_settings").update({ pay_days_basis: v }).eq("id", 1)), settings.reload)} />
+      <Panel title="Payroll" sub="Every setting here needs confirmation. The law does not fix these, so they stay empty until HR confirms them, and a payroll run or gratuity calculation stops and names what is missing.">
+        {settings.data && <PaySettings key={settings.data.updated_at} value={settings.data} onSave={(v) => guard(async () => check(await table("hr_settings").update(v).eq("id", 1)), settings.reload)} />}
       </Panel>
 
       {isAdmin && modal === "access" && <FormModal title="Add to HR access list" submitLabel="Add" initial={{}} onClose={() => setModal(null)}
         fields={[{ name: "profile_id", label: "Person", type: "select", required: true, options: (profiles.data || []).filter((p) => !hrIds.has(p.id)).map((p) => ({ value: p.id, label: p.full_name })) }]}
         onSubmit={async (v) => { check(await table("hr_access").insert({ profile_id: v.profile_id })); await access.reload(); }} />}
       {modal?.kind === "type" && <FormModal title={modal.row.id ? "Edit leave type" : "Add leave type"} initial={modal.row} onClose={() => setModal(null)}
-        fields={[{ name: "name", label: "Name", required: true }, { name: "paid", label: "Paid", type: "select", required: true, options: [{ value: true, label: "Paid" }, { value: false, label: "Unpaid" }] }, { name: "annual_days", label: "Annual days", type: "number", help: "Blank means no limit" }]}
+        fields={[{ name: "name", label: "Name", required: true }, { name: "paid", label: "Paid", type: "select", required: true, options: [{ value: true, label: "Paid" }, { value: false, label: "Unpaid" }] }, { name: "annual_days", label: "Annual days", type: "number", help: "Blank means no limit" }, { name: "half_pay_note", label: "May have half-pay tiers", type: "select", help: "Half pay is not calculated. Yes puts a review note on the pay line", options: [{ value: false, label: "No" }, { value: true, label: "Yes" }] }]}
         onSubmit={async (v) => {
-          const values = { name: v.name, paid: v.paid === true || v.paid === "true", annual_days: v.annual_days };
+          const values = { name: v.name, paid: v.paid === true || v.paid === "true", annual_days: v.annual_days, half_pay_note: v.half_pay_note === true || v.half_pay_note === "true" };
           check(modal.row.id ? await table("hr_leave_types").update(values).eq("id", modal.row.id) : await table("hr_leave_types").insert(values));
           await types.reload();
         }} />}
@@ -95,13 +96,22 @@ export default function Settings({ profile }) {
   );
 }
 
-function PayDays({ value, onSave }) {
-  const [text, setText] = useState(value ?? "");
+const PAY_FIELDS = [
+  { name: "pay_day_divisor_mode", label: "Pay day divisor mode (needs confirmation)", type: "select", help: "Used for the daily rate and for part-month pay", options: [{ value: "fixed", label: "A fixed number of days" }, { value: "calendar_days", label: "Calendar days in the month" }, { value: "working_days", label: "Working days in the month" }] },
+  { name: "pay_days_basis", label: "Pay days basis (needs confirmation)", type: "number", help: "The number of days, used only with the fixed mode" },
+  { name: "pay_unpaid_wage_base", label: "Unpaid leave wage base (needs confirmation)", type: "select", help: "The wage an unpaid day is taken from", options: [{ value: "basic", label: "Basic wage" }, { value: "total", label: "Total wage" }] },
+  { name: "gratuity_daily_divisor", label: "Gratuity daily divisor (needs confirmation)", type: "number", help: "Monthly basic wage divided by this gives a day's wage" },
+  { name: "gratuity_fraction_method", label: "Gratuity part-year method (needs confirmation)", type: "select", options: [{ value: "months_12", label: "Completed months / 12" }, { value: "days_365", label: "Days / 365" }] },
+  { name: "gratuity_cap_base", label: "Gratuity cap base (needs confirmation)", type: "select", help: "Two years of this wage", options: [{ value: "basic", label: "Basic wage" }, { value: "total", label: "Total wage" }] },
+  { name: "gratuity_service_end_inclusive", label: "Gratuity service end date rule (needs confirmation)", type: "tri", help: "Yes: the exit date counts as a day of service" },
+];
+
+function PaySettings({ value, onSave }) {
+  const [values, setValues] = useState(value);
   return (
-    <div className="hr-file-row">
-      <label htmlFor="pay-days">Pay days basis (needs confirmation)</label>
-      <input id="pay-days" type="number" min="1" step="any" value={text} onChange={(e) => setText(e.target.value)} />
-      <Button variant="primary" onClick={() => onSave(text === "" ? null : Number(text))}>Save</Button>
+    <div>
+      <FormGrid fields={PAY_FIELDS} values={values} setValues={setValues} />
+      <Button variant="primary" onClick={() => onSave(cleanValues(PAY_FIELDS, values))}>Save payroll settings</Button>
     </div>
   );
 }

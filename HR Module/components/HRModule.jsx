@@ -9,10 +9,11 @@ import Employees from "./Employees";
 import Documents from "./Documents";
 import Leave from "./Leave";
 import Attendance from "./Attendance";
+import Payroll from "./Payroll";
 import Settings from "./Settings";
 
-// Tabs that exist so far. Payroll is added by a later task.
-const SCREENS = { dashboard: Dashboard, employees: Employees, documents: Documents, leave: Leave, attendance: Attendance, settings: Settings };
+// Tabs that exist so far.
+const SCREENS = { dashboard: Dashboard, employees: Employees, documents: Documents, leave: Leave, attendance: Attendance, payroll: Payroll, settings: Settings };
 const BUILT = new Set(Object.keys(SCREENS));
 
 export default function HRModule({ profile, onOpenTask }) {
