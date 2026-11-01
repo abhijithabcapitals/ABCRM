@@ -1,1 +1,1 @@
-export { default } from "./components/BankingValidation";
+export { default } from "./components/AccountingModule";

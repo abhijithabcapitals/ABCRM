@@ -1,7 +1,6 @@
 // Banking cases the business team has handed over. Accounts checks the money and documents, then validates
 // (the case closes) or reverts it to the business team with remarks.
 import { useState } from "react";
-import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
 import { openFile, rpc, run, table } from "@banking/services/bankingApi";
 import { money } from "@banking/logic/pricing";
@@ -9,19 +8,13 @@ import { money } from "@banking/logic/pricing";
 const TABS = [["With Accounts", "Awaiting Validation"], ["Reverted", "Reverted"], ["Closed", "Closed"]];
 
 export default function BankingValidation() {
-  const access = useLoad(() => rpc("banking_my_access"), []);
   const queue = useLoad(() => rpc("banking_accounts_queue"), []);
   const [tab, setTab] = useState("With Accounts");
   const [open, setOpen] = useState(null);
-  if (access.loading && !access.data) return <div className="bk-root"><Spinner /></div>;
-  if (!access.data?.permissions?.includes("accounts.review")) {
-    return <div className="bk-root"><h1>Accounting</h1><ErrorNote message={access.error} /><p className="bk-note">Only the Accounts team can open this page. An administrator can assign the ACCOUNTS role in Business Banking settings.</p></div>;
-  }
   const rows = queue.data || [];
   const current = rows.find((r) => r.id === open);
   return (
-    <div className="bk-root">
-      <header className="bk-header"><span className="bk-eyebrow">AB CAPITAL SERVICES FZE</span><h1>Accounting</h1></header>
+    <div>
       {current ? <Review row={current} onBack={() => setOpen(null)} onDone={async () => { await queue.reload(); setOpen(null); }} /> : (
         <>
           <PageHead title="Banking Case Validation" sub="Cases the business team marked complete." />

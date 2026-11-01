@@ -1,6 +1,6 @@
 # Accounting Module
 
-The CRM's **Accounting** page. Today it holds Banking Case Validation.
+The CRM's **Accounting** page, with a **Business Banking** tab (case validation) and a **Business Setup** tab (empty until that module is built).
 
 When the business team finishes an approved banking case and sends it to Accounts, the case leaves their lists and cannot be changed by anyone. Accounts reviews it here, then:
 
@@ -9,7 +9,8 @@ When the business team finishes an approved banking case and sends it to Account
 
 | Path | Purpose |
 |---|---|
-| `components/BankingValidation.jsx` | Queue and review page |
+| `components/AccountingModule.jsx` | Page, access check and tabs |
+| `components/BankingValidation.jsx` | Business Banking queue and review |
 | `Database Module/Accounting Base` | Review records, ACCOUNTS role, handover functions |
 | `Database Module/Banking Base/migrations/011_banking_handover_accounts.sql` | Case lock and access rules |
 
