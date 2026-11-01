@@ -19,6 +19,7 @@ export default defineConfig({
       '@document-generator': fileURLToPath(new URL('../Document Generator', import.meta.url)),
       '@banking': fileURLToPath(new URL('../Banking Module', import.meta.url)),
       '@accounting': fileURLToPath(new URL('../Accounting Module', import.meta.url)),
+      '@business-setup': fileURLToPath(new URL('../Business Setup Module', import.meta.url)),
       // The Document Generator lives outside this app folder, so resolve its
       // dependencies from the host app's node_modules.
       'pizzip': fileURLToPath(new URL('./node_modules/pizzip/js/index.js', import.meta.url)),

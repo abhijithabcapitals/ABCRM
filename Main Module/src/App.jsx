@@ -17,6 +17,7 @@ const Clients = lazy(() => import("./components/Clients"));
 const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
 const BusinessBanking = lazy(() => import("@banking"));
 const AccountingPage = lazy(() => import("@accounting"));
+const BusinessSetup = lazy(() => import("@business-setup"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
 const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
@@ -492,6 +493,7 @@ export default function App() {
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "business-banking" && <BusinessBanking profile={profile} />}
         {view === "accounts" && <AccountingPage />}
+        {view === "business-setup" && <BusinessSetup />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
         {view === "email-agent" && profile?.role === "admin" && <EmailAgent />}
         {view === "tax" && (
