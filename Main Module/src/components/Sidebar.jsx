@@ -1187,6 +1187,7 @@ export default function Sidebar({
           { key: "accounts", Icon: IconCheck, label: "Accounting" },
           { key: "quotations", Icon: IconFile, label: "Template Hub" },
           { key: "clients", Icon: IconClients, label: "Clients" },
+          { key: "hr", Icon: IconClients, label: "HR" },
           { key: "tax", Icon: IconCheck, label: "Tax Compliance" },
           ...(profile?.role === "admin"
             ? [

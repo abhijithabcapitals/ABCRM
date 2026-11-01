@@ -20,6 +20,7 @@ export default defineConfig({
       '@business-development': fileURLToPath(new URL('../Business Development Module', import.meta.url)),
       '@template-hub': fileURLToPath(new URL('../Template Module', import.meta.url)),
       '@banking': fileURLToPath(new URL('../Banking Module', import.meta.url)),
+      '@hr': fileURLToPath(new URL('../HR Module', import.meta.url)),
       '@client-module': fileURLToPath(new URL('../Client Module', import.meta.url)),
       '@accounting': fileURLToPath(new URL('../Accounting Module', import.meta.url)),
       '@business-setup': fileURLToPath(new URL('../Business Setup Module', import.meta.url)),

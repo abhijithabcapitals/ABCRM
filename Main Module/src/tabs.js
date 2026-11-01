@@ -8,6 +8,7 @@ export const GRANTABLE_TABS = [
   { key: "accounts", label: "Accounting" },
   { key: "quotations", label: "Template Hub" },
   { key: "clients", label: "Clients" },
+  { key: "hr", label: "HR" },
   { key: "tax", label: "Tax Compliance" },
   { key: "spaces", label: "Spaces, Tasks and Documents" },
 ];

@@ -115,6 +115,87 @@ select public.hr_audit('test', 'hr_employees:1', '{"a":1}', '{"a":2}');
 select public.ok('hr_audit records actor and values', (select count(*) = 1 from public.hr_audit_log where action = 'test' and actor = '00000000-0000-0000-0000-00000000000a' and old_values = '{"a":1}' and new_values = '{"a":2}'));
 reset role;
 
+-- ── documents (003) ──
+-- Seed as owner. E-L has left; far-off and Left documents must not show in the expiring list.
+insert into public.hr_employees (id, employee_code, full_name, status) values
+  ('10000000-0000-0000-0000-00000000000f', 'E-L', 'Leaver', 'Left');
+insert into public.hr_documents (employee_id, doc_type, doc_number, expiry_date) values
+  ('10000000-0000-0000-0000-00000000000d', 'Passport', 'P-D', current_date + 10),
+  ('10000000-0000-0000-0000-00000000000d', 'Emirates ID', 'EID-D', current_date + 200),
+  ('10000000-0000-0000-0000-00000000000e', 'Visa', 'V-E', current_date - 5),
+  ('10000000-0000-0000-0000-00000000000f', 'Visa', 'V-L', current_date + 5);
+
+-- A stand-in for Supabase Storage, so the bucket policies are exercised too. 003 is re-run on top (idempotence).
+create schema storage;
+create table storage.buckets (id text primary key, name text, public boolean default false, file_size_limit bigint);
+create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid);
+create function storage.foldername(name text) returns text[] language sql immutable as $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
+alter table storage.objects enable row level security;
+grant usage on schema storage to authenticated;
+grant select, insert, update, delete on storage.objects to authenticated;
+grant execute on function storage.foldername(text) to authenticated;
+\ir ../migrations/003_hr_documents.sql
+
+select public.ok('bucket is private with a 25 MB limit', (select not public and file_size_limit = 26214400 from storage.buckets where id = 'hr-documents'));
+
+set role authenticated;
+select public.as_user('0d');
+select public.ok('employee reads only own documents', (select count(*) = 2 and bool_and(employee_id = '10000000-0000-0000-0000-00000000000d') from public.hr_documents));
+insert into public.hr_documents (employee_id, doc_type, doc_number, expiry_date) values ('10000000-0000-0000-0000-00000000000d', 'Labour card', 'LC-D', current_date + 80);
+select public.ok('employee can add own document row', (select count(*) = 3 from public.hr_documents));
+select public.must_fail('employee cannot add a row for someone else', $$insert into public.hr_documents (employee_id, doc_type) values ('10000000-0000-0000-0000-00000000000e', 'Passport')$$, 'row-level security');
+update public.hr_documents set doc_number = 'HACK' where doc_number = 'P-D';
+delete from public.hr_documents where doc_number = 'LC-D';
+select public.as_user('0a');
+select public.ok('employee cannot edit or delete document rows', (select count(*) = 1 from public.hr_documents where doc_number = 'P-D') and (select count(*) = 1 from public.hr_documents where doc_number = 'LC-D'));
+select public.as_user('0c');
+select public.ok('manager reads none of a reports documents', (select count(*) = 0 from public.hr_documents));
+select public.must_fail('manager cannot add a document for a report', $$insert into public.hr_documents (employee_id, doc_type) values ('10000000-0000-0000-0000-00000000000d', 'Passport')$$, 'row-level security');
+select public.as_user('99');
+select public.ok('outsider reads no documents', (select count(*) = 0 from public.hr_documents));
+select public.as_user('0b');
+select public.ok('HR list member reads all documents', (select count(*) = 5 from public.hr_documents));
+update public.hr_documents set doc_number = 'P-D2' where doc_number = 'P-D';
+select public.ok('HR list member can edit a document row', (select count(*) = 1 from public.hr_documents where doc_number = 'P-D2'));
+select public.as_user('0a');
+select public.ok('admin reads all documents', (select count(*) = 5 from public.hr_documents));
+
+-- expiring: expired or within 90 days; leavers omitted; same visibility as the table
+select public.ok('HR sees expired and soon-to-expire, not far-off, not Left', (select count(*) = 3 and bool_and(doc_number in ('P-D2', 'V-E', 'LC-D')) from public.hr_documents_expiring()));
+select public.ok('expiring reports days left (negative when expired)', (select days_left = -5 from public.hr_documents_expiring() where doc_number = 'V-E') and (select days_left = 10 from public.hr_documents_expiring() where doc_number = 'P-D2'));
+select public.ok('expiring omits an employee with status Left', (select count(*) = 0 from public.hr_documents_expiring() where employee_code = 'E-L'));
+select public.as_user('0d');
+select public.ok('employee sees only own expiring documents', (select count(*) = 2 and bool_and(employee_code = 'E-D') from public.hr_documents_expiring()));
+select public.as_user('0c');
+select public.ok('manager sees no expiring documents', (select count(*) = 0 from public.hr_documents_expiring()));
+select public.as_user('99');
+select public.ok('outsider sees no expiring documents', (select count(*) = 0 from public.hr_documents_expiring()));
+
+-- storage bucket policies: HR/admin anywhere, employee only their own folder, manager nothing
+select public.as_user('0d');
+insert into storage.objects (bucket_id, name) values ('hr-documents', '10000000-0000-0000-0000-00000000000d/u1-passport.pdf');
+select public.ok('employee can upload to own folder', (select count(*) = 1 from storage.objects where bucket_id = 'hr-documents'));
+select public.must_fail('employee cannot upload to another folder', $$insert into storage.objects (bucket_id, name) values ('hr-documents', '10000000-0000-0000-0000-00000000000e/u2-x.pdf')$$, 'row-level security');
+select public.must_fail('employee cannot upload to the bucket root', $$insert into storage.objects (bucket_id, name) values ('hr-documents', 'x.pdf')$$, 'row-level security');
+delete from storage.objects where bucket_id = 'hr-documents';
+update storage.objects set name = '10000000-0000-0000-0000-00000000000d/renamed.pdf' where bucket_id = 'hr-documents';
+select public.as_user('0b');
+insert into storage.objects (bucket_id, name) values ('hr-documents', '10000000-0000-0000-0000-00000000000e/u3-visa.pdf');
+select public.ok('HR can upload to any folder and read all', (select count(*) = 2 from storage.objects where bucket_id = 'hr-documents'));
+select public.ok('nobody changed or removed a stored file (no update or delete policy)', (select count(*) = 1 from storage.objects where name = '10000000-0000-0000-0000-00000000000d/u1-passport.pdf'));
+select public.as_user('0e');
+select public.ok('another employee reads none of that folder', (select count(*) = 0 from storage.objects where bucket_id = 'hr-documents' and name like '10000000-0000-0000-0000-00000000000d/%'));
+select public.ok('employee reads own folder', (select count(*) = 1 from storage.objects where bucket_id = 'hr-documents'));
+select public.as_user('0c');
+select public.ok('manager reads no stored HR files', (select count(*) = 0 from storage.objects where bucket_id = 'hr-documents'));
+select public.must_fail('manager cannot upload', $$insert into storage.objects (bucket_id, name) values ('hr-documents', '10000000-0000-0000-0000-00000000000d/u4.pdf')$$, 'row-level security');
+select public.as_user('99');
+select public.ok('outsider reads no stored HR files', (select count(*) = 0 from storage.objects where bucket_id = 'hr-documents'));
+reset role;
+
+select public.ok('hr_documents has RLS on', (select relrowsecurity from pg_class where oid = 'public.hr_documents'::regclass));
+select public.ok('hr_documents_expiring is security definer, fixed search_path, not open to anon', (select prosecdef and proconfig::text ilike '%search_path=public, pg_temp%' and not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('public', oid, 'execute') and has_function_privilege('authenticated', oid, 'execute') from pg_proc where proname = 'hr_documents_expiring'));
+
 -- ── hardening ──
 select public.ok('every HR table has RLS on', (select bool_and(relrowsecurity) from pg_class where oid in ('public.hr_employees'::regclass, 'public.hr_access'::regclass, 'public.hr_audit_log'::regclass, 'public.hr_employee_personal'::regclass)));
 select public.ok('helper functions are security definer with fixed search_path', (select count(*) = 5 and bool_and(prosecdef and proconfig::text ilike '%search_path=public, pg_temp%') from pg_proc where proname in ('hr_is_admin_or_hr', 'hr_my_employee_id', 'hr_manages', 'hr_my_access', 'hr_audit')));

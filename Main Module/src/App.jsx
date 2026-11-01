@@ -20,6 +20,7 @@ const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"
 const TaxHub = lazy(() => import("@client-module/crm/TaxHub"));
 const ClientsHub = lazy(() => import("@client-module/crm/ClientsHub"));
 const BusinessBanking = lazy(() => import("@banking"));
+const HR = lazy(() => import("@hr"));
 const AccountingPage = lazy(() => import("@accounting"));
 const BusinessSetup = lazy(() => import("@business-setup"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
@@ -511,6 +512,7 @@ export default function App() {
         {view === "clients" && <ClientsHub profile={profile} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "business-banking" && <BusinessBanking profile={profile} />}
+        {view === "hr" && <HR profile={profile} onOpenTask={handleOpenTaskFromNotification} />}
         {view === "accounts" && <AccountingPage profile={profile} />}
         {view === "business-setup" && <BusinessSetup profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}

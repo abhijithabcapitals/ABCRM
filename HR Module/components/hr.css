@@ -1,0 +1,6 @@
+/* HR module. Uses the shared bk- look from Banking Module/components/banking.css; only HR-specific bits are here. */
+.hr-back { margin-bottom: 12px; }
+.hr-split { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+.hr-file-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.hr-days { color: #5f7077; font-size: 11px; }
+.hr-access-msg { max-width: 560px; }
