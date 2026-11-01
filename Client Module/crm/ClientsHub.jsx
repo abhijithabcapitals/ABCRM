@@ -1,0 +1,58 @@
+// The CRM's Clients page: all converted clients across business lines, plus the local Client Master.
+import { useState } from "react";
+import "@banking/components/banking.css";
+import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { rpc } from "@banking/services/bankingApi";
+import Clients from "@app/components/Clients";
+
+const LINES = ["Business Banking", "Business Setup", "Accounting"];
+
+export default function ClientsHub({ profile }) {
+  const [view, setView] = useState("all");
+  return (
+    <div>
+      <div className="bk-root bk-hub-tabs">
+        <nav className="bk-nav" aria-label="Clients">
+          {[["all", "All Clients"], ["master", "Client Master"]].map(([k, label]) => <button type="button" key={k} data-label={label} aria-current={view === k ? "page" : undefined} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
+        </nav>
+      </div>
+      {view === "all" ? <AllClients /> : <Clients profile={profile} />}
+    </div>
+  );
+}
+
+function AllClients() {
+  const list = useLoad(() => rpc("client_base_list"), []);
+  const [line, setLine] = useState("");
+  const [open, setOpen] = useState(null);
+  const rows = list.data || [];
+  const shown = rows.filter((c) => !line || (c.lines || []).includes(line));
+  const count = (l) => rows.filter((c) => (c.lines || []).includes(l)).length;
+  return (
+    <div className="bk-root">
+      <PageHead title="All Clients" sub="Every converted client across the business." />
+      <div className="bk-tabs" role="tablist" aria-label="Business line">
+        {[["", "All", rows.length], ...LINES.map((l) => [l, l, count(l)])].map(([k, label, n]) => <button type="button" role="tab" aria-selected={line === k} key={label} className={line === k ? "active" : ""} onClick={() => setLine(k)}>{label} <span className="bk-tab-count">{n}</span></button>)}
+      </div>
+      <ErrorNote message={list.error} />
+      {list.loading && !list.data ? <Spinner /> : (
+        <DataTable search="Search name, licence, email, phone…" rows={shown} onRow={(c) => setOpen(open?.id === c.id ? null : c)} empty={line && line !== "Business Banking" ? `No ${line} clients yet.` : "No converted clients yet."} columns={[
+          { key: "display_name", label: "Client" },
+          { key: "lines", label: "Business lines", render: (c) => <span className="bk-actions">{(c.lines || []).map((l) => <Badge key={l}>{l}</Badge>)}</span> },
+          { key: "banks", label: "Bank", render: (c) => (c.banks || []).join(", ") },
+          { key: "license_number", label: "Licence" },
+          { key: "contact_person", label: "Contact" },
+          { key: "phone", label: "Phone" },
+          { key: "email", label: "Email" },
+          { key: "client_master_id", label: "Client Master", render: (c) => c.client_master_id || <Badge tone="warn">Not linked</Badge> },
+          { key: "client_since", label: "Client since", render: (c) => fmtDate(c.client_since) },
+        ]} />
+      )}
+      {open && (
+        <Panel title={open.display_name} sub="Key details from KYC and the lead.">
+          <KeyVals items={[["Legal name", open.legal_name], ["Trade name", open.trade_name], ["Type", open.client_type], ["Legal structure", open.legal_structure], ["Business activity", open.business_activity], ["Issuing authority", open.issuing_authority], ["Licence", open.license_number], ["Licence expiry", fmtDate(open.license_expiry_date)], ["VAT TRN", open.vat_trn], ["Address", open.registered_address], ["Contact", open.contact_person], ["Nationality", open.nationality], ["Phone", open.phone], ["Email", open.email], ["KYC complete", open.kyc_percent != null ? `${open.kyc_percent}%` : null], ["Engagements", open.engagements]]} />
+        </Panel>
+      )}
+    </div>
+  );
+}

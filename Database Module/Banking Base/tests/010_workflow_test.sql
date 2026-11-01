@@ -401,6 +401,15 @@ select public.as_user('0a');
 select public.must_fail('even admin cannot change closed', format($$update public.banking_cases set title = 'x' where id = %L$$, public.id('case1')), 'closed');
 select public.ok('review history kept', (select count(*) = 4 from public.accounting_case_reviews where case_id = public.id('case1')));
 
+-- ── Client Base ──
+select public.as_user('0b');
+select public.ok('all clients lists converted clients with their line', exists (select 1 from jsonb_array_elements(public.client_base_list()) e where e ->> 'display_name' = 'Old Co LLC' and e -> 'lines' ? 'Business Banking'));
+select public.ok('all clients leaves out unconverted', not exists (select 1 from jsonb_array_elements(public.client_base_list()) e where e ->> 'display_name' = 'No Payment Yet LLC'));
+select public.as_user('99');
+select public.ok('outsider gets no clients', public.client_base_list() = '[]'::jsonb);
+select public.as_user('0e');
+select public.ok('no KYC or lead details without permission', (select bool_and(e -> 'business_activity' = 'null'::jsonb and e -> 'contact_person' = 'null'::jsonb) from jsonb_array_elements(public.client_base_list()) e));
+
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));

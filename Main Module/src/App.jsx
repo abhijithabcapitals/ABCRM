@@ -15,6 +15,7 @@ const MyTasks = lazy(() => import("./components/MyTasks"));
 const DocumentGenerator = lazy(() => import("@document-generator"));
 const Clients = lazy(() => import("./components/Clients"));
 const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
+const ClientsHub = lazy(() => import("@client-module/crm/ClientsHub"));
 const BusinessBanking = lazy(() => import("@banking"));
 const AccountingPage = lazy(() => import("@accounting"));
 const BusinessSetup = lazy(() => import("@business-setup"));
@@ -489,7 +490,7 @@ export default function App() {
         )}
         {view === "mytasks" && <MyTasks profile={profile} />}
         {view === "quotations" && <DocumentGenerator profile={profile} />}
-        {view === "clients" && <Clients profile={profile} />}
+        {view === "clients" && <ClientsHub profile={profile} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "business-banking" && <BusinessBanking profile={profile} />}
         {view === "accounts" && <AccountingPage />}

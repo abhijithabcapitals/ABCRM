@@ -18,6 +18,7 @@ export default defineConfig({
       '@business-development': fileURLToPath(new URL('../Business Development Module', import.meta.url)),
       '@document-generator': fileURLToPath(new URL('../Document Generator', import.meta.url)),
       '@banking': fileURLToPath(new URL('../Banking Module', import.meta.url)),
+      '@client-module': fileURLToPath(new URL('../Client Module', import.meta.url)),
       '@accounting': fileURLToPath(new URL('../Accounting Module', import.meta.url)),
       '@business-setup': fileURLToPath(new URL('../Business Setup Module', import.meta.url)),
       // The Document Generator lives outside this app folder, so resolve its
