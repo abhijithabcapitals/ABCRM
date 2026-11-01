@@ -12,13 +12,19 @@ insert into public.profiles (id, full_name, role) values
   ('00000000-0000-0000-0000-0000000000b2', 'Att Report', 'member'),
   ('00000000-0000-0000-0000-0000000000b3', 'Att Other', 'member'),
   ('00000000-0000-0000-0000-0000000000b4', 'Att Leaver', 'member'),
-  ('00000000-0000-0000-0000-0000000000b5', 'Att Newcomer', 'member');
+  ('00000000-0000-0000-0000-0000000000b5', 'Att Newcomer', 'member'),
+  ('00000000-0000-0000-0000-0000000000b6', 'Att Past Exit', 'member'),
+  ('00000000-0000-0000-0000-0000000000b7', 'Att Left No Date', 'member');
 insert into public.hr_employees (id, employee_code, full_name, profile_id, manager_id, join_date, exit_date, status) values
   ('30000000-0000-0000-0000-0000000000b1', 'A-M', 'Att Manager', '00000000-0000-0000-0000-0000000000b1', null, '2024-01-01', null, 'Active'),
   ('30000000-0000-0000-0000-0000000000b2', 'A-R', 'Att Report', '00000000-0000-0000-0000-0000000000b2', '30000000-0000-0000-0000-0000000000b1', '2024-01-01', null, 'Active'),
   ('30000000-0000-0000-0000-0000000000b3', 'A-O', 'Att Other', '00000000-0000-0000-0000-0000000000b3', null, '2024-01-01', null, 'Active'),
   ('30000000-0000-0000-0000-0000000000b4', 'A-L', 'Att Leaver', '00000000-0000-0000-0000-0000000000b4', '30000000-0000-0000-0000-0000000000b1', '2025-01-01', '2025-03-15', 'Left'),
-  ('30000000-0000-0000-0000-0000000000b5', 'A-N', 'Att Newcomer', '00000000-0000-0000-0000-0000000000b5', '30000000-0000-0000-0000-0000000000b1', '2025-03-05', null, 'Active');
+  ('30000000-0000-0000-0000-0000000000b5', 'A-N', 'Att Newcomer', '00000000-0000-0000-0000-0000000000b5', '30000000-0000-0000-0000-0000000000b1', '2025-03-05', null, 'Active'),
+  ('30000000-0000-0000-0000-0000000000b6', 'A-P', 'Att Past Exit', '00000000-0000-0000-0000-0000000000b6', null, '2024-01-01', '2025-03-20', 'Active'),
+  ('30000000-0000-0000-0000-0000000000b7', 'A-X', 'Att Left No Date', '00000000-0000-0000-0000-0000000000b7', null, '2024-01-01', null, 'Left');
+-- a row that exists already for the Left employee with no exit date (written as owner, as legacy data would be)
+insert into public.hr_attendance (employee_id, work_date, status) values ('30000000-0000-0000-0000-0000000000b7', '2025-03-10', 'Present');
 create function public.eid(p text) returns uuid language sql as $$ select ('30000000-0000-0000-0000-0000000000' || p)::uuid $$;
 grant execute on function public.eid(text) to authenticated;
 
@@ -80,7 +86,7 @@ select public.must_fail('null date fails', $$select public.hr_attendance_set(pub
 select public.hr_attendance_set(public.eid('b4'), '2025-03-14', 'Present', null, null, null);
 select public.hr_attendance_set(public.eid('b4'), '2025-03-15', 'Present', null, null, null);
 select public.ok('Left employee: days up to exit_date allowed', (select count(*) = 2 from public.hr_attendance where employee_id = public.eid('b4')));
-select public.must_fail('Left employee: day after exit_date fails', $$select public.hr_attendance_set(public.eid('b4'), '2025-03-16', 'Present', null, null, null)$$, 'left');
+select public.must_fail('Left employee: day after exit_date fails', $$select public.hr_attendance_set(public.eid('b4'), '2025-03-16', 'Present', null, null, null)$$, 'exit date');
 
 -- ── month grid ──
 insert into public.hr_holidays (holiday_date, name) values ('2025-03-12', 'Grid holiday');
@@ -96,6 +102,8 @@ select public.ok('grid: stored row on a holiday wins', (select status = 'Present
 select public.ok('grid: days before join_date do not apply', (select min(work_date) = '2025-03-05' and count(*) = 27 from public.hr_attendance_month(2025, 3) where employee_id = public.eid('b5')));
 select public.ok('grid: days after exit_date do not apply', (select max(work_date) = '2025-03-15' and count(*) = 15 from public.hr_attendance_month(2025, 3) where employee_id = public.eid('b4')));
 select public.ok('grid: Left employee whose exit is before the month is excluded', (select count(*) = 0 from public.hr_attendance_month(2025, 4) where employee_id = public.eid('b4')));
+select public.ok('grid: Left employee with no exit date stays visible with the existing row', (select count(*) = 31 and bool_or(status = 'Present' and work_date = '2025-03-10') and bool_and(employee_status = 'Left' and exit_date is null) from public.hr_attendance_month(2025, 3) where employee_id = public.eid('b7')));
+select public.ok('grid: non-Left past exit shows days up to exit only', (select max(work_date) = '2025-03-20' from public.hr_attendance_month(2025, 3) where employee_id = public.eid('b6')));
 select public.ok('grid: February length', (select count(*) = 28 from public.hr_attendance_month(2025, 2) where employee_id = public.eid('b3')));
 select public.must_fail('grid: bad month fails', $$select * from public.hr_attendance_month(2025, 13)$$, 'month');
 select public.as_user('b1');

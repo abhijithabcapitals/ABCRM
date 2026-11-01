@@ -22,7 +22,7 @@ export default function Attendance({ role, employeeId }) {
   const days = useMemo(() => monthDays(ym.year, ym.month), [ym.year, ym.month]);
   const people = useMemo(() => groupMonth(rows.data), [rows.data]);
   const go = (by) => setYm((c) => shiftMonth(c.year, c.month, by));
-  const canEdit = (id, date) => canEditDay({ role, myId: employeeId, employeeId: id, date, today });
+  const canEdit = (p, date) => canEditDay({ role, myId: employeeId, employeeId: p.employee_id, date, today, employeeStatus: p.employee_status, exitDate: p.exit_date });
 
   const fields = [
     { name: "status", label: "Status", type: "select", required: true, options: STATUSES },
@@ -79,7 +79,7 @@ export default function Attendance({ role, employeeId }) {
                       const text = r.status ? SHORT[r.status] : "";
                       return (
                         <td key={d}>
-                          {canEdit(p.employee_id, d)
+                          {canEdit(p, d)
                             ? <button type="button" className={cls} title={tip} aria-label={tip} onClick={() => { setNotice(null); setEditing({ person: p, date: d, row: r }); }}>{text}</button>
                             : <span className={cls} title={tip} role="img" aria-label={tip}>{text}</span>}
                         </td>

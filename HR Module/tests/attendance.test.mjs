@@ -35,6 +35,20 @@ test("canEditDay follows the database rules", () => {
   assert.equal(canEditDay({ role: "hr", myId: "m", employeeId: "x", date: "2025-03-11", today }), false, "future");
   assert.equal(canEditDay({ role: "hr", myId: "m", employeeId: "x", date: "2025-03-10", today }), true, "today");
 });
+test("canEditDay: a Left employee with no exit date cannot be edited, one with an exit date only up to it", () => {
+  const base = { role: "hr", myId: "m", employeeId: "x", today: "2025-03-10" };
+  assert.equal(canEditDay({ ...base, date: "2025-03-05", employeeStatus: "Left", exitDate: null }), false);
+  assert.equal(canEditDay({ ...base, date: "2025-03-05", employeeStatus: "Left", exitDate: "2025-03-06" }), true);
+  assert.equal(canEditDay({ ...base, date: "2025-03-07", employeeStatus: "Left", exitDate: "2025-03-06" }), false);
+  assert.equal(canEditDay({ ...base, date: "2025-03-07", employeeStatus: "Active", exitDate: "2025-03-06" }), false, "past exit, not Left");
+  assert.equal(canEditDay({ ...base, date: "2025-03-07", employeeStatus: "Active", exitDate: null }), true);
+  assert.equal(canEditDay({ ...base, role: "manager", date: "2025-03-05", employeeStatus: "Left", exitDate: null }), false);
+});
+test("groupMonth keeps the employee status and exit date", () => {
+  const g = groupMonth([{ employee_id: "a", employee_code: "E1", full_name: "A", work_date: "2025-03-01", status: null, employee_status: "Left", exit_date: null }]);
+  assert.equal(g[0].employee_status, "Left");
+  assert.equal(g[0].exit_date, null);
+});
 test("parseTime accepts HH:MM, blank is null, anything else throws", () => {
   assert.equal(parseTime(""), null);
   assert.equal(parseTime(null), null);

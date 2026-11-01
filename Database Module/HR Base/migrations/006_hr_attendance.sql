@@ -4,7 +4,8 @@
 -- hr_attendance: one row per employee per day (status, optional in/out times, note). Written only by hr_attendance_set (direct
 -- writes denied). Readable by HR (all), a manager (direct reports), and an employee (own rows).
 -- hr_attendance_set: HR any employee; a manager direct reports. Nobody but HR sets their own day. A future day (Asia/Dubai date) fails.
--- A Left employee cannot be given a day after exit_date. Absent, Leave, Holiday and Weekend days carry no times. Every change is audited.
+-- No day before join_date or after exit_date can be recorded (a null join_date has no lower bound); a Left employee with no exit
+-- date cannot be given any day until HR records the exit date (their existing rows stay visible in the grid). Absent, Leave, Holiday and Weekend days carry no times. Every change is audited.
 -- hr_attendance_month: one row per in-scope employee per day. A stored row wins, then approved leave (Leave), a holiday (Holiday),
 -- a weekend day (Weekend), otherwise status is null. Only days from join_date to exit_date apply; Left employees who exited before
 -- the month are left out.
@@ -59,8 +60,14 @@ begin
     raise exception 'Status must be Present, Absent, Leave, Holiday or Weekend';
   end if;
   if p_date > today then raise exception 'A future date cannot be recorded'; end if;
-  if emp.status = 'Left' and emp.exit_date is not null and p_date > emp.exit_date then
-    raise exception 'This employee left on %. Later days cannot be recorded', emp.exit_date;
+  if emp.status = 'Left' and emp.exit_date is null then
+    raise exception 'This employee has left but has no exit date. Record the exit date first';
+  end if;
+  if emp.exit_date is not null and p_date > emp.exit_date then
+    raise exception 'The exit date of this employee is %. Later days cannot be recorded', emp.exit_date;
+  end if;
+  if emp.join_date is not null and p_date < emp.join_date then
+    raise exception 'This employee joined on %. Earlier days cannot be recorded', emp.join_date;
   end if;
   if p_status <> 'Present' and (p_in is not null or p_out is not null) then
     raise exception 'Absent, Leave, Holiday and Weekend days cannot carry times';
@@ -83,8 +90,10 @@ begin
   end if;
 end $$;
 
-create or replace function public.hr_attendance_month(p_year int, p_month int)
-returns table (employee_id uuid, employee_code text, full_name text, work_date date, status text, time_in time, time_out time, note text)
+-- employee_status and exit_date let the screen know a day cannot be edited (Left with no exit date).
+drop function if exists public.hr_attendance_month(int, int);
+create function public.hr_attendance_month(p_year int, p_month int)
+returns table (employee_id uuid, employee_code text, full_name text, work_date date, status text, time_in time, time_out time, note text, employee_status text, exit_date date)
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare first_day date; last_day date; wk int[];
 begin
@@ -101,12 +110,12 @@ begin
            when exists (select 1 from public.hr_holidays h where h.holiday_date = g.d::date) then 'Holiday'
            when extract(dow from g.d)::int = any (wk) then 'Weekend'
          end,
-         a.time_in, a.time_out, a.note
+         a.time_in, a.time_out, a.note, e.status, e.exit_date
   from public.hr_employees e
   cross join generate_series(first_day, last_day, interval '1 day') g(d)
   left join public.hr_attendance a on a.employee_id = e.id and a.work_date = g.d::date
   where (public.hr_is_admin_or_hr() or e.id = public.hr_my_employee_id() or public.hr_manages(e.id))
-    and not (e.status = 'Left' and e.exit_date < first_day)
+    and not (e.status = 'Left' and coalesce(e.exit_date < first_day, false))
     and (e.join_date is null or g.d::date >= e.join_date)
     and (e.exit_date is null or g.d::date <= e.exit_date)
   order by e.employee_code, g.d;

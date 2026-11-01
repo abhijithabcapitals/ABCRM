@@ -21,7 +21,7 @@ export function groupMonth(rows) {
   const by = new Map();
   for (const r of rows || []) {
     if (!by.has(r.employee_id)) {
-      by.set(r.employee_id, { employee_id: r.employee_id, employee_code: r.employee_code, full_name: r.full_name, days: {}, counts: Object.fromEntries(STATUSES.map((s) => [s, 0])) });
+      by.set(r.employee_id, { employee_id: r.employee_id, employee_code: r.employee_code, full_name: r.full_name, employee_status: r.employee_status, exit_date: r.exit_date ?? null, days: {}, counts: Object.fromEntries(STATUSES.map((s) => [s, 0])) });
     }
     const e = by.get(r.employee_id);
     e.days[r.work_date] = r;
@@ -30,8 +30,10 @@ export function groupMonth(rows) {
   return [...by.values()].sort((a, b) => String(a.employee_code).localeCompare(String(b.employee_code)));
 }
 
-export function canEditDay({ role, myId, employeeId, date, today }) {
+export function canEditDay({ role, myId, employeeId, date, today, employeeStatus, exitDate }) {
   if (date > today) return false;
+  if (employeeStatus === "Left" && !exitDate) return false;
+  if (exitDate && date > exitDate) return false;
   if (role === "hr") return true;
   if (role === "manager") return employeeId !== myId;
   return false;
