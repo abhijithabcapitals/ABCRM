@@ -5,7 +5,7 @@ import { ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import BankingValidation from "./BankingValidation";
 
-const TABS = [["banking", "Business Banking"], ["setup", "Business Setup"]];
+const TABS = [["banking", "Business Banking"], ["setup", "Business Setup"], ["accounting", "Accounting"]];
 
 export default function AccountingModule() {
   const access = useLoad(() => rpc("banking_my_access"), []);
@@ -22,6 +22,7 @@ export default function AccountingModule() {
       </nav>
       {tab === "banking" && <BankingValidation />}
       {tab === "setup" && <p className="bk-note">Nothing here yet. Business Setup cases will appear once that module is built.</p>}
+      {tab === "accounting" && <p className="bk-note">Nothing here yet.</p>}
     </div>
   );
 }
