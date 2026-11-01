@@ -1185,7 +1185,7 @@ export default function Sidebar({
           { key: "business-setup", Icon: IconBoard, label: "Business Setup" },
           { key: "business-banking", Icon: IconClients, label: "Business Banking" },
           { key: "accounts", Icon: IconCheck, label: "Accounting" },
-          { key: "quotations", Icon: IconFile, label: "Document Generator" },
+          { key: "quotations", Icon: IconFile, label: "Template Hub" },
           ...(profile?.role === "admin"
             ? [
                 { key: "clients", Icon: IconClients, label: "Clients" },

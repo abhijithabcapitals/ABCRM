@@ -357,7 +357,7 @@ export default function Quotations({ profile }) {
       {/* Header */}
       <div style={{ padding: "22px 40px 0", background: "#fff", borderBottom: "1px solid #ebebeb" }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1a1a1a", margin: 0, letterSpacing: "-0.3px" }}>
-          Document Generator
+          Template Hub
         </h1>
         <div style={{ fontSize: 13, color: "#999", marginTop: 4 }}>
           Generate quotation documents from your freezone templates.

@@ -1,7 +1,7 @@
-# Document Generator
+# Template Hub
 
-The CRM's Document Generator tab is implemented in `index.jsx`. The Main Module
-loads it on demand through the `@document-generator` alias configured in
+The CRM's Template Hub tab is implemented in `index.jsx`. The Main Module
+loads it on demand through the `@template-hub` alias configured in
 `Main Module/vite.config.js`.
 
 The module uses the host CRM's shared Supabase client and icons through the
