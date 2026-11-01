@@ -18,3 +18,8 @@
 .hr-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
 .hr-task-due { color: #5f7077; }
 .hr-task-due-late { color: #a53d36; font-weight: 700; }
+
+/* Leave and Settings */
+.hr-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.hr-days-row { display: flex; flex-wrap: wrap; gap: 14px; }
+.hr-day-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }

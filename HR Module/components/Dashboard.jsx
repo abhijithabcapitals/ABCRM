@@ -5,12 +5,12 @@ import { groupTasks, openTaskArgs } from "../logic/taskView";
 
 const DUPLICATE_WARNING = "Another employee has the same name. Tasks are matched by name, so these may include that person's tasks. Ask an administrator to make the names different.";
 
-// Counts from hr_dashboard(). Leave and attendance are not built yet, so those two show as not set up instead of a misleading 0.
+// Counts from hr_dashboard(). Attendance is not built yet, so it shows as not set up instead of a misleading 0.
 function Cards({ numbers }) {
   const cards = [
     { label: "Headcount", value: numbers.headcount },
     { label: "Present today", value: null, note: "Attendance not set up yet" },
-    { label: "Pending leave", value: null, note: "Leave not set up yet" },
+    { label: "Pending leave", value: numbers.pending_leave, note: "Waiting for a decision" },
     { label: "Documents expiring", value: numbers.expiring_documents, note: "Expired or within 90 days" },
   ];
   return (

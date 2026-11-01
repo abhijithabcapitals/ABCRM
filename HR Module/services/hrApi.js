@@ -56,3 +56,9 @@ export async function readDocument(file) {
   if (r.id) await fetch(`${CLIENT_MODULE_URL}/api/batches/${batch.batch}/files/${r.id}`, { method: "DELETE" }).catch(() => {});
   return r.id ? r : null;
 }
+
+// Leave. hr_leave_request returns { ids: uuid[], warning: text | null }; a range over a year end becomes one row per year.
+export const leaveRequest = (employee, type, from, to, note) => rpc("hr_leave_request", { p_employee: employee, p_type: type, p_from: from, p_to: to, p_note: note || null });
+export const leaveDecide = (request, approve, note) => rpc("hr_leave_decide", { p_request: request, p_approve: approve, p_note: note || null });
+export const leaveCancel = (request) => rpc("hr_leave_cancel", { p_request: request });
+export const leaveBalance = (employee, year) => rpc("hr_leave_balance", { p_employee: employee, p_year: year });

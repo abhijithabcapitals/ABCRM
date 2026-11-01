@@ -278,7 +278,7 @@ select public.ok('outsider gets no tasks', (select count(*) = 0 from public.hr_e
 -- dashboard numbers, scoped the same way
 select public.as_user('0b');
 select public.ok('HR dashboard: headcount counts active employees only', (public.hr_dashboard() ->> 'headcount')::int = 6);
-select public.ok('HR dashboard: pending leave and present today are 0 for now', (public.hr_dashboard() ->> 'pending_leave')::int = 0 and (public.hr_dashboard() ->> 'present_today')::int = 0);
+select public.ok('HR dashboard: present today is 0 until attendance exists (pending leave is tested in 020)', (public.hr_dashboard() ->> 'present_today')::int = 0);
 select public.ok('HR dashboard: expiring documents match the document alert list', (public.hr_dashboard() ->> 'expiring_documents')::int = (select count(*) from public.hr_documents_expiring()) and (public.hr_dashboard() ->> 'expiring_documents')::int > 0);
 select public.as_user('0c');
 select public.ok('manager dashboard: self and reports, no documents', (public.hr_dashboard() ->> 'headcount')::int = 2 and (public.hr_dashboard() ->> 'expiring_documents')::int = 0);
