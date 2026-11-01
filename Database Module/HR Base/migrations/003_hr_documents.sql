@@ -49,6 +49,15 @@ create policy hr_documents_self_add on public.hr_documents for insert to authent
   with check (employee_id = public.hr_my_employee_id());
 -- no employee update or delete policy
 
+-- A row may only point at a file in its own employee's folder, for everyone (HR included), so View never opens another record's file.
+do $do$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'hr_documents_path_own_folder' and conrelid = 'public.hr_documents'::regclass) then
+    alter table public.hr_documents add constraint hr_documents_path_own_folder
+      check (storage_path is null or storage_path like employee_id::text || '/%');
+  end if;
+end $do$;
+
 -- Documents already expired or expiring within 90 days. Leavers are left out. HR sees all, an employee their own, a manager none.
 create or replace function public.hr_documents_expiring()
 returns table (id uuid, employee_id uuid, employee_code text, full_name text, doc_type text, doc_number text, expiry_date date, days_left integer)
