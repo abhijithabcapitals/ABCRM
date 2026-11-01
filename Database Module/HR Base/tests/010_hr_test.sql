@@ -219,7 +219,9 @@ insert into public.lists (id, space_id, folder_id, name) values ('40000000-0000-
 insert into public.space_statuses (space_id, name, is_complete, status_category) values
   ('20000000-0000-0000-0000-000000000001', 'Approved', true, 'complete'),
   ('20000000-0000-0000-0000-000000000001', 'Review', false, 'in_progress'),
-  ('20000000-0000-0000-0000-000000000001', 'Parked', null, null);
+  ('20000000-0000-0000-0000-000000000001', 'Parked', null, null),
+  ('20000000-0000-0000-0000-000000000001', 'Done by Boss', null, null),
+  ('20000000-0000-0000-0000-000000000001', 'Waiting', null, null);
 insert into public.space_statuses (space_id, list_id, name, is_complete, status_category) values
   ('20000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'Parked', true, 'complete');
 create function public.dubai_today() returns date language sql stable as $$ select (now() at time zone 'Asia/Dubai')::date $$;
@@ -237,13 +239,21 @@ insert into public.tasks (title, assignees, due_date, status, date_done, date_cl
   ('K leaver',   '{"Gone Person"}', null, 'To Do', null, null, null, null, null, null),
   ('L nobody',   '{"Nobody Linked"}', null, 'To Do', null, null, null, null, null, null),
   ('M other space', '{"Other Employee"}', null, 'Approved', null, null, null, '20000000-0000-0000-0000-000000000002', null, null),
-  ('N parked',   '{Report}', null, 'Parked', null, null, null, '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001');
+  ('N parked',   '{Report}', null, 'Parked', null, null, null, '20000000-0000-0000-0000-000000000001', null, '40000000-0000-0000-0000-000000000001'),
+  ('P completed', '{Report}', null, 'Completed', null, null, null, '20000000-0000-0000-0000-000000000002', null, null),
+  ('Q closed',    '{Report}', null, 'Closed', null, null, null, '20000000-0000-0000-0000-000000000002', null, null),
+  ('R rejected',  '{Report}', null, 'Rejected', null, null, null, '20000000-0000-0000-0000-000000000002', null, null),
+  ('S cancelled', '{Report}', null, 'Cancelled', null, null, null, '20000000-0000-0000-0000-000000000002', null, null),
+  ('T auto done', '{Report}', null, 'Done by Boss', null, null, null, '20000000-0000-0000-0000-000000000001', null, null),
+  ('U auto open', '{Report}', null, 'Waiting', null, null, null, '20000000-0000-0000-0000-000000000001', null, null);
 
 set role authenticated;
 select public.as_user('0b');
-select public.ok('HR sees every linked active employee''s open tasks', (select count(*) = 9 from public.hr_employee_tasks()));
-select public.ok('done, closed, deleted, Complete-status, Left-employee and no-login tasks are left out', (select not exists (select 1 from public.hr_employee_tasks() where title in ('C done', 'D deleted', 'E closed', 'F approved', 'K leaver', 'L nobody', 'N parked'))));
+select public.ok('HR sees every linked active employee''s open tasks', (select count(*) = 10 from public.hr_employee_tasks()));
+select public.ok('done, closed, deleted, Complete-status, Left-employee and no-login tasks are left out', (select not exists (select 1 from public.hr_employee_tasks() where title in ('C done', 'D deleted', 'E closed', 'F approved', 'K leaver', 'L nobody', 'N parked', 'P completed', 'Q closed', 'R rejected', 'S cancelled', 'T auto done'))));
 select public.ok('a Complete status in another space does not close the task', (select count(*) = 1 from public.hr_employee_tasks() where title = 'M other space'));
+select public.ok('name-only: Completed, Closed, Rejected, Cancelled with no dates and no status row are not open', (select not exists (select 1 from public.hr_employee_tasks() where title in ('P completed', 'Q closed', 'R rejected', 'S cancelled'))));
+select public.ok('name-only: an Auto status with a Done-like name is closed, an Auto status with another name stays open', (select not exists (select 1 from public.hr_employee_tasks() where title = 'T auto done') and exists (select 1 from public.hr_employee_tasks() where title = 'U auto open')));
 select public.ok('a custom In Progress status stays open', (select count(*) = 1 from public.hr_employee_tasks() where title = 'G review'));
 select public.ok('overdue is true only before today in Dubai', (select count(*) = 1 and bool_and(title = 'A overdue') from public.hr_employee_tasks() where overdue));
 select public.ok('due today and no due date are not overdue', (select not bool_or(overdue) from public.hr_employee_tasks() where title in ('H shared', 'G review')));
@@ -255,9 +265,9 @@ select public.ok('space and folder come from the list when the task has none', (
 select public.ok('employee name is returned', (select bool_and(employee_name is not null) from public.hr_employee_tasks()));
 select public.ok('overdue rows come first', (select overdue from public.hr_employee_tasks() limit 1));
 select public.as_user('0c');
-select public.ok('manager sees self and direct report tasks only', (select count(*) = 5 and bool_and(employee_name in ('Manager', 'Report')) from public.hr_employee_tasks()));
+select public.ok('manager sees self and direct report tasks only', (select count(*) = 6 and bool_and(employee_name in ('Manager', 'Report')) from public.hr_employee_tasks()));
 select public.as_user('0d');
-select public.ok('employee sees only own tasks', (select count(*) = 4 and bool_and(employee_name = 'Report') from public.hr_employee_tasks()));
+select public.ok('employee sees only own tasks', (select count(*) = 5 and bool_and(employee_name = 'Report') from public.hr_employee_tasks()));
 select public.as_user('0e');
 select public.ok('another employee sees only their own', (select count(*) = 2 and bool_and(employee_name = 'Other Employee') from public.hr_employee_tasks()));
 select public.as_user('0f');

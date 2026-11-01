@@ -7,10 +7,14 @@
 -- Leave and attendance tables do not exist yet, so present_today and pending_leave stay 0 until those tasks update this function.
 -- Requires 002 (access helpers) and 003 (hr_documents_expiring). Idempotent.
 --
--- "Open" test: a task is closed when date_done or date_closed is set, or when its status is a Complete status in
--- space_statuses. The status is looked up by name at the most specific scope that defines it (list, then folder, then space).
--- An Auto status (status_category null and is_complete null) has no say, so only the dates decide. The dates alone are not enough:
--- the app writes date_done only for a status literally named "Done" and date_closed only for names like cancel/closed/rejected.
+-- "Open" test, matching the app (Main Module/db/00_base_schema.sql: _abcap_task_complete and the is_open / is_completed columns
+-- of the dashboard function). A task is NOT open when any of these holds:
+--   1. date_done or date_closed is set;
+--   2. its status resolves, by name at the most specific scope (list, then folder, then space), to a Complete status:
+--      status_category = 'complete', else is_complete, and for an Auto row (both null) the name fallback below;
+--   3. there is no status row at all and the name matches the fallback: done|complete|closed;
+--   4. the name matches cancel|reject (the app never counts these as open, whatever the row says).
+-- Dates alone are not enough: the app writes date_done only for a status named "Done" and date_closed only for cancel/closed/rejected.
 -- =====================================================================
 create or replace function public.hr_employee_tasks()
 returns table (
@@ -43,7 +47,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
     and t.deleted_at is null
     and t.date_done is null
     and t.date_closed is null
-    and not (coalesce(st.status_category = 'complete', st.is_complete, false))
+    and not coalesce(st.status_category = 'complete', st.is_complete, lower(t.status) ~ 'done|complete|closed', false)
+    and not coalesce(lower(t.status) ~ 'cancel|reject', false)
     and (public.hr_is_admin_or_hr() or e.id = public.hr_my_employee_id() or public.hr_manages(e.id))
   order by 8 desc, t.due_date nulls last, e.full_name, t.title
 $$;
