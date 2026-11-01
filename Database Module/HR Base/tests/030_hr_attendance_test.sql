@@ -88,6 +88,26 @@ select public.hr_attendance_set(public.eid('b4'), '2025-03-15', 'Present', null,
 select public.ok('Left employee: days up to exit_date allowed', (select count(*) = 2 from public.hr_attendance where employee_id = public.eid('b4')));
 select public.must_fail('Left employee: day after exit_date fails', $$select public.hr_attendance_set(public.eid('b4'), '2025-03-16', 'Present', null, null, null)$$, 'exit date');
 
+-- ── join and exit bounds (set side) ──
+select public.must_fail('non-Left employee: day after exit_date fails', $$select public.hr_attendance_set(public.eid('b6'), '2025-03-21', 'Present', null, null, null)$$, 'exit date');
+select public.hr_attendance_set(public.eid('b6'), '2025-03-20', 'Absent', null, null, null);
+select public.ok('non-Left employee: exit day itself succeeds', (select count(*) = 1 from public.hr_attendance where employee_id = public.eid('b6') and work_date = '2025-03-20'));
+select public.must_fail('Left employee with null exit_date: set fails, asks for exit date first', $$select public.hr_attendance_set(public.eid('b7'), '2025-03-11', 'Present', null, null, null)$$, 'Record the exit date first');
+select public.must_fail('date before join_date fails', $$select public.hr_attendance_set(public.eid('b5'), '2025-03-04', 'Present', null, null, null)$$, 'joined');
+select public.hr_attendance_set(public.eid('b5'), '2025-03-05', 'Present', null, null, null);
+select public.ok('join day itself succeeds', (select count(*) = 1 from public.hr_attendance where employee_id = public.eid('b5') and work_date = '2025-03-05'));
+reset role;
+update public.hr_employees set join_date = null where id = public.eid('b3');
+set role authenticated;
+select public.as_user('0b');
+select public.hr_attendance_set(public.eid('b3'), '2000-01-03', 'Absent', null, null, null);
+select public.ok('null join_date employee accepts an early date', (select count(*) = 1 from public.hr_attendance where employee_id = public.eid('b3') and work_date = '2000-01-03'));
+reset role;
+delete from public.hr_attendance where employee_id = public.eid('b3');
+update public.hr_employees set join_date = '2024-01-01' where id = public.eid('b3');
+set role authenticated;
+select public.as_user('0b');
+
 -- ── month grid ──
 insert into public.hr_holidays (holiday_date, name) values ('2025-03-12', 'Grid holiday');
 select public.hr_leave_decide((public.hr_leave_request(public.eid('b2'), public.ltype('Annual'), '2025-03-10', '2025-03-11', null) -> 'ids' ->> 0)::uuid, true, null);
