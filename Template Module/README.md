@@ -1,5 +1,9 @@
 # Template Module
 
+Source of the CRM's **Template Hub** tab. `components/TemplateHub.jsx` is the live page, loaded through the `@template-hub` alias in `Main Module/vite.config.js`, and reuses the CRM's shared Supabase client and icons through `@app`. Its templates, generated files and CRM task behaviour stay connected to the existing Supabase schema. `components/CompanyLibrary.jsx` lists the Word files under `Template Docs/`; a file added there appears at the next deploy.
+
+The rest of this README describes the earlier split copy (`QuotationsPage` and its parts), kept for reuse in another CRM. The Template Hub tab does not use it.
+
 Freezone **quotation templates**: you upload a Word (.docx) template for each freezone, define its fields
 (text / number / date / list, with fee rows and remarks), set an AED→USD rate, and keep an edit history. From
 the template you can generate a filled .docx from a form or a batch of them from an Excel sheet. Generating can

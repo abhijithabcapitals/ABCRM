@@ -16,7 +16,7 @@ export default defineConfig({
       '@calendar': fileURLToPath(new URL('../Calendar Module', import.meta.url)),
       '@email-agent': fileURLToPath(new URL('../Agent Module/13_EMail_Agent', import.meta.url)),
       '@business-development': fileURLToPath(new URL('../Business Development Module', import.meta.url)),
-      '@template-hub': fileURLToPath(new URL('../Template Hub', import.meta.url)),
+      '@template-hub': fileURLToPath(new URL('../Template Module', import.meta.url)),
       '@banking': fileURLToPath(new URL('../Banking Module', import.meta.url)),
       '@client-module': fileURLToPath(new URL('../Client Module', import.meta.url)),
       '@accounting': fileURLToPath(new URL('../Accounting Module', import.meta.url)),

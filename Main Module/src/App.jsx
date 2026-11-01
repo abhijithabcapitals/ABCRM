@@ -12,7 +12,7 @@ const Wiki = lazy(() => import("./components/Wiki"));
 const WhiteboardView = lazy(() => import("./components/Whiteboard"));
 const Settings = lazy(() => import("./components/Settings"));
 const MyTasks = lazy(() => import("./components/MyTasks"));
-const TemplateHub = lazy(() => import("@template-hub"));
+const TemplateHub = lazy(() => import("@template-hub/components/TemplateHub"));
 const Clients = lazy(() => import("./components/Clients"));
 const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
 const ClientsHub = lazy(() => import("@client-module/crm/ClientsHub"));

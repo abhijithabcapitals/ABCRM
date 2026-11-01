@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@app/supabase";
+import CompanyLibrary from "./CompanyLibrary";
 // Heavy document/spreadsheet libs (pizzip, docxtemplater, xlsx, jszip,
 // file-saver ≈ 500KB) are loaded on demand — only when a doc is generated or an
 // Excel file is parsed — so opening this view stays light.
@@ -360,12 +361,13 @@ export default function Quotations({ profile }) {
           Template Hub
         </h1>
         <div style={{ fontSize: 13, color: "#999", marginTop: 4 }}>
-          Generate quotation documents from your freezone templates.
+          Generate quotation documents from your freezone templates, and download company templates.
         </div>
         <div style={{ display: "flex", gap: 22, marginTop: 16 }}>
           {[
             { key: "generate", label: "Generate" },
             { key: "templates", label: "Templates" },
+            { key: "library", label: "Company Library" },
           ].map((t) => (
             <button
               key={t.key}
@@ -390,6 +392,8 @@ export default function Quotations({ profile }) {
       <div style={{ flex: 1, overflowY: "auto", padding: "28px 40px" }}>
         {loading ? (
           <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading…</div>
+        ) : tab === "library" ? (
+          <CompanyLibrary />
         ) : tab === "generate" ? (
           <GenerateTab templates={templates} downloadTemplateBuffer={downloadTemplateBuffer} profile={profile} />
         ) : (
