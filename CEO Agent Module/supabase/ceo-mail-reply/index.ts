@@ -87,9 +87,12 @@ function passwordSecretName(address: string) {
   return `MAIL_PASSWORD_${address.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
 }
 
-function mailboxLogin(address: string) {
+// A password saved in Settings > Email Accounts (Vault) wins; otherwise the Edge Function secret.
+async function mailboxLogin(creds: Db, address: string, loginUser?: string | null) {
+  const { data: saved } = await creds.rpc("credential_get", { p_name: passwordSecretName(address) });
+  if (typeof saved === "string" && saved) return { user: loginUser || address, pass: saved };
   const pass = Deno.env.get(passwordSecretName(address));
-  if (pass) return { user: address, pass };
+  if (pass) return { user: loginUser || address, pass };
   const legacyUser = Deno.env.get("MAIL_IMAP_USER")?.trim();
   const legacyPass = Deno.env.get("MAIL_IMAP_PASSWORD");
   if (legacyUser && legacyPass && legacyUser.toLowerCase() === address.toLowerCase()) return { user: legacyUser, pass: legacyPass };
@@ -141,7 +144,7 @@ async function loadThread(eb: Db, threadId: unknown) {
 
 async function loadMailbox(eb: Db, mailboxId: string) {
   const { data, error } = await eb.from("mailboxes")
-    .select("id, address, display_name, smtp_host, smtp_port, imap_host, imap_port").eq("id", mailboxId).maybeSingle();
+    .select("id, address, login_user, display_name, smtp_host, smtp_port, imap_host, imap_port").eq("id", mailboxId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new InputError("Mailbox not found.", 404);
   return data;
@@ -230,9 +233,13 @@ async function handle(req: Request) {
         agentDraft = data || null;
       }
       const { data: ownMailboxes } = await eb.from("mailboxes").select("address, smtp_host");
+      const senders: string[] = [];
+      for (const m of ownMailboxes || []) {
+        if (m.smtp_host && await mailboxLogin(admin, m.address)) senders.push(m.address);
+      }
       return json({
-        mailbox: { address: mailbox.address, can_send: !!mailboxLogin(mailbox.address) && !!mailbox.smtp_host },
-        senders: (ownMailboxes || []).filter((m: Row) => m.smtp_host && mailboxLogin(m.address)).map((m: Row) => m.address),
+        mailbox: { address: mailbox.address, can_send: !!mailbox.smtp_host && !!await mailboxLogin(admin, mailbox.address) },
+        senders,
         defaults: { to, cc: [], reply_all_cc: replyAllCc, subject: replySubject(latest?.subject || thread.subject || "") },
         draft: draft || null,
         agent_draft: agentDraft,
@@ -363,7 +370,7 @@ async function handle(req: Request) {
       checkSendable(draft);
       const mailbox = await loadSender(eb, userDb, draft);
       if (!mailbox.smtp_host) throw new InputError(`No SMTP server is set for ${mailbox.address}.`);
-      if (!mailboxLogin(mailbox.address)) throw new InputError(`No password for ${mailbox.address}: add the Edge Function secret ${passwordSecretName(mailbox.address)}.`);
+      if (!await mailboxLogin(admin, mailbox.address)) throw new InputError(`No password for ${mailbox.address}: add it in Settings > Email Accounts.`);
       const code = makeVerificationCode();
       const expiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
       const { error } = await adminEb.from("reply_send_confirmations").upsert({
@@ -384,7 +391,7 @@ async function handle(req: Request) {
       const draft = await loadDraft(eb, body.draft_id);
       checkSendable(draft);
       const mailbox = await loadSender(eb, userDb, draft);
-      const login = mailboxLogin(mailbox.address);
+      const login = await mailboxLogin(admin, mailbox.address, mailbox.login_user);
       if (!login || !mailbox.smtp_host) throw new InputError(`Sending is not set up for ${mailbox.address}.`);
 
       const { data: challenge, error: challengeError } = await adminEb.from("reply_send_confirmations")
