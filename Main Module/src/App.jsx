@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import { setUsageUser } from "./jsx/selectUsage";
+import { resolveView } from "./tabs";
 import { GlobalAttention } from "@banking/components/Attention";
 import "./App.css";
 
@@ -29,13 +30,16 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState(
+  const [tabs, setTabs] = useState(null);
+  const [requestedView, setView] = useState(
     // "accounting" was the old name of the Clients page; the Knowledge Base tab was removed
     () => {
       const saved = localStorage.getItem("abc_view");
       return saved === "accounting" ? "clients" : saved === "wiki" ? "dashboard" : saved || "dashboard";
     },
   );
+  // A member only reaches the tabs they were given, however the page was asked for.
+  const view = resolveView(requestedView, profile?.role === "admin", tabs);
   const [activeSpace, setActiveSpace] = useState(null);
   const [activeFolder, setActiveFolder] = useState(null);
   const [activeList, setActiveList] = useState(null);
@@ -122,7 +126,13 @@ export default function App() {
       .select("*")
       .eq("id", userId)
       .single();
-    if (data) setProfile(data);
+    if (data) {
+      setProfile(data);
+      if (data.role !== "admin") {
+        const { data: mine } = await supabase.rpc("my_tabs");
+        setTabs(mine || []);
+      }
+    }
   }
 
   async function fetchSpaces() {
@@ -415,6 +425,7 @@ export default function App() {
     <div className="app-layout">
       <GlobalAttention />
       <Sidebar
+        allowedTabs={tabs}
         spaces={spaces}
         activeSpace={activeSpace}
         activeFolder={activeFolder}

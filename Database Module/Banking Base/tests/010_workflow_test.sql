@@ -545,6 +545,28 @@ select public.must_fail('history is not editable', $$delete from public.hub_mast
 select public.as_user('99');
 select public.must_fail('needs settings permission', $$select public.hub_master_template_set('Quotation_Template.docx', 'a.docx', 'master-templates/a.docx')$$, '');
 
+-- Admin panel
+select public.as_user('0a');
+insert into public.hr_employees (employee_code, full_name) values ('E-1', 'Test Person');
+select public.admin_set_tabs('00000000-0000-0000-0000-00000000000c', array['dashboard', 'clients', 'clients']);
+select public.ok('audit records the change', exists (select 1 from public.admin_audit where action = 'set_tabs'));
+select public.ok('admin checks return', (public.admin_health() ->> 'members')::int > 0 and (public.admin_storage() -> 'tables') is not null and jsonb_typeof(public.admin_members()) = 'array' and jsonb_typeof(public.admin_jobs()) = 'array');
+reset role;
+insert into public.ai_usage (function_name, user_id, model, prompt_tokens, completion_tokens, cost_usd) values ('ceo-agent', '00000000-0000-0000-0000-00000000000a', 'm', 10, 5, 0.01), ('email-agent', null, 'm', 20, 5, 0.03);
+set role authenticated;
+select public.as_user('0a');
+select public.ok('AI usage splits by task and member', jsonb_array_length(public.admin_ai_usage(30) -> 'by_task') = 2 and (select count(*) = 1 from jsonb_array_elements(public.admin_ai_usage(30) -> 'by_member') e where e ->> 'name' like 'Automatic%') and (public.admin_ai_usage(30) -> 'total' ->> 'cost')::numeric = 0.04);
+select public.must_fail('audit cannot change', $$delete from public.admin_audit$$, 'denied');
+select public.as_user('0c');
+select public.ok('a member sees their own tabs', public.my_tabs() @> array['dashboard', 'clients'] and cardinality(public.my_tabs()) = 2);
+select public.ok('a member sees no employees', (select count(*) from public.hr_employees) = 0);
+select public.ok('a member sees no AI usage', (select count(*) from public.ai_usage) = 0);
+select public.must_fail('a member cannot read health', $$select public.admin_health()$$, 'Admin');
+select public.must_fail('a member cannot read members', $$select public.admin_members()$$, 'Admin');
+select public.must_fail('a member cannot set tabs', $$select public.admin_set_tabs('00000000-0000-0000-0000-00000000000c', array['tax'])$$, 'Admin');
+select public.must_fail('a member cannot pause jobs', $$select public.admin_job_set_active(1, false)$$, 'Admin');
+select public.must_fail('a member cannot add employees', $$insert into public.hr_employees (employee_code, full_name) values ('E-2', 'X')$$, 'security');
+
 reset role;
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;

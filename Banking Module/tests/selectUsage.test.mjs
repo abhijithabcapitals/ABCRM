@@ -33,3 +33,16 @@ test("each field keeps a limited history", () => {
   assert.equal(kept.length, 30);
   assert.ok(kept.includes("v39") && !kept.includes("v0"));
 });
+
+test("a member reaches only the tabs they were given", async () => {
+  const { resolveView } = await import("../../Main Module/src/tabs.js");
+  assert.equal(resolveView("settings", true, null), "settings");
+  assert.equal(resolveView("settings", false, ["dashboard"]), "dashboard");
+  assert.equal(resolveView("ceo", false, ["dashboard", "clients"]), "dashboard");
+  assert.equal(resolveView("clients", false, ["dashboard", "clients"]), "clients");
+  assert.equal(resolveView("tasks", false, ["dashboard"]), "dashboard");
+  assert.equal(resolveView("tasks", false, ["spaces", "dashboard"]), "tasks");
+  assert.equal(resolveView("clients", false, []), "profile");
+  assert.equal(resolveView("clients", false, null), "profile");
+  assert.equal(resolveView("profile", false, []), "profile");
+});

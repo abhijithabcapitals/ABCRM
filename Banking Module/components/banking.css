@@ -322,3 +322,13 @@
 .bk-cm-checks { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .bk-cm-verify { margin-top: 4px; font-size: 12px; font-weight: 400; }
 .bk-cm-item { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; padding: 12px; margin-bottom: 8px; border: 1px solid #dfe6e7; border-radius: 8px; align-items: end; }
+.bk-admin-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.bk-admin-stat { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; background: #fff; border: 1px solid #e3e9ea; border-radius: 10px; }
+.bk-admin-stat span { font-size: 12px; font-weight: 600; color: #5b6b70; }
+.bk-admin-stat strong { font-size: 21px; color: #13363d; }
+.bk-admin-stat small { font-size: 11.5px; color: #7a8a8f; }
+.bk-admin-detail { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: #5b6b70; overflow-wrap: anywhere; }
+.bk-admin-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; padding: 12px; border: 1px solid #e3e9ea; border-radius: 8px; }
+.bk-admin-bar { display: grid; grid-template-columns: 90px 1fr auto; align-items: center; gap: 10px; padding: 3px 0; font-size: 12px; }
+.bk-admin-bar i { display: block; height: 8px; min-width: 2px; border-radius: 4px; background: #0f6f73; }
+.bk-admin-bar b { font-weight: 500; white-space: nowrap; }

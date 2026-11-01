@@ -41,7 +41,7 @@ export function SmartSelect(props) {
   const items = flatten(children);
   const key = fieldKey(props, items);
   const [, bump] = useState(0);
-  if (multiple) return jsx("select", props);
+  if (multiple) return jsx("select", { ...props });
   const order = reorder(items, key);
   const change = (e) => {
     recordUse(key, e.target.value);
@@ -59,7 +59,7 @@ export function SmartSelect(props) {
 export function SmartDatalist(props) {
   const items = flatten(props.children);
   const order = props.id ? reorder(items, `list:${props.id}`) : null;
-  if (!order) return jsx("datalist", props);
+  if (!order) return jsx("datalist", { ...props });
   return jsxs("datalist", { ...props, children: [...order.top, ...order.rest] });
 }
 

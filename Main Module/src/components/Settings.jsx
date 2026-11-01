@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { IconClose } from "./icons";
 import IntegrationsPanel from "@integrations";
+import { AiUsagePanel, AuditPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
 
 const DEFAULT_COL_WIDTHS = { member: 220, email: 240, role: 130, joined: 140, actions: 60 };
 
@@ -27,7 +28,7 @@ function UsageCard({ label, value, sub, tone }) {
 }
 
 export default function Settings({ currentUser, profile, spaces = [], onAccessChanged }) {
-  const [activeTab, setActiveTab] = useState("members");
+  const [activeTab, setActiveTab] = useState("health");
 
   // ── Members state ──
   const [members, setMembers] = useState([]);
@@ -231,13 +232,18 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
 
       <div className="content-area">
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 2, marginBottom: 24, borderBottom: "1px solid #e5e7eb", paddingBottom: 0 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 24, borderBottom: "1px solid #e5e7eb", paddingBottom: 0 }}>
           {[
-            { key: "members", label: "👥 Members" },
-            { key: "permissions", label: "🔒 Permissions" },
-            ...(profile?.role === "admin"
-              ? [{ key: "usage", label: "📊 Usage" }, { key: "integrations", label: "🔌 Integrations" }]
-              : []),
+            { key: "health", label: "🩺 Health" },
+            { key: "team", label: "👥 Members" },
+            { key: "employees", label: "🪪 Employees" },
+            { key: "permissions", label: "🔒 Space Access" },
+            { key: "ai", label: "🤖 AI Usage" },
+            { key: "storage", label: "💾 Database & Storage" },
+            { key: "jobs", label: "⏱ Scheduled Jobs" },
+            { key: "usage", label: "📊 Email Usage" },
+            { key: "integrations", label: "🔌 Integrations" },
+            { key: "audit", label: "📜 Audit Log" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -253,6 +259,18 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             </button>
           ))}
         </div>
+
+        {["health", "team", "employees", "ai", "storage", "jobs", "audit"].includes(activeTab) && (
+          <div className="bk-root">
+            {activeTab === "health" && <HealthPanel />}
+            {activeTab === "team" && <MembersPanel currentUser={currentUser} />}
+            {activeTab === "employees" && <EmployeesPanel />}
+            {activeTab === "ai" && <AiUsagePanel />}
+            {activeTab === "storage" && <StoragePanel />}
+            {activeTab === "jobs" && <JobsPanel />}
+            {activeTab === "audit" && <AuditPanel />}
+          </div>
+        )}
 
         {/* ── MEMBERS TAB ── */}
         {activeTab === "members" && (

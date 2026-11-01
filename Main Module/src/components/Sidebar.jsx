@@ -361,7 +361,7 @@ function AddStatusRow({ value, color, onChangeName, onChangeColor, onAdd }) {
 }
 
 export default function Sidebar({
-  spaces,
+  allowedTabs, spaces,
   activeSpace,
   activeFolder,
   activeList,
@@ -1186,16 +1186,16 @@ export default function Sidebar({
           { key: "business-banking", Icon: IconClients, label: "Business Banking" },
           { key: "accounts", Icon: IconCheck, label: "Accounting" },
           { key: "quotations", Icon: IconFile, label: "Template Hub" },
+          { key: "clients", Icon: IconClients, label: "Clients" },
+          { key: "tax", Icon: IconCheck, label: "Tax Compliance" },
           ...(profile?.role === "admin"
             ? [
-                { key: "clients", Icon: IconClients, label: "Clients" },
-                { key: "tax", Icon: IconCheck, label: "Tax Compliance" },
                 { key: "ceo", Icon: IconSparkles, label: "CEO Agent" },
                 { key: "email-agent", Icon: IconMail, label: "Email Agent" },
                 { key: "settings", Icon: IconSettings, label: "Settings" },
               ]
             : []),
-        ].map((item) => (
+        ].filter((item) => profile?.role === "admin" || (allowedTabs || []).includes(item.key)).map((item) => (
           <div
             key={item.key}
             className={`nav-item ${view === item.key ? "active" : ""}`}
@@ -1212,7 +1212,7 @@ export default function Sidebar({
         style={{
           flex: 1,
           overflow: "visible",
-          display: "flex",
+          display: profile?.role === "admin" || (allowedTabs || []).includes("spaces") ? "flex" : "none",
           flexDirection: "column",
         }}
       >

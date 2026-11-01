@@ -15,3 +15,6 @@ create table if not exists public.profiles (
   id uuid primary key default gen_random_uuid(), full_name text, email text, role text default 'member', created_at timestamp default now()
 );
 grant select on public.profiles to authenticated;
+
+do $$ begin if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role; end if; end $$;
+create table if not exists auth.users (id uuid primary key, created_at timestamptz default now(), last_sign_in_at timestamptz, banned_until timestamptz);

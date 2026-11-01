@@ -13,6 +13,11 @@
 //   { action: "create_user", email, password, full_name, role }
 //   { action: "delete_user", user_id }
 //   { action: "update_role", user_id, role }
+//   { action: "onboard_member", employee_id, email, password, tabs, data_role }
+//   { action: "set_access", user_id, tabs, data_role }
+//   { action: "reset_password", user_id, password }
+//   { action: "set_suspended", user_id, suspended }
+//   { action: "openrouter_status" }   -> usage and limit of the key, never the key
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -25,6 +30,9 @@ const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 
 const ROLES = ["admin", "member"];
+const TABS = ["mytasks", "dashboard", "business-development", "business-setup", "business-banking", "accounts", "quotations", "clients", "tax", "spaces"];
+const DATA_ROLES = ["READ_ONLY", "SALES_EXECUTIVE", "DOCUMENT_EXECUTIVE", "BANKING_EXECUTIVE", "FINANCE", "ACCOUNTS", "MANAGER", "ADMIN"];
+const cleanTabs = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).filter((t) => TABS.includes(t)))];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -53,6 +61,91 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json();
     const action = body?.action;
+    // Passwords are never written to the log.
+    const audit = (what: string, target: string, detail: unknown = null) =>
+      admin.from("admin_audit").insert({ actor: caller.id, action: what, target, detail });
+    // deno-lint-ignore no-explicit-any
+    const setAccess = async (userId: string, tabs: string[], dataRole: any) => {
+      const { error: delErr } = await admin.from("member_tab_access").delete().eq("profile_id", userId);
+      if (delErr) throw new Error(delErr.message);
+      if (tabs.length) {
+        const { error: insErr } = await admin.from("member_tab_access").insert(tabs.map((tab_key) => ({ profile_id: userId, tab_key, granted_by: caller.id })));
+        if (insErr) throw new Error(insErr.message);
+      }
+      if (DATA_ROLES.includes(dataRole)) {
+        const { error: roleErr } = await admin.from("banking_user_roles").upsert({ user_id: userId, role: dataRole });
+        if (roleErr) throw new Error(roleErr.message);
+      } else {
+        await admin.from("banking_user_roles").delete().eq("user_id", userId);
+      }
+    };
+
+    if (action === "onboard_member") {
+      const email = String(body.email || "").trim().toLowerCase();
+      const password = String(body.password || "");
+      const tabs = cleanTabs(body.tabs);
+      if (!email || password.length < 8) return json({ error: "An email and an 8+ character password are required." }, 400);
+      if (!tabs.length) return json({ error: "Choose at least one tab." }, 400);
+      const { data: employee } = await admin.from("hr_employees").select("id, employee_code, full_name, profile_id").eq("id", String(body.employee_id || "")).maybeSingle();
+      if (!employee) return json({ error: "Choose an employee from HR Base." }, 400);
+      if (employee.profile_id) return json({ error: `${employee.employee_code} already has a login.` }, 400);
+      const { data: made, error: makeErr } = await admin.auth.admin.createUser({
+        email, password, email_confirm: true, user_metadata: { full_name: employee.full_name, employee_code: employee.employee_code },
+      });
+      if (makeErr) return json({ error: makeErr.message }, 400);
+      const id = made.user.id;
+      try {
+        const { error: pErr } = await admin.from("profiles").upsert({ id, email, full_name: employee.full_name, role: "member" });
+        if (pErr) throw new Error(pErr.message);
+        await setAccess(id, tabs, body.data_role);
+        const { error: eErr } = await admin.from("hr_employees").update({ profile_id: id, updated_at: new Date().toISOString() }).eq("id", employee.id);
+        if (eErr) throw new Error(eErr.message);
+      } catch (e) {
+        // No half-made logins: remove it so the admin can simply try again.
+        await admin.auth.admin.deleteUser(id);
+        return json({ error: (e as Error).message }, 400);
+      }
+      await audit("onboard_member", email, { employee_code: employee.employee_code, tabs, data_role: body.data_role || null });
+      return json({ ok: true, user_id: id });
+    }
+
+    if (action === "set_access") {
+      const user_id = String(body.user_id || "");
+      const tabs = cleanTabs(body.tabs);
+      if (!user_id) return json({ error: "user_id required" }, 400);
+      await setAccess(user_id, tabs, body.data_role);
+      await audit("set_access", user_id, { tabs, data_role: body.data_role || null });
+      return json({ ok: true });
+    }
+
+    if (action === "reset_password") {
+      const user_id = String(body.user_id || "");
+      const password = String(body.password || "");
+      if (!user_id || password.length < 8) return json({ error: "A password needs at least 8 characters." }, 400);
+      const { error } = await admin.auth.admin.updateUserById(user_id, { password });
+      if (error) return json({ error: error.message }, 400);
+      await audit("reset_password", user_id);
+      return json({ ok: true });
+    }
+
+    if (action === "set_suspended") {
+      const user_id = String(body.user_id || "");
+      if (!user_id) return json({ error: "user_id required" }, 400);
+      if (user_id === caller.id) return json({ error: "You can't suspend your own account." }, 400);
+      const { error } = await admin.auth.admin.updateUserById(user_id, { ban_duration: body.suspended ? "876000h" : "none" });
+      if (error) return json({ error: error.message }, 400);
+      await audit(body.suspended ? "suspend" : "reactivate", user_id);
+      return json({ ok: true });
+    }
+
+    if (action === "openrouter_status") {
+      const key = Deno.env.get("OPENROUTER_API_KEY")?.trim();
+      if (!key) return json({ error: "OPENROUTER_API_KEY is not set for this function." });
+      const res = await fetch("https://openrouter.ai/api/v1/key", { headers: { Authorization: `Bearer ${key}` } });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) return json({ error: out?.error?.message || `OpenRouter answered ${res.status}` });
+      return json({ usage: out.data?.usage ?? null, limit: out.data?.limit ?? null, limit_remaining: out.data?.limit_remaining ?? null });
+    }
 
     if (action === "create_user") {
       const email = String(body.email || "").trim();
@@ -75,6 +168,7 @@ Deno.serve(async (req: Request) => {
       if (user_id === caller.id) return json({ error: "You can't delete your own account." }, 400);
       const { error } = await admin.auth.admin.deleteUser(user_id);
       if (error) return json({ error: error.message }, 400);
+      await audit("delete_user", user_id);
       return json({ ok: true });
     }
 

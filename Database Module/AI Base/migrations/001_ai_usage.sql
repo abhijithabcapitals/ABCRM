@@ -8,6 +8,7 @@ create table if not exists public.ai_usage (
   id bigint generated always as identity primary key,
   at timestamptz not null default now(),
   function_name text not null,
+  user_id uuid,
   model text,
   prompt_tokens integer,
   completion_tokens integer,

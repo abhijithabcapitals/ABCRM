@@ -24,10 +24,20 @@
 //
 // Deploy as "bd-lead-sources" with JWT verification on.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const EXPLEE_BASE = "https://api.explee.com/public/api/v1";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// The person behind the current request, for the ledger. Scheduled runs have none.
+const aiUser = new AsyncLocalStorage<string | null>();
+function jwtUser(req: Request) {
+  try {
+    const sub = JSON.parse(atob((req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).sub;
+    return /^[0-9a-f-]{36}$/i.test(sub) ? sub : null;
+  } catch { return null; }
+}
+
 // Asks OpenRouter to report cost and records it in public.ai_usage (counts only, never content).
 async function aiFetch(fn: string, init: RequestInit) {
   const sent = JSON.parse(String(init.body));
@@ -39,7 +49,7 @@ async function aiFetch(fn: string, init: RequestInit) {
       await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/ai_usage`, {
         method: "POST",
         headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ function_name: fn, model: sent.model, prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null, cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null }),
+        body: JSON.stringify({ function_name: fn, user_id: aiUser.getStore() ?? null, model: sent.model, prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null, cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null }),
       });
     }
   } catch { /* the ledger never stops the work */ }
@@ -274,7 +284,9 @@ function contactedRow(l: any, campaigns: Map<string, string>) {
   };
 }
 
-Deno.serve(async (req) => {
+Deno.serve((req) => aiUser.run(jwtUser(req), () => handle(req)));
+
+async function handle(req: Request) {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Use POST" }, 405);
 
@@ -640,4 +652,4 @@ Deno.serve(async (req) => {
     }
     return json({ error: message }, e instanceof ProviderError ? 502 : 500);
   }
-});
+}
