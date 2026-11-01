@@ -203,3 +203,20 @@ def test_generated_documents_go_only_to_their_folder(tmp_path):
     assert Path(post("quote", "../../escape.docx").json()["path"]).parent == quotes
     assert post("quote", "bad.exe").status_code == 400
     assert post("other", "a.docx").status_code == 404
+
+
+def test_open_generated_only_inside_its_folders(tmp_path, monkeypatch):
+    import clientmodule.api as api
+    calls = []
+    monkeypatch.setattr(api.subprocess, "Popen", lambda args: calls.append(args))
+    folder = tmp_path / "gen"
+    folder.mkdir()
+    (folder / "a.docx").write_bytes(b"x")
+    (tmp_path / "secret.docx").write_bytes(b"x")
+    c = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", generated_folders={"quote": folder}, ai_enabled=False)))
+    assert c.post("/api/generated-open", json={"path": str(folder / "a.docx")}).status_code == 200
+    assert len(calls) == 1
+    assert c.post("/api/generated-open", json={"path": str(tmp_path / "secret.docx")}).status_code == 403
+    assert c.post("/api/generated-open", json={"path": str(folder / "gone.docx")}).status_code == 404
+    assert c.post("/api/generated-open", json={"path": str(folder / ".." / "secret.docx")}).status_code == 403
+    assert len(calls) == 1

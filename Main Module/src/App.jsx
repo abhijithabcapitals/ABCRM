@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
+import { GlobalAttention } from "@banking/components/Attention";
 import "./App.css";
 
 // Code-split the heavy views so the initial load only downloads the one in use
@@ -407,6 +408,7 @@ export default function App() {
 
   return (
     <div className="app-layout">
+      <GlobalAttention />
       <Sidebar
         spaces={spaces}
         activeSpace={activeSpace}

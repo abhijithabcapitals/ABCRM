@@ -48,10 +48,17 @@ export async function openFile(path) {
 
 // Client Master is the local Client Module (this PC only). Offline: staff type the CL number instead.
 export async function searchClientMaster(name) {
-  const res = await fetch(`${CLIENT_MODULE_URL}/api/clients`, { signal: AbortSignal.timeout(4000) });
-  const body = await res.json();
+  const rows = await run(table("client_master").select("data").limit(5000));
   const needle = String(name || "").trim().toUpperCase();
-  return (body.clients || []).filter((c) => JSON.stringify(c).toUpperCase().includes(needle)).slice(0, 20);
+  return rows.map((r) => r.data).filter((c) => JSON.stringify(c).toUpperCase().includes(needle)).slice(0, 20);
+}
+
+// Shows a generated file in Explorer on this PC, through the Client Module.
+export async function openInFolder(path) {
+  let res;
+  try { res = await fetch(`${CLIENT_MODULE_URL}/api/generated-open`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }), signal: AbortSignal.timeout(8000) }); }
+  catch { throw new Error("Open in Folder works on the office PC with the Client Module running. Use View here."); }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Could not open the folder.");
 }
 
 // Reads files through the local Document Module (Client Module on this PC), then clears them from its staging area.

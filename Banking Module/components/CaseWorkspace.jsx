@@ -1,10 +1,11 @@
+import { flagMissing } from "./Attention";
 import { useState } from "react";
 import { BankName } from "./BankLogo";
 import KycForm from "./KycForm";
 import TaskForm from "./TaskForm";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FilePick, FormModal, KeyVals, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { expiryFrom } from "../logic/kycAutofill";
-import { insertRow, loadSettings, openFile, readDocuments, rpc, saveGenerated, run, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
+import { insertRow, loadSettings, openFile, readDocuments, rpc, saveGenerated, run, openInFolder, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
 import { supabase } from "@app/supabase";
 import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, SUBMISSION_METHODS } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
@@ -183,7 +184,7 @@ function StepFooter({ n, c, reload, goTo }) {
       await rpc("banking_move_stage", { p_case: c.id, p_to: c.current_stage + 1 });
       await reload();
       goTo(c.current_stage + 1);
-    } catch (e) { setError(friendly(e.message)); }
+    } catch (e) { setError(friendly(e.message)); flagMissing(["bk-step-advance"]); }
     setBusy(false);
   };
   return (
@@ -196,7 +197,7 @@ function StepFooter({ n, c, reload, goTo }) {
           {error && can("workflow.override") && <Button onClick={() => setOverride(true)}>Continue by exception</Button>}
           {n !== c.current_stage && n < STEPS.length && <Button onClick={() => goTo(n + 1)}>Next step</Button>}
           {n !== c.current_stage && <Button onClick={() => goTo(c.current_stage)}>Go to current step</Button>}
-          {canMove && n === c.current_stage && n < STEPS.length && <Button variant="primary" busy={busy} onClick={advance}>Complete step and continue</Button>}
+          {canMove && n === c.current_stage && n < STEPS.length && <Button id="bk-step-advance" variant="primary" busy={busy} onClick={advance}>Complete step and continue</Button>}
         </span>
       </div>
       {override && <FormModal title={`Continue to step ${c.current_stage + 1} by exception`} note={error} onClose={() => setOverride(false)} submitLabel="Continue" fields={[{ name: "why", label: "Justification", type: "textarea", required: true, full: true }]} onSubmit={async (v) => { await rpc("banking_move_stage", { p_case: c.id, p_to: c.current_stage + 1, p_override: v.why }); setError(null); await reload(); goTo(c.current_stage + 1); }} />}
@@ -333,15 +334,13 @@ function ClientInfo({ c, client, reload }) {
   const { openCase } = useBanking();
   const [cmQuery, setCmQuery] = useState(null);
   const lookup = () => act(async () => {
-    try { setCmQuery(await searchClientMaster(client.display_name)); }
-    catch { setCmQuery("offline"); }
+    setCmQuery(await searchClientMaster(client.display_name));
   });
   return (
     <div>
       <Panel title="Client" actions={can("cases.manage") && <><Button onClick={() => setAssign(true)}>Assign employee</Button><Button onClick={lookup}>Find in Client Master</Button><Button onClick={() => setLink(true)}>Enter Client Master ID</Button></>}>
         <ErrorNote message={error} />
         <KeyVals items={[["Name", client.display_name], ["Licence", client.license_number], ["Type", client.client_type], ["Client Master ID", client.client_master_id], ["Link status", <Badge key="s">{client.link_status}</Badge>]]} />
-        {cmQuery === "offline" && <p className="bk-note">The Client Module is not reachable from this browser. Start it on this PC, or enter the CL number by hand.</p>}
         {Array.isArray(cmQuery) && (
           <div className="bk-mt">
             {cmQuery.map((m) => <div className="bk-row" key={m["Client ID"]}><span>{m["Client ID"]} · {m["Client Legal Name"]} · {m["Trade License Number"]}</span><Button onClick={() => act(() => rpc("banking_link_client_master", { p_client: client.id, p_master: m["Client ID"] }))}>Link</Button></div>)}
@@ -670,8 +669,7 @@ function GeneratedDocuments({ caseId, kind }) {
       <ErrorNote message={list.error || error} />
       <DataTable rows={list.data} columns={[
         { key: "document_number", label: "Number" }, { key: "document_serial", label: "Serial", right: true }, { key: "created_at", label: "Generated", render: (r) => fmtDateTime(r.created_at) },
-        { key: "local_path", label: "Saved at", render: (r) => r.local_path || <Badge tone="warn">Not in PC folder</Badge> },
-        { key: "o", label: "", render: (r) => <button type="button" className="bk-link" onClick={() => act(() => openFile(r.storage_path))}>Open</button> },
+        { key: "o", label: "File", render: (r) => <span className="bk-actions"><button type="button" className="bk-link" onClick={() => act(() => openFile(r.storage_path))}>View</button>{r.local_path ? <button type="button" className="bk-link" title={r.local_path} onClick={() => act(() => openInFolder(r.local_path))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}</span> },
       ]} />
     </div>
   );

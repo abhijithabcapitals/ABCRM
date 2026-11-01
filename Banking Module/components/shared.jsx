@@ -1,3 +1,6 @@
+import { ErrorNote } from "./Attention";
+import { ClientLists, listIdFor, useClientLookup } from "./ClientLookup";
+import { applyClient } from "../logic/clientLookup";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 export const BankingContext = createContext(null);
@@ -33,7 +36,7 @@ export function useLoad(fn, deps = []) {
 }
 
 export const Spinner = ({ label = "Loading" }) => <div className="bk-loading"><span className="bk-spinner" />{label}</div>;
-export const ErrorNote = ({ message, onClose }) => (message ? <div className="bk-alert bk-alert-error" role="alert"><span>{message}</span>{onClose && <button type="button" aria-label="Dismiss" onClick={onClose}>×</button>}</div> : null);
+export { ErrorNote };
 export const Empty = ({ children }) => <div className="bk-empty">{children}</div>;
 
 const TONES = {
@@ -69,7 +72,7 @@ export function Modal({ title, onClose, children, wide }) {
 // field: { name, label, type: text|textarea|number|date|datetime|select|bool|tri|file, options, required, help, full }
 export function Field({ field, value, onChange }) {
   const id = `f-${field.name}`;
-  const common = { id, value: value ?? "", onChange: (e) => onChange(e.target.value), required: field.required };
+  const common = { id, value: value ?? "", onChange: (e) => onChange(e.target.value), required: field.required, list: field.clientKey ? listIdFor(field.clientKey) : undefined };
   let input;
   switch (field.type) {
     case "textarea": input = <textarea rows={field.rows || 3} {...common} />; break;
@@ -119,8 +122,11 @@ export const cleanValues = (fields, values) => {
   return out;
 };
 
+// A field with a clientKey offers known clients and fills the other client fields when one is chosen.
 export function FormGrid({ fields, values, setValues }) {
-  return <div className="bk-grid">{fields.map((f) => <Field key={f.name} field={f} value={values[f.name]} onChange={(v) => setValues((s) => ({ ...s, [f.name]: v }))} />)}</div>;
+  const map = Object.fromEntries(fields.filter((f) => f.clientKey).map((f) => [f.name, f.clientKey]));
+  const clients = useClientLookup(Object.keys(map).length > 0);
+  return <div className="bk-grid"><ClientLists clients={clients} keys={Object.values(map)} />{fields.map((f) => <Field key={f.name} field={f} value={values[f.name]} onChange={(v) => setValues((s) => (map[f.name] ? applyClient(s, map, f.name, v, clients) : { ...s, [f.name]: v }))} />)}</div>;
 }
 
 export function FormModal({ title, fields, initial, onSubmit, onClose, submitLabel = "Save", wide, note }) {

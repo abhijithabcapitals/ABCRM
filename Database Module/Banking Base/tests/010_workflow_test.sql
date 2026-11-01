@@ -503,6 +503,37 @@ select public.ok('case list', (public.banking_case_list() ->> 'total')::int = 6)
 select public.ok('timeline has entries', jsonb_array_length(public.banking_case_timeline(public.id('case1'))) > 5);
 select public.ok('activity log populated', (select count(*) > 20 from public.banking_activity_logs));
 
+-- Client Master
+select public.as_user('0a');
+select public.ok('client saved', (public.client_master_save(null, '{"Client Legal Name":"Zeta Trading LLC","Trade License Number":"L-900","General Phone":"+971501112222","Risk Level":"Low"}') ->> 'ok')::boolean);
+select public.ok('client gets an ID', (select client_id ~ '^CL[0-9]{6}$' from public.client_master where legal_name = 'Zeta Trading LLC'));
+select public.ok('duplicate licence stops a new client', (public.client_master_save(null, '{"Client Legal Name":"Other Name","Trade License Number":"l900"}') ->> 'ok')::boolean = false);
+select public.ok('duplicate name ignores the suffix', jsonb_array_length(public.client_master_save(null, '{"Client Legal Name":"ZETA TRADING L.L.C"}') -> 'duplicates') = 1);
+select public.ok('override saves', (public.client_master_save(null, '{"Client Legal Name":"ZETA TRADING L.L.C"}', null, true) ->> 'ok')::boolean);
+select public.ok('override is logged', exists (select 1 from public.client_master_history where action = 'Created (duplicate override)'));
+select public.ok('one change counted', (public.client_master_save((select client_id from public.client_master where legal_name = 'Zeta Trading LLC'), '{"Trade License Number":"","Trade Name":"Zeta"}', 1) ->> 'changes')::int = 1);
+select public.ok('blank does not overwrite', (select data ->> 'Trade License Number' from public.client_master where client_id = (select client_id from public.client_master where legal_name = 'Zeta Trading LLC')) = 'L-900');
+select public.ok('change is logged', exists (select 1 from public.client_master_history where client_id = (select client_id from public.client_master where legal_name = 'Zeta Trading LLC') and field = 'Trade Name' and new_value = 'Zeta'));
+select public.must_fail('stale save refused', format($$select public.client_master_save(%L, '{"Trade Name":"X"}', 1)$$, (select client_id from public.client_master where legal_name = 'Zeta Trading LLC')), 'changed this client');
+select public.must_fail('full IBAN refused', $$select public.client_master_save(null, '{"Client Legal Name":"I","Bank Accounts":"Bank – AE070331234567890123456"}')$$, 'last 4');
+select public.must_fail('risk needs a reason', $$select public.client_master_save(null, '{"Client Legal Name":"R","Risk Level":"High"}')$$, 'Risk Reason');
+select public.must_fail('history cannot change', $$delete from public.client_master_history$$, 'denied');
+select public.ok('lookup has master and banking clients', (select count(*) filter (where e ->> 'name' = 'Zeta Trading LLC') = 1 and count(*) filter (where (e ->> 'rank')::int = 2) > 0 from jsonb_array_elements(public.client_lookup()) e));
+select public.ok('lookup hides markers', (select e ->> 'trade_name' from jsonb_array_elements(public.client_lookup()) e where e ->> 'name' = 'Zeta Trading LLC') = 'Zeta');
+select public.as_user('99');
+select public.must_fail('other role cannot save', $$select public.client_master_save(null, '{"Client Legal Name":"N"}')$$, 'permission');
+
+-- Voucher files
+select public.as_user('0a');
+select public.keep('vr', public.voucher_template_record('{"file_name":"t.docx","client_name":"C","storage_path":"p","local_path":"D:\\x\\t.docx"}'));
+select public.ok('template document is recorded with its location', (select v.local_path = 'D:\x\t.docx' and v.voucher_type = 'Quotation' and v.source = 'template' from public.voucher_register v where v.id = public.id('vr')));
+select public.keep('vt', public.voucher_template_record('{"file_name":"u.docx","storage_path":"p2"}'));
+select public.voucher_set_local(public.id('vt'), 'D:\x\u.docx');
+select public.voucher_set_local(public.id('vt'), 'D:\other.docx');
+select public.ok('PC location is recorded once', (select local_path from public.voucher_register where id = public.id('vt')) = 'D:\x\u.docx');
+select public.voucher_set_local((select id from public.voucher_register where source = 'hub' and local_path is null limit 1), 'D:\x\hub.docx');
+select public.ok('hub document gets the location too', exists (select 1 from public.hub_documents where local_path = 'D:\x\hub.docx') and exists (select 1 from public.voucher_register where local_path = 'D:\x\hub.docx'));
+
 reset role;
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;

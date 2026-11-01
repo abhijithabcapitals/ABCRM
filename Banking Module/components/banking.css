@@ -317,3 +317,8 @@
 .bk-mail-icon:hover, .bk-mail-icon.active { background: #0f6f73; color: #fff; }
 .bk-mail-icon:focus-visible { outline: 2px solid #0f6f73; outline-offset: 2px; }
 .bk-mail-result { display: inline-flex; align-items: center; gap: 10px; }
+.bk-cm-stages { flex-wrap: wrap; }
+.bk-cm-label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.bk-cm-checks { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.bk-cm-verify { margin-top: 4px; font-size: 12px; font-weight: 400; }
+.bk-cm-item { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; padding: 12px; margin-bottom: 8px; border: 1px solid #dfe6e7; border-radius: 8px; align-items: end; }

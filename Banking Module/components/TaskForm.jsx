@@ -1,6 +1,7 @@
 // Client first: an existing client, a new one, or Others with a title. Then employee, task, priority, date,
 // remarks and status. Inside a case the client is already known, so that row is skipped.
 import { useState } from "react";
+import { flagMissing } from "./Attention";
 import { Button, ErrorNote, Field, FormModal, Modal, useBanking, useLoad } from "./shared";
 import { insertRow, rpc, run, table, updateRow } from "../services/bankingApi";
 import { PRIORITIES, TASK_STATUSES, TASK_TYPES } from "../logic/constants";
@@ -30,8 +31,8 @@ export default function TaskForm({ task, caseId, caseAssignee, onClose, onSaved 
   const save = async (e) => {
     e.preventDefault();
     setError(null);
-    if (!caseId && !others && !clientId && !keepsCase) { setError("Choose a client from the list, add a new client, or select Others."); return; }
-    if (others && !title.trim()) { setError("Enter a title for this task."); return; }
+    if (!caseId && !others && !clientId && !keepsCase) { setError("Choose a client from the list, add a new client, or select Others."); flagMissing(["t-client"]); return; }
+    if (others && !title.trim()) { setError("Enter a title for this task."); flagMissing(["t-title"]); return; }
     setBusy(true);
     try {
       // A client's task links to their latest case, so it opens from there.

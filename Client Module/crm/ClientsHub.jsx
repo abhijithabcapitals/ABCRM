@@ -1,9 +1,9 @@
-// The CRM's Clients page: all converted clients across business lines, plus the local Client Master.
+// The CRM's Clients page: all converted clients across business lines, plus the Client Master.
 import { useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
-import Clients from "@app/components/Clients";
+import ClientMaster from "./ClientMaster";
 
 const LINES = ["Business Banking", "Business Setup", "Accounting"];
 
@@ -16,7 +16,7 @@ export default function ClientsHub({ profile }) {
           {[["all", "All Clients"], ["master", "Client Master"]].map(([k, label]) => <button type="button" key={k} data-label={label} aria-current={view === k ? "page" : undefined} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
         </nav>
       </div>
-      {view === "all" ? <AllClients /> : <Clients profile={profile} />}
+      {view === "all" ? <AllClients /> : <ClientMaster />}
     </div>
   );
 }

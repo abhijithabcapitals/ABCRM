@@ -6,14 +6,17 @@ import { insertRow, loadSettings, readDocuments, rpc, run, table, updateRow, upl
 import { buildAutofill, DOC_TYPE_MAP } from "../logic/kycAutofill";
 import { KYC_REQUIRED_FIELDS, KYC_SECTIONS } from "./KycForm";
 import { PRIORITIES } from "../logic/constants";
+import { ClientLists, useClientLookup } from "./ClientLookup";
+import { flagMissing } from "./Attention";
+import { applyClient } from "../logic/clientLookup";
 
 const LEAD_FIELDS = (sources, people) => [
-  { name: "company_name", label: "Client / company name", required: true },
-  { name: "contact_person", label: "Contact person", required: true },
-  { name: "mobile", label: "Mobile number", required: true },
-  { name: "whatsapp", label: "WhatsApp number" },
-  { name: "email", label: "Email" },
-  { name: "nationality", label: "Nationality", required: true },
+  { name: "company_name", clientKey: "name", label: "Client / company name", required: true },
+  { name: "contact_person", clientKey: "contact", label: "Contact person", required: true },
+  { name: "mobile", clientKey: "phone", label: "Mobile number", required: true },
+  { name: "whatsapp", clientKey: "whatsapp", label: "WhatsApp number" },
+  { name: "email", clientKey: "email", label: "Email" },
+  { name: "nationality", clientKey: "nationality", label: "Nationality", required: true },
   { name: "lead_source", label: "Lead source", type: "select", options: sources, required: true },
   { name: "assigned_to", label: "Assigned employee", type: "select", options: people },
   { name: "priority", label: "Priority", type: "select", options: PRIORITIES, required: true },
@@ -37,6 +40,7 @@ export default function NewLeadWizard({ onCancel }) {
   const [onlyMissing, setOnlyMissing] = useState(true);
   const [matches, setMatches] = useState(null);
   const [busy, setBusy] = useState(null);
+  const clients = useClientLookup();
   const [error, setError] = useState(null);
 
   const addFiles = (list) => setFiles((f) => [...f, ...[...list].filter((x) => !f.some((y) => y.name === x.name)).map((file) => ({ file, name: file.name, docCode: "", status: "Waiting" }))]);
@@ -66,8 +70,19 @@ export default function NewLeadWizard({ onCancel }) {
 
   const missing = useMemo(() => KYC_REQUIRED_FIELDS.filter((f) => kyc[f.name] === undefined || kyc[f.name] === null || kyc[f.name] === ""), [kyc]);
   const leadFields = LEAD_FIELDS(settings.data?.lead_sources || ["Direct"], personOptions);
+  const leadMap = Object.fromEntries(leadFields.filter((f) => f.clientKey).map((f) => [f.name, f.clientKey]));
   const leadMissing = leadFields.filter((f) => f.required && !lead[f.name]);
   const untyped = files.filter((f) => !f.docCode);
+
+  // Nothing is saved while a required field is empty: those fields blink until filled.
+  const flagIncomplete = (continueFlow) => {
+    const empty = [...leadMissing, ...(continueFlow && canKyc ? missing : [])];
+    if (!empty.length) return false;
+    setError(`Please fill in the highlighted fields: ${empty.map((f) => f.label).join(", ")}.`);
+    setOnlyMissing(true);
+    setTimeout(() => flagMissing(empty.map((f) => `f-${f.name}`)), 0);
+    return true;
+  };
 
   const save = async (continueFlow, clientId) => {
     setBusy("Saving…"); setError(null);
@@ -155,7 +170,7 @@ export default function NewLeadWizard({ onCancel }) {
           </div>
           {Object.keys(auto.conflicts).length > 0 && <Panel title="Documents disagree: please check"><ul className="bk-issues">{Object.entries(auto.conflicts).map(([k, v]) => <li key={k}>{k}: {v.join(" / ")}</li>)}</ul></Panel>}
           <Panel title="Lead">
-            <div className="bk-grid">{leadFields.filter((f) => !onlyMissing || !lead[f.name] || !f.required).map((f) => <Tagged key={f.name} field={f} value={lead[f.name]} onChange={(v) => setLead((l) => ({ ...l, [f.name]: v }))} />)}</div>
+            <div className="bk-grid"><ClientLists clients={clients} keys={Object.values(leadMap)} />{leadFields.filter((f) => !onlyMissing || !lead[f.name] || !f.required).map((f) => <Tagged key={f.name} field={f} value={lead[f.name]} onChange={(v) => setLead((l) => (leadMap[f.name] ? applyClient(l, leadMap, f.name, v, clients) : { ...l, [f.name]: v }))} />)}</div>
           </Panel>
           {canKyc ? KYC_SECTIONS.map(([title, fields]) => {
             const list = onlyMissing ? fields.filter((f) => kyc[f.name] === undefined || kyc[f.name] === null || kyc[f.name] === "") : fields;
@@ -178,8 +193,8 @@ export default function NewLeadWizard({ onCancel }) {
             <div className="bk-step-buttons">
               {canDocs ? <Button onClick={() => setStep(1)}>Back to documents</Button> : <span />}
               <span className="bk-actions">
-                <Button disabled={leadMissing.length > 0} busy={!!busy} onClick={() => save(false)}>Save and finish later</Button>
-                <Button variant="primary" disabled={leadMissing.length > 0 || (canKyc && missing.length > 0)} busy={!!busy} onClick={() => save(true)}>{busy || "Save and select bank"}</Button>
+                <Button busy={!!busy} onClick={() => (flagIncomplete(false) ? null : save(false))}>Save and finish later</Button>
+                <Button variant="primary" busy={!!busy} onClick={() => (flagIncomplete(true) ? null : save(true))}>{busy || "Save and select bank"}</Button>
               </span>
             </div>
           </div>

@@ -1,7 +1,7 @@
 // Cross-case lists. Opening a row goes to that case's workspace, where the actions live.
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useBanking, useLoad } from "./shared";
-import { loadSettings, run, saveGenerated, table } from "../services/bankingApi";
+import { loadSettings, openInFolder, run, saveGenerated, table } from "../services/bankingApi";
 import { printReceipt, receiptDocx } from "../logic/documents";
 import { money } from "../logic/pricing";
 import TaskForm from "./TaskForm";
@@ -83,7 +83,7 @@ function Receipts() {
         { key: "amount", label: "Amount", right: true, render: (p) => money(p.amount) },
         { key: "payment_method", label: "Method" },
         { key: "s", label: "State", render: (p) => (stateOf(p) ? <Badge tone="warn">{stateOf(p) === "Reversal" ? "Reversed" : "Refunded"}</Badge> : <Badge tone="good">Valid</Badge>) },
-        { key: "f", label: "Saved at", render: (p) => savedAt(p) || <Badge tone="warn">Not in PC folder</Badge> },
+        { key: "f", label: "File", render: (p) => (savedAt(p) ? <button type="button" className="bk-link" title={savedAt(p)} onClick={() => openInFolder(savedAt(p)).catch((e) => setError(e.message))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>) },
         { key: "a", label: "", render: (p) => <span className="bk-actions"><Button onClick={(e) => print(e, p)}>Print / PDF</Button>{can("payments.manage") && <Button onClick={(e) => saveCopy(e, p)}>Save to folder</Button>}</span> },
       ]} />
     </div>

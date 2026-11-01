@@ -4,12 +4,17 @@ import { CRM_TARGET, safeName, docName, resolveQuotationName } from "../logic/he
 import { buildContext } from "../logic/buildContext";
 import { renderDocx } from "../logic/renderDocx";
 import { createCrmTask } from "../services/crmTask";
+import { recordTemplateDocument } from "../services/hubApi";
+import { ErrorNote } from "@banking/components/Attention";
+import { ClientLists, listIdFor, useClientLookup } from "@banking/components/ClientLookup";
+import { applyClient, clientKeyOf } from "@banking/logic/clientLookup";
 
 // ─────────────────────────── Generate ───────────────────────────
 export default function GenerateTab({ templates, downloadTemplateBuffer, profile }) {
   const [tplId, setTplId] = useState(templates[0]?.id || "");
   const [mode, setMode] = useState("form");
   const [values, setValues] = useState({});
+  const clients = useClientLookup();
   const [extraRows, setExtraRows] = useState([]); // ad-hoc [{ label, amount, remarks }]
   const [makeTask, setMakeTask] = useState(true); // also file a CRM task
   const [status, setStatus] = useState(null);
@@ -50,16 +55,19 @@ export default function GenerateTab({ templates, downloadTemplateBuffer, profile
       const fname = docName(ctx, fields);
       const { saveAs } = await import("file-saver");
       saveAs(blob, fname);
+      const nameField = fields.find((f) => clientKeyOf(f) === "name");
+      const filed = await recordTemplateDocument(blob, fname, nameField && values[nameField.key]);
+      const fileMsg = filed.local ? ` · Saved to ${filed.local}` : " · Kept in the database; not in the PC folder because the Client Module is not running here.";
 
-      let crmMsg = "";
+      let crmMsg = fileMsg;
       if (makeTask) {
         try {
           const dateField = fields.find((f) => f.type === "date");
           const quotationDate = (dateField && values[dateField.key]) || new Date().toISOString().slice(0, 10);
           const { listName } = await createCrmTask({ ctx, tpl, templates, profile, quotationDate, taskTitle: resolveQuotationName(ctx, fields) });
-          crmMsg = ` · Task created in ${listName}.`;
+          crmMsg += ` · Task created in ${listName}.`;
         } catch (e) {
-          crmMsg = ` · (CRM task not created: ${e.message})`;
+          crmMsg += ` · (CRM task not created: ${e.message})`;
         }
       }
       setStatus({ ok: true, msg: `Generated ${fname}${crmMsg}` });
@@ -90,7 +98,10 @@ export default function GenerateTab({ templates, downloadTemplateBuffer, profile
       for (let i = 0; i < rows.length; i++) {
         const ctx = buildContext(rows[i], fields, i + 1, tpl.usd_rate);
         const blob = await renderDocx(buf, ctx);
-        zip.file(docName(ctx, fields, ` (${i + 1})`), blob);
+        const rowName = docName(ctx, fields, ` (${i + 1})`);
+        zip.file(rowName, blob);
+        const nameField = fields.find((f) => clientKeyOf(f) === "name");
+        await recordTemplateDocument(blob, rowName, nameField && (rows[i][nameField.label] ?? rows[i][nameField.key]));
       }
       const out = await zip.generateAsync({ type: "blob" });
       saveAs(out, `${safeName(tpl.freezone)} - quotations.zip`);
@@ -147,6 +158,7 @@ export default function GenerateTab({ templates, downloadTemplateBuffer, profile
 
       {mode === "form" ? (
         <div>
+          <ClientLists clients={clients} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             {fields.map((f) => (
               <div key={f.key} style={f.type === "list" ? { gridColumn: "1 / -1" } : undefined}>
@@ -164,8 +176,13 @@ export default function GenerateTab({ templates, downloadTemplateBuffer, profile
                 ) : (
                   <input
                     type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+                    list={clientKeyOf(f) ? listIdFor(clientKeyOf(f)) : undefined}
                     value={values[f.key] ?? ""}
-                    onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      // Choosing a known client fills the template's other client fields; all stay editable.
+                      setValues((v) => applyClient(v, Object.fromEntries(fields.filter((x) => clientKeyOf(x)).map((x) => [x.key, clientKeyOf(x)])), f.key, val, clients));
+                    }}
                     style={{ width: "100%", padding: "8px 11px", borderRadius: 8, border: "1px solid #e0e0e0", fontSize: 13 }}
                   />
                 )}
@@ -280,7 +297,8 @@ export default function GenerateTab({ templates, downloadTemplateBuffer, profile
         </div>
       )}
 
-      {status && (
+      {status && !status.ok && <ErrorNote message={status.msg} onClose={() => setStatus(null)} />}
+      {status?.ok && (
         <div style={{
           marginTop: 18, fontSize: 12.5, borderRadius: 8, padding: "10px 13px", lineHeight: 1.5,
           background: status.ok ? "#dcfce7" : "#fef2f2",

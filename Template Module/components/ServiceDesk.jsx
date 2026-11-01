@@ -3,17 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { clientDetails, createDocument, listDocuments, loadCatalogue, loadHubSettings, openStored, renderTemplate, saveFile, updateMail } from "../services/hubApi";
+import { createDocument, listDocuments, loadCatalogue, loadHubSettings, openInFolder, openStored, renderTemplate, saveFile, updateMail } from "../services/hubApi";
+import { ClientLists, listIdFor, useClientLookup } from "@banking/components/ClientLookup";
+import { applyClient } from "@banking/logic/clientLookup";
+import { flagMissing } from "@banking/components/Attention";
 import { addLine, checkReady, DEPARTMENTS, fileNameFor, folderKind, letterData, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs";
 
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
 const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
+const CLIENT_MAP = { client: "name", contact: "contact", email: "email", phone: "phone", address: "address", license: "license", trn: "trn" };
 const inDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
 export default function ServiceDesk({ department, profile }) {
   const catalogue = useLoad(loadCatalogue, []);
   const settings = useLoad(loadHubSettings, []);
-  const known = useLoad(clientDetails, []);
+  const clients = useClientLookup();
   const [dept, setDept] = useState(department || DEPARTMENTS[0]);
   const [lines, setLines] = useState([]);
   const [service, setService] = useState("");
@@ -38,17 +42,12 @@ export default function ServiceDesk({ department, profile }) {
 
   const categories = useMemo(() => (catalogue.data || []).filter((c) => c.department === dept), [catalogue.data, dept]);
   const totals = serviceTotals(lines, form.vat_mode, 5);
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  // Choosing or typing a detail of a known client fills the rest; everything stays editable.
+  const set = (k) => (e) => { const v = e.target.value; setForm((f) => (CLIENT_MAP[k] ? applyClient(f, CLIENT_MAP, k, v, clients) : { ...f, [k]: v })); };
   const chooseDept = (d) => { setDept(d); setLines([]); setService(""); setFee(""); setMail(null); };
-  // Choosing an existing client fills in what the CRM holds; everything stays editable.
-  const pickClient = (e) => {
-    const name = e.target.value;
-    const c = (known.data || []).find((x) => x.display_name === name);
-    setForm((f) => (c ? { ...f, client: name, contact: c.contact_person || f.contact, email: c.email || f.email, phone: c.phone || f.phone, address: c.registered_address || f.address, license: c.license_number || f.license, trn: c.vat_trn || f.trn } : { ...f, client: name }));
-  };
   const add = () => {
     const r = addLine(lines, service, fee);
-    if (r.error) { setError(r.error); return; }
+    if (r.error) { setError(r.error); flagMissing([/fee/.test(r.error) ? "d-fee" : "d-service"]); return; }
     setError(null); setLines(r.lines); setService(""); setFee("");
   };
 
@@ -74,7 +73,12 @@ export default function ServiceDesk({ department, profile }) {
 
   const generateQuote = async () => {
     const bad = checkReady(form, lines);
-    if (bad) { setError(bad); return; }
+    if (bad) {
+      setError(bad);
+      const empty = Object.keys(CLIENT_MAP).filter((k) => !["license", "trn"].includes(k) && !String(form[k] || "").trim()).map((k) => `d-${k}`);
+      flagMissing(empty.length ? empty : /email/.test(bad) ? ["d-email"] : ["d-service", "d-fee"]);
+      return;
+    }
     setBusy("quote"); setError(null); setNote(null);
     try {
       const doc = await createDocument(payload("quote"));
@@ -117,14 +121,14 @@ export default function ServiceDesk({ department, profile }) {
       <ErrorNote message={catalogue.error || settings.error || error} onClose={error ? () => setError(null) : undefined} />
       {note && <div className={`bk-alert ${note.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{note.text}</div>}
       {!department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>}
-      <Panel title="1. Client details" sub="Choose an existing client to fill these in, or type them for a new one.">
+      <Panel title="1. Client details" sub="Choose any detail of an existing client to fill in the rest, or type them for a new one.">
         <div className="bk-grid">
-          <div className="bk-field"><label htmlFor="d-client">Client name <em>*</em></label><input id="d-client" list="d-clients" value={form.client} onChange={pickClient} autoComplete="off" /><datalist id="d-clients">{(known.data || []).map((c) => <option key={c.id} value={c.display_name} />)}</datalist></div>
+          <div className="bk-field"><label htmlFor="d-client">Client name <em>*</em></label><input id="d-client" list={listIdFor("name")} value={form.client} onChange={set("client")} autoComplete="off" /><ClientLists clients={clients} /></div>
           <div className="bk-field"><label htmlFor="d-contact">Contact person <em>*</em></label><input id="d-contact" value={form.contact} onChange={set("contact")} /></div>
-          <div className="bk-field"><label htmlFor="d-email">Email <em>*</em></label><input id="d-email" type="email" value={form.email} onChange={set("email")} /></div>
-          <div className="bk-field"><label htmlFor="d-phone">Phone <em>*</em></label><input id="d-phone" value={form.phone} onChange={set("phone")} /></div>
-          <div className="bk-field"><label htmlFor="d-license">Licence number</label><input id="d-license" value={form.license} onChange={set("license")} /></div>
-          <div className="bk-field"><label htmlFor="d-trn">VAT TRN</label><input id="d-trn" value={form.trn} onChange={set("trn")} /></div>
+          <div className="bk-field"><label htmlFor="d-email">Email <em>*</em></label><input id="d-email" type="email" list={listIdFor("email")} value={form.email} onChange={set("email")} /></div>
+          <div className="bk-field"><label htmlFor="d-phone">Phone <em>*</em></label><input id="d-phone" list={listIdFor("phone")} value={form.phone} onChange={set("phone")} /></div>
+          <div className="bk-field"><label htmlFor="d-license">Licence number</label><input id="d-license" list={listIdFor("license")} value={form.license} onChange={set("license")} /></div>
+          <div className="bk-field"><label htmlFor="d-trn">VAT TRN</label><input id="d-trn" list={listIdFor("trn")} value={form.trn} onChange={set("trn")} /></div>
           <div className="bk-field bk-full"><label htmlFor="d-address">Address <em>*</em></label><input id="d-address" value={form.address} onChange={set("address")} /></div>
         </div>
       </Panel>
@@ -180,10 +184,9 @@ export default function ServiceDesk({ department, profile }) {
           { key: "doc_type", label: "Type", render: (d) => <Badge>{LABEL[d.doc_type]}</Badge> }, { key: "document_number", label: "Number" }, { key: "document_serial", label: "Serial", right: true },
           { key: "client_name", label: "Client" }, ...(department ? [] : [{ key: "department", label: "Department" }]), { key: "services", label: "Services", render: (d) => d.services.join(", ") },
           { key: "total_amount", label: "Total", right: true, render: (d) => `AED ${Number(d.total_amount).toLocaleString("en-AE")}` }, { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
-          { key: "local_path", label: "Saved at", render: (d) => d.local_path || <Badge tone="warn">Not in PC folder</Badge> },
           { key: "mail", label: "Mail", render: mailButton },
           { key: "next", label: "Next step", render: (d) => (d.doc_type !== "quote" ? "–" : (docs.data || []).some((x) => x.doc_type === "letter" && x.parent_id === d.id) ? <Badge tone="good">Letter generated</Badge> : <Button busy={busy === `letter-${d.id}`} onClick={() => generateLetter(d)}>Engagement Letter + Mail</Button>) },
-          { key: "o", label: "", render: (d) => (d.storage_path ? <button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>Open</button> : <Button busy={busy === `file-${d.id}`} onClick={() => refile(d)}>Create file</Button>) },
+          { key: "o", label: "File", render: (d) => (d.storage_path ? <span className="bk-actions"><button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>View</button>{d.local_path ? <button type="button" className="bk-link" title={d.local_path} onClick={() => openInFolder(d.local_path).catch((e) => setError(e.message))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}</span> : <Button busy={busy === `file-${d.id}`} onClick={() => refile(d)}>Create file</Button>) },
         ]} />
       </Panel>
     </div>

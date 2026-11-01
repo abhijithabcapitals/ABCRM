@@ -9,6 +9,9 @@ it to the master client database as **ONE ROW PER CLIENT**. Priority: Accuracy â
 Compliance â†’ Workflow Readiness. Never guess. Never fabricate. Never silently overwrite. Never duplicate clients.
 Always flag missing or uncertain information.
 
+## Client Master is online (2026-11-01)
+The master now lives in the CRM database (`Database Module/Client Base`, table `client_master`), with its form in `crm/ClientMaster.jsx` and tax tracker in `crm/TaxCompliance.jsx`. The CSV, `master.py` and `/tax` below are the former local version and no longer feed the CRM. This program still serves two purposes on the office PC: reading documents (Document Module) and saving generated documents to `Database Module/Generated Documents`.
+
 ## Folder layout
 | Path | Purpose |
 |---|---|

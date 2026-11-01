@@ -26,6 +26,7 @@ import logging
 from typing import Any
 
 import re
+import subprocess
 from pathlib import Path
 from fastapi import Body, FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -194,6 +195,19 @@ def create_app(settings: Settings) -> FastAPI:
             n += 1
         target.write_bytes(file.file.read())
         return {"path": str(target)}
+
+    # Opens Explorer on a generated document. Only existing files inside the configured folders.
+    @app.post("/api/generated-open")
+    def open_generated(body: dict[str, Any] = Body(default={})):
+        try:
+            target = Path(str(body.get("path") or "")).resolve(strict=True)
+        except (OSError, RuntimeError):
+            return JSONResponse({"error": "The file is not at this location on this PC."}, status_code=404)
+        folders = [Path(f).resolve() for f in settings.generated_folders.values()]
+        if not target.is_file() or not any(target.is_relative_to(f) for f in folders):
+            return JSONResponse({"error": "That file is not in Generated Documents."}, status_code=403)
+        subprocess.Popen(["explorer", f"/select,{target}"])
+        return {"ok": True}
 
     # ---- documents ----
     @app.post("/api/batches")
