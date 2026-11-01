@@ -1,4 +1,5 @@
 import { supabase } from "@app/supabase";
+import { templateBuffer } from "@banking/services/masterTemplates";
 
 export { openInFolder } from "@banking/services/bankingApi";
 
@@ -90,9 +91,8 @@ export async function openStored(path, bucket = BUCKET) {
 
 export async function renderTemplate(templateFile, data) {
   const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
-  const res = await fetch(new URL(`../templates/${templateFile}`, import.meta.url).href);
-  if (!res.ok) throw new Error(`Template ${templateFile} not found`);
-  const doc = new Docxtemplater(new PizZip(await res.arrayBuffer()), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
+  const buffer = await templateBuffer(templateFile, new URL(`../templates/${templateFile}`, import.meta.url).href);
+  const doc = new Docxtemplater(new PizZip(buffer), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
   doc.render(data);
   return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }

@@ -534,6 +534,17 @@ select public.ok('PC location is recorded once', (select local_path from public.
 select public.voucher_set_local((select id from public.voucher_register where source = 'hub' and local_path is null limit 1), 'D:\x\hub.docx');
 select public.ok('hub document gets the location too', exists (select 1 from public.hub_documents where local_path = 'D:\x\hub.docx') and exists (select 1 from public.voucher_register where local_path = 'D:\x\hub.docx'));
 
+-- Master templates
+select public.as_user('0a');
+select public.hub_master_template_set('Quotation_Template.docx', 'Mine.docx', 'master-templates/q/1.docx');
+select public.hub_master_template_set('Quotation_Template.docx', null, null);
+select public.ok('uploads are kept and the latest is built-in again', (select count(*) = 2 and (array_agg(storage_path order by id desc))[1] is null from public.hub_master_templates));
+select public.must_fail('only Word files', $$select public.hub_master_template_set('Quotation_Template.docx', 'x.exe', 'master-templates/x.exe')$$, 'Word');
+select public.must_fail('only known templates', $$select public.hub_master_template_set('Other.docx', 'a.docx', 'master-templates/a.docx')$$, 'check');
+select public.must_fail('history is not editable', $$delete from public.hub_master_templates$$, 'denied');
+select public.as_user('99');
+select public.must_fail('needs settings permission', $$select public.hub_master_template_set('Quotation_Template.docx', 'a.docx', 'master-templates/a.docx')$$, '');
+
 reset role;
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;

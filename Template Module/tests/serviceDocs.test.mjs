@@ -68,3 +68,10 @@ test("services are added one by one with a fee", () => {
   assert.match(addLine(a, "S", "5").error, /already/);
   assert.equal(addLine(a, "T", "0").lines.length, 2);
 });
+
+test("master templates are compared by their tags, even when Word splits them", async () => {
+  const { compareTags, tagsIn } = await import("../../Banking Module/logic/templateTags.js");
+  assert.deepEqual(tagsIn("<w:t>{client</w:t><w:t>_name}</w:t> {#lines}{no}{/lines} {notes}"), ["client_name", "lines", "no", "notes"]);
+  assert.deepEqual(compareTags("{a}{b}", "{a}{c}"), { missing: ["b"], unknown: ["c"] });
+  assert.deepEqual(compareTags("{a}", "<x/>{a}"), { missing: [], unknown: [] });
+});

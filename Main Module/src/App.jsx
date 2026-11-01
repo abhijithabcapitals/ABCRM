@@ -30,8 +30,11 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState(
-    // "accounting" was the old name of the Clients page
-    () => (localStorage.getItem("abc_view") === "accounting" ? "clients" : localStorage.getItem("abc_view")) || "dashboard",
+    // "accounting" was the old name of the Clients page; the Knowledge Base tab was removed
+    () => {
+      const saved = localStorage.getItem("abc_view");
+      return saved === "accounting" ? "clients" : saved === "wiki" ? "dashboard" : saved || "dashboard";
+    },
   );
   const [activeSpace, setActiveSpace] = useState(null);
   const [activeFolder, setActiveFolder] = useState(null);

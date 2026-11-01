@@ -102,10 +102,8 @@ export function printReceipt(p, client, c, company) {
 
 async function renderDocx(templateFile, data) {
   const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
-  const url = new URL(`../templates/${templateFile}`, import.meta.url).href;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Template ${templateFile} not found`);
-  const zip = new PizZip(await res.arrayBuffer());
+  const { templateBuffer } = await import("../services/masterTemplates");
+  const zip = new PizZip(await templateBuffer(templateFile, new URL(`../templates/${templateFile}`, import.meta.url).href));
   const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: "{", end: "}" }, nullGetter: () => "" });
   doc.render(data);
   return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
