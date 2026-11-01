@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
+import { setUsageUser } from "./jsx/selectUsage";
 import { GlobalAttention } from "@banking/components/Attention";
 import "./App.css";
 
@@ -406,6 +407,7 @@ export default function App() {
     return <Login onLogin={setUser} />;
   }
 
+  setUsageUser(profile?.id);
   return (
     <div className="app-layout">
       <GlobalAttention />

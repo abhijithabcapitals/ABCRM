@@ -5,10 +5,12 @@ import { fileURLToPath } from 'node:url'
 // https://vite.dev/config/
 export default defineConfig({
   base: process.env.GITHUB_PAGES === 'true' ? '/ABCRM/' : '/',
-  plugins: [react()],
+  // Dropdowns everywhere put recent and most used choices first (src/jsx).
+  plugins: [react({ jsxImportSource: '@crm-jsx' })],
   resolve: {
     // Sibling module folders that the app imports directly.
     alias: {
+      '@crm-jsx': fileURLToPath(new URL('./src/jsx', import.meta.url)),
       '@hot-alerts': fileURLToPath(new URL('../Hot Alerts Module', import.meta.url)),
       '@dashboard': fileURLToPath(new URL('../Dashboard Module', import.meta.url)),
       '@integrations': fileURLToPath(new URL('../Integrations Module', import.meta.url)),
