@@ -20,7 +20,7 @@ Date read: 2026-11-01 (Asia/Dubai). Prepared for CRM HR Module Task 6. A later p
 | Ref | Document | URL | Evidence |
 |---|---|---|---|
 | S-LAW | Federal Decree-Law No. 33 of 2021 "and its amendments" together with Cabinet Resolution No. 1 of 2022 (one consolidated PDF, MOHRE) | https://www.mohre.gov.ae/assets/download/e82f7872/Federal%20Decree-Law%20No.%2033%20of%202021%20Regarding%20the%20Regulation%20of%20Employment%20Relationship%20and%20its%20amendments_638990571068264034.pdf.aspx | E1 |
-| S-LAW2 | Second MOHRE PDF of the Law (used only to read Art. 29, which is garbled by overlapping text in S-LAW) | https://mohre.gov.ae/assets/download/8cd7cf08/Federal%20Decree-Law%20No.%2033%20of%202021%20Regarding%20the%20Regulation%20of%20Employment%20Relationship%20and%20its%20amendments.pdf.aspx | E1 (Art. 29 only cross-checked) |
+| S-LAW2 | Second MOHRE PDF of the Law. It is an older consolidation than S-LAW (it carries no Decree-Law 9 of 2024 footnotes). Art. 29 was cross-read from it because Art. 29 is garbled by overlapping text in S-LAW; the Art. 29 text agrees | https://mohre.gov.ae/assets/download/8cd7cf08/Federal%20Decree-Law%20No.%2033%20of%202021%20Regarding%20the%20Regulation%20of%20Employment%20Relationship%20and%20its%20amendments.pdf.aspx | E1 (Art. 29 only cross-checked) |
 | S-UAE-EOS | u.ae, End of service benefits for workers in the private sector (page says "Updated on 15 Oct 2026") | https://u.ae/en/information-and-services/jobs/Sector-of-employment/employment-in-the-private-sector/end-of-service-benefits-for-employees-in-the-private-sector | E2 |
 | S-UAE-WAGE | u.ae, Payment of salaries/wages (page says "Updated on 14 Oct 2026") | https://u.ae/en/information-and-services/jobs/Sector-of-employment/employment-in-the-private-sector/payment-of-wages | E2 |
 | S-WPS340 | MOHRE Ministerial Resolution No. (0340) of 2026 Concerning the Wage Protection System | https://www.mohre.gov.ae/assets/download/9e530b2e/Ministerial%20Resolution%20No.%200340%20of%202026.pdf.aspx | E1 |
@@ -43,10 +43,11 @@ Columns: ID, rule, status. Detail follows each group.
 | P6 | Proration for mid-month joiner and leaver | UNVERIFIED (company policy decision) |
 | G1 | Gratuity formula and service bands | VERIFIED |
 | G2 | Gratuity basis wage | VERIFIED |
-| G3 | Gratuity cap | VERIFIED |
+| G3a | A cap exists: "two years' wage" (Art. 51(6) wording) | VERIFIED |
+| G3b | Cap amount (2 years of total wage or of basic wage) | UNVERIFIED (company policy decision) |
 | G4 | Part years count once one year is completed | VERIFIED |
 | G5 | Exact method for the part-year fraction | UNVERIFIED (company policy decision) |
-| G6 | Effect of contract type and resignation on gratuity | VERIFIED (no such condition in the text) |
+| G6 | Effect of contract type and resignation on gratuity | VERIFIED as: no condition found in the text read |
 | G7 | Gratuity for part-time workers | VERIFIED |
 | G8 | Deductions from gratuity | VERIFIED |
 | G9 | Voluntary Savings Scheme contributions | VERIFIED (E2) |
@@ -64,7 +65,7 @@ Columns: ID, rule, status. Detail follows each group.
 | W2 | WPS exclusions | VERIFIED |
 | W3 | WPS file (SIF) layout | UNVERIFIED |
 
-Totals: 22 VERIFIED, 6 UNVERIFIED.
+Totals: 22 VERIFIED, 7 UNVERIFIED (29 rules; G3 was split into G3a verified and G3b unverified).
 
 ---
 
@@ -81,7 +82,7 @@ Totals: 22 VERIFIED, 6 UNVERIFIED.
 - Source S-LAW.
 
 ### P3 Daily rate for a monthly-paid worker. UNVERIFIED, company policy decision
-- The Law and Regulation give a daily-wage method only for piecework workers (Art. 23: average received for actual working days in the six months before the claim). For monthly-paid workers, neither text states a divisor (30, calendar days in the month, or working days).
+- The Law gives a daily-wage method only for piecework workers (Law Art. 23: average received for actual working days in the six months before the claim). For monthly-paid workers, neither text states a divisor (30, calendar days in the month, or working days).
 - Art. 43(4) (notice allowance) and Art. 51(5) (gratuity) refer to "last wage" or "last basic wage" and do not define a daily conversion.
 - Analysis, not law: Art. 67's 30-day month supports dividing by 30 and is the only textual hook. It is not an instruction to do so.
 - Decision needed from the user (see end).
@@ -114,8 +115,11 @@ All from Law Art. 51, source S-LAW, E1. u.ae page S-UAE-EOS (E2) restates the sa
 - Art. 51(2) and 51(5): the last basic wage the worker was entitled to (monthly, weekly or daily paid), or the piecework average daily wage. Allowances are excluded by the definition in P2. u.ae page: allowances such as housing and transport are excluded.
 - The Law says "last basic wage". It does not say how a monthly basic wage becomes "a day's wage". See P3.
 
-### G3 Cap. VERIFIED
-- Art. 51(6): total gratuity for the foreign worker "does not exceed two years' wage". The text says "wage", while the basis is the basic wage (Art. 51(2)). u.ae: "the total gratuity shall not exceed the wage of 2 years." Reading used in examples: 24 x monthly basic wage. That reading is analysis; the Law does not spell out "24 months".
+### G3a A cap exists. VERIFIED
+- Art. 51(6): total gratuity for the foreign worker "does not exceed two years' wage". u.ae: "the total gratuity shall not exceed the wage of 2 years." Source S-LAW, E1; S-UAE-EOS, E2.
+
+### G3b Cap amount. UNVERIFIED, company policy decision
+- Art. 51(6) says "wage". "Wage" is a defined term in Art. 1 (P2) and includes allowances, while gratuity itself is calculated on the basic wage (Art. 51(2)). The Law does not say which one the cap uses. Two readings: two years of total wage (24 x monthly total wage), or two years of basic wage (24 x monthly basic wage). The Law does not resolve it. Not decided here.
 
 ### G4 Part years. VERIFIED (principle)
 - Art. 51(3): a benefit for parts of a year in proportion to the period at work, provided one year of continuous service was completed.
@@ -124,7 +128,7 @@ All from Law Art. 51, source S-LAW, E1. u.ae page S-UAE-EOS (E2) restates the sa
 ### G5 Method of the part-year fraction. UNVERIFIED, company policy decision
 - The Law says "in proportion" but not whether the fraction is months/12, days/365 (Art. 67 year) or days/360. Pick one and apply it consistently.
 
-### G6 Contract type and resignation. VERIFIED, E1 (negative finding)
+### G6 Contract type and resignation. VERIFIED as: no condition found in the text read (E1, negative finding)
 - Art. 51 conditions gratuity on foreign status, full-time pattern and one year of continuous service. It does not mention resignation, termination by the employer, or limited versus unlimited contracts as conditions or reductions.
 - I searched the whole text of S-LAW for "resign", "forfeit" and "end of service". No other article reduces or removes gratuity. Art. 45 (worker leaves without notice for employer breach) states the worker "retain[s] his rights upon end of service". Art. 47(3) preserves end of service benefits after unlawful termination. Art. 44 (dismissal without notice) does not mention gratuity either way.
 - Under this Law, contracts are fixed-term; Art. 68(2) required conversion of undefined-term contracts. Art. 68(3) lets the employer calculate end of service for undefined-term contracts under the old Federal Law No. 8 of 1980. I did not read that old law. Legacy undefined-term contracts: UNVERIFIED, take advice.
@@ -176,15 +180,15 @@ All from Law Art. 51, source S-LAW, E1. u.ae page S-UAE-EOS (E2) restates the sa
 - Art. 30: 60 days: first 45 days full wage, next 15 days half wage. Up to 45 further days unpaid, only if illness from pregnancy or childbirth is certified; that period is not counted in service for gratuity. Sick child: 30 days full pay after maternity leave plus up to 30 days unpaid. Conditions are in Art. 30(2)-(4).
 
 ### L5 Other paid leave. VERIFIED
-- Art. 32(1): bereavement 5 days (spouse) or 3 days (mother, father, son, brother, sister, grandchild, grandparent), from the date of death; parental leave 5 working days within 6 months of the birth (either parent); other leaves specified by the Cabinet (not read). Art. 32(2): study leave up to 10 working days per year for enrolled students with at least two years' service. Art. 32(3): national service leave. Whether study leave is paid is not clear in the text read ("granted"); treat pay as UNVERIFIED for that item only.
+- Art. 32(1): bereavement 5 days (spouse) or 3 days (mother, father, son, brother, sister, grandchild, grandparent), from the date of death; parental leave 5 working days within 6 months of the birth (either parent); other leaves specified by the Cabinet (not read). Art. 32(2): study leave up to 10 working days per year for enrolled students with at least two years' service. Art. 32(3): national service leave applies to UAE nationals and is out of scope here. Whether study leave is paid is not clear in the text read ("granted"); treat pay as UNVERIFIED for that item only.
 
 ---
 
 ## E. Wages Protection System (WPS)
 
 ### W1 Due date and compliance threshold. VERIFIED, E1
-- Ministerial Resolution 0340 of 2026, Art. 1: the first day of each Gregorian month is the unified due date for wages of the preceding Gregorian month; late payment counts as delay; payment is made through the WPS or another Ministry-approved system. Art. 2: an establishment is compliant if no later than the due date it transfers at least 85% of the total wages due; a worker is not treated as unpaid if they receive at least 85% where the difference is lawful deductions or withholdings. Annex 1 sets the escalation steps (alerts from day 2; permit suspension day 5; and so on); u.ae restates them. Art. 7 repeals earlier provisions; the resolution cites Ministerial Resolution No. 598 of 2022 as the earlier WPS resolution. I did not read the full text of Art. 7.
-- Law Art. 22(2) (wages paid on due dates under Ministry regulations) and the Regulation provision implementing Art. 22 (wages paid through the WPS or another approved system) back this.
+- Ministerial Resolution 0340 of 2026, Art. 1: the first day of each Gregorian month is the unified due date for wages of the preceding Gregorian month; late payment counts as delay; payment is made through the WPS or another Ministry-approved system. Art. 2: an establishment is compliant if no later than the due date it transfers at least 85% of the total wages due; a worker is not treated as unpaid if they receive at least 85% where the difference is lawful deductions or withholdings. Annex 1 sets the escalation steps (alerts from day 2; permit suspension day 5; and so on); u.ae restates them. Art. 7 repeals Ministerial Resolution No. (598) of 2022 and any conflicting provision. Art. 8: the Resolution comes into force on 1 June 2026 (issued 12/05/2026 per the PDF). Confirmed from the PDF on 2026-11-01. Wages for months from May 2026 paid on or after 1 June 2026 fall under it.
+- Law Art. 22(2) (wages paid on due dates under Ministry regulations) and Regulation Art. 16(1)(b) (all registered establishments pay through the Wages Protection System or another Ministry-approved system) back this. 
 
 ### W2 Exclusions. VERIFIED, E1
 - Resolution Art. 4: includes a worker on approved unpaid leave, if the Ministry is notified with documents; a worker with an absconding report during its validity; workers with wage claims in court or an executive instrument within its limits; others (seafarers on request, mission permits up to 3 months, and employer categories such as banks and places of worship).
@@ -198,7 +202,7 @@ All from Law Art. 51, source S-LAW, E1. u.ae page S-UAE-EOS (E2) restates the sa
 
 ## F. Worked gratuity examples (test fixtures)
 
-The gratuity formula (G1, G2, G3) is VERIFIED. These examples additionally assume, as stated, daily wage = monthly basic wage / 30 (from P1/P3, analysis, not law) and cap = 24 x monthly basic wage (from G3, analysis). If the user decides differently on P3, recompute these. Whole completed years only, with no unpaid absence, so G5 does not arise.
+The gratuity formula and cap existence (G1, G2, G3a) are VERIFIED. These examples additionally assume: daily wage = monthly basic wage / 30 (from P1/P3, analysis, not law), and the cap amount = 24 x monthly basic wage. That cap reading is an ASSUMPTION pending the user's decision on G3b; it does not affect Examples 1 and 2 (far below any cap) but decides Example 3. If the user decides differently on P3 or G3b, recompute. Whole completed years only, with no unpaid absence, so G5 does not arise.
 
 Example 1: basic 5,000, 3 years' service.
 1. Years in the 21-day band: min(3, 5) = 3. Days = 3 x 21 = 63.
@@ -212,7 +216,7 @@ Example 2: basic 10,000, 8 years' service.
 3. Total = 195 days. Daily wage = 10,000 / 30 = 333.333333.
 4. Gratuity = 195 x 333.333333 = 65,000.00. Cap = 240,000. Not capped.
 
-Example 3 (cap): basic 10,000, 30 years' service.
+Example 3 (cap, assumes the basic-wage cap reading of G3b): basic 10,000, 30 years' service.
 1. 21-day band: 105 days. 30-day band: 25 years x 30 = 750 days. Total = 855 days.
 2. Daily wage = 333.333333. Uncapped = 855 x 333.333333 = 285,000.00.
 3. Cap = 24 x 10,000 = 240,000.00. Gratuity = min(285,000; 240,000) = 240,000.00.
@@ -236,9 +240,15 @@ Boundary checks the task may add: service of 11 months 29 days = 0 (G1); exactly
 - Unpaid-leave deduction rule (P5): which wage component, and the divisor.
 - Mid-month joiner and leaver proration (P6).
 - Part-year gratuity fraction method (G5): months/12, days/365 or other.
-- Confirm the cap reading (24 x monthly basic wage).
+- Cap amount (G3b): two years of total wage or of basic wage.
 - Whether any staff are on legacy undefined-term contracts (Art. 68(3)) or on the Savings Scheme (G9).
 - Whether annual leave days are calendar or working days for encashment.
 - Whether the client's contracts add terms (air ticket, bonuses) that belong in the final settlement (S4).
 - A WPS sample file or specification from the bank or MOHRE, and a past payroll sheet. Without a WPS source, the WPS export step in Task 8 is skipped.
+- Wage base for paid leave while in service (basic wage or total wage). The Law fixes basic wage only for leave paid at exit (S2).
+- How service years are counted: start and end dates, whether inclusive, whether the notice period and probation count.
+- Sick-leave year window (contract year or calendar year) for the 90-day limit.
+- Money rounding rule (decimals, when to round).
+- When the 14-day clock in S1 starts (last working day, contract end date, or end of notice).
+- Not researched: overtime pay (Art. 19) and public-holiday pay (Art. 28). Do not build either from this file.
 - A qualified UAE labour adviser's confirmation of the rules before go-live.
