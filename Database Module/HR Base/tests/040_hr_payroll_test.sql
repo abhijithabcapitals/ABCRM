@@ -53,8 +53,9 @@ $$;
 create function public.amt(p_items jsonb, p_label text) returns numeric language sql as $$
   select sum((x ->> 'amount')::numeric) from jsonb_array_elements(p_items) x where x ->> 'label' = p_label
 $$;
+create function public.hr_pay_sum_t(p_items jsonb) returns numeric language sql as $$ select coalesce(sum((x ->> 'amount')::numeric), 0) from jsonb_array_elements(p_items) x $$;
 create function public.gr(p_emp text, p_exit date) returns jsonb language sql as $$ select public.hr_gratuity(public.pe(p_emp), p_exit) $$;
-grant execute on function public.rid(date), public.ln(date, text), public.amt(jsonb, text), public.gr(text, date) to authenticated;
+grant execute on function public.rid(date), public.ln(date, text), public.amt(jsonb, text), public.gr(text, date), public.hr_pay_sum_t(jsonb) to authenticated;
 
 set role authenticated;
 
@@ -267,7 +268,7 @@ select public.as_user('99');
 select public.ok('outsider reads nothing', (select count(*) = 0 from public.hr_pay_lines) and (select count(*) = 0 from public.hr_pay_details) and (select count(*) = 0 from public.hr_pay_runs));
 select public.ok('pay functions are definer, fixed search_path, closed to anon and public', (select count(*) = 7 and bool_and(prosecdef and proconfig::text ilike '%search_path=public, pg_temp%' and not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('public', oid, 'execute') and has_function_privilege('authenticated', oid, 'execute')) from pg_proc where proname in ('hr_payrun_create', 'hr_payrun_adjust', 'hr_payrun_recalc', 'hr_payrun_approve', 'hr_payrun_delete', 'hr_gratuity', 'hr_pay_details_list')));
 
-select public.ok('internal pay helpers are closed to signed-in users', (select count(*) = 8 and bool_and(not has_function_privilege('authenticated', oid, 'execute') and not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('public', oid, 'execute')) from pg_proc where proname in ('hr_pay_money', 'hr_pay_sum', 'hr_pay_unpaid_days', 'hr_pay_working_days', 'hr_pay_require_run_settings', 'hr_pay_compute', 'hr_pay_scope', 'hr_pay_fill')));
+select public.ok('internal pay helpers are closed to signed-in users', (select count(*) = 9 and bool_and(not has_function_privilege('authenticated', oid, 'execute') and not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('public', oid, 'execute')) from pg_proc where proname in ('hr_pay_money', 'hr_pay_sum', 'hr_pay_unpaid_days', 'hr_pay_working_days', 'hr_pay_require_run_settings', 'hr_pay_compute', 'hr_pay_scope', 'hr_pay_fill', 'hr_pay_change_blocker')));
 
 -- ── same-person approval ──
 select public.as_user('0b');
@@ -312,8 +313,8 @@ select public.as_user('0b');
 insert into public.hr_holidays (holiday_date, name) values ('2025-07-14', 'Fixture holiday');
 select public.hr_attendance_set(public.pe('c2'), '2025-07-07', 'Absent', null, null, null);
 select public.hr_payrun_create('2025-07-01');
--- Each component rounds on its own: working mode 1500x9/22 = 613.64, 500x9/22 = 204.55, net 818.19. fixed 30, total: joiner 11 days of 30 x 2000; absent 13000/30
-select public.ok('fixed: joiner', (public.ln('2025-07-01', 'c8')).net = 733.33, (public.ln('2025-07-01', 'c8')).earnings::text);
+-- Each component rounds on its own: working mode 1500x9/22 = 613.64, 500x9/22 = 204.55, net 818.19. fixed 30, total: joiner 20 days out, 1500x10/30 + 500x10/30 = 666.67; absent 13000/30
+select public.ok('fixed: joiner', (public.ln('2025-07-01', 'c8')).net = 666.67, (public.ln('2025-07-01', 'c8')).earnings::text);
 select public.ok('fixed: a whole 31-day month is the full wage', (public.ln('2025-07-01', 'c1')).net = 10000);
 select public.ok('fixed, total base: one absent day', public.amt((public.ln('2025-07-01', 'c2')).deductions, 'Unpaid days') = 433.33);
 update public.hr_settings set pay_unpaid_wage_base = 'basic'; -- fixture
@@ -337,10 +338,22 @@ insert into public.hr_pay_details (employee_id, effective_from, basic, iban) val
 select public.hr_payrun_create('2025-08-01');
 select public.ok('a pay change inside the month carries a review note', (public.ln('2025-08-01', 'c3')).notes::text ilike '%changed during%review%', (public.ln('2025-08-01', 'c3')).notes::text);
 select public.ok('a joiner first row is not a pay change', (public.ln('2025-06-01', 'c4')).notes::text not ilike '%changed during%');
+select public.ok('the pay change is also a blocker', (public.ln('2025-08-01', 'c3')).blockers::text ilike '%Pay changed during the month%');
 select public.as_user('0a');
-select public.hr_payrun_approve(public.rid('2025-08-01'));
-select public.ok('a different approver needs no ack, and ack is stored false', (select status = 'approved' and not same_person_ack and approved_by = '00000000-0000-0000-0000-00000000000a' from public.hr_pay_runs where id = public.rid('2025-08-01')));
+select public.must_fail('a mid-month change blocks approval, by name', $$select public.hr_payrun_approve(public.rid('2025-08-01'))$$, 'Pay Other');
+select public.hr_payrun_recalc(public.rid('2025-08-01'));
+select public.ok('recalc keeps the blocker while there is no adjustment', (public.ln('2025-08-01', 'c3')).blockers <> '[]'::jsonb);
 select public.as_user('0b');
+select public.hr_payrun_recalc(public.rid('2025-08-01'));
+select public.as_user('0a');
+-- HR's correction: 6500 for 14 days of the old pay at 500 less, 500 x 14/30 = 233.33
+select public.hr_payrun_adjust((public.ln('2025-08-01', 'c3')).id, 'Old pay to 14 August', -233.33);
+select public.ok('the adjustment clears the blocker and is audited', (public.ln('2025-08-01', 'c3')).blockers = '[]'::jsonb and (public.ln('2025-08-01', 'c3')).net = 6266.67 and (select count(*) >= 1 from public.hr_audit_log where action = 'payrun.adjusted' and new_values::text ilike '%Old pay to 14 August%'));
+select public.ok('adjust sets prepared_by', (select prepared_by = '00000000-0000-0000-0000-00000000000a' from public.hr_pay_runs where id = public.rid('2025-08-01')));
+select public.must_fail('adjust then approve as the same person needs the acknowledgement', $$select public.hr_payrun_approve(public.rid('2025-08-01'))$$, 'same person');
+select public.as_user('0b');
+select public.hr_payrun_approve(public.rid('2025-08-01'));
+select public.ok('a different approver needs no ack, and ack is stored false', (select status = 'approved' and not same_person_ack and approved_by = '00000000-0000-0000-0000-00000000000b' from public.hr_pay_runs where id = public.rid('2025-08-01')));
 
 -- ── gratuity (PAYROLL_RULES.md section F; fixtures: divisor 30, cap base basic, end date exclusive, months/12) ──
 select public.must_fail('gratuity needs the fraction method', $$select public.gr('d1', '2023-01-01')$$, 'Gratuity part-year method');
@@ -381,6 +394,147 @@ select public.ok('one absent day takes exactly 1 year below the one-year line', 
 select public.must_fail('gratuity with no pay details fails', $$select public.gr('d8', '2023-01-01')$$, 'pay details');
 select public.must_fail('gratuity with exit before join fails', $$select public.gr('d1', '2019-01-01')$$, 'before');
 select public.ok('gratuity is not added to any pay line', (select count(*) = 0 from public.hr_pay_lines where (earnings || deductions || adjustments)::text ilike '%gratuity%'));
+
+-- ══ Fix round 1: hand-worked figures. All settings are TEST FIXTURES. ══
+reset role;
+insert into public.hr_employees (id, employee_code, full_name, join_date, exit_date, status) values
+  (public.pe('e1'), 'F-1', 'Fix Fully Unpaid July', '2025-07-01', '2025-07-31', 'Left'),
+  (public.pe('e2'), 'F-2', 'Fix Range', '2025-07-01', '2025-07-31', 'Left'),
+  (public.pe('e3'), 'F-3', 'Fix Saturday', '2025-07-01', '2025-07-31', 'Left'),
+  (public.pe('e4'), 'F-4', 'Fix Feb Whole', '2026-02-01', '2026-02-28', 'Left'),
+  (public.pe('e5'), 'F-5', 'Fix Feb Missed', '2026-02-01', '2026-02-28', 'Left'),
+  (public.pe('e6'), 'F-6', 'Fix Feb Leaver', '2026-02-01', '2026-02-27', 'Left'),
+  (public.pe('e7'), 'F-7', 'Fix Feb Unpaid', '2026-02-01', '2026-02-28', 'Left'),
+  (public.pe('e8'), 'F-8', 'Fix Joiner Sixth', '2026-04-06', '2026-04-30', 'Left'),
+  (public.pe('e9'), 'F-9', 'Fix Above Wage', '2026-05-01', '2026-05-31', 'Left'),
+  (public.pe('ea'), 'F-A', 'Fix Both Ways', '2026-03-10', '2026-03-20', 'Left'),
+  (public.pe('eb'), 'F-B', 'Fix Exit Before Join', '2026-03-20', '2026-03-10', 'Left'),
+  (public.pe('ec'), 'F-C', 'Fix Late First Row', '2026-03-01', '2026-03-31', 'Left'),
+  (public.pe('d9'), 'G-9', 'Grat Long Unpaid', '2020-01-01', '2024-12-31', 'Left');
+insert into public.hr_pay_details (employee_id, effective_from, basic, allowances, iban) values
+  (public.pe('e1'), '2025-07-01', 3000, '{"Housing": 1000}', 'AE070331234567890123001'),
+  (public.pe('e2'), '2025-07-01', 3100, '{}', 'AE070331234567890123002'),
+  (public.pe('e3'), '2025-07-01', 2200, '{}', 'AE070331234567890123003'),
+  (public.pe('e4'), '2026-02-01', 3000, '{}', 'AE070331234567890123004'),
+  (public.pe('e5'), '2026-02-01', 3000, '{}', 'AE070331234567890123005'),
+  (public.pe('e6'), '2026-02-01', 3000, '{}', 'AE070331234567890123006'),
+  (public.pe('e7'), '2026-02-01', 3000, '{"Housing": 1000}', 'AE070331234567890123007'),
+  (public.pe('e8'), '2026-04-06', 2600, '{}', 'AE070331234567890123008'),
+  (public.pe('e9'), '2026-05-01', 2600, '{"Housing": 400}', 'AE070331234567890123009'),
+  (public.pe('ea'), '2026-03-01', 3000, '{}', 'AE070331234567890123010'),
+  (public.pe('eb'), '2026-03-01', 3000, '{}', 'AE070331234567890123011'),
+  (public.pe('ec'), '2026-03-16', 3000, '{}', 'AE070331234567890123012'),
+  (public.pe('d9'), '2020-01-01', 5000, '{}', null);
+insert into public.hr_leave_requests (employee_id, leave_type_id, from_date, to_date, days, status) values
+  (public.pe('e1'), public.ltype('PX Unpaid'), '2025-07-01', '2025-07-31', 22, 'approved'),
+  -- Fri 11 to Tue 15 July 2025: Fri, Sat, Sun, Mon 14 (fixture holiday), Tue = 5 calendar, 2 working
+  (public.pe('e2'), public.ltype('PX Unpaid'), '2025-07-11', '2025-07-15', 2, 'approved'),
+  (public.pe('e7'), public.ltype('PX Unpaid'), '2026-02-01', '2026-02-28', 20, 'approved'),
+  (public.pe('e9'), public.ltype('PX Unpaid'), '2026-05-01', '2026-05-27', 19, 'approved'),
+  (public.pe('d9'), public.ltype('PX Unpaid'), '2021-06-01', '2021-06-30', 22, 'approved');
+insert into public.hr_attendance (employee_id, work_date, status) values
+  (public.pe('e3'), '2025-07-12', 'Absent'), -- a Saturday
+  (public.pe('e5'), '2026-02-03', 'Absent'),
+  (public.pe('d9'), '2021-06-15', 'Absent'), -- inside the leave: once only
+  (public.pe('d9'), '2021-07-05', 'Absent');
+set role authenticated;
+select public.as_user('0b');
+update public.hr_settings set pay_day_divisor_mode = 'fixed', pay_days_basis = 30, pay_unpaid_wage_base = 'total'; -- fixture
+
+-- July 2025: 31 days, 22 working days (23 weekdays less the fixture holiday on Mon 14 July)
+select public.hr_payrun_create('2025-07-01');
+select public.ok('fixed: fully unpaid July pays 0', (public.ln('2025-07-01', 'e1')).net = 0 and public.hr_pay_sum_t((public.ln('2025-07-01', 'e1')).earnings) = 0, (public.ln('2025-07-01', 'e1')).earnings::text);
+select public.ok('fixed: range over weekend and holiday is 5 days, 3100x5/30 = 516.67', (public.ln('2025-07-01', 'e2')).net = 2583.33, (public.ln('2025-07-01', 'e2')).deductions::text);
+select public.ok('fixed: Absent on a Saturday counts, 2200/30 = 73.33', (public.ln('2025-07-01', 'e3')).net = 2126.67);
+update public.hr_settings set pay_unpaid_wage_base = 'basic'; -- fixture
+select public.hr_payrun_recalc(public.rid('2025-07-01'));
+select public.ok('fixed, base basic: fully unpaid July still pays 0, allowance included', (public.ln('2025-07-01', 'e1')).net = 0);
+update public.hr_settings set pay_unpaid_wage_base = 'total', pay_day_divisor_mode = 'calendar_days'; -- fixture
+select public.hr_payrun_recalc(public.rid('2025-07-01'));
+select public.ok('calendar: fully unpaid July pays 0', (public.ln('2025-07-01', 'e1')).net = 0);
+select public.ok('calendar: range is 5 days, 3100x5/31 = 500.00', (public.ln('2025-07-01', 'e2')).net = 2600.00);
+select public.ok('calendar: Absent on a Saturday counts, 2200/31 = 70.97', (public.ln('2025-07-01', 'e3')).net = 2129.03);
+update public.hr_settings set pay_day_divisor_mode = 'working_days'; -- fixture
+select public.hr_payrun_recalc(public.rid('2025-07-01'));
+select public.ok('working: fully unpaid July pays 0', (public.ln('2025-07-01', 'e1')).net = 0);
+select public.ok('working: range is 2 days, 3100x2/22 = 281.82', (public.ln('2025-07-01', 'e2')).net = 2818.18, (public.ln('2025-07-01', 'e2')).deductions::text);
+select public.ok('working: Absent on a Saturday does not count', (public.ln('2025-07-01', 'e3')).net = 2200 and (public.ln('2025-07-01', 'e3')).deductions = '[]'::jsonb);
+update public.hr_settings set pay_day_divisor_mode = 'fixed'; -- fixture
+
+-- a draft's adjustments are audited when it is deleted
+select public.hr_payrun_recalc(public.rid('2025-07-01'));
+select public.hr_payrun_adjust((public.ln('2025-07-01', 'e2')).id, 'Lost with the draft', 11);
+select public.hr_payrun_delete(public.rid('2025-07-01'));
+select public.ok('deleting a draft audits its adjustments', (select count(*) = 1 from public.hr_audit_log where action = 'payrun.deleted' and old_values::text ilike '%Lost with the draft%'));
+
+-- February 2026, fixed 30
+select public.hr_payrun_create('2026-02-01');
+select public.ok('February whole month is 100%', (public.ln('2026-02-01', 'e4')).net = 3000);
+select public.ok('February one day missed costs 1/30', (public.ln('2026-02-01', 'e5')).net = 2900);
+select public.ok('leaver on 27 Feb: 1 day out of employment, 29/30', (public.ln('2026-02-01', 'e6')).net = 2900, (public.ln('2026-02-01', 'e6')).earnings::text);
+select public.ok('fully unpaid February pays 0, not 2/30', (public.ln('2026-02-01', 'e7')).net = 0);
+select public.hr_payrun_delete(public.rid('2026-02-01'));
+
+-- April 2026, fixed 26: joiner on the 6th is 5 days out, 2600 x 21/26 = 2100
+update public.hr_settings set pay_days_basis = 26; -- fixture
+select public.hr_payrun_create('2026-04-01');
+select public.ok('joiner on the 6th with basis 26 is not paid in full', (public.ln('2026-04-01', 'e8')).net = 2100, (public.ln('2026-04-01', 'e8')).earnings::text);
+select public.hr_payrun_delete(public.rid('2026-04-01'));
+
+-- May 2026, fixed 26: 27 unpaid of 31 employed. 3000 x 27/26 = 3115.38 is above the wage: held at what was earned
+select public.hr_payrun_create('2026-05-01');
+select public.ok('natural deduction above the wage: net 0, not negative', (public.ln('2026-05-01', 'e9')).net = 0 and public.amt((public.ln('2026-05-01', 'e9')).deductions, 'Unpaid days') = 3000, (public.ln('2026-05-01', 'e9')).deductions::text);
+update public.hr_settings set pay_unpaid_wage_base = 'basic'; -- fixture
+select public.hr_payrun_recalc(public.rid('2026-05-01'));
+select public.ok('base basic: deduction held at basic, allowance stays payable and noted', (public.ln('2026-05-01', 'e9')).net = 400 and (public.ln('2026-05-01', 'e9')).notes::text ilike '%allowances remain payable%', (public.ln('2026-05-01', 'e9')).notes::text);
+update public.hr_settings set pay_unpaid_wage_base = 'total'; -- fixture
+select public.hr_payrun_recalc(public.rid('2026-05-01'));
+-- hash: weekend and holiday settings are inputs
+select public.as_user('0a');
+update public.hr_settings set weekend_days = '{5,6}'; -- fixture
+select public.must_fail('hash fails after a weekend setting change', $$select public.hr_payrun_approve(public.rid('2026-05-01'))$$, 'Fix Above Wage');
+update public.hr_settings set weekend_days = '{0,6}'; -- fixture
+insert into public.hr_holidays (holiday_date, name) values ('2026-05-05', 'Fixture holiday 2');
+select public.must_fail('hash fails after a holiday change', $$select public.hr_payrun_approve(public.rid('2026-05-01'))$$, 'recalculate');
+delete from public.hr_holidays where holiday_date = '2026-05-05';
+select public.hr_payrun_delete(public.rid('2026-05-01'));
+select public.as_user('0b');
+
+-- March 2026: 31 days, 22 working days. Employed 10 to 20 March: 20 days out, or 9 working days in
+update public.hr_settings set pay_days_basis = 30; -- fixture
+select public.hr_payrun_create('2026-03-01');
+select public.ok('joiner and leaver in one month, fixed: 3000 x 10/30', (public.ln('2026-03-01', 'ea')).net = 1000, (public.ln('2026-03-01', 'ea')).earnings::text);
+select public.ok('exit before join is a named blocker with pay 0', (public.ln('2026-03-01', 'eb')).net = 0 and (public.ln('2026-03-01', 'eb')).blockers::text ilike '%before join date%');
+select public.ok('first pay row after the start is a blocker', (public.ln('2026-03-01', 'ec')).blockers::text ilike '%No pay defined for 2026-03-01 to 2026-03-15%', (public.ln('2026-03-01', 'ec')).blockers::text);
+select public.ok('that is not reported as a pay change', (public.ln('2026-03-01', 'ec')).notes::text not ilike '%changed during%');
+select public.as_user('0a');
+select public.must_fail('approval names the exit-before-join person', $$select public.hr_payrun_approve(public.rid('2026-03-01'))$$, 'Fix Exit Before Join');
+select public.must_fail('approval names the late first row person', $$select public.hr_payrun_approve(public.rid('2026-03-01'))$$, 'Fix Late First Row');
+select public.as_user('0b');
+update public.hr_settings set pay_day_divisor_mode = 'calendar_days'; -- fixture
+select public.hr_payrun_recalc(public.rid('2026-03-01'));
+select public.ok('joiner and leaver in one month, calendar: 3000 x 11/31', (public.ln('2026-03-01', 'ea')).net = 1064.52);
+update public.hr_settings set pay_day_divisor_mode = 'working_days'; -- fixture
+select public.hr_payrun_recalc(public.rid('2026-03-01'));
+select public.ok('joiner and leaver in one month, working: 3000 x 9/22', (public.ln('2026-03-01', 'ea')).net = 1227.27);
+update public.hr_settings set pay_day_divisor_mode = 'fixed'; -- fixture
+select public.hr_payrun_delete(public.rid('2026-03-01'));
+
+-- gratuity: 30 calendar days of unpaid leave over weekends, 1 Absent inside it, 1 outside = 31. 2023-02-01 less 31 days = 2023-01-01: 3 years
+select public.ok('gratuity excludes every calendar day of unpaid leave, each day once', (select (g ->> 'excluded_unpaid_days')::numeric = 31 and (g ->> 'years')::numeric = 3 and (g ->> 'amount')::numeric = 10500 from public.gr('d9', '2023-02-01') g), public.gr('d9', '2023-02-01')::text);
+
+-- snapshot: approved lines keep the bank details as approved, whatever happens to pay details later
+select public.ok('approval snapshots IBAN, routing and labour card', (public.ln('2025-06-01', 'c2')).iban = 'AE070331234567890123452' and (public.ln('2025-06-01', 'c2')).bank_routing = '033' and (public.ln('2025-06-01', 'c2')).wps_labour_card = 'LC2');
+select public.ok('a draft has no snapshot', (select count(*) = 0 from public.hr_pay_lines l join public.hr_pay_runs r on r.id = l.run_id where r.status = 'draft' and l.iban is not null));
+update public.hr_pay_details set iban = 'AE070331234567890123888', bank_routing = '999', wps_labour_card = 'CHANGED' where employee_id = public.pe('c2');
+select public.ok('snapshot unchanged after pay details change', (public.ln('2025-06-01', 'c2')).iban = 'AE070331234567890123452' and (public.ln('2025-06-01', 'c2')).bank_routing = '033' and (public.ln('2025-06-01', 'c2')).wps_labour_card = 'LC2');
+select public.must_fail('pay details cannot move to another employee', $$update public.hr_pay_details set employee_id = public.pe('c1') where employee_id = public.pe('c2')$$, 'another employee');
+select public.as_user('c2');
+select public.ok('the owning employee reads own snapshot', (select bool_and(employee_id = public.pe('c2') and iban = 'AE070331234567890123452') from public.hr_pay_lines where iban is not null));
+select public.as_user('c3');
+select public.ok('another employee reads no other snapshot', (select count(*) = 0 from public.hr_pay_lines where employee_id <> public.pe('c3')));
+select public.as_user('0b');
+select public.ok('no IBAN anywhere in the audit log', (select count(*) = 0 from public.hr_audit_log where coalesce(old_values::text, '') || coalesce(new_values::text, '') ilike '%AE0703%'));
 
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;

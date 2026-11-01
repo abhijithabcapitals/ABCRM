@@ -7,8 +7,8 @@ const keys = (role, implemented) => tabsFor(role, implemented).map((t) => t.key)
 test("hr sees every tab", () => {
   assert.deepEqual(keys("hr"), ["dashboard", "employees", "documents", "leave", "attendance", "payroll", "settings"]);
 });
-test("manager sees Dashboard, Employees, Leave, Attendance", () => {
-  assert.deepEqual(keys("manager"), ["dashboard", "employees", "leave", "attendance"]);
+test("manager sees Dashboard, Employees, Leave, Attendance, Payroll (own approved lines only)", () => {
+  assert.deepEqual(keys("manager"), ["dashboard", "employees", "leave", "attendance", "payroll"]);
 });
 test("employee sees Dashboard, Employees, Documents, Leave, Attendance, Payroll", () => {
   assert.deepEqual(keys("employee"), ["dashboard", "employees", "documents", "leave", "attendance", "payroll"]);

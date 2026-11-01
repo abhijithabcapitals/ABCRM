@@ -47,3 +47,4 @@ export function monthStart(value) {
 
 export const money = (n) => Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const monthLabel = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+export const maskIban = (iban) => (iban ? `****${String(iban).slice(-4)}` : null);

@@ -8,12 +8,10 @@
 --   the table owner included.
 -- Figures: no rate, divisor or wage base is built in. PAYROLL_RULES.md marks P3, P5, P6, G3b, G5 and the service-count rule as
 --   company policy decisions, so they are settings that start null, and a run or gratuity calculation names what is missing.
---   Daily rate and proration divisor: pay_day_divisor_mode. fixed = pay_days_basis, calendar_days = days in the month,
---   working_days = days in the month that are neither weekend nor holiday. Proration: wage x days employed / divisor, never more
---   than the monthly wage; fixed and calendar_days count calendar days employed, working_days counts working days employed.
---   An employee employed for the whole calendar month gets the monthly wage, whatever the divisor.
---   Unpaid day: a stored Absent row, or a working day inside approved leave of an unpaid type unless a stored row says otherwise.
+--   Divisor: pay_day_divisor_mode. fixed = pay_days_basis, calendar_days = days in the month, working_days = days neither weekend nor holiday.
+--   The arithmetic, and how the unpaid wage base meets the paid fraction, is described above hr_pay_compute.
 --   Paid leave counts as fully paid; half-pay tiers are not calculated (leave types marked half_pay_note put a review note on the line).
+--   A pay change inside the month blocks approval until the line carries an adjustment (the audited way HR records that it was dealt with).
 -- Rounding: each money figure round(x, 2); net = earnings - deductions + adjustments from the rounded parts.
 -- input_hash: sha-256 over everything a line was computed from. Approval recomputes each line; any difference stops approval.
 -- Requires 002 (access helpers, hr_audit), 003 (hr_touch), 005 (settings, leave), 006 (attendance). Idempotent.
@@ -69,6 +67,10 @@ create table if not exists public.hr_pay_lines (
   notes jsonb not null default '[]'::jsonb,
   blockers jsonb not null default '[]'::jsonb,
   input_hash text,
+  -- bank details as approved. Set only by hr_payrun_approve; never written to hr_audit_log.
+  iban text,
+  bank_routing text,
+  wps_labour_card text,
   updated_at timestamptz not null default now(),
   updated_by uuid default auth.uid(),
   unique (run_id, employee_id)
@@ -82,6 +84,7 @@ language plpgsql set search_path = public, pg_temp as $$
 declare k text; v jsonb;
 begin
   if new.employee_id is null then raise exception 'Choose the employee'; end if;
+  if tg_op = 'UPDATE' and new.employee_id <> old.employee_id then raise exception 'Pay details cannot move to another employee. Add a new row for that employee'; end if;
   if new.effective_from is null then raise exception 'The effective date is required'; end if;
   if new.basic is null or new.basic = 'NaN' or new.basic < 0 then raise exception 'The basic wage must be zero or more'; end if;
   new.iban := nullif(upper(regexp_replace(coalesce(new.iban, ''), '\s', '', 'g')), '');
@@ -196,19 +199,20 @@ language sql immutable set search_path = public, pg_temp as $$
   select coalesce(sum((x ->> 'amount')::numeric), 0) from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) x
 $$;
 
--- Dates in a range that are unpaid. Stored Absent counts. Approved unpaid leave counts on working days unless a stored row other than Leave says otherwise.
-create or replace function public.hr_pay_unpaid_days(p_employee uuid, p_from date, p_to date)
+-- Dates in a range that are unpaid: every stored Absent day and every day inside approved unpaid leave, each date once.
+-- p_working_only keeps only working days (working_days pay mode). Pay in the other modes and gratuity service count every calendar day.
+create or replace function public.hr_pay_unpaid_days(p_employee uuid, p_from date, p_to date, p_working_only boolean)
 returns table (day date, why text)
 language sql stable security definer set search_path = public, pg_temp as $$
   select g.d::date, case when a.status = 'Absent' then 'Absent' else 'Unpaid leave' end
   from generate_series(p_from::timestamp, p_to::timestamp, interval '1 day') g(d)
   left join public.hr_attendance a on a.employee_id = p_employee and a.work_date = g.d::date
-  where a.status = 'Absent'
-     or ((a.id is null or a.status = 'Leave')
-         and not (extract(dow from g.d)::int = any ((select s.weekend_days from public.hr_settings s where s.id = 1)::int[]))
-         and not exists (select 1 from public.hr_holidays h where h.holiday_date = g.d::date)
-         and exists (select 1 from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id
-                     where r.employee_id = p_employee and r.status = 'approved' and not t.paid and g.d::date between r.from_date and r.to_date))
+  where (a.status = 'Absent'
+         or exists (select 1 from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id
+                    where r.employee_id = p_employee and r.status = 'approved' and not t.paid and g.d::date between r.from_date and r.to_date))
+    and (not p_working_only
+         or (not (extract(dow from g.d)::int = any ((select s.weekend_days from public.hr_settings s where s.id = 1)::int[]))
+             and not exists (select 1 from public.hr_holidays h where h.holiday_date = g.d::date)))
   order by 1
 $$;
 
@@ -230,6 +234,11 @@ begin
 end $$;
 
 -- One employee, one month: every figure, note and blocker, and the hash of what they came from. Writes nothing.
+-- The month's unit, by mode: M = pay_days_basis (fixed; days counted are calendar days), days in the month (calendar_days), working days (working_days).
+-- not_employed and unpaid are counted in that unit. Earnings = monthly x (M - not_employed) / M, each component rounded.
+-- Unpaid days = deduction from the pay_unpaid_wage_base part only: base x unpaid / M, never more than that part as earned. With base total
+-- this gives the paid fraction (M - not_employed - unpaid) / M, floored at 0; with base basic the allowances stay payable at the employment fraction.
+-- If every employed day is unpaid, or there is no employed day, every earning is 0 and there is no deduction, so pay is exactly 0 whatever the base or basis.
 create or replace function public.hr_pay_compute(p_month date, p_employee uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -239,71 +248,110 @@ declare
   e public.hr_employees%rowtype;
   d public.hr_pay_details%rowtype;
   has_d boolean;
-  from_d date; to_d date; whole_month boolean;
-  divisor numeric; units numeric; factor_units numeric;
+  from_d date; to_d date; working boolean;
+  month_units numeric; employed_units numeric; not_employed numeric; earn_units numeric;
   unit_word text;
   earn jsonb := '[]'::jsonb; ded jsonb := '[]'::jsonb; notes jsonb := '[]'::jsonb; blockers jsonb := '[]'::jsonb;
-  k text; v jsonb; x numeric; total numeric; base numeric; amount numeric;
-  unpaid_n int; unpaid_txt text; half text; paid_n numeric; changed boolean := false;
+  k text; v jsonb; x numeric; y numeric; total numeric; base numeric; earned_basic numeric; earned_total numeric; earned_base numeric; raw numeric; amount numeric;
+  unpaid_n int; unpaid_txt text; present_txt text; half text; paid_n numeric; zero_pay boolean;
+  changed boolean := false; no_earlier boolean := false;
   inputs jsonb;
 begin
   select * into s from public.hr_settings where id = 1;
   select * into e from public.hr_employees where id = p_employee;
   from_d := greatest(first_day, coalesce(e.join_date, first_day));
   to_d := least(last_day, coalesce(e.exit_date, last_day));
-  whole_month := from_d = first_day and to_d = last_day;
+  working := s.pay_day_divisor_mode = 'working_days';
 
   if e.join_date is null then blockers := blockers || to_jsonb('Join date missing'::text); end if;
   if e.status = 'Left' and e.exit_date is null then blockers := blockers || to_jsonb('Marked as left but exit date missing'::text); end if;
+  if e.exit_date < e.join_date then blockers := blockers || to_jsonb(format('Exit date %s is before join date %s', e.exit_date, e.join_date)); end if;
 
-  select * into d from public.hr_pay_details p where p.employee_id = p_employee and p.effective_from <= to_d order by p.effective_from desc limit 1;
+  select * into d from public.hr_pay_details p where p.employee_id = p_employee and p.effective_from <= greatest(to_d, from_d) order by p.effective_from desc limit 1;
   has_d := found;
 
-  divisor := case s.pay_day_divisor_mode
+  month_units := case s.pay_day_divisor_mode
     when 'fixed' then s.pay_days_basis
     when 'calendar_days' then (last_day - first_day + 1)::numeric
     when 'working_days' then public.hr_pay_working_days(first_day, last_day)
   end;
-  if coalesce(divisor, 0) <= 0 then raise exception 'The pay day divisor for % is zero. Check the payroll settings and the working week', to_char(first_day, 'YYYY-MM'); end if;
-  unit_word := case s.pay_day_divisor_mode when 'working_days' then 'working days' else 'calendar days' end;
-  units := case when s.pay_day_divisor_mode = 'working_days' then public.hr_pay_working_days(from_d, to_d) else (to_d - from_d + 1)::numeric end;
-  factor_units := least(units, divisor); -- never more than the monthly wage
+  if coalesce(month_units, 0) <= 0 then raise exception 'The pay day divisor for % is zero. Check the payroll settings and the working week', to_char(first_day, 'YYYY-MM'); end if;
+  unit_word := case when working then 'working days' else 'calendar days' end;
+  employed_units := case when from_d > to_d then 0 when working then public.hr_pay_working_days(from_d, to_d) else (to_d - from_d + 1)::numeric end;
+  not_employed := case when working then month_units - employed_units else (last_day - first_day + 1)::numeric - employed_units end;
+  earn_units := greatest(0, month_units - not_employed);
+
+  select count(*), string_agg(u.day || ' ' || u.why, ', ' order by u.day) into unpaid_n, unpaid_txt from public.hr_pay_unpaid_days(p_employee, from_d, to_d, working) u;
+  zero_pay := employed_units = 0 or unpaid_n >= employed_units;
 
   if not has_d then
     blockers := blockers || to_jsonb('No pay details effective in this month'::text);
   else
     if d.iban is null then blockers := blockers || to_jsonb('IBAN missing'::text); end if;
-    changed := d.effective_from > first_day and exists (select 1 from public.hr_pay_details p where p.employee_id = p_employee and p.effective_from < d.effective_from);
+    no_earlier := from_d <= to_d and not exists (select 1 from public.hr_pay_details p where p.employee_id = p_employee and p.effective_from <= from_d);
+    if no_earlier then
+      blockers := blockers || to_jsonb(format('No pay defined for %s to %s: the first pay details start on %s',
+        from_d, (select min(p.effective_from) - 1 from public.hr_pay_details p where p.employee_id = p_employee), (select min(p.effective_from) from public.hr_pay_details p where p.employee_id = p_employee)));
+    end if;
+    changed := not no_earlier and d.effective_from > from_d;
     if changed then
       notes := notes || to_jsonb(format('Pay changed during the month on %s. The new pay is used for the whole month. Please review and adjust', d.effective_from));
     end if;
-    total := d.basic;
-    if whole_month then
-      notes := notes || to_jsonb('Employed the whole month: monthly wage paid in full'::text);
+
+    if not_employed = 0 then
+      notes := notes || to_jsonb('Employed the whole month: monthly wage earned in full'::text);
     else
-      notes := notes || to_jsonb(format('Employed %s to %s: %s %s of a divisor of %s (%s). Each amount is monthly x %s / %s',
-        from_d, to_d, units, unit_word, divisor, s.pay_day_divisor_mode, factor_units, divisor));
+      notes := notes || to_jsonb(format('Employed %s to %s, %s %s outside employment. Each amount is monthly x (%s - %s) / %s (%s)',
+        from_d, to_d, not_employed, unit_word, month_units, not_employed, month_units, s.pay_day_divisor_mode));
     end if;
-    earn := earn || jsonb_build_object('label', 'Basic', 'amount', case when whole_month then round(d.basic, 2) else round(d.basic * factor_units / divisor, 2) end);
+    if earn_units = 0 and not zero_pay then
+      notes := notes || to_jsonb(format('Days outside employment use up the whole fixed basis of %s, so nothing is earned although some days were worked. Please review and adjust', month_units));
+    end if;
+
+    total := d.basic;
+    earned_basic := case when zero_pay then 0 else round(d.basic * earn_units / month_units, 2) end;
+    earned_total := earned_basic;
+    earn := earn || jsonb_build_object('label', 'Basic', 'amount', earned_basic);
     for k, v in select * from jsonb_each(d.allowances) order by 1 loop
       x := (v #>> '{}')::numeric;
+      y := case when zero_pay then 0 else round(x * earn_units / month_units, 2) end;
       total := total + x;
-      earn := earn || jsonb_build_object('label', k, 'amount', case when whole_month then round(x, 2) else round(x * factor_units / divisor, 2) end);
+      earned_total := earned_total + y;
+      earn := earn || jsonb_build_object('label', k, 'amount', y);
     end loop;
     notes := notes || to_jsonb(format('Monthly wage: basic %s, allowances %s, total %s (pay details from %s)', public.hr_pay_money(d.basic), public.hr_pay_money(total - d.basic), public.hr_pay_money(total), d.effective_from));
 
-    select count(*), string_agg(u.day || ' ' || u.why, ', ' order by u.day) into unpaid_n, unpaid_txt from public.hr_pay_unpaid_days(p_employee, from_d, to_d) u;
-    if unpaid_n > 0 then
+    if zero_pay then
+      notes := notes || to_jsonb(format('Every employed day is unpaid or there is no employed day (%s of %s %s unpaid%s): pay is exactly 0, whichever wage base is set', unpaid_n, employed_units, unit_word, case when unpaid_txt is null then '' else ': ' || unpaid_txt end));
+    elsif unpaid_n > 0 then
       base := case s.pay_unpaid_wage_base when 'basic' then d.basic else total end;
-      amount := round(base * unpaid_n / divisor, 2);
+      earned_base := case s.pay_unpaid_wage_base when 'basic' then earned_basic else earned_total end;
+      raw := round(base * unpaid_n / month_units, 2);
+      amount := least(raw, earned_base);
       ded := ded || jsonb_build_object('label', 'Unpaid days', 'amount', amount, 'days', unpaid_n);
-      notes := notes || to_jsonb(format('Unpaid days %s: %s. Deducted %s x %s / %s = %s (%s wage)', unpaid_n, unpaid_txt, public.hr_pay_money(base), unpaid_n, divisor, public.hr_pay_money(amount), s.pay_unpaid_wage_base));
+      notes := notes || to_jsonb(format('Unpaid days %s (%s): %s. Deducted %s x %s / %s = %s from the %s wage', unpaid_n, unit_word, unpaid_txt, public.hr_pay_money(base), unpaid_n, month_units, public.hr_pay_money(raw), s.pay_unpaid_wage_base));
+      if amount < raw then
+        notes := notes || to_jsonb(format('The deduction is held at %s, what was earned of the %s wage, so that part cannot go below 0', public.hr_pay_money(amount), s.pay_unpaid_wage_base));
+      end if;
+      if s.pay_unpaid_wage_base = 'basic' and total > d.basic then
+        notes := notes || to_jsonb('Unpaid days reduce the basic wage only: allowances remain payable'::text);
+      end if;
     end if;
   end if;
 
-  select sum(public.hr_leave_days(greatest(r.from_date, from_d), least(r.to_date, to_d))) into paid_n
-  from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id
-  where r.employee_id = p_employee and r.status = 'approved' and t.paid and r.from_date <= to_d and r.to_date >= from_d;
+  select string_agg(a.work_date::text, ', ' order by a.work_date) into present_txt
+  from public.hr_attendance a
+  where a.employee_id = p_employee and a.status = 'Present' and a.work_date between from_d and to_d
+    and exists (select 1 from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id where r.employee_id = p_employee and r.status = 'approved' and not t.paid and a.work_date between r.from_date and r.to_date);
+  if present_txt is not null then
+    notes := notes || to_jsonb(format('Present is recorded inside approved unpaid leave on %s. Approved leave is counted. Please review', present_txt));
+  end if;
+
+  if from_d <= to_d then
+    select sum(public.hr_leave_days(greatest(r.from_date, from_d), least(r.to_date, to_d))) into paid_n
+    from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id
+    where r.employee_id = p_employee and r.status = 'approved' and t.paid and r.from_date <= to_d and r.to_date >= from_d;
+  end if;
   if coalesce(paid_n, 0) > 0 then notes := notes || to_jsonb(format('Paid leave %s working days: counted as fully paid', paid_n)); end if;
 
   select string_agg(distinct t.name, ', ') into half
@@ -317,13 +365,13 @@ begin
   inputs := jsonb_build_object(
     'month', first_day,
     'employee', jsonb_build_object('join_date', e.join_date, 'exit_date', e.exit_date, 'status', e.status),
-    'details', case when has_d then jsonb_build_object('id', d.id, 'effective_from', d.effective_from, 'basic', d.basic, 'allowances', d.allowances, 'iban', d.iban, 'bank_routing', d.bank_routing, 'wps_labour_card', d.wps_labour_card, 'changed', changed) end,
+    'details', case when has_d then jsonb_build_object('id', d.id, 'effective_from', d.effective_from, 'basic', d.basic, 'allowances', d.allowances, 'iban', d.iban, 'bank_routing', d.bank_routing, 'wps_labour_card', d.wps_labour_card, 'changed', changed, 'no_earlier', no_earlier) end,
     'attendance', coalesce((select jsonb_agg(jsonb_build_array(a.work_date, a.status) order by a.work_date) from public.hr_attendance a where a.employee_id = p_employee and a.work_date between first_day and last_day), '[]'::jsonb),
     'leave', coalesce((select jsonb_agg(jsonb_build_array(r.from_date, r.to_date, r.leave_type_id, t.paid, t.half_pay_note) order by r.from_date, r.id) from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id where r.employee_id = p_employee and r.status = 'approved' and r.from_date <= last_day and r.to_date >= first_day), '[]'::jsonb),
     'settings', jsonb_build_object('mode', s.pay_day_divisor_mode, 'basis', s.pay_days_basis, 'wage_base', s.pay_unpaid_wage_base, 'weekend', s.weekend_days),
     'holidays', coalesce((select jsonb_agg(h.holiday_date order by h.holiday_date) from public.hr_holidays h where h.holiday_date between first_day and last_day), '[]'::jsonb)
   );
-  return jsonb_build_object('earnings', earn, 'deductions', ded, 'notes', notes, 'blockers', blockers,
+  return jsonb_build_object('earnings', earn, 'deductions', ded, 'notes', notes, 'blockers', blockers, 'pay_change', changed,
     'pay_detail_id', case when has_d then d.id end,
     'input_hash', encode(sha256(convert_to(inputs::text, 'UTF8')), 'hex'));
 end $$;
@@ -336,10 +384,13 @@ language sql stable security definer set search_path = public, pg_temp as $$
     and (e.exit_date is null or e.exit_date >= date_trunc('month', p_month)::date)
 $$;
 
+create or replace function public.hr_pay_change_blocker() returns text
+language sql immutable set search_path = public, pg_temp as $$ select 'Pay changed during the month: record an adjustment on this line after reviewing it'::text $$;
+
 -- Writes every line of a draft run from fresh figures. Adjustments on kept lines stay. Lines now out of scope go; adjustments lost that way are audited.
 create or replace function public.hr_pay_fill(p_run uuid, p_month date) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare emp uuid; c jsonb; adj jsonb; gone record;
+declare emp uuid; c jsonb; adj jsonb; bl jsonb; gone record;
 begin
   for gone in delete from public.hr_pay_lines l where l.run_id = p_run and l.employee_id not in (select public.hr_pay_scope(p_month)) returning l.id, l.employee_id, l.adjustments loop
     if gone.adjustments <> '[]'::jsonb then
@@ -350,17 +401,19 @@ begin
     c := public.hr_pay_compute(p_month, emp);
     select l.adjustments into adj from public.hr_pay_lines l where l.run_id = p_run and l.employee_id = emp;
     adj := coalesce(adj, '[]'::jsonb);
+    bl := c -> 'blockers';
+    if (c ->> 'pay_change')::boolean and adj = '[]'::jsonb then bl := bl || to_jsonb(public.hr_pay_change_blocker()); end if;
     insert into public.hr_pay_lines (run_id, employee_id, pay_detail_id, earnings, deductions, adjustments, net, notes, blockers, input_hash)
     values (p_run, emp, (c ->> 'pay_detail_id')::uuid, c -> 'earnings', c -> 'deductions', adj,
             public.hr_pay_sum(c -> 'earnings') - public.hr_pay_sum(c -> 'deductions') + public.hr_pay_sum(adj),
-            c -> 'notes', c -> 'blockers', c ->> 'input_hash')
+            c -> 'notes', bl, c ->> 'input_hash')
     on conflict (run_id, employee_id) do update set
       pay_detail_id = excluded.pay_detail_id, earnings = excluded.earnings, deductions = excluded.deductions, net = excluded.net,
       notes = excluded.notes, blockers = excluded.blockers, input_hash = excluded.input_hash;
   end loop;
 end $$;
 
-revoke all on function public.hr_pay_money(numeric), public.hr_pay_sum(jsonb), public.hr_pay_unpaid_days(uuid, date, date), public.hr_pay_working_days(date, date),
+revoke all on function public.hr_pay_money(numeric), public.hr_pay_sum(jsonb), public.hr_pay_unpaid_days(uuid, date, date, boolean), public.hr_pay_working_days(date, date), public.hr_pay_change_blocker(),
   public.hr_pay_require_run_settings(), public.hr_pay_compute(date, uuid), public.hr_pay_scope(date), public.hr_pay_fill(uuid, date) from public, anon, authenticated;
 
 -- ── run functions: HR and admin only ──
@@ -400,23 +453,26 @@ end $$;
 
 create or replace function public.hr_payrun_adjust(p_line uuid, p_label text, p_amount numeric) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare l public.hr_pay_lines%rowtype; r public.hr_pay_runs%rowtype; a numeric; adj jsonb; new_net numeric;
+declare l public.hr_pay_lines%rowtype; r public.hr_pay_runs%rowtype; rid uuid; a numeric; adj jsonb; new_net numeric;
 begin
   if not public.hr_is_admin_or_hr() then raise exception 'You are not allowed to run payroll'; end if;
+  select run_id into rid from public.hr_pay_lines where id = p_line;
+  if not found then raise exception 'Payroll line not found'; end if;
+  select * into r from public.hr_pay_runs where id = rid for update; -- lock the run first, so the line read next cannot be stale
+  if not found or r.status <> 'draft' then raise exception 'Only a draft run can be adjusted'; end if;
   select * into l from public.hr_pay_lines where id = p_line;
   if not found then raise exception 'Payroll line not found'; end if;
-  select * into r from public.hr_pay_runs where id = l.run_id for update;
-  if r.status <> 'draft' then raise exception 'Only a draft run can be adjusted'; end if;
   if p_label is null or btrim(p_label) = '' then raise exception 'An adjustment needs a label'; end if;
   if p_amount is null or p_amount = 'NaN' then raise exception 'An adjustment needs an amount'; end if;
   a := round(p_amount, 2);
   if a = 0 then raise exception 'An adjustment amount cannot be zero'; end if;
   adj := l.adjustments || jsonb_build_object('label', btrim(p_label), 'amount', a);
   new_net := public.hr_pay_sum(l.earnings) - public.hr_pay_sum(l.deductions) + public.hr_pay_sum(adj);
-  update public.hr_pay_lines set adjustments = adj, net = new_net where id = p_line;
+  update public.hr_pay_lines set adjustments = adj, net = new_net, blockers = blockers - public.hr_pay_change_blocker() where id = p_line;
+  update public.hr_pay_runs set prepared_by = auth.uid() where id = r.id; -- whoever adjusts has prepared what is approved
   perform public.hr_audit('payrun.adjusted', 'hr_pay_lines:' || p_line,
-    jsonb_build_object('employee_id', l.employee_id, 'adjustments', l.adjustments, 'net', l.net),
-    jsonb_build_object('employee_id', l.employee_id, 'adjustments', adj, 'net', new_net));
+    jsonb_build_object('employee_id', l.employee_id, 'adjustments', l.adjustments, 'net', l.net, 'prepared_by', r.prepared_by),
+    jsonb_build_object('employee_id', l.employee_id, 'adjustments', adj, 'net', new_net, 'prepared_by', auth.uid()));
 end $$;
 
 create or replace function public.hr_payrun_approve(p_run uuid, p_ack_same_person boolean default false) returns void
@@ -472,6 +528,9 @@ begin
     raise exception 'You prepared this run. The same person approving it must acknowledge that first';
   end if;
 
+  update public.hr_pay_lines l set iban = p.iban, bank_routing = p.bank_routing, wps_labour_card = p.wps_labour_card
+  from public.hr_pay_details p where l.run_id = p_run and p.id = l.pay_detail_id;
+
   update public.hr_pay_runs set status = 'approved', approved_by = auth.uid(), approved_at = now(), same_person_ack = same where id = p_run;
   perform public.hr_audit('payrun.approved', 'hr_pay_runs:' || p_run,
     jsonb_build_object('status', 'draft', 'prepared_by', r.prepared_by),
@@ -480,14 +539,16 @@ end $$;
 
 create or replace function public.hr_payrun_delete(p_run uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare r public.hr_pay_runs%rowtype;
+declare r public.hr_pay_runs%rowtype; adj jsonb;
 begin
   if not public.hr_is_admin_or_hr() then raise exception 'You are not allowed to run payroll'; end if;
   select * into r from public.hr_pay_runs where id = p_run for update;
   if not found then raise exception 'Payroll run not found'; end if;
   if r.status <> 'draft' then raise exception 'Only a draft run can be deleted'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object('employee_id', l.employee_id, 'adjustments', l.adjustments)), '[]'::jsonb) into adj
+  from public.hr_pay_lines l where l.run_id = p_run and l.adjustments <> '[]'::jsonb;
   delete from public.hr_pay_runs where id = p_run;
-  perform public.hr_audit('payrun.deleted', 'hr_pay_runs:' || p_run, jsonb_build_object('period_month', r.period_month, 'status', r.status), null);
+  perform public.hr_audit('payrun.deleted', 'hr_pay_runs:' || p_run, jsonb_build_object('period_month', r.period_month, 'status', r.status, 'adjustments', adj), null);
 end $$;
 
 -- Pay details for lists: IBAN masked to the last 4. The full value is read only from the table, by the HR edit form.
@@ -528,7 +589,7 @@ begin
   if not found then raise exception 'This employee has no pay details effective on the exit date'; end if;
   select coalesce(sum((v #>> '{}')::numeric), 0) into allowances_total from jsonb_each(d.allowances) as t(k, v);
 
-  select count(*) into excluded from public.hr_pay_unpaid_days(p_employee, e.join_date, p_exit);
+  select count(*) into excluded from public.hr_pay_unpaid_days(p_employee, e.join_date, p_exit, false); -- every calendar day
   service_end := p_exit + (case when s.gratuity_service_end_inclusive then 1 else 0 end) - excluded; -- exclusive end of service
   if service_end > e.join_date then
     age_v := age(service_end, e.join_date);

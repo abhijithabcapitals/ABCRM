@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatAllowances, missingData, missingSettings, money, monthStart, parseAllowances, runTotals } from "../logic/payroll.js";
+import { formatAllowances, maskIban, missingData, missingSettings, money, monthStart, parseAllowances, runTotals } from "../logic/payroll.js";
 
 test("parseAllowances reads one label and amount per line", () => {
   assert.deepEqual(parseAllowances("Housing: 3000\n Transport : 1000.50 \n\n"), { Housing: 3000, Transport: 1000.5 });
@@ -44,4 +44,8 @@ test("monthStart turns a month input into the first day", () => {
 test("money shows two decimals", () => {
   assert.equal(money(1234.5), "1,234.50");
   assert.equal(money("-0.01"), "-0.01");
+});
+test("maskIban keeps only the last 4", () => {
+  assert.equal(maskIban("AE070331234567890123452"), "****3452");
+  assert.equal(maskIban(null), null);
 });

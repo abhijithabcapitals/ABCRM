@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { myPayLines, payDetailFull, payDetailsList, payrunAdjust, payrunApprove, payrunCreate, payrunDelete, payrunLines, payrunRecalc, payruns, savePayDetail, payrollEmployees, payrollSettings } from "../services/hrApi";
-import { formatAllowances, missingData, missingSettings, money, monthLabel, monthStart, parseAllowances, runTotals } from "../logic/payroll";
+import { formatAllowances, maskIban, missingData, missingSettings, money, monthLabel, monthStart, parseAllowances, runTotals } from "../logic/payroll";
 
 // HR sees runs and pay details; anyone else sees only their own lines from approved runs. The database enforces it: this screen only follows.
 export default function Payroll({ role, profile }) {
@@ -29,6 +29,7 @@ function LineDetail({ line, name, onClose }) {
       <Figures title="Deductions" items={line.deductions} />
       <Figures title="Adjustments" items={line.adjustments} />
       <p><strong>Net pay: {money(line.net)}</strong></p>
+      {line.iban && <p className="bk-note">Paid to IBAN {maskIban(line.iban)}</p>}
       <h4>Notes</h4>
       <ul>{(line.notes || []).map((n, i) => <li key={i}>{n}</li>)}</ul>
     </Modal>
@@ -175,8 +176,9 @@ function PayDetails({ employees }) {
     setError(null);
     try { const d = await payDetailFull(id); setEditing({ ...d, allowances_text: formatAllowances(d.allowances) }); } catch (e) { setError(e.message); }
   };
+  // An existing row stays with its employee: the database refuses a move too.
   const fields = [
-    { name: "employee_id", label: "Employee", type: "select", required: true, options: employees.map((e) => ({ value: e.id, label: `${e.employee_code} ${e.full_name}` })) },
+    { name: "employee_id", label: "Employee", type: "select", required: true, help: editing?.id ? "Fixed on an existing row" : undefined, options: employees.filter((e) => !editing?.id || e.id === editing.employee_id).map((e) => ({ value: e.id, label: `${e.employee_code} ${e.full_name}` })) },
     { name: "effective_from", label: "Effective from", type: "date", required: true },
     { name: "basic", label: "Basic wage (monthly)", type: "number", required: true },
     { name: "allowances_text", label: "Allowances", type: "textarea", full: true, help: "One per line, like Housing: 3000" },
