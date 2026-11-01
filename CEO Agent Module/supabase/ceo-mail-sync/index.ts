@@ -20,6 +20,24 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapClient } from "./imap.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// Asks OpenRouter to report cost and records it in public.ai_usage (counts only, never content).
+async function aiFetch(fn: string, init: RequestInit) {
+  const sent = JSON.parse(String(init.body));
+  const res = await fetch(OPENROUTER_URL, { ...init, body: JSON.stringify({ ...sent, usage: { include: true } }) });
+  try {
+    const u = (await res.clone().json()).usage;
+    if (u) {
+      const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/ai_usage`, {
+        method: "POST",
+        headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ function_name: fn, model: sent.model, prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null, cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null }),
+      });
+    }
+  } catch { /* the ledger never stops the work */ }
+  return res;
+}
+
 const MODEL = Deno.env.get("OPENROUTER_MAIL_MODEL") || "deepseek/deepseek-v4.1-flash";
 const BUCKET = "email-base";
 // Per run, shared by all mailboxes: stop fetching after this many messages, bytes or
@@ -33,7 +51,11 @@ const MAX_FULL_MESSAGE_BYTES = 10 * 1024 * 1024;
 // it, the next run imports that message with headers only so it cannot block the folder.
 const importingMarker = (uid: number) => `Importing UID ${uid}`;
 const MAX_HTML_CHARS = 2_000_000;
-const SUMMARIES_PER_RUN = 24;
+const SUMMARIES_PER_RUN = 6;
+// Older conversations are summarized when someone asks, not automatically.
+const SUMMARY_WINDOW_DAYS = 7;
+const MAX_SUMMARY_MESSAGE_CHARS = 3000;
+const MAX_SUMMARY_CHARS = 12_000;
 const SUMMARY_CONCURRENCY = 6;
 const EMAIL_ADDRESSES = ["info@abcapital.ae", "bharat@ardentaxit.tax"];
 const STALE_LOCK_MS = 10 * 60 * 1000;
@@ -502,6 +524,12 @@ async function syncFolder(db: Db, client: ImapClient, account: Row, folder: Row,
   };
 }
 
+function isBulkMail(headers: unknown) {
+  const get = (name: string) => (Array.isArray(headers) ? headers : []).find((h: Row) => String(h?.key || "").toLowerCase() === name)?.value;
+  const auto = String(get("auto-submitted") || "").toLowerCase();
+  return !!get("list-unsubscribe") || !!get("list-id") || ["bulk", "list", "junk"].includes(String(get("precedence") || "").toLowerCase()) || (auto !== "" && auto !== "no");
+}
+
 async function summarize(apiKey: string, thread: Row, messages: SummaryMessage[]) {
   const transcript = messages.map((m) =>
     `From: ${m.fromName ? `${m.fromName} <${m.fromAddress}>` : m.fromAddress}\nDate: ${m.sentAt}\nSubject: ${m.subject}\n\n${m.text || "(no text body)"}`
@@ -512,17 +540,17 @@ async function summarize(apiKey: string, thread: Row, messages: SummaryMessage[]
   let out: Row | null = null;
   let lastProblem = "";
   for (let attempt = 0; attempt < 2 && !out; attempt++) {
-    const res = await fetch(OPENROUTER_URL, {
+    const res = await aiFetch("ceo-mail-sync", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CEO Agent mail" },
       body: JSON.stringify({
         model: MODEL,
         temperature: 0,
         max_tokens: 4000,
-        reasoning: { effort: "low", exclude: true },
+        reasoning: { enabled: false },
         response_format: { type: "json_object" },
         provider: { data_collection: "deny" },
-        messages: [{ role: "system", content: SYSTEM }, { role: "user", content: user.slice(0, 60_000) }],
+        messages: [{ role: "system", content: SYSTEM }, { role: "user", content: user.slice(0, MAX_SUMMARY_CHARS) }],
       }),
     });
     const data: Row = await res.json().catch(() => ({}));
@@ -568,16 +596,22 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
 // are summarized from the messages added since their last summary.
 async function summarizePending(db: Db, account: Row, apiKey: string) {
   const { data: pending } = await db.from("threads").select("id, summary, tags, summarized_at")
-    .eq("mailbox_id", account.id).eq("needs_summary", true).order("last_message_at", { ascending: false }).limit(SUMMARIES_PER_RUN);
+    .eq("mailbox_id", account.id).eq("needs_summary", true).gte("last_message_at", new Date(Date.now() - SUMMARY_WINDOW_DAYS * 86400000).toISOString())
+    .order("last_message_at", { ascending: false }).limit(SUMMARIES_PER_RUN);
   let summarized = 0;
   const failures: string[] = [];
   await pool(pending || [], SUMMARY_CONCURRENCY, async (thread: Row) => {
     try {
-      let q = db.from("messages").select("from_address, from_name, subject, sent_at, body_text, created_at")
-        .eq("thread_id", thread.id).order("sent_at", { ascending: false }).limit(20);
+      let q = db.from("messages").select("from_address, from_name, subject, sent_at, body_text, created_at, direction, headers")
+        .eq("thread_id", thread.id).order("sent_at", { ascending: false }).limit(10);
       if (thread.summary && thread.summarized_at) q = q.gt("created_at", thread.summarized_at);
       const { data: rows, error } = await q;
       if (error) throw new Error(error.message);
+      // Our own sent mail and automatic bulk mail need no summary. The Email Agent still checks inbound bulk mail.
+      if (!(rows || []).some((m: Row) => m.direction === "inbound" && !isBulkMail(m.headers))) {
+        await db.from("threads").update({ needs_summary: false }).eq("id", thread.id);
+        return;
+      }
       const seen = new Set<string>();
       const messages: SummaryMessage[] = (rows || []).reverse()
         .filter((m: Row) => !isExcluded(m.from_address, account.excluded_senders || []))
@@ -587,7 +621,7 @@ async function summarizePending(db: Db, account: Row, apiKey: string) {
           seen.add(k);
           return true;
         })
-        .map((m: Row) => ({ fromAddress: m.from_address, fromName: m.from_name, subject: m.subject || "", sentAt: m.sent_at, text: cleanBody(m.body_text || "") }));
+        .map((m: Row) => ({ fromAddress: m.from_address, fromName: m.from_name, subject: m.subject || "", sentAt: m.sent_at, text: cleanBody(m.body_text || "").slice(0, MAX_SUMMARY_MESSAGE_CHARS) }));
       if (!messages.length) {
         await db.from("threads").update({ needs_summary: false }).eq("id", thread.id);
         return;

@@ -25,6 +25,24 @@ import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { buildMessage, SmtpClient } from "./smtp.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// Asks OpenRouter to report cost and records it in public.ai_usage (counts only, never content).
+async function aiFetch(fn: string, init: RequestInit) {
+  const sent = JSON.parse(String(init.body));
+  const res = await fetch(OPENROUTER_URL, { ...init, body: JSON.stringify({ ...sent, usage: { include: true } }) });
+  try {
+    const u = (await res.clone().json()).usage;
+    if (u) {
+      const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/ai_usage`, {
+        method: "POST",
+        headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ function_name: fn, model: sent.model, prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null, cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null }),
+      });
+    }
+  } catch { /* the ledger never stops the work */ }
+  return res;
+}
+
 const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash";
 const CODE_TTL_MS = 5 * 60 * 1000;
 // Quick help in the Inbox's floating AI window ("assist" action).
@@ -248,7 +266,7 @@ Deno.serve(async (req) => {
         direction: m.direction, from: String(m.from_address || "").slice(0, 320),
         subject: String(m.subject || "").slice(0, 300), body: String(m.body_text || "").slice(0, 4000),
       }));
-      const res = await fetch(OPENROUTER_URL, {
+      const res = await aiFetch("ceo-mail-reply", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CEO Agent reply" },
         body: JSON.stringify({
@@ -290,13 +308,13 @@ Deno.serve(async (req) => {
       if (body.mode === "ask" && !question) throw new InputError("Type a question about this email.");
       const thread = await loadThread(eb, body.thread_id);
       const { data: recent, error } = await eb.from("messages").select("from_name, from_address, direction, to_addresses, subject, body_text, sent_at")
-        .eq("thread_id", thread.id).order("sent_at", { ascending: false }).limit(30);
+        .eq("thread_id", thread.id).order("sent_at", { ascending: false }).limit(10);
       if (error) throw new Error(error.message);
       const conversation = (recent || []).reverse().map((m: Row) => ({
         at: m.sent_at, direction: m.direction, from: `${m.from_name || ""} <${m.from_address || ""}>`.trim(),
         to: (m.to_addresses || []).join(", "), subject: String(m.subject || "").slice(0, 300), body: String(m.body_text || "").slice(0, 6000),
       }));
-      const res = await fetch(OPENROUTER_URL, {
+      const res = await aiFetch("ceo-mail-reply", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CEO Inbox assistant" },
         body: JSON.stringify({

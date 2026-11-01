@@ -28,6 +28,24 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const EXPLEE_BASE = "https://api.explee.com/public/api/v1";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// Asks OpenRouter to report cost and records it in public.ai_usage (counts only, never content).
+async function aiFetch(fn: string, init: RequestInit) {
+  const sent = JSON.parse(String(init.body));
+  const res = await fetch(OPENROUTER_URL, { ...init, body: JSON.stringify({ ...sent, usage: { include: true } }) });
+  try {
+    const u = (await res.clone().json()).usage;
+    if (u) {
+      const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/ai_usage`, {
+        method: "POST",
+        headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ function_name: fn, model: sent.model, prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null, cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null }),
+      });
+    }
+  } catch { /* the ledger never stops the work */ }
+  return res;
+}
+
 const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash";
 const MAX_HOT_PAGES = 10;       // 200 per page
 const CONTACTED_PER_CAMPAIGN = 1000;
@@ -406,7 +424,7 @@ Deno.serve(async (req) => {
           subject: typeof message.subject === "string" ? message.subject.slice(0, 300) : "",
           body: typeof message.body_text === "string" ? message.body_text.slice(0, 4000) : "",
         }));
-        const modelResponse = await fetch(OPENROUTER_URL, {
+        const modelResponse = await aiFetch("bd-lead-sources", {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({

@@ -24,6 +24,24 @@ import {
 } from "./logic.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// Asks OpenRouter to report cost and records it in public.ai_usage (counts only, never content).
+async function aiFetch(fn: string, init: RequestInit) {
+  const sent = JSON.parse(String(init.body));
+  const res = await fetch(OPENROUTER_URL, { ...init, body: JSON.stringify({ ...sent, usage: { include: true } }) });
+  try {
+    const u = (await res.clone().json()).usage;
+    if (u) {
+      const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/ai_usage`, {
+        method: "POST",
+        headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ function_name: fn, model: sent.model, prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null, cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null }),
+      });
+    }
+  } catch { /* the ledger never stops the work */ }
+  return res;
+}
+
 const MODEL = Deno.env.get("EMAIL_AGENT_MODEL") || Deno.env.get("OPENROUTER_MAIL_MODEL") || "deepseek/deepseek-v4.1-flash";
 const BUCKET = "email-base";
 const MESSAGES_PER_RUN = 30;
@@ -31,7 +49,7 @@ const CONCURRENCY = 4;
 const RUN_BUDGET_MS = 110_000;
 const FOLLOW_UPS_PER_RUN = 10;
 const MAX_ATTEMPTS = 3;
-const MAX_BODY_CHARS = 12_000;
+const MAX_BODY_CHARS = 6_000;
 const STALE_RUN_MS = 5 * 60_000;
 
 const cors = {
@@ -97,7 +115,7 @@ async function extract(apiKey: string, m: Row, mailbox: Row, body: string, attac
   // Reasoning tokens count against max_tokens, so leave room and retry once on a cut-off reply.
   let lastProblem = "";
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(OPENROUTER_URL, {
+    const res = await aiFetch("email-agent", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CRM Email Agent" },
       body: JSON.stringify({
@@ -477,6 +495,11 @@ async function run(admin: Db, apiKey: string, trigger: "schedule" | "manual") {
         ctx.stats.failed++;
         const message = (e as Error).message;
         ctx.errors.push(message);
+        // No credit or rate limit: stop for now, and keep the message queued instead of using up its attempts.
+        if (/^Model error (402|403|429)/.test(message)) {
+          ctx.deadline = 0;
+          return;
+        }
         // pending_messages offers a failed message again until it has failed MAX_ATTEMPTS times,
         // so one bad message cannot block the queue or be retried forever.
         const { data: prev } = await ea.from("processed").select("attempts").eq("message_id", p.id).maybeSingle();

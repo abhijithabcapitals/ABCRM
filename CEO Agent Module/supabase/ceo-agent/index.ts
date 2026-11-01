@@ -14,10 +14,29 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { PLAYBOOK_TOPICS, PLAYBOOKS, type PlaybookTopic } from "./playbooks.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// Asks OpenRouter to report cost and records it in public.ai_usage (counts only, never content).
+async function aiFetch(fn: string, init: RequestInit) {
+  const sent = JSON.parse(String(init.body));
+  const res = await fetch(OPENROUTER_URL, { ...init, body: JSON.stringify({ ...sent, usage: { include: true } }) });
+  try {
+    const u = (await res.clone().json()).usage;
+    if (u) {
+      const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/ai_usage`, {
+        method: "POST",
+        headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ function_name: fn, model: sent.model, prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null, cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null }),
+      });
+    }
+  } catch { /* the ledger never stops the work */ }
+  return res;
+}
+
 const DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash";
-const MAX_TOOL_ROUNDS = 8;
-const MAX_HISTORY = 30;
-const MAX_MESSAGE_CHARS = 8000;
+const MAX_TOOL_ROUNDS = 5;
+const MAX_TOOL_RESULT_CHARS = 6000;
+const MAX_HISTORY = 12;
+const MAX_MESSAGE_CHARS = 4000;
 const TZ = "Asia/Dubai";
 
 const cors = {
@@ -394,12 +413,12 @@ class UpstreamError extends Error {
 }
 
 async function chat(apiKey: string, model: string, messages: ChatMessage[]) {
-  const res = await fetch(OPENROUTER_URL, {
+  const res = await aiFetch("ceo-agent", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CEO Agent" },
     body: JSON.stringify({
       model,
-      max_tokens: 4000,
+      max_tokens: 1500,
       temperature: 0.3,
       tools: openRouterTools,
       messages,
@@ -535,7 +554,7 @@ Deno.serve(async (req) => {
         } catch (e) {
           result = { error: (e as Error).message };
         }
-        messages.push({ role: "tool", tool_call_id: t.id, content: JSON.stringify(result) });
+        messages.push({ role: "tool", tool_call_id: t.id, content: JSON.stringify(result).slice(0, MAX_TOOL_RESULT_CHARS) });
       }
     }
     return await finish("That took too many steps. Try splitting the request.", saved, changed);
