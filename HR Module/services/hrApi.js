@@ -62,3 +62,7 @@ export const leaveRequest = (employee, type, from, to, note) => rpc("hr_leave_re
 export const leaveDecide = (request, approve, note) => rpc("hr_leave_decide", { p_request: request, p_approve: approve, p_note: note || null });
 export const leaveCancel = (request) => rpc("hr_leave_cancel", { p_request: request });
 export const leaveBalance = (employee, year) => rpc("hr_leave_balance", { p_employee: employee, p_year: year });
+
+// Attendance. hr_attendance_month returns one row per in-scope employee per day (status null = nothing recorded and not leave, holiday or weekend).
+export const attendanceMonth = (year, month) => rpc("hr_attendance_month", { p_year: year, p_month: month });
+export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => rpc("hr_attendance_set", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null });

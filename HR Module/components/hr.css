@@ -23,3 +23,27 @@
 .hr-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .hr-days-row { display: flex; flex-wrap: wrap; gap: 14px; }
 .hr-day-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+
+/* Attendance month grid: scrolls sideways inside its own box, the page does not */
+.hr-grid-wrap { max-width: 100%; overflow-x: auto; border: 1px solid #e8edef; border-radius: 8px; background: #fff; -webkit-overflow-scrolling: touch; }
+.hr-grid { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.hr-grid th, .hr-grid td { padding: 0; border-bottom: 1px solid #eef2f3; border-right: 1px solid #f1f4f5; text-align: center; min-width: 30px; }
+.hr-grid thead th { background: #f6f8f9; color: #667780; font-weight: 700; padding: 5px 2px; white-space: nowrap; }
+.hr-grid thead th small { display: block; font-weight: 500; font-size: 10px; }
+.hr-grid .hr-grid-name { position: sticky; left: 0; z-index: 1; min-width: 150px; max-width: 190px; padding: 6px 8px; text-align: left; background: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hr-grid thead .hr-grid-name { background: #f6f8f9; z-index: 2; }
+.hr-grid .hr-grid-sum { min-width: 90px; padding: 6px 8px; color: #5f7077; white-space: nowrap; }
+.hr-cell { display: block; width: 100%; min-height: 30px; line-height: 30px; padding: 0; border: 0; background: transparent; font: inherit; font-weight: 700; color: inherit; cursor: default; }
+button.hr-cell { cursor: pointer; }
+button.hr-cell:hover, button.hr-cell:focus-visible { outline: 2px solid #1d7f84; outline-offset: -2px; }
+.hr-cell-Present { background: #e3f4e8; color: #1c6b3a; }
+.hr-cell-Absent { background: #fbe4e2; color: #a53d36; }
+.hr-cell-Leave { background: #fdf3dc; color: #7a560c; }
+.hr-cell-Holiday { background: #e4eefb; color: #2b5a99; }
+.hr-cell-Weekend { background: #f0f2f3; color: #7b8990; }
+.hr-cell-today { box-shadow: inset 0 -3px 0 #1d7f84; }
+.hr-month-nav { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hr-month-nav strong { min-width: 120px; text-align: center; }
+.hr-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 10px; font-size: 12px; color: #5f7077; }
+.hr-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.hr-legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
