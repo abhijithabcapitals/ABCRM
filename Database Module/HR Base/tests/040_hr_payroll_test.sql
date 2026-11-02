@@ -536,6 +536,44 @@ select public.ok('another employee reads no other snapshot', (select count(*) = 
 select public.as_user('0b');
 select public.ok('no IBAN anywhere in the audit log', (select count(*) = 0 from public.hr_audit_log where coalesce(old_values::text, '') || coalesce(new_values::text, '') ilike '%AE0703%'));
 
+-- ══ Fix round 2. All settings are TEST FIXTURES. ══
+-- Fixed 26, July 2026 (31 days): 26 unpaid of 31 employed, 5 worked. 26 - 0 - 26 = 0: paid fraction 0, and not the zero-pay case.
+reset role;
+insert into public.hr_employees (id, employee_code, full_name, join_date, exit_date, status) values (public.pe('ed'), 'F-D', 'Fix Basis Used Up', '2026-07-01', '2026-07-31', 'Left');
+insert into public.hr_pay_details (employee_id, effective_from, basic, iban) values (public.pe('ed'), '2026-07-01', 2600, 'AE070331234567890123013');
+insert into public.hr_leave_requests (employee_id, leave_type_id, from_date, to_date, days, status) values (public.pe('ed'), public.ltype('PX Unpaid'), '2026-07-01', '2026-07-26', 18, 'approved');
+set role authenticated;
+select public.as_user('0b');
+update public.hr_settings set pay_days_basis = 26; -- fixture
+select public.hr_payrun_create('2026-07-01');
+select public.ok('unpaid days using up the basis exactly: net 0 with a review note', (public.ln('2026-07-01', 'ed')).net = 0 and (public.ln('2026-07-01', 'ed')).notes::text ilike '%paid fraction is 0%review%', (public.ln('2026-07-01', 'ed')).notes::text);
+select public.hr_payrun_delete(public.rid('2026-07-01'));
+update public.hr_settings set pay_days_basis = 30; -- fixture
+
+-- October 2025: an adjustment made before a pay change does not clear the blocker, and neither does one from before a second change
+select public.hr_payrun_create('2025-10-01');
+select public.hr_payrun_adjust((public.ln('2025-10-01', 'c1')).id, 'Before the change', 100);
+select public.ok('an adjustment records the pay row it was made against', (public.ln('2025-10-01', 'c1')).adjustments -> 0 ->> 'pay_detail_id' = (public.ln('2025-10-01', 'c1')).pay_detail_id::text);
+insert into public.hr_pay_details (employee_id, effective_from, basic, iban) values (public.pe('c1'), '2025-10-15', 10500, 'AE070331234567890123451');
+select public.hr_payrun_recalc(public.rid('2025-10-01'));
+select public.ok('an adjustment from before the change does not clear the blocker', (public.ln('2025-10-01', 'c1')).blockers::text ilike '%Pay changed during the month%' and (public.ln('2025-10-01', 'c1')).net = 10600, (public.ln('2025-10-01', 'c1')).blockers::text);
+select public.as_user('0a');
+select public.must_fail('so approval is refused, by name', $$select public.hr_payrun_approve(public.rid('2025-10-01'))$$, 'Pay Manager');
+select public.as_user('0b');
+select public.hr_payrun_adjust((public.ln('2025-10-01', 'c1')).id, 'First change', -50);
+select public.ok('an adjustment against the new row clears it', (public.ln('2025-10-01', 'c1')).blockers = '[]'::jsonb);
+insert into public.hr_pay_details (employee_id, effective_from, basic, iban) values (public.pe('c1'), '2025-10-20', 11000, 'AE070331234567890123451');
+select public.hr_payrun_recalc(public.rid('2025-10-01'));
+select public.ok('a second change after the first adjustment blocks again', (public.ln('2025-10-01', 'c1')).blockers::text ilike '%Pay changed during the month%');
+select public.as_user('0a');
+select public.must_fail('and approval is refused again', $$select public.hr_payrun_approve(public.rid('2025-10-01'))$$, 'Pay Manager');
+select public.as_user('0b');
+select public.hr_payrun_adjust((public.ln('2025-10-01', 'c1')).id, 'Second change', -25);
+select public.as_user('0a');
+select public.hr_payrun_approve(public.rid('2025-10-01'));
+-- 11000 + 100 - 50 - 25
+select public.ok('with an adjustment against the row in use it approves', (select status = 'approved' from public.hr_pay_runs where id = public.rid('2025-10-01')) and (public.ln('2025-10-01', 'c1')).net = 11025);
+
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;
 \echo === SUMMARY ===

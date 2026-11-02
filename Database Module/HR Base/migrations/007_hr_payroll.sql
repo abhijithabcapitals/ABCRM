@@ -11,7 +11,7 @@
 --   Divisor: pay_day_divisor_mode. fixed = pay_days_basis, calendar_days = days in the month, working_days = days neither weekend nor holiday.
 --   The arithmetic, and how the unpaid wage base meets the paid fraction, is described above hr_pay_compute.
 --   Paid leave counts as fully paid; half-pay tiers are not calculated (leave types marked half_pay_note put a review note on the line).
---   A pay change inside the month blocks approval until the line carries an adjustment (the audited way HR records that it was dealt with).
+--   A pay change inside the month blocks approval until the line carries an adjustment made against the pay row now in use (the audited way HR records that it was dealt with).
 -- Rounding: each money figure round(x, 2); net = earnings - deductions + adjustments from the rounded parts.
 -- input_hash: sha-256 over everything a line was computed from. Approval recomputes each line; any difference stops approval.
 -- Requires 002 (access helpers, hr_audit), 003 (hr_touch), 005 (settings, leave), 006 (attendance). Idempotent.
@@ -75,6 +75,9 @@ create table if not exists public.hr_pay_lines (
   updated_by uuid default auth.uid(),
   unique (run_id, employee_id)
 );
+alter table public.hr_pay_lines add column if not exists iban text;
+alter table public.hr_pay_lines add column if not exists bank_routing text;
+alter table public.hr_pay_lines add column if not exists wps_labour_card text;
 create index if not exists hr_pay_lines_employee_idx on public.hr_pay_lines (employee_id);
 create index if not exists hr_pay_lines_detail_idx on public.hr_pay_lines (pay_detail_id);
 
@@ -199,6 +202,7 @@ language sql immutable set search_path = public, pg_temp as $$
   select coalesce(sum((x ->> 'amount')::numeric), 0) from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) x
 $$;
 
+drop function if exists public.hr_pay_unpaid_days(uuid, date, date); -- the earlier 3-argument form
 -- Dates in a range that are unpaid: every stored Absent day and every day inside approved unpaid leave, each date once.
 -- p_working_only keeps only working days (working_days pay mode). Pay in the other modes and gratuity service count every calendar day.
 create or replace function public.hr_pay_unpaid_days(p_employee uuid, p_from date, p_to date, p_working_only boolean)
@@ -304,8 +308,8 @@ begin
       notes := notes || to_jsonb(format('Employed %s to %s, %s %s outside employment. Each amount is monthly x (%s - %s) / %s (%s)',
         from_d, to_d, not_employed, unit_word, month_units, not_employed, month_units, s.pay_day_divisor_mode));
     end if;
-    if earn_units = 0 and not zero_pay then
-      notes := notes || to_jsonb(format('Days outside employment use up the whole fixed basis of %s, so nothing is earned although some days were worked. Please review and adjust', month_units));
+    if month_units - not_employed - unpaid_n <= 0 and not zero_pay then
+      notes := notes || to_jsonb(format('Days outside employment and unpaid days use up the whole fixed basis of %s, so the paid fraction is 0 although some days were worked. Please review and adjust', month_units));
     end if;
 
     total := d.basic;
@@ -402,7 +406,8 @@ begin
     select l.adjustments into adj from public.hr_pay_lines l where l.run_id = p_run and l.employee_id = emp;
     adj := coalesce(adj, '[]'::jsonb);
     bl := c -> 'blockers';
-    if (c ->> 'pay_change')::boolean and adj = '[]'::jsonb then bl := bl || to_jsonb(public.hr_pay_change_blocker()); end if;
+    -- Only an adjustment made against the pay row now in use clears it: one from before the change does not.
+    if (c ->> 'pay_change')::boolean and not exists (select 1 from jsonb_array_elements(adj) x where x ->> 'pay_detail_id' = c ->> 'pay_detail_id') then bl := bl || to_jsonb(public.hr_pay_change_blocker()); end if;
     insert into public.hr_pay_lines (run_id, employee_id, pay_detail_id, earnings, deductions, adjustments, net, notes, blockers, input_hash)
     values (p_run, emp, (c ->> 'pay_detail_id')::uuid, c -> 'earnings', c -> 'deductions', adj,
             public.hr_pay_sum(c -> 'earnings') - public.hr_pay_sum(c -> 'deductions') + public.hr_pay_sum(adj),
@@ -466,7 +471,7 @@ begin
   if p_amount is null or p_amount = 'NaN' then raise exception 'An adjustment needs an amount'; end if;
   a := round(p_amount, 2);
   if a = 0 then raise exception 'An adjustment amount cannot be zero'; end if;
-  adj := l.adjustments || jsonb_build_object('label', btrim(p_label), 'amount', a);
+  adj := l.adjustments || jsonb_build_object('label', btrim(p_label), 'amount', a, 'pay_detail_id', l.pay_detail_id);
   new_net := public.hr_pay_sum(l.earnings) - public.hr_pay_sum(l.deductions) + public.hr_pay_sum(adj);
   update public.hr_pay_lines set adjustments = adj, net = new_net, blockers = blockers - public.hr_pay_change_blocker() where id = p_line;
   update public.hr_pay_runs set prepared_by = auth.uid() where id = r.id; -- whoever adjusts has prepared what is approved

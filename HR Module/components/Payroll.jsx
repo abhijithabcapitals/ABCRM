@@ -137,7 +137,7 @@ function RunPanel({ run, nameOf, profile, onChanged, onGone }) {
       {adjusting && <FormModal title={`Adjust ${nameOf[adjusting.employee_id]}`} submitLabel="Add adjustment" initial={{}} onClose={() => setAdjusting(null)}
         note="An adjustment stays on the line and cannot be edited. To reverse one, add the opposite amount."
         fields={[{ name: "label", label: "Reason", required: true }, { name: "amount", label: "Amount", type: "number", required: true, help: "Negative to reduce pay" }]}
-        onSubmit={async (v) => { await payrunAdjust(adjusting.id, v.label, v.amount); await lines.reload(); }} />}
+        onSubmit={async (v) => { await payrunAdjust(adjusting.id, v.label, v.amount); await Promise.all([lines.reload(), onChanged()]); }} />}
       {approving && <ApproveModal run={run} totals={totals} missing={missing} samePerson={run.prepared_by === profile?.id} onClose={() => setApproving(false)}
         onDone={async () => { await onChanged(); await lines.reload(); setApproving(false); }} />}
     </Panel>
