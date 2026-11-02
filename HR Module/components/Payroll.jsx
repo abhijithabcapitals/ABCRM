@@ -9,14 +9,15 @@ export default function Payroll({ role, profile, employeeId }) {
   return role === "hr" ? <HrPayroll profile={profile} /> : <MyPay employeeId={employeeId} />;
 }
 
-// Opens the payslip in a new window and starts the browser's print dialog. Throws if pop-ups are blocked or the figures do not add up.
+// Must run synchronously inside the click handler, or the browser blocks the window. Opens the payslip in a new window and starts the browser's print dialog. Throws if pop-ups are blocked or the figures do not add up.
 function printPayslip(line, employee, run) {
   const html = payslipHtml(line, employee, run);
   const w = window.open("", "_blank");
   if (!w) throw new Error("Allow pop-ups for this site to print the payslip");
+  w.opener = null;
+  w.onload = () => w.print();
   w.document.write(html);
   w.document.close();
-  w.onload = () => w.print();
 }
 
 function Figures({ title, items }) {
@@ -33,6 +34,8 @@ function Figures({ title, items }) {
 
 // Every figure on a line, with the notes that trace it.
 function LineDetail({ line, name, onClose, onPrint }) {
+  const [printError, setPrintError] = useState(null);
+  const print = () => { setPrintError(null); try { onPrint(); } catch (e) { setPrintError(e.message); } };
   return (
     <Modal title={name ? `How ${name}'s pay was worked out` : "How this pay was worked out"} onClose={onClose} wide>
       {line.blockers?.length > 0 && <div className="hr-warning" role="alert">Blocks approval: {line.blockers.join("; ")}</div>}
@@ -43,7 +46,8 @@ function LineDetail({ line, name, onClose, onPrint }) {
       {line.iban && <p className="bk-note">Paid to IBAN {maskIban(line.iban)}</p>}
       <h4>Notes</h4>
       <ul>{(line.notes || []).map((n, i) => <li key={i}>{n}</li>)}</ul>
-      {onPrint && <div className="bk-modal-actions"><Button onClick={onPrint}>Print payslip</Button></div>}
+      <ErrorNote message={printError} onClose={() => setPrintError(null)} />
+      {onPrint && <div className="bk-modal-actions"><Button onClick={print}>Print payslip</Button></div>}
     </Modal>
   );
 }
@@ -53,7 +57,8 @@ function MyPay({ employeeId }) {
   const me = useLoad(() => myEmployee(employeeId), [employeeId]);
   const [open, setOpen] = useState(null);
   const [printError, setPrintError] = useState(null);
-  const print = (l) => { setPrintError(null); try { printPayslip(l, me.data, l.hr_pay_runs); } catch (e) { setPrintError(e.message); } };
+  const printNow = (l) => printPayslip(l, me.data, l.hr_pay_runs);
+  const print = (l) => { setPrintError(null); try { printNow(l); } catch (e) { setPrintError(e.message); } };
   if (lines.loading && !lines.data) return <Spinner label="Loading your pay" />;
   return (
     <div>
@@ -63,10 +68,10 @@ function MyPay({ employeeId }) {
         <DataTable rows={lines.data || []} empty="No approved pay yet." columns={[
           { key: "m", label: "Month", render: (l) => monthLabel(l.hr_pay_runs.period_month) },
           { key: "net", label: "Net pay", render: (l) => money(l.net) },
-          { key: "x", label: "", render: (l) => <><Button onClick={() => setOpen(l)}>Details</Button> <Button onClick={() => print(l)}>Print payslip</Button></> },
+          { key: "x", label: "", render: (l) => <><Button onClick={() => setOpen(l)}>Details</Button> <Button disabled={!me.data} onClick={() => print(l)}>Print payslip</Button></> },
         ]} />
       </Panel>
-      {open && <LineDetail line={open} onClose={() => setOpen(null)} onPrint={() => print(open)} />}
+      {open && <LineDetail line={open} onClose={() => setOpen(null)} onPrint={me.data ? () => printNow(open) : undefined} />}
     </div>
   );
 }
@@ -126,7 +131,8 @@ function RunPanel({ run, nameOf, codeOf, profile, onChanged, onGone }) {
   const totals = runTotals(lines.data);
   const missing = missingData(lines.data, nameOf);
   const guard = async (fn) => { setError(null); try { await fn(); } catch (e) { setError(e.message); } };
-  const print = (l) => guard(async () => printPayslip(l, { full_name: nameOf[l.employee_id], employee_code: codeOf[l.employee_id] }, run));
+  const printNow = (l) => printPayslip(l, { full_name: nameOf[l.employee_id], employee_code: codeOf[l.employee_id] }, run);
+  const print = (l) => { setError(null); try { printNow(l); } catch (e) { setError(e.message); } };
   const recalc = () => guard(async () => { await payrunRecalc(run.id); await Promise.all([lines.reload(), onChanged()]); });
   const remove = () => { if (window.confirm(`Delete the draft run for ${monthLabel(run.period_month)}?`)) guard(async () => { await payrunDelete(run.id); onGone(); await onChanged(); }); };
 
@@ -148,10 +154,10 @@ function RunPanel({ run, nameOf, codeOf, profile, onChanged, onGone }) {
           { key: "a", label: "Adjustments", render: (l) => money(l.adjustments.reduce((s, x) => s + Number(x.amount), 0)) },
           { key: "net", label: "Net", render: (l) => money(l.net) },
           { key: "n", label: "Check", render: (l) => (l.blockers.length ? <Badge tone="bad">Missing data</Badge> : l.notes.some((n) => /review/i.test(n)) ? <Badge tone="warn">Review note</Badge> : "") },
-          { key: "x", label: "", render: (l) => <><Button onClick={() => setDetail(l)}>How worked out</Button>{!draft && <> <Button onClick={() => print(l)}>Print payslip</Button></>}{draft && <> <Button onClick={() => setAdjusting(l)}>Adjust</Button></>}</> },
+          { key: "x", label: "", render: (l) => <><Button onClick={() => setDetail(l)}>How worked out</Button>{!draft && <> <Button disabled={!nameOf[l.employee_id]} onClick={() => print(l)}>Print payslip</Button></>}{draft && <> <Button onClick={() => setAdjusting(l)}>Adjust</Button></>}</> },
         ]} />
       )}
-      {detail && <LineDetail line={detail} name={nameOf[detail.employee_id]} onClose={() => setDetail(null)} onPrint={draft ? undefined : () => print(detail)} />}
+      {detail && <LineDetail line={detail} name={nameOf[detail.employee_id]} onClose={() => setDetail(null)} onPrint={draft || !nameOf[detail.employee_id] ? undefined : () => printNow(detail)} />}
       {adjusting && <FormModal title={`Adjust ${nameOf[adjusting.employee_id]}`} submitLabel="Add adjustment" initial={{}} onClose={() => setAdjusting(null)}
         note="An adjustment stays on the line and cannot be edited. To reverse one, add the opposite amount."
         fields={[{ name: "label", label: "Reason", required: true }, { name: "amount", label: "Amount", type: "number", required: true, help: "Negative to reduce pay" }]}

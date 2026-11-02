@@ -20,6 +20,7 @@ const PRINT_CSS = `@page{size:A4;margin:16mm}body{font:12px/1.5 Arial,Helvetica,
 
 export function payslipHtml(line, employee, run) {
   if (!run || run.status !== "approved") throw new Error("A payslip can only be made from an approved run");
+  if (!String(employee?.full_name ?? "").trim()) throw new Error("The employee name is missing, so no payslip was made");
   if (!line) throw new Error("There is no pay line to print");
   const e = part(line.earnings, "earnings");
   const d = part(line.deductions, "deductions");
