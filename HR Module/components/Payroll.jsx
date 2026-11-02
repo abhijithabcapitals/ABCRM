@@ -15,9 +15,11 @@ function printPayslip(line, employee, run) {
   const w = window.open("", "_blank");
   if (!w) throw new Error("Allow pop-ups for this site to print the payslip");
   w.opener = null;
-  w.onload = () => w.print();
   w.document.write(html);
   w.document.close();
+  // Set after write: document.open() erases handlers set before it, so the earlier w.onload never fired.
+  if (w.document.readyState === "complete") w.print();
+  else w.addEventListener("load", () => w.print(), { once: true });
 }
 
 function Figures({ title, items }) {
