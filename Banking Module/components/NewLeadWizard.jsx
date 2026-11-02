@@ -1,8 +1,10 @@
 // New lead: upload what the client gave, let the documents fill the form, type only what is missing.
 // Extraction runs in the browser (DOC OCR Module); if it fails, the same form is simply filled by hand.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, ErrorNote, Field, PageHead, Panel, Spinner, cleanValues, today, useBanking, useLoad } from "./shared";
 import { insertRow, loadSettings, readDocuments, rpc, run, table, updateRow, uploadFile } from "../services/bankingApi";
+import { discardReading, startReading, takeResult, useReadingJob } from "../services/readingJob";
+import { ProgressRing, readingText } from "./ReadingWidget";
 import { buildAutofill, DOC_TYPE_MAP } from "../logic/kycAutofill";
 import { KYC_REQUIRED_FIELDS, KYC_SECTIONS } from "./KycForm";
 import { PRIORITIES } from "../logic/constants";
@@ -23,6 +25,9 @@ const LEAD_FIELDS = (sources, people) => [
   { name: "initial_notes", label: "Initial discussion notes", type: "textarea", full: true },
 ];
 
+const READING_KIND = "new-lead";
+let draft = null; // the unfinished lead, kept while staff work elsewhere, until it is saved or cancelled
+
 export default function NewLeadWizard({ onCancel }) {
   const { can, personOptions, profile, openCase } = useBanking();
   const canDocs = can("docs.manage");
@@ -30,22 +35,29 @@ export default function NewLeadWizard({ onCancel }) {
   const fileInput = useRef(null);
   const settings = useLoad(() => loadSettings(), []);
   const types = useLoad(() => run(table("banking_document_types").select("doc_code, doc_name").eq("is_active", true).order("doc_name")), []);
-  const [step, setStep] = useState(canDocs ? 1 : 2);
-  const [files, setFiles] = useState([]); // { file, name, docCode, status, label }
-  const [reading, setReading] = useState(null);
-  const [notice, setNotice] = useState(null);
-  const [auto, setAuto] = useState({ values: {}, sources: {}, conflicts: {}, shareholders: [] });
-  const [lead, setLead] = useState({ lead_date: today(), lead_source: "Direct", priority: "Medium", assigned_to: profile?.id });
-  const [kyc, setKyc] = useState({});
-  const [partners, setPartners] = useState([]);
-  const [onlyMissing, setOnlyMissing] = useState(true);
-  const [edited, setEdited] = useState({}); // fields typed in stay visible, or "only missing" would hide them at the first key
+  const [resume] = useState(() => (draft?.owner === profile?.id ? draft : null));
+  const [step, setStep] = useState(resume?.step ?? (canDocs ? 1 : 2));
+  const [files, setFiles] = useState(resume?.files ?? []); // { file, name, docCode, status, label }
+  const [notice, setNotice] = useState(resume?.notice ?? null);
+  const [auto, setAuto] = useState(resume?.auto ?? { values: {}, sources: {}, conflicts: {}, shareholders: [] });
+  const [lead, setLead] = useState(resume?.lead ?? { lead_date: today(), lead_source: "Direct", priority: "Medium", assigned_to: profile?.id });
+  const [kyc, setKyc] = useState(resume?.kyc ?? {});
+  const [partners, setPartners] = useState(resume?.partners ?? []);
+  const [onlyMissing, setOnlyMissing] = useState(resume?.onlyMissing ?? true);
+  const [edited, setEdited] = useState(resume?.edited ?? {}); // fields typed in stay visible, or "only missing" would hide them at the first key
   const [matches, setMatches] = useState(null);
   const [busy, setBusy] = useState(null);
   const clients = useClientLookup();
   const [error, setError] = useState(null);
-  const saved = useRef(null); // the lead's conversion, so a retry after a failed upload continues instead of adding a second lead
-  const uploaded = useRef(new Set());
+  const saved = useRef(resume?.saved ?? null); // the lead's conversion, so a retry after a failed upload continues instead of adding a second lead
+  const uploaded = useRef(resume?.uploaded ?? new Set());
+  const closed = useRef(false);
+  const job = useReadingJob();
+  const reading = job?.kind === READING_KIND && job.owner === profile?.id && job.status === "reading" ? job : null;
+
+  useEffect(() => {
+    if (!closed.current) draft = { owner: profile?.id, step, files, notice, auto, lead, kyc, partners, onlyMissing, edited, saved: saved.current, uploaded: uploaded.current };
+  });
 
   // Copy now: clearing the file input right after this call empties the browser's live FileList.
   const addFiles = (list) => {
@@ -53,27 +65,38 @@ export default function NewLeadWizard({ onCancel }) {
     setFiles((f) => [...f, ...picked.filter((x) => !f.some((y) => y.name === x.name)).map((file) => ({ file, name: file.name, docCode: "", status: "Waiting" }))]);
   };
 
-  const readAll = async () => {
+  const applyRead = (docs) => {
+    setFiles((list) => list.map((f) => {
+      const d = docs.find((x) => x.name === f.name);
+      return { ...f, status: d ? d.label || d.doc_type || "Read" : f.status, docCode: f.docCode || DOC_TYPE_MAP[d?.doc_type] || "" };
+    }));
+    const a = buildAutofill(docs);
+    setAuto(a);
+    setKyc((k) => ({ ...a.values, ...k })); // what staff typed while it was reading stays
+    setPartners(a.shareholders);
+    setLead((l) => ({ ...l, company_name: l.company_name || a.values.legal_name || a.values.trade_name, contact_person: l.contact_person || a.shareholders[0]?.full_name, nationality: l.nationality || a.shareholders[0]?.nationality, email: l.email || a.values.company_email, mobile: l.mobile || a.values.company_phone }));
+    setStep(2);
+  };
+
+  // Reading carries on if staff leave this page. The result is picked up here, now or when they come back.
+  useEffect(() => {
+    if (job?.owner !== profile?.id) return;
+    const result = takeResult(READING_KIND);
+    if (!result) return;
+    if (result.status === "failed") setNotice(`${result.error} You can continue and type the details, or choose document types manually so the files can be saved.`);
+    else applyRead(result.docs);
+  }, [job]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const readAll = () => {
     setError(null); setNotice(null);
-    const pending = files;
-    setReading(`Reading ${pending.length} document(s)…`);
-    try {
-      const docs = await readDocuments(pending.map((f) => f.file), (done) => setReading(`Read ${done} of ${pending.length}…`));
-      const next = pending.map((f) => {
-        const d = docs.find((x) => x.name === f.name);
-        return { ...f, status: d ? d.label || d.doc_type || "Read" : "Could not read", docCode: f.docCode || DOC_TYPE_MAP[d?.doc_type] || "" };
-      });
-      setFiles(next);
-      const a = buildAutofill(docs);
-      setAuto(a);
-      setKyc(a.values);
-      setPartners(a.shareholders);
-      setLead((l) => ({ ...l, company_name: a.values.legal_name || a.values.trade_name || l.company_name, contact_person: l.contact_person || a.shareholders[0]?.full_name, nationality: l.nationality || a.shareholders[0]?.nationality, email: l.email || a.values.company_email, mobile: l.mobile || a.values.company_phone }));
-      setStep(2);
-    } catch (e) {
-      setNotice(`${e.message} You can continue and type the details, or choose document types manually so the files can be saved.`);
-    }
-    setReading(null);
+    const list = files.map((f) => f.file);
+    startReading({ kind: READING_KIND, label: "new lead documents", owner: profile?.id, view: "business-banking", total: list.length }, (onDone, onPercent) => readDocuments(list, onDone, onPercent));
+  };
+
+  const close = () => {
+    closed.current = true;
+    draft = null;
+    if (reading) discardReading();
   };
 
   const missing = useMemo(() => KYC_REQUIRED_FIELDS.filter((f) => kyc[f.name] === undefined || kyc[f.name] === null || kyc[f.name] === ""), [kyc]);
@@ -135,6 +158,7 @@ export default function NewLeadWizard({ onCancel }) {
       if (continueFlow) {
         try { await rpc("banking_move_stage", { p_case: conv.case_id, p_to: 5 }); } catch { /* the KYC step shows what is still missing */ }
       }
+      close();
       openCase(conv.case_id);
     } catch (e) { setError(e.message); setBusy(null); }
   };
@@ -142,7 +166,7 @@ export default function NewLeadWizard({ onCancel }) {
   if (settings.loading && !settings.data) return <Spinner />;
   return (
     <div>
-      <PageHead title="New Lead" sub="Upload documents, check the details, then choose a bank."><Button onClick={onCancel}>Cancel</Button></PageHead>
+      <PageHead title="New Lead" sub="Upload documents, check the details, then choose a bank."><Button onClick={() => { close(); onCancel(); }}>Cancel</Button></PageHead>
       <div className="bk-wizard-steps">
         {canDocs && <span className={step === 1 ? "active" : ""}>1. Upload documents</span>}
         <span className={step === 2 ? "active" : ""}>{canDocs ? "2" : "1"}. Check details</span>
@@ -171,10 +195,17 @@ export default function NewLeadWizard({ onCancel }) {
               ))}
             </div>
           )}
-          <div className="bk-modal-actions">
-            <Button onClick={() => setStep(2)}>{files.length ? "Skip reading, type details" : "No documents yet, type details"}</Button>
-            <Button variant="primary" disabled={!files.length} busy={!!reading} onClick={readAll}>{reading || "Read documents and continue"}</Button>
-          </div>
+          {reading ? (
+            <div className="crm-reading-inline">
+              <ProgressRing percent={reading.percent} size={84} />
+              <div><strong>Reading documents…</strong><small>{readingText(reading)}. You can open other pages and do other work. It carries on, and you can continue from the card in the corner. Keep this browser tab open.</small></div>
+            </div>
+          ) : (
+            <div className="bk-modal-actions">
+              <Button onClick={() => setStep(2)}>{files.length ? "Skip reading, type details" : "No documents yet, type details"}</Button>
+              <Button variant="primary" disabled={!files.length} onClick={readAll}>Read documents and continue</Button>
+            </div>
+          )}
         </Panel>
       )}
 

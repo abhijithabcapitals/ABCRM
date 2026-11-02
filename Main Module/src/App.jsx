@@ -6,6 +6,7 @@ import { BrandFooter } from "./components/Brand";
 import { setUsageUser } from "./jsx/selectUsage";
 import { resolveView } from "./tabs";
 import { GlobalAttention } from "@banking/components/Attention";
+import ReadingWidget from "@banking/components/ReadingWidget";
 import "./App.css";
 
 // Code-split the heavy views so the initial load only downloads the one in use
@@ -425,6 +426,7 @@ export default function App() {
   return (
     <div className="app-layout">
       <GlobalAttention />
+      <ReadingWidget owner={profile?.id} onOpen={(v) => { setView(v); localStorage.setItem("abc_view", v); }} />
       <Sidebar
         allowedTabs={tabs}
         spaces={spaces}

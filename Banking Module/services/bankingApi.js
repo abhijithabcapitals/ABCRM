@@ -64,13 +64,16 @@ export async function openInFolder(path) {
 
 // Reads files with DOC OCR Module in this browser, so it needs no server and no PC left on.
 // With VITE_DOCUMENT_MODULE_URL set, a hosted Document Module does the reading instead.
-export async function readDocuments(files, onProgress) {
-  if (DOCUMENT_MODULE_URL) return readDocumentsRemotely(files, onProgress);
+// onProgress gets the files finished; onPercent gets the whole read from 0 to 100, including the current page.
+export async function readDocuments(files, onProgress, onPercent) {
+  const percent = (done) => onPercent?.((done / files.length) * 100);
+  if (DOCUMENT_MODULE_URL) return readDocumentsRemotely(files, (n) => { onProgress?.(n); percent(n); });
   const { readDocument } = await import("../../DOC OCR Module/browser/readDocument.js");
   const out = [];
   for (let i = 0; i < files.length; i++) {
-    out.push(await readDocument(files[i], `${import.meta.env.BASE_URL}ocr/`));
+    out.push(await readDocument(files[i], `${import.meta.env.BASE_URL}ocr/`, (p) => percent(i + p)));
     onProgress?.(i + 1);
+    percent(i + 1);
   }
   return out;
 }
