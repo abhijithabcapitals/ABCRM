@@ -149,6 +149,81 @@ select public.ok('a year for 14 people takes under 2 seconds', (select extract(e
 reset role;
 update public.hr_employees set status = 'Left', exit_date = '2000-01-01', join_date = '1999-01-01' where employee_code like 'PF-%';
 
+-- ── edit requests and approval ──
+set role authenticated;
+select public.as_user('0a');
+select public.ok('admin set applies at once', (public.hr_attendance_set(public.ds('f1'), '2026-10-14', 'WFH', '09:00', '18:00', 'home') ->> 'warning') is null);
+select public.ok('the admin edit shows as WFH with times', public.ds_status('f1', '2026-10-14') = 'WFH');
+reset role;
+select public.ok('the admin edit is audited', (select count(*) >= 1 from public.hr_audit_log where action like 'attendance.%' and new_values ->> 'work_date' = '2026-10-14'));
+set role authenticated;
+select public.as_user('0b');
+select public.must_fail('an HR list member cannot set directly', $s$select public.hr_attendance_set(public.ds('f1'), '2026-10-15', 'Absent', null, null, null)$s$, 'administrator');
+select public.as_user('f6');
+select public.must_fail('a manager cannot set directly', $s$select public.hr_attendance_set(public.ds('f1'), '2026-10-15', 'Absent', null, null, null)$s$, 'administrator');
+select public.must_fail('a blank reason is refused', $s$select public.hr_attendance_request(public.ds('f1'), '2026-10-15', 'WFH', null, null, null, '  ')$s$, 'reason');
+select public.must_fail('a manager cannot request for themselves', $s$select public.hr_attendance_request(public.ds('f6'), '2026-10-15', 'WFH', null, null, null, 'x')$s$, 'own');
+select public.must_fail('a request is validated like a set', $s$select public.hr_attendance_request(public.ds('f1'), '2999-01-01', 'WFH', null, null, null, 'x')$s$, 'future');
+select public.as_user('f1');
+select public.must_fail('an employee cannot request', $s$select public.hr_attendance_request(public.ds('f1'), '2026-10-15', 'WFH', null, null, null, 'x')$s$, 'own');
+select public.as_user('f6');
+create temp table t_edit as select public.hr_attendance_request(public.ds('f1'), '2026-10-15', 'WFH', null, null, 'note', 'worked from home') as id;
+select public.ok('the cell keeps its old value while pending', public.ds_status('f1', '2026-10-15') = 'Absent', public.ds_status('f1', '2026-10-15'));
+select public.as_user('0a');
+select public.ok('the range shows the pending edit', (select pending_edit_id = (select id from t_edit) from public.hr_attendance_range('2026-10-15', '2026-10-15') where employee_id = public.ds('f1')));
+select public.ok('the pending count is 1', public.hr_attendance_edits_pending() = 1);
+select public.as_user('f6');
+create temp table t_edit2 as select public.hr_attendance_request(public.ds('f1'), '2026-10-15', 'Leave', null, null, null, 'correction') as id;
+select public.as_user('0a');
+select public.ok('a newer request supersedes the older', (select state = 'superseded' from public.hr_attendance_edits where id = (select id from t_edit)));
+select public.ok('only one is pending', public.hr_attendance_edits_pending() = 1);
+select public.as_user('0b');
+select public.must_fail('an HR list member cannot decide', $s$select public.hr_attendance_decide((select id from t_edit2), true, null)$s$, 'administrator');
+select public.as_user('f6');
+select public.must_fail('a manager cannot decide', $s$select public.hr_attendance_decide((select id from t_edit2), true, null)$s$, 'administrator');
+select public.as_user('0a');
+select public.must_fail('a rejection needs a note', $s$select public.hr_attendance_decide((select id from t_edit2), false, ' ')$s$, 'note');
+select public.hr_attendance_decide((select id from t_edit2), false, 'not right') is null;
+select public.ok('a rejection leaves the cell alone', public.ds_status('f1', '2026-10-15') = 'Absent');
+select public.must_fail('a decided edit cannot be decided again', $s$select public.hr_attendance_decide((select id from t_edit2), true, null)$s$, 'pending');
+select public.as_user('f6');
+create temp table t_edit3 as select public.hr_attendance_request(public.ds('f1'), '2026-10-15', 'WFH', '09:00', null, null, 'right this time') as id;
+select public.as_user('0a');
+select public.hr_attendance_decide((select id from t_edit3), true, null) is null;
+select public.ok('approval applies the edit', public.ds_status('f1', '2026-10-15') = 'WFH');
+select public.ok('an approved edit is manual', (select source = 'manual' from public.hr_attendance_range('2026-10-15', '2026-10-15') where employee_id = public.ds('f1')));
+select public.ok('the edit records who decided', (select state = 'approved' and decided_by = '00000000-0000-0000-0000-00000000000a' from public.hr_attendance_edits where id = (select id from t_edit3)));
+reset role;
+select public.ok('approval is audited', (select count(*) = 1 from public.hr_audit_log where action = 'attendance.edit_approved' and target = 'hr_attendance_edits:' || (select id from t_edit3)));
+
+-- A sync between the request and the decision: approval still wins, and later syncs leave the day alone.
+select public.hr_biometric_ingest('[{"emp_code":"DS-1","punch_at":"2026-10-21T09:00:00"}]') is null;
+set role authenticated;
+select public.as_user('f6');
+create temp table t_edit4 as select public.hr_attendance_request(public.ds('f1'), '2026-10-21', 'Absent', null, null, null, 'punch was a mistake') as id;
+reset role;
+select public.hr_biometric_ingest('[{"emp_code":"DS-1","punch_at":"2026-10-21T18:00:00"}]') is null;
+set role authenticated;
+select public.as_user('0a');
+select public.hr_attendance_decide((select id from t_edit4), true, null) is null;
+select public.ok('approval wins over a sync that came after the request', public.ds_status('f1', '2026-10-21') = 'Absent');
+reset role;
+select public.ok('a later sync leaves the approved day alone', (select (public.hr_biometric_ingest('[{"emp_code":"DS-1","punch_at":"2026-10-21T19:00:00"}]') #>> '{days,manual}')::int = 1));
+
+-- An approved payroll month: the edit saves, warns, and the run does not change.
+insert into public.hr_pay_runs (id, period_month) values ('42000000-0000-0000-0000-000000000001', '2026-09-01');
+insert into public.hr_pay_lines (run_id, employee_id, net) values ('42000000-0000-0000-0000-000000000001', public.ds('f1'), 100);
+update public.hr_pay_runs set status = 'approved', approved_by = '00000000-0000-0000-0000-00000000000a', approved_at = now() where id = '42000000-0000-0000-0000-000000000001';
+set role authenticated;
+select public.as_user('f6');
+create temp table t_edit5 as select public.hr_attendance_request(public.ds('f1'), '2026-09-15', 'WFH', null, null, null, 'locked month') as id;
+select public.as_user('0a');
+select public.ok('approving in a locked month warns', (public.hr_attendance_decide((select id from t_edit5), true, null) ->> 'warning') ilike '%locked%');
+select public.ok('the locked month edit is saved', public.ds_status('f1', '2026-09-15') = 'WFH');
+select public.ok('the approved run does not change', (select net = 100 from public.hr_pay_lines where run_id = '42000000-0000-0000-0000-000000000001'));
+select public.ok('the edits table cannot be written directly', not has_table_privilege('authenticated', 'public.hr_attendance_edits', 'insert'));
+reset role;
+
 reset role;
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;

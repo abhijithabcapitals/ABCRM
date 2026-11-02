@@ -125,6 +125,138 @@ language sql stable security definer set search_path = public, pg_temp as $$
        or e.manager_id in (select m.id from public.hr_employees m where m.profile_id = auth.uid() and m.status <> 'Left')), '{}') end
 $$;
 
+-- ── manual edits ──
+-- Only an admin changes a day directly, and only an admin decides a request. Anyone else who may edit raises a request, and the cell keeps
+-- its value until it is approved. An approved edit is written like an admin's, so it is manual and audited, and a later sync leaves it alone.
+create table if not exists public.hr_attendance_edits (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid not null references public.hr_employees(id) on delete cascade,
+  work_date date not null,
+  status text not null,
+  time_in time,
+  time_out time,
+  note text,
+  old_values jsonb,
+  reason text not null,
+  requested_by uuid default auth.uid(),
+  requested_at timestamptz not null default now(),
+  state text not null default 'pending' check (state in ('pending', 'approved', 'rejected', 'superseded')),
+  decided_by uuid,
+  decided_at timestamptz,
+  decision_note text
+);
+create unique index if not exists hr_attendance_edits_one_pending on public.hr_attendance_edits (employee_id, work_date) where state = 'pending';
+create index if not exists hr_attendance_edits_state_idx on public.hr_attendance_edits (state, requested_at);
+alter table public.hr_attendance_edits enable row level security;
+revoke all on public.hr_attendance_edits from public, anon, authenticated;
+grant select on public.hr_attendance_edits to authenticated;
+drop policy if exists hr_attendance_edits_read on public.hr_attendance_edits;
+create policy hr_attendance_edits_read on public.hr_attendance_edits for select to authenticated
+  using (public.hr_is_admin_or_hr() or public.hr_manages(employee_id) or requested_by = auth.uid());
+-- no write policy and no write grant
+
+-- Internal. Refuses a day or a value that cannot be recorded, whoever is asking.
+create or replace function public.hr_attendance_validate(p_employee uuid, p_date date, p_status text, p_in time, p_out time) returns void
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare emp public.hr_employees%rowtype; today date := (now() at time zone 'Asia/Dubai')::date;
+begin
+  select * into emp from public.hr_employees where id = p_employee;
+  if not found then raise exception 'Employee not found'; end if;
+  if p_date is null then raise exception 'The date is required'; end if;
+  if p_status is null or p_status not in ('Present', 'Absent', 'WFH', 'Leave', 'Holiday', 'Weekend') then
+    raise exception 'Status must be Present, Absent, WFH, Leave, Holiday or Weekend';
+  end if;
+  if p_date > today then raise exception 'A future date cannot be recorded'; end if;
+  if emp.status = 'Left' and emp.exit_date is null then
+    raise exception 'This employee has left but has no exit date. Record the exit date first';
+  end if;
+  if emp.exit_date is not null and p_date > emp.exit_date then
+    raise exception 'The exit date of this employee is %. Later days cannot be recorded', emp.exit_date;
+  end if;
+  if emp.join_date is not null and p_date < emp.join_date then
+    raise exception 'This employee joined on %. Earlier days cannot be recorded', emp.join_date;
+  end if;
+  if p_status not in ('Present', 'WFH') and (p_in is not null or p_out is not null) then
+    raise exception 'Absent, Leave, Holiday and Weekend days cannot carry times';
+  end if;
+  if p_in is not null and p_out is not null and p_out < p_in then
+    raise exception 'Time out is before time in';
+  end if;
+end $$;
+
+-- Internal. Writes and audits a manual day. Returns {warning}: a locked month.
+create or replace function public.hr_attendance_write(p_employee uuid, p_date date, p_status text, p_in time, p_out time, p_note text) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare old public.hr_attendance%rowtype;
+begin
+  perform public.hr_attendance_validate(p_employee, p_date, p_status, p_in, p_out);
+  perform pg_advisory_xact_lock(hashtextextended(p_employee::text || p_date::text, 0));
+  select * into old from public.hr_attendance where employee_id = p_employee and work_date = p_date;
+  if found then
+    update public.hr_attendance set status = p_status, time_in = p_in, time_out = p_out, note = p_note where id = old.id;
+    perform public.hr_audit('attendance.updated', 'hr_attendance:' || old.id,
+      jsonb_build_object('employee_id', old.employee_id, 'work_date', old.work_date, 'status', old.status, 'time_in', old.time_in, 'time_out', old.time_out, 'note', old.note),
+      jsonb_build_object('employee_id', p_employee, 'work_date', p_date, 'status', p_status, 'time_in', p_in, 'time_out', p_out, 'note', p_note));
+  else
+    insert into public.hr_attendance (employee_id, work_date, status, time_in, time_out, note)
+    values (p_employee, p_date, p_status, p_in, p_out, p_note) returning * into old;
+    perform public.hr_audit('attendance.created', 'hr_attendance:' || old.id, null,
+      jsonb_build_object('employee_id', p_employee, 'work_date', p_date, 'status', p_status, 'time_in', p_in, 'time_out', p_out, 'note', p_note));
+  end if;
+  return jsonb_build_object('warning', public.hr_locked_month_warning(p_date, p_date));
+end $$;
+
+create or replace function public.hr_attendance_set(p_employee uuid, p_date date, p_status text, p_in time, p_out time, p_note text) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.admin_is() then raise exception 'Only an administrator can change attendance directly. Send it for approval'; end if;
+  return public.hr_attendance_write(p_employee, p_date, p_status, p_in, p_out, p_note);
+end $$;
+
+-- HR list: anyone. A manager: direct reports. Nobody but HR asks for themselves. A newer request replaces a pending one for that day.
+create or replace function public.hr_attendance_request(p_employee uuid, p_date date, p_status text, p_in time, p_out time, p_note text, p_reason text) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare old jsonb; new_id uuid;
+begin
+  if p_employee is not distinct from public.hr_my_employee_id() and not public.hr_is_admin_or_hr() then
+    raise exception 'You cannot change your own attendance. Ask HR';
+  end if;
+  if not (public.hr_is_admin_or_hr() or public.hr_manages(p_employee)) then raise exception 'You are not allowed to change this attendance'; end if;
+  if p_reason is null or btrim(p_reason) = '' then raise exception 'A change needs a reason'; end if;
+  perform public.hr_attendance_validate(p_employee, p_date, p_status, p_in, p_out);
+  perform pg_advisory_xact_lock(hashtextextended(p_employee::text || p_date::text, 0));
+  update public.hr_attendance_edits set state = 'superseded', decided_at = now() where employee_id = p_employee and work_date = p_date and state = 'pending';
+  select jsonb_build_object('status', d.status, 'time_in', d.time_in, 'time_out', d.time_out) into old from public.hr_attendance_days(p_date, p_date, p_employee) d;
+  insert into public.hr_attendance_edits (employee_id, work_date, status, time_in, time_out, note, old_values, reason)
+  values (p_employee, p_date, p_status, p_in, p_out, p_note, old, btrim(p_reason)) returning id into new_id;
+  perform public.hr_audit('attendance.edit_requested', 'hr_attendance_edits:' || new_id, old,
+    jsonb_build_object('employee_id', p_employee, 'work_date', p_date, 'status', p_status, 'time_in', p_in, 'time_out', p_out, 'reason', btrim(p_reason)));
+  return new_id;
+end $$;
+
+-- Returns {warning}: a locked month, when approving. A rejection needs a note.
+create or replace function public.hr_attendance_decide(p_edit uuid, p_approve boolean, p_note text) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare e public.hr_attendance_edits%rowtype; r jsonb := jsonb_build_object('warning', null);
+begin
+  if not public.admin_is() then raise exception 'Only an administrator can approve attendance changes'; end if;
+  select * into e from public.hr_attendance_edits where id = p_edit for update;
+  if not found then raise exception 'Change request not found'; end if;
+  if e.state <> 'pending' then raise exception 'Only a pending request can be decided (this one is %)', e.state; end if;
+  if not coalesce(p_approve, false) and (p_note is null or btrim(p_note) = '') then raise exception 'A rejection needs a note'; end if;
+  if p_approve then r := public.hr_attendance_write(e.employee_id, e.work_date, e.status, e.time_in, e.time_out, e.note); end if;
+  update public.hr_attendance_edits set state = case when p_approve then 'approved' else 'rejected' end, decided_by = auth.uid(), decided_at = now(), decision_note = p_note where id = p_edit;
+  perform public.hr_audit(case when p_approve then 'attendance.edit_approved' else 'attendance.edit_rejected' end, 'hr_attendance_edits:' || p_edit,
+    e.old_values, jsonb_build_object('employee_id', e.employee_id, 'work_date', e.work_date, 'status', e.status, 'note', p_note));
+  return r;
+end $$;
+
+-- For the Approvals tab label. Only an admin has anything to decide.
+create or replace function public.hr_attendance_edits_pending() returns int
+language sql stable security definer set search_path = public, pg_temp as $$
+  select case when public.admin_is() then (select count(*)::int from public.hr_attendance_edits where state = 'pending') else 0 end
+$$;
+
 -- For the screens. HR everyone, a manager self and direct reports, an employee self. At most 366 days at a time.
 create or replace function public.hr_attendance_range(p_from date, p_to date)
 returns table (employee_id uuid, employee_code text, full_name text, employee_status text, exit_date date, work_date date, status text, leave_kind text,
@@ -136,7 +268,9 @@ begin
   if p_to < p_from then raise exception 'The end date is before the start date'; end if;
   if p_to - p_from > 366 then raise exception 'Show at most a year at a time'; end if;
   return query
-  select d.*, null::uuid from public.hr_attendance_days(p_from, p_to) d where vis is null or d.employee_id = any (vis);
+  select d.*, ed.id from public.hr_attendance_days(p_from, p_to) d
+  left join public.hr_attendance_edits ed on ed.employee_id = d.employee_id and ed.work_date = d.work_date and ed.state = 'pending'
+  where vis is null or d.employee_id = any (vis);
 end $$;
 
 -- Cards, the people behind them and a day-by-day series. p_period: day, week (Monday to Sunday), month, year. Days after today count nothing.
@@ -197,5 +331,10 @@ begin
 end $$;
 
 revoke all on function public.hr_is_wfh_saturday(date), public.hr_attendance_days(date, date, uuid), public.hr_visible_employees(),
-  public.hr_attendance_range(date, date), public.hr_dashboard_period(text, date) from public, anon, authenticated;
-grant execute on function public.hr_attendance_range(date, date), public.hr_dashboard_period(text, date) to authenticated;
+  public.hr_attendance_range(date, date), public.hr_dashboard_period(text, date),
+  public.hr_attendance_validate(uuid, date, text, time, time), public.hr_attendance_write(uuid, date, text, time, time, text),
+  public.hr_attendance_set(uuid, date, text, time, time, text), public.hr_attendance_request(uuid, date, text, time, time, text, text),
+  public.hr_attendance_decide(uuid, boolean, text), public.hr_attendance_edits_pending() from public, anon, authenticated;
+grant execute on function public.hr_attendance_range(date, date), public.hr_dashboard_period(text, date),
+  public.hr_attendance_set(uuid, date, text, time, time, text), public.hr_attendance_request(uuid, date, text, time, time, text, text),
+  public.hr_attendance_decide(uuid, boolean, text), public.hr_attendance_edits_pending() to authenticated;

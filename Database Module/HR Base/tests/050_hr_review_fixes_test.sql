@@ -126,13 +126,13 @@ select public.ok('the line carries a review note naming the date', (public.ln('2
 select public.ok('gratuity service loses only the 3 unpaid days', (public.hr_gratuity(public.pe('f1'), '2026-08-31') ->> 'excluded_unpaid_days')::int = 3);
 
 -- ── 4. locked months ──
-select public.hr_attendance_set(public.pe('f1'), '2026-08-19', 'Present', null, null, 'before approval');
+select public.t_set(public.pe('f1'), '2026-08-19', 'Present', null, null, 'before approval');
 select public.as_user('0a');
 select public.hr_payrun_recalc(public.rid('2026-08-01'));
 select public.as_user('0b');
 select public.hr_payrun_approve(public.rid('2026-08-01'));
-select public.ok('attendance in a month with no approved run has no warning', (public.hr_attendance_set(public.pe('f1'), '2026-09-02', 'Present', null, null, null)) ->> 'warning' is null);
-select public.ok('attendance in a locked month succeeds and warns, by month', (public.hr_attendance_set(public.pe('f1'), '2026-08-20', 'Absent', null, null, null)) ->> 'warning' = 'August 2026 is locked: add an adjustment in a later run');
+select public.ok('attendance in a month with no approved run has no warning', (public.t_set(public.pe('f1'), '2026-09-02', 'Present', null, null, null)) ->> 'warning' is null);
+select public.ok('attendance in a locked month succeeds and warns, by month', (public.t_set(public.pe('f1'), '2026-08-20', 'Absent', null, null, null)) ->> 'warning' = 'August 2026 is locked: add an adjustment in a later run');
 select public.ok('the day was stored', (select status = 'Absent' from public.hr_attendance where employee_id = public.pe('f1') and work_date = '2026-08-20'));
 select public.ok('the approved line did not change', (public.ln('2026-08-01', 'f1')).net = 8190);
 reset role;
@@ -146,7 +146,7 @@ select public.ok('leave outside a locked month does not warn', (public.hr_leave_
 select public.ok('cancelling leave in a locked month succeeds and warns', (public.hr_leave_cancel(public.rr('locked'))) ->> 'warning' ilike '%August 2026 is locked%');
 select public.ok('it is cancelled', (select status = 'cancelled' from public.hr_leave_requests where id = public.rr('locked')));
 select public.ok('the approved line is still unchanged', (public.ln('2026-08-01', 'f1')).net = 8190 and (public.ln('2026-08-01', 'f1')).earnings = (select earnings from public.hr_pay_lines where id = (public.ln('2026-08-01', 'f1')).id));
-select public.ok('the run panel lists the changes made after approval', (select count(*) from public.hr_payrun_changes_after(public.rid('2026-08-01'))) = 4 and (select count(*) from public.hr_payrun_changes_after(public.rid('2026-08-01')) c where c.employee_name = 'Rev Worker' and c.actor_name = 'HR Member') = 4, (select string_agg(action || ' ' || detail, ' | ') from public.hr_payrun_changes_after(public.rid('2026-08-01'))));
+select public.ok('the run panel lists the changes made after approval', (select count(*) from public.hr_payrun_changes_after(public.rid('2026-08-01'))) = 4 and (select count(*) from public.hr_payrun_changes_after(public.rid('2026-08-01')) c where c.employee_name = 'Rev Worker' and c.actor_name in ('HR Member', 'Admin')) = 4, (select string_agg(action || ' ' || detail, ' | ') from public.hr_payrun_changes_after(public.rid('2026-08-01'))));
 select public.ok('it leaves out entries from before approval and other months', (select count(*) from public.hr_payrun_changes_after(public.rid('2026-08-01')) c where c.detail ilike '2026-08-19%' or c.detail ilike '2026-09-%'  or c.detail ilike '%2026-09-07%') = 0);
 select public.as_user('e2');
 select public.must_fail('an employee cannot list them', $$select * from public.hr_payrun_changes_after(public.rid('2026-08-01'))$$, 'not allowed');
