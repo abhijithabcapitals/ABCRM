@@ -1,5 +1,5 @@
 // New lead: upload what the client gave, let the documents fill the form, type only what is missing.
-// Extraction runs on the local Document Module; if it is off, the same form is simply filled by hand.
+// Extraction runs in the browser (DOC OCR Module); if it fails, the same form is simply filled by hand.
 import { useMemo, useRef, useState } from "react";
 import { Badge, Button, ErrorNote, Field, PageHead, Panel, Spinner, cleanValues, today, useBanking, useLoad } from "./shared";
 import { insertRow, loadSettings, readDocuments, rpc, run, table, updateRow, uploadFile } from "../services/bankingApi";

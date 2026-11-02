@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from docai import CrmAdapter, DocumentPipeline, PipelineConfig, PipelineError  # noqa: E402
+from docai.browser import read_document  # noqa: E402
 import make_samples  # noqa: E402
 
 SAMPLES = Path(__file__).parent / "samples"
@@ -34,6 +35,23 @@ def pipe(tmp_path):
 def add(p, batch, name):
     with open(SAMPLES / name, "rb") as fh:
         return p.receive(batch, name, fh)
+
+
+@pytest.mark.parametrize("name", ["Trade License - Falcon.pdf", "VAT Certificate.pdf", "portal logins.txt"])
+def test_browser_reading_matches_pipeline(pipe, name):
+    p, _ = pipe
+    native = add(p, p.new_batch(), name)
+    read = read_document(str(SAMPLES / name), name)
+    assert read["doc_type"] == native["doc_type"]
+    assert read["sensitive"] == native["sensitive"]
+    assert read["scan"] == "not scanned"
+    assert read["extraction"]["fields"] == native["extraction"]["fields"]
+
+
+def test_browser_reading_rejects_failed_checks(tmp_path):
+    empty = tmp_path / "empty.pdf"
+    empty.write_bytes(b"")
+    assert "error" in read_document(str(empty), "empty.pdf")
 
 
 def test_all_stages_and_review(pipe):
