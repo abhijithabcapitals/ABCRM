@@ -34,6 +34,7 @@ Same pattern as the Banking Module. The Main Module imports this folder directly
 | `logic/tabs.js` | Which tabs each role sees |
 | `logic/{expiry,documentFields,taskView,attendance,payroll,payslip}.js` | Pure rules with tests: expiry bands, autofill field mapping, task grouping, attendance grid, payroll screen helpers, payslip HTML |
 | `services/hrApi.js` | The only file that talks to Supabase and storage, plus the local Document Module call |
+| `components/BiometricPanel.jsx`, `supabase/hr-biometric-sync/` | e-timeoffice biometric sync: see `Database Module/HR Base/Biometric Base/README.md` |
 | `tests/` | `node --test "HR Module/tests/"` |
 | `docs/USER_MANUAL.md` | Staff guide |
 

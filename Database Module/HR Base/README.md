@@ -4,7 +4,7 @@ Employee, leave, attendance and payroll data for the CRM, kept in the CRM Supaba
 
 ## Migrations, in order
 
-Apply in this order, after the CRM base schema. Each can run more than once safely, but always run the whole sequence, in order. Later files redefine functions from earlier ones, so re-running 004 or 005 alone resets `hr_dashboard` until 006 to 008 run, and re-running any file alone can undo what 008 fixed.
+Apply in this order, after the CRM base schema. Each can run more than once safely, but always run the whole sequence, in order. Later files redefine functions from earlier ones, so re-running 004 or 005 alone resets `hr_dashboard` until 006 to 009 run, and re-running any file alone can undo what 008 fixed.
 
 | Path | Purpose |
 |---|---|
@@ -17,13 +17,15 @@ Apply in this order, after the CRM base schema. Each can run more than once safe
 | `migrations/007_hr_payroll.sql` | Payroll settings (all null until HR confirms), `hr_pay_details` (HR only, IBAN masked in lists and never audited), `hr_pay_runs` and `hr_pay_lines` (function-only writes, locked by trigger once approved), run functions, `hr_gratuity` |
 | `migrations/008_hr_review_fixes.sql` | Final review fixes: `hr_employee_link` and the `profile_id` guard, no hard delete of employees or pay details through the API, audit of employee fields and of the HR access list, Left removes HR and manager power, Absent inside paid leave costs nothing, cancel rule, locked-month warnings (`{warning}` return) and `hr_payrun_changes_after`, no run for a future month, `hr_payrun_ack_pay_change`, `on_payroll`, Asia/Dubai expiry date |
 
+| `migrations/009_hr_biometric.sql` | Biometric punches, sync status, `hr_employees.biometric_code`, `hr_attendance.source`, roll-up into attendance. See `Biometric Base/README.md` |
+
 Admins add or import employees in Settings > Employees, then onboard a member from one of those rows.
 
 `docs/PAYROLL_RULES.md` records the UAE labour-law rules the payroll uses, with a source or an UNVERIFIED mark on each, and in section H the decisions still needed from the user.
 
 ## Tests
 
-Run `bash "Database Module/HR Base/tests/run-local.sh"`. It starts a throwaway Postgres, applies 001 to 008 twice (idempotence), then runs the five test files (`010_hr_test.sql` access and employees, `020_hr_leave_test.sql`, `030_hr_attendance_test.sql`, `040_hr_payroll_test.sql`, `050_hr_review_fixes_test.sql`) and prints a passed/failed count for each. Nothing touches Supabase. It needs PostgreSQL 18 under `C:\Program Files\PostgreSQL\18\bin` (or `PG_BIN`), and it reuses `Banking Base/tests/000_stub.sql`.
+Run `bash "Database Module/HR Base/tests/run-local.sh"`. It starts a throwaway Postgres, applies 001 to 009 twice (idempotence), then runs the six test files (`010_hr_test.sql` access and employees, `020_hr_leave_test.sql`, `030_hr_attendance_test.sql`, `040_hr_payroll_test.sql`, `050_hr_review_fixes_test.sql`, `060_hr_biometric_test.sql`) and prints a passed/failed count for each. Nothing touches Supabase. It needs PostgreSQL 18 under `C:\Program Files\PostgreSQL\18\bin` (or `PG_BIN`), and it reuses `Banking Base/tests/000_stub.sql`.
 
 The server sometimes fails to start with `pg_ctl: could not start server`. Run the script again.
 
@@ -45,7 +47,7 @@ Enforced by row-level security on every `hr_*` table and on the `hr-documents` b
 
 Nothing here has been applied to live Supabase. All of this needs the user's decision or approval first.
 
-1. **Apply migrations 001 to 008 in order** to live, after the user approves them. Confirm the CRM base schema they depend on is present.
+1. **Apply migrations 001 to 009 in order** to live, after the user approves them. Confirm the CRM base schema they depend on is present.
 2. **Redeploy the `admin-users` Edge Function, then deploy the frontend.** Redeploy from `Main Module/db/edge-function-admin-users.ts` (the `hr` tab was added to its tab list) before the frontend goes out, so the HR tab can be granted when the screens arrive. The redeploy is a manual step in Supabase.
 3. **Confirm the own-profile update policies are dropped on live** (`Main Module/db/security_fixes.sql`, lines 20 and 21). If they are still there, a member could rename themselves to match a colleague and read that colleague's task titles through the dashboard.
 4. **Free-zone question.** The company is AB Capital Services FZE. `docs/PAYROLL_RULES.md` covers mainland employers only and says not to apply it to free-zone employers. The user must say which free zone applies and whether these rules apply to it. Until then payroll and gratuity must not be relied on.

@@ -47,3 +47,14 @@ export function parseTime(v) {
   if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) throw new Error(`"${s}" is not a time. Use HH:MM, for example 09:00`);
   return `${pad(Number(m[1]))}:${m[2]}`;
 }
+
+// One line for a hr-biometric-sync result.
+export function syncSummary(stats) {
+  const d = stats?.days || {};
+  const parts = [`${stats?.new_punches ?? 0} new punch(es)`, `${(d.created || 0) + (d.updated || 0)} day(s) updated`];
+  if (d.manual) parts.push(`${d.manual} day(s) kept as edited by hand`);
+  if (d.unmatched) parts.push(`${d.unmatched} day(s) with no matching employee`);
+  if (d.out_of_range) parts.push(`${d.out_of_range} day(s) outside employment dates`);
+  if (stats?.unreadable) parts.push(`${stats.unreadable} unreadable record(s)`);
+  return `${parts.join(", ")}.`;
+}

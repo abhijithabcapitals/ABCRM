@@ -74,6 +74,16 @@ export const saveLeaveBalance = async (employee, type, year, entitlement, adjust
 export const attendanceMonth = (year, month) => rpc("hr_attendance_month", { p_year: year, p_month: month });
 export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => rpc("hr_attendance_set", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null });
 
+// Biometric (e-timeoffice). The sync itself runs in the hr-biometric-sync Edge Function; range is { from, to } as YYYY-MM-DD, or nothing for recent days.
+export const biometricStatus = () => rpc("hr_biometric_status");
+export const biometricLink = (employee, code) => rpc("hr_biometric_link", { p_employee: employee, p_code: code || null });
+export const biometricSync = async (range) => {
+  const { data, error } = await supabase.functions.invoke("hr-biometric-sync", { body: range || {} });
+  if (!error) return data;
+  const detail = await error.context?.json?.().catch(() => null);
+  throw new Error(detail?.error || error.message);
+};
+
 // Payroll. Figures come only from the database. Run writes go through functions; hr_pay_details is HR-only by RLS.
 export const payruns = () => run(table("hr_pay_runs").select("*").order("period_month", { ascending: false }));
 export const payrunLines = (runId) => run(table("hr_pay_lines").select("*").eq("run_id", runId));

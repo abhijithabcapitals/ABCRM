@@ -65,6 +65,16 @@ A month grid: one line per person, one column per day. Use the arrows to change 
 - **Overnight shifts are not supported.** Time out cannot be earlier than time in. Record a shift across midnight as a note on the day, not as times.
 - Someone marked Left cannot be edited until HR records their exit date. Days after the exit date cannot be edited.
 
+### Biometric sync (HR only)
+
+Punches from e-timeoffice arrive every 15 minutes and show below the grid as **Biometric sync**.
+
+- A day with punches becomes Present, with the first punch as time in and the last as time out. A day with no punches stays blank: the sync never marks anyone Absent.
+- If you edit a day by hand, the sync leaves that day alone from then on.
+- **Sync now** fetches the last 3 days. **Catch up dates** fetches up to 92 days.
+- **Device codes that match no employee** are listed. Click **Link** and choose the employee. Their earlier punches are then applied. Use **Link a code** with a blank code to unlink.
+- Check the last success time. A failed sync shows its error here.
+
 ## Payroll
 
 **Employees and managers** see their own approved months, with **Details** (how the figure was worked out) and **Print payslip**. Nothing shows until HR approves the month.

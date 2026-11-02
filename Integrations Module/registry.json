@@ -186,6 +186,19 @@
       ]
     },
     {
+      "id": "hr",
+      "label": "HR",
+      "integrations": [
+        { "id": "etimeoffice", "name": "e-timeoffice (biometric attendance)", "status": "in_use", "usedBy": "HR > Attendance, punches every 15 minutes (hr-biometric-sync)",
+          "secrets": [
+            { "name": "ETIMEOFFICE_CORPORATE_ID", "use": "Corporate ID for the API login", "source": "Your e-timeoffice account or vendor support" },
+            { "name": "ETIMEOFFICE_USERNAME", "use": "API login username", "source": "Your e-timeoffice account or vendor support" },
+            { "name": "ETIMEOFFICE_PASSWORD", "use": "API login password", "source": "Your e-timeoffice account or vendor support" }
+          ]
+        }
+      ]
+    },
+    {
       "id": "payments",
       "label": "Payments",
       "integrations": [

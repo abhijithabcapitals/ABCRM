@@ -15,7 +15,7 @@ Give the CRM one place to track employees and everything related to HR: records,
 | Release | All features ship in one release. Payroll is built last because it depends on employee and attendance data |
 | Tasks | Read-only view on the HR Dashboard tab, from the existing `public.tasks`. No HR task tables and no task editing in this module |
 | Access | Admin and HR list, managers, and employee self-service, enforced by RLS |
-| Attendance | Entered by hand. Biometric device import is out of scope |
+| Attendance | Entered by hand. Biometric import from e-timeoffice added 2026-11-02: `Database Module/HR Base/Biometric Base/README.md` |
 | Payment | The module produces payslips and a WPS file only. It never sends money or submits to a bank |
 
 The access model was recommended by Claude and not explicitly chosen by the user. It is open to change in this review.
@@ -149,4 +149,4 @@ The calculation inputs live in payroll settings, so a rule change does not need 
 
 ## Out of scope
 
-Biometric device import, recruitment, performance reviews, staff expense claims, HR-specific task creation, bank submission, and filing HR documents into local folders.
+Recruitment, performance reviews, staff expense claims, HR-specific task creation, bank submission, and filing HR documents into local folders.

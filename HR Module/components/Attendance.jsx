@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { attendanceMonth, attendanceSet } from "../services/hrApi";
+import BiometricPanel from "./BiometricPanel";
 import { STATUSES, canEditDay, dubaiToday, groupMonth, monthDays, parseTime, shiftMonth } from "../logic/attendance";
 
 const SHORT = { Present: "P", Absent: "A", Leave: "L", Holiday: "H", Weekend: "W" };
@@ -93,10 +94,11 @@ export default function Attendance({ role, employeeId }) {
           </div>
         )}
       </Panel>
+      {role === "hr" && <BiometricPanel onChanged={rows.reload} />}
       {editing && (
         <FormModal title={`${editing.person.full_name}, ${fmtDate(editing.date)}`} fields={fields} onClose={() => setEditing(null)} onSubmit={submit}
           initial={{ status: editing.row.status || "Present", time_in: hhmm(editing.row.time_in), time_out: hhmm(editing.row.time_out), note: editing.row.note || "" }}
-          note="Absent, Leave, Holiday and Weekend days cannot carry times. A day that already has an entry is replaced; the change is logged." />
+          note="Absent, Leave, Holiday and Weekend days cannot carry times. A day that already has an entry is replaced; the change is logged. Saving a biometric day here makes it a manual day, which the biometric sync no longer changes." />
       )}
     </div>
   );
