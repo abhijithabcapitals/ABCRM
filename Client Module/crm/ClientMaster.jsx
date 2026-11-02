@@ -1,5 +1,5 @@
 // Client Master: one row per client, kept in the CRM database so every employee sees the same record.
-// Reading documents still needs the Client Module on this PC; everything else works from anywhere.
+// Documents are read in the browser, so all of this works from anywhere.
 import { useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, useLoad } from "@banking/components/shared";
@@ -78,7 +78,7 @@ function ClientForm({ row, canEdit, onClose }) {
       const r = fillFromDocuments(values, docs);
       setValues(r.values); setConflicts(r.conflicts);
       setNote(`${docs.length} document(s) read, ${r.filled.length} field(s) filled. Check each one marked for verification.`);
-    } catch { setError("The Document Module is not reachable. Start Client Module\\Start-ClientModule.cmd on this PC to read documents, or type the details."); }
+    } catch (e) { setError(`${e.message} You can type the details instead.`); }
     setBusy(null);
     if (files.current) files.current.value = "";
   };
@@ -106,7 +106,7 @@ function ClientForm({ row, canEdit, onClose }) {
       {note && <div className="bk-alert bk-alert-ok">{note}</div>}
       {conflicts.length > 0 && <div className="bk-alert bk-alert-warn"><strong>Different readings, left for you to decide:</strong><ul>{conflicts.map((c) => <li key={c}>{c}</li>)}</ul></div>}
       {canEdit && (
-        <Panel title="Fill from documents" sub="Reads through the Document Module on this PC. Files are not stored by this page.">
+        <Panel title="Fill from documents" sub="Read in this browser. Files stay on this PC and are not stored by this page.">
           <input ref={files} type="file" multiple aria-label="Client documents" onChange={(e) => e.target.files.length && readFiles(e.target.files)} disabled={busy === "read"} />
           {busy === "read" && <Spinner />}
         </Panel>

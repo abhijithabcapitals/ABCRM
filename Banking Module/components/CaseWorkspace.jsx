@@ -657,7 +657,7 @@ function Agreement({ c, reload }) {
 
 const savedMessage = (row) => (row.local_path
   ? { ok: true, text: `Saved to ${row.local_path}` }
-  : { ok: false, text: "Kept in the database, but not saved to the PC folder because the Client Module is not running here. Start it and press Save to folder." });
+  : { ok: true, text: "Saved online." });
 
 function GeneratedDocuments({ caseId, kind }) {
   const list = useLoad(() => run(table("banking_generated_documents").select("*").eq("case_id", caseId).eq("kind", kind).order("created_at", { ascending: false })), [caseId, kind]);

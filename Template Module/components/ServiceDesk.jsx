@@ -63,7 +63,7 @@ export default function ServiceDesk({ department, profile }) {
     const saved = await saveFile(doc, folderKind(doc.department, type), blob, fileName);
     const { saveAs } = await import("file-saver");
     saveAs(blob, fileName);
-    setNote({ ok: !!saved.local, text: `${LABEL[type]} ${doc.document_number} created. ${saved.local ? `Saved to ${saved.local}` : "Kept in the database, but not in the PC folder because the Client Module is not running here."}` });
+    setNote({ ok: true, text: `${LABEL[type]} ${doc.document_number} created. ${saved.local ? `Saved to ${saved.local}` : "Saved online."}` });
     // The mail carries the document's reference number and is stored beside it.
     const draft = mailDraft({ type, client: doc.client_name, contact: doc.contact_name, services: doc.services, number: doc.document_number, total: doc.total_amount, validUntil: doc.valid_until, sender: profile?.full_name, company: company?.short_name });
     if (!mailOf(doc)) await createDocument({ doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email, services: doc.services, lines: doc.lines, vat_mode: doc.vat_mode, vat_rate: doc.vat_rate, mail_subject: draft.subject, mail_body: draft.body });
