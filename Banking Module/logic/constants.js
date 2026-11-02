@@ -15,21 +15,24 @@ export const STEPS = [
   ["Client Offer Acceptance", "Obtain formal acceptance of the quotation."],
   ["Engagement Letter Generation", "Generate and send the engagement letter."],
   ["Signed Agreement Received", "Receive and upload the signed engagement letter."],
-  ["Application Preparation", "Prepare the complete application and supporting documents."],
-  ["Bank Submission / Appointment", "Submit directly to the bank or arrange a client appointment."],
-  ["Bank Follow-up & Processing", "Track bank review, additional requirements and application progress."],
-  ["Bank Decision", "Track approval, rejection or return for additional action."],
-  ["Account Opened – Completion", "Record account opening confirmation and close the banking case."],
+  ["Bank Follow-up", "Record the submission, the bank's replies, any resubmission, then rejected or account opened."],
+  ["Completion", "Check the summary, fill what is missing, save the account details and send to Accounts."],
 ];
 export const STAGES = STEPS.map(([name]) => name);
 
+// The database keeps stages 1-18. Stages 14-17 show as Bank Follow-up and stage 18 as Completion.
+export const uiStep = (stage) => (stage < 14 ? stage : stage === 18 ? 15 : 14);
+export const stageLabel = (stage) => `${uiStep(stage)}. ${STAGES[uiStep(stage) - 1]}`;
+
 // Steps grouped so the whole journey fits one line: [phase name, first step, last step].
-export const PHASES = [["Lead", 1, 3], ["KYC & Bank", 4, 6], ["Documents", 7, 8], ["Commercial", 9, 11], ["Agreement", 12, 13], ["Bank Process", 14, 18]];
+export const PHASES = [["Lead", 1, 3], ["KYC & Bank", 4, 6], ["Documents", 7, 8], ["Commercial", 9, 11], ["Agreement", 12, 13], ["Bank Process", 14, 15]];
 
 export const LEAD_STATUSES = ["New", "Contacted", "Interested", "Follow-up Required", "Bank Options Shared", "Potential Client", "Quotation Sent", "Negotiation", "Converted", "Lost", "Not Interested", "Unreachable"];
 export const PRIORITIES = ["Low", "Medium", "High", "Urgent"];
 export const DOC_STATUSES = ["Not Requested", "Requested", "Received", "Under Review", "Verified", "Rejected", "Resubmission Required", "Not Applicable"];
 export const APP_STATUSES = ["Not Started", "Document Collection", "Documents Under Review", "Documents Completed", "Application Preparation", "Ready for Submission", "Submitted to Bank", "Bank Review", "Additional Documents Requested", "Resubmission Required", "Appointment Scheduled", "Client Visited Bank", "Approved", "Account Opened", "Rejected", "Returned", "Cancelled", "On Hold"];
+export const WITH_BANK_STATUSES = ["Submitted to Bank", "Bank Review", "Additional Documents Requested", "Resubmission Required", "Appointment Scheduled", "Client Visited Bank", "Approved"];
+export const BANK_REPLIES = ["Under review", "Documents requested", "Query raised", "Client visit needed"];
 export const SUBMISSION_METHODS = ["Direct Bank Submission by AB Capital", "Bank Appointment – Client Visits Bank", "Digital Application", "Other"];
 export const CHANNELS = ["Phone Call", "WhatsApp", "Email", "In Person", "Bank Relationship Manager", "Other"];
 export const TASK_TYPES = ["Lead Follow-up", "General KYC Collection", "Bank Comparison", "Document Collection", "Document Verification", "Quotation Preparation", "Payment Follow-up", "Engagement Letter", "Application Preparation", "Bank Submission", "Bank Appointment", "Bank Follow-up", "Home Ejari Issuance"];
@@ -56,3 +59,6 @@ export const REPORTS = [
   { group: "Financial", finance: true, items: [["quotation_value", "Total Quotation Value"], ["bank_fees", "Bank Fees"], ["ab_revenue", "AB Capital Revenue"], ["supplementary_revenue", "Supplementary Service Revenue"], ["payments_received", "Payments Received"], ["outstanding", "Outstanding Payments"], ["refunds", "Refunds"]] },
   { group: "Operational", items: [["pending_documents", "Pending Documents"], ["overdue_followups", "Overdue Follow-ups"], ["pending_agreements", "Pending Agreements"], ["pending_appointments", "Pending Bank Appointments"], ["awaiting_bank", "Awaiting Bank Response"], ["cases_by_employee", "Cases Pending by Employee"]] },
 ];
+
+// The old CRM dashboard's board columns, in its order.
+export const BOARD_STATUSES = ["In Progress", "Pending", "Done", "Hold", "Payment Pending", "Rejected"];

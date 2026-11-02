@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Empty } from "./shared";
 import { MIN_DECIDED, trendSummary } from "../logic/insights";
-import { PHASES, STEPS } from "../logic/constants";
+import { PHASES, STEPS, uiStep } from "../logic/constants";
 
 const plain = (n) => Number(n).toLocaleString("en-AE", { maximumFractionDigits: 0 });
 
@@ -73,9 +73,13 @@ export const rateCell = (r) => {
   return decided < MIN_DECIDED ? <span className="bk-muted" title={`Only ${decided} decided`}>{r.rate}%*</span> : <strong>{r.rate}%</strong>;
 };
 
-// All 18 steps with their case counts, grouped by phase. A zero stays visible: an empty step is information too.
+// All steps with their case counts, grouped by phase. A zero stays visible: an empty step is information too.
 export function StepBoard({ data, onOpen }) {
-  const counts = Object.fromEntries((data || []).map((d) => [d.step, d]));
+  const counts = {};
+  for (const d of data || []) {
+    const n = uiStep(Number(d.step));
+    counts[n] = { total: Number(counts[n]?.total || 0) + Number(d.total), open: Number(counts[n]?.open || 0) + Number(d.open) };
+  }
   const total = (data || []).reduce((n, d) => n + Number(d.total), 0);
   const open = (data || []).reduce((n, d) => n + Number(d.open), 0);
   const max = Math.max(1, ...(data || []).map((d) => Number(d.total)));

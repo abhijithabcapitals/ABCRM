@@ -17,6 +17,9 @@ Database for the `Banking Module`. Tables are `public.banking_*` in the CRM Supa
 | `migrations/011_banking_handover_accounts.sql` | Reassign with acceptance; case lock and access rules while with Accounts (Accounts side: `Accounting Base`). Re-running 001 resets policies, so run 011 again after it |
 | `migrations/012_banking_legacy_crm.sql` | Import from the old CRM's Banking Sheet: separate signing and opening dates on applications, staging keyed by old task id, matching against the draft. Staging changes only import tables |
 | `migrations/013_banking_banque_misr.sql` | Adds Banque Misr to the bank master, with no plans or pricing yet |
+| `migrations/015_banking_simple_bank_process.sql` | Simple bank timeline and `banking_client_accounts`. Stages stay 1-18 in the data; screens show 14-17 as Bank Follow-up and 18 as Completion. Re-running 001 resets the audit mask, so run 015 again after it. Undo: `rollback/015_rollback.sql` |
+| `migrations/014_banking_board_status.sql` | Old CRM board status becomes the target: stored on the case, and it decides the application status |
+| `migrations/016_banking_board_counts.sql` | Adds board status and dashboard counts to the case list |
 | `scripts/legacy_crm_load.py` | Turns the old CRM CSV export into the staging SQL. Connects to nothing. Keep its output in `data/` |
 | `scripts/legacy_release_bank.sql` | Releases old CRM rows held only for an unknown bank, after that bank is added |
 | `tests/run-local.sh` | Runs everything on a throwaway Postgres. Never touches Supabase |
@@ -51,7 +54,7 @@ Payment notes go to the review queue as usual. No payment is posted.
 2. Read the result: `select reconcile_result, count(*) from banking_excel_import_rows where legacy_task_id is not null group by 1`.
 3. To apply, in one transaction: `select set_config('request.jwt.claim.sub', '<admin id>', true); select banking_legacy_apply('<import id>');`.
 
-**Status: applied to `pnnakrhfzyxudjaghoxx` on 02/11/2026.** 983 deals from 1,482 tasks: 868 committed or linked, 88 held, 27 with no status.
+**Status: applied to `pnnakrhfzyxudjaghoxx` on 02/11/2026.** 983 deals from 1,482 tasks, then synced to the old CRM board status (014). Of the 880 Banking Sheet rows, 865 have a case and 15 are held.
 
 A fuller export can be loaded the same way: rows already committed stay as they are. Rollback before step 3: delete the import's rows and its `banking_excel_imports` row. After step 3 restore from the backup, since history tables are append-only.
 

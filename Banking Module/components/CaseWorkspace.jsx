@@ -1,13 +1,14 @@
 import { flagMissing } from "./Attention";
 import { useState } from "react";
 import { BankName } from "./BankLogo";
+import { BankFollowUp, Completion } from "./BankProcess";
 import KycForm from "./KycForm";
 import TaskForm from "./TaskForm";
 import { Badge, Button, CommsList, DataTable, ErrorNote, FilePick, FormModal, KeyVals, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { expiryFrom } from "../logic/kycAutofill";
 import { insertRow, loadSettings, openFile, readDocuments, rpc, saveGenerated, run, openInFolder, searchClientMaster, table, updateRow, uploadFile } from "../services/bankingApi";
 import { supabase } from "@app/supabase";
-import { APP_STATUSES, DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, SUBMISSION_METHODS } from "../logic/constants";
+import { DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, uiStep } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
 import { downloadLetterDocx, downloadQuoteDocx, letterDocx, printLetter, printQuote, printReceipt, quoteDocx, quoteMerge, receiptDocx } from "../logic/documents";
 
@@ -35,7 +36,8 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
   const { c, finance, gates, app, sel } = load.data;
   const client = c.banking_clients;
   const reload = load.reload;
-  const shown = step || c.current_stage;
+  const current = uiStep(c.current_stage);
+  const shown = step || current;
   const show = (n) => { setRecords(null); setStep(n); };
 
   return (
@@ -44,8 +46,8 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
       <div className="bk-case-top">
         <KeyVals items={[["Selected bank", sel ? `${sel.banking_partners?.bank_name}${sel.banking_schemes ? ` · ${sel.banking_schemes.scheme_name}` : ""}` : null], ["Application status", app?.status], ["Assigned employee", personName(c.assigned_to)], ["Total quotation", money(finance?.total)], ["Amount received", money(finance?.received)], ["Outstanding", money(finance?.outstanding)]]} />
       </div>
-      <ProgressRail current={c.current_stage} shown={records ? null : shown} outcome={c.outcome} opened={app?.status === "Account Opened"} onOpen={show} />
-      <AccountsBar c={c} app={app} reload={reload} onBack={onBack} />
+      <ProgressRail current={current} shown={records ? null : shown} outcome={c.outcome} opened={app?.status === "Account Opened"} onOpen={show} />
+      <AccountsBar c={c} />
       <div className="bk-filter">
         <span className="bk-muted">Case records:</span>
         {RECORDS.map(([k, label]) => <button type="button" key={k} className={`bk-chip ${records === k ? "active" : ""}`} onClick={() => setRecords(records === k ? null : k)}>{label}</button>)}
@@ -60,11 +62,11 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
       ) : (
         <>
           <div className="bk-step-head">
-            <span className="bk-eyebrow">STEP {shown} OF {STEPS.length}{shown < c.current_stage ? " · COMPLETED" : shown > c.current_stage ? " · NOT REACHED YET" : " · CURRENT"}</span>
+            <span className="bk-eyebrow">STEP {shown} OF {STEPS.length}{shown < current ? " · COMPLETED" : shown > current ? " · NOT REACHED YET" : " · CURRENT"}</span>
             <h3>{STEPS[shown - 1][0]}</h3>
             <p>{STEPS[shown - 1][1]}</p>
           </div>
-          <StepBody n={shown} c={c} client={client} finance={finance} gates={gates} app={app} reload={reload} goTo={show} />
+          <StepBody n={shown} c={c} client={client} finance={finance} gates={gates} reload={reload} goTo={show} onBack={onBack} />
           {!["Closed", "With Accounts"].includes(c.accounts_status) && <StepFooter n={shown} c={c} reload={reload} goTo={show} />}
         </>
       )}
@@ -72,21 +74,11 @@ export default function CaseWorkspace({ caseId, initialTab, onBack }) {
   );
 }
 
-function AccountsBar({ c, app, reload, onBack }) {
-  const { can } = useBanking();
-  const [sending, setSending] = useState(false);
-  const approved = ["Approved", "Account Opened"].includes(app?.status);
+function AccountsBar({ c }) {
   if (c.accounts_status === "Closed") return <div className="bk-alert bk-alert-ok">Closed. Accounts validated this case{c.accounts_remarks ? `: ${c.accounts_remarks}` : ""}. It can no longer be changed.</div>;
   if (c.accounts_status === "With Accounts") return <div className="bk-alert bk-alert-warn">This case is with Accounts for validation.</div>;
-  return (
-    <>
-      {c.accounts_status === "Reverted" && <div className="bk-alert bk-alert-error">Reverted by Accounts: {c.accounts_remarks}</div>}
-      {approved && can("cases.manage") && (
-        <div className="bk-inbox bk-row"><span><strong>Approved.</strong> When your work is complete, send it to Accounts. You lose access unless Accounts reverts it.</span><Button variant="primary" onClick={() => setSending(true)}>Mark complete and send to Accounts</Button></div>
-      )}
-      {sending && <FormModal title="Send to Accounts" note="The case leaves your lists and nobody can change it while Accounts holds it." onClose={() => setSending(false)} submitLabel="Send to Accounts" fields={[{ name: "remarks", label: "Remarks for Accounts", type: "textarea", full: true }]} onSubmit={async (v) => { await rpc("banking_send_to_accounts", { p_case: c.id, p_remarks: v.remarks }); await reload(); onBack(); }} />}
-    </>
-  );
+  if (c.accounts_status === "Reverted") return <div className="bk-alert bk-alert-error">Reverted by Accounts: {c.accounts_remarks}</div>;
+  return null;
 }
 
 function ProgressRail({ current, shown, outcome, opened, onOpen }) {
@@ -103,7 +95,7 @@ function ProgressRail({ current, shown, outcome, opened, onOpen }) {
       <div className="bk-rail-top">
         <div className="bk-rail-percent"><strong>{percent}%</strong><span>complete</span></div>
         <div className="bk-rail-now">
-          {finished ? <strong>Account opened. Case complete.</strong> : stopped ? <strong>Stopped at step {current}: {outcome}</strong> : <strong>Now: {STEPS[current - 1][0]}</strong>}
+          {finished ? <strong>Account opened.</strong> : stopped ? <strong>Stopped at step {current}: {outcome}</strong> : <strong>Now: {STEPS[current - 1][0]}</strong>}
           {!finished && !stopped && current < STEPS.length && <span>Next: {STEPS[current][0]}</span>}
         </div>
         <span className="bk-rail-count">Step {current} of {STEPS.length}</span>
@@ -138,7 +130,7 @@ function ProgressRail({ current, shown, outcome, opened, onOpen }) {
   );
 }
 
-function StepBody({ n, c, client, finance, gates, app, reload, goTo }) {
+function StepBody({ n, c, client, finance, gates, reload, goTo, onBack }) {
   if (n === 1) return <LeadStep c={c} />;
   if (n === 2) return <ClientInfo c={c} client={client} reload={reload} />;
   if (n === 3) return <CommsList caseId={c.id} clientId={c.client_id} />;
@@ -148,13 +140,8 @@ function StepBody({ n, c, client, finance, gates, app, reload, goTo }) {
   if (n === 9 || n === 11) return <Quotation c={c} client={client} reload={reload} />;
   if (n === 10) return <Payments c={c} client={client} finance={finance} reload={reload} />;
   if (n === 12 || n === 13) return <Agreement c={c} reload={reload} />;
-  if (n >= 14 && n <= 17) return <Application c={c} gates={gates} reload={reload} />;
-  return (
-    <>
-      {app?.status === "Account Opened" ? <div className="bk-alert bk-alert-ok">Account opening recorded. This case is complete.</div> : <div className="bk-alert bk-alert-warn">Not complete yet. Record "Account Opened" on the application once the bank confirms.</div>}
-      <Application c={c} gates={gates} reload={reload} />
-    </>
-  );
+  if (n === 14) return <BankFollowUp c={c} gates={gates} reload={reload} goTo={goTo} />;
+  return <Completion c={c} client={client} finance={finance} gates={gates} reload={reload} onBack={onBack} renderStep={(s) => <StepBody n={s} c={c} client={client} finance={finance} gates={gates} reload={reload} goTo={goTo} onBack={onBack} />} />;
 }
 
 function LeadStep({ c }) {
@@ -177,6 +164,7 @@ function StepFooter({ n, c, reload, goTo }) {
   const [override, setOverride] = useState(false);
   const [back, setBack] = useState(false);
   const canMove = can("cases.manage");
+  const current = uiStep(c.current_stage);
   const friendly = (m) => Object.entries(GATE_LABELS).reduce((t, [k, label]) => t.replaceAll(k, label), m).replace(/Cannot move to stage (\d+)/, "Cannot continue to step $1");
   const advance = async () => {
     setBusy(true); setError(null);
@@ -193,11 +181,11 @@ function StepFooter({ n, c, reload, goTo }) {
       <div className="bk-step-buttons">
         <Button disabled={n <= 1} onClick={() => goTo(n - 1)}>Previous step</Button>
         <span className="bk-actions">
-          {canMove && n < c.current_stage && <Button onClick={() => setBack(true)}>Return case to this step</Button>}
+          {canMove && n < current && n < 14 && <Button onClick={() => setBack(true)}>Return case to this step</Button>}
           {error && can("workflow.override") && <Button onClick={() => setOverride(true)}>Continue by exception</Button>}
-          {n !== c.current_stage && n < STEPS.length && <Button onClick={() => goTo(n + 1)}>Next step</Button>}
-          {n !== c.current_stage && <Button onClick={() => goTo(c.current_stage)}>Go to current step</Button>}
-          {canMove && n === c.current_stage && n < STEPS.length && <Button id="bk-step-advance" variant="primary" busy={busy} onClick={advance}>Complete step and continue</Button>}
+          {n !== current && n < STEPS.length && <Button onClick={() => goTo(n + 1)}>Next step</Button>}
+          {n !== current && <Button onClick={() => goTo(current)}>Go to current step</Button>}
+          {canMove && n === current && n < 14 && <Button id="bk-step-advance" variant="primary" busy={busy} onClick={advance}>Complete step and continue</Button>}
         </span>
       </div>
       {override && <FormModal title={`Continue to step ${c.current_stage + 1} by exception`} note={error} onClose={() => setOverride(false)} submitLabel="Continue" fields={[{ name: "why", label: "Justification", type: "textarea", required: true, full: true }]} onSubmit={async (v) => { await rpc("banking_move_stage", { p_case: c.id, p_to: c.current_stage + 1, p_override: v.why }); setError(null); await reload(); goTo(c.current_stage + 1); }} />}
@@ -278,7 +266,7 @@ function Overview({ c, gates, app, reload }) {
   return (
     <div className="bk-two">
       <Panel title="Processing checklist" sub={app ? `Application ${app.application_ref}` : "No application opened yet"}>
-        <ul className="bk-gates">{Object.entries(GATE_LABELS).map(([k, label]) => <li key={k} className={gates?.[k] ? "ok" : ""}><span aria-hidden="true">{gates?.[k] ? "✓" : "○"}</span>{label}</li>)}</ul>
+        <ul className="bk-gates">{Object.entries(GATE_LABELS).filter(([k]) => k !== "form_prepared").map(([k, label]) => <li key={k} className={gates?.[k] ? "ok" : ""}><span aria-hidden="true">{gates?.[k] ? "✓" : "○"}</span>{label}</li>)}</ul>
       </Panel>
       <Panel title="Risk considerations" sub="For staff review only. Nobody is approved or rejected from this list.">
         <ErrorNote message={flags.error} />
@@ -352,7 +340,7 @@ function ClientInfo({ c, client, reload }) {
         <DataTable rows={parties.data || []} columns={[{ key: "party_role", label: "Role" }, { key: "full_name", label: "Name" }, { key: "mobile", label: "Mobile" }, { key: "email", label: "Email" }]} empty="No contacts." />
       </Panel>
       <Panel title="All banking cases of this client">
-        <DataTable rows={others.data || []} onRow={(r) => r.id !== c.id && openCase(r.id)} columns={[{ key: "case_ref", label: "Case" }, { key: "current_stage", label: "Stage", render: (r) => STAGES[r.current_stage - 1] }, { key: "outcome", label: "Outcome" }]} />
+        <DataTable rows={others.data || []} onRow={(r) => r.id !== c.id && openCase(r.id)} columns={[{ key: "case_ref", label: "Case" }, { key: "current_stage", label: "Stage", render: (r) => STAGES[uiStep(r.current_stage) - 1] }, { key: "outcome", label: "Outcome" }]} />
       </Panel>
       {link && <FormModal title="Client Master ID" initial={{ id: client.client_master_id }} onClose={() => setLink(false)} fields={[{ name: "id", label: "Client ID", required: true, help: "Format CL000001" }]} onSubmit={async (v) => { await rpc("banking_link_client_master", { p_client: client.id, p_master: v.id }); await reload(); }} />}
       {party && <FormModal title="Add contact" initial={{ party_role: "Primary Contact" }} onClose={() => setParty(false)} fields={[{ name: "party_role", label: "Role", required: true }, { name: "full_name", label: "Name", required: true }, { name: "mobile", label: "Mobile" }, { name: "email", label: "Email" }]} onSubmit={async (v) => { await insertRow("banking_case_parties", { ...v, case_id: c.id }); await parties.reload(); }} />}
@@ -672,67 +660,6 @@ function GeneratedDocuments({ caseId, kind }) {
         { key: "o", label: "File", render: (r) => <span className="bk-actions"><button type="button" className="bk-link" onClick={() => act(() => openFile(r.storage_path))}>View</button>{r.local_path ? <button type="button" className="bk-link" title={r.local_path} onClick={() => act(() => openInFolder(r.local_path))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}</span> },
       ]} />
     </div>
-  );
-}
-
-function Application({ c, gates, reload }) {
-  const { can, personOptions } = useBanking();
-  const apps = useLoad(() => run(table("banking_applications").select("*, banking_partners(bank_name), banking_schemes(scheme_name)").eq("case_id", c.id).order("created_at", { ascending: false })), [c.id]);
-  const app = (apps.data || []).find((a) => a.is_active) || apps.data?.[0];
-  const hist = useLoad(() => (app ? run(table("banking_application_status_history").select("*").eq("application_id", app.id).order("created_at", { ascending: false })) : Promise.resolve([])), [app?.id]);
-  const appts = useLoad(() => (app ? run(table("banking_appointments").select("*").eq("application_id", app.id).order("appointment_at", { ascending: false })) : Promise.resolve([])), [app?.id]);
-  const rms = useLoad(() => (app?.bank_id ? run(table("banking_relationship_managers").select("id, full_name").eq("bank_id", app.bank_id).eq("is_active", true)) : Promise.resolve([])), [app?.bank_id]);
-  const [openOverride, setOpenOverride] = useState(false);
-  const [edit, setEdit] = useState(false);
-  const [status, setStatus] = useState(false);
-  const [appt, setAppt] = useState(null);
-  const refresh = async () => { await apps.reload(); await hist.reload(); await reload(); };
-  const { error, busy, act } = useAction(refresh);
-  return (
-    <div>
-      <Panel title="Application workspace" sub={app ? `${app.application_ref} · ${app.banking_partners?.bank_name || ""}` : "Opens once the engagement letter is signed."}
-        actions={<>
-          {can("apps.manage") && !(apps.data || []).some((a) => a.is_active) && gates?.letter_signed && <Button variant="primary" busy={busy} onClick={() => act(() => rpc("banking_application_open", { p_case: c.id }))}>Open application</Button>}
-          {can("workflow.override") && !gates?.letter_signed && !(apps.data || []).some((a) => a.is_active) && <Button onClick={() => setOpenOverride(true)}>Open with authorised exception</Button>}
-          {app?.is_active && can("apps.manage") && <><Button onClick={() => setEdit(true)}>Edit details</Button><Button variant="primary" onClick={() => setStatus(true)}>Update status</Button></>}
-        </>}>
-        <ErrorNote message={apps.error || error} />
-        {app && <KeyVals items={[["Status", <Badge key="s">{app.status}</Badge>], ["Bank", app.banking_partners?.bank_name], ["Scheme", app.banking_schemes?.scheme_name], ["Application date", fmtDate(app.application_date)], ["Submission method", app.submission_method], ["Bank reference", app.bank_reference], ["Submission date", fmtDate(app.submission_date)], ["Relationship manager", app.relationship_manager_text], ["Next follow-up", fmtDate(app.next_follow_up)], ["Form prepared", app.form_prepared ? "Yes" : "No"], ["Bank remarks", app.bank_remarks], ["Internal remarks", app.internal_remarks], ...(app.override_justification ? [["Opened by exception", app.override_justification]] : []), ...(app.historical_date ? [["Excel 'opening date'", fmtDate(app.historical_date)]] : [])]} />}
-      </Panel>
-      {app && (
-        <Panel title="Bank appointments" actions={can("apps.manage") && <Button onClick={() => setAppt({ status: "Scheduled" })}>Add appointment</Button>}>
-          <DataTable rows={appts.data || []} onRow={can("apps.manage") ? setAppt : undefined} empty="None." columns={[{ key: "appointment_at", label: "When", render: (r) => fmtDateTime(r.appointment_at) }, { key: "location", label: "Location" }, { key: "relationship_manager_text", label: "RM" }, { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> }, { key: "remarks", label: "Remarks" }]} />
-        </Panel>
-      )}
-      {app && (
-        <Panel title="Status history">
-          <ErrorNote message={hist.error} />
-          <DataTable rows={hist.data || []} columns={[{ key: "created_at", label: "When", render: (r) => fmtDateTime(r.created_at) }, { key: "previous_status", label: "From" }, { key: "new_status", label: "To", render: (r) => <Badge>{r.new_status}</Badge> }, { key: "remarks", label: "Remarks" }, { key: "next_follow_up", label: "Next follow-up", render: (r) => fmtDate(r.next_follow_up) }, { key: "is_override", label: "Override", render: (r) => (r.is_override ? <Badge tone="warn">Override</Badge> : "–") }, { key: "doc", label: "Doc", render: (r) => (r.supporting_document_path ? <button type="button" className="bk-link" onClick={() => act(() => openFile(r.supporting_document_path))}>Open</button> : "–") }]} />
-        </Panel>
-      )}
-      {openOverride && <FormModal title="Open application by exception" onClose={() => setOpenOverride(false)} fields={[{ name: "why", label: "Justification", type: "textarea", required: true, full: true }]} onSubmit={async (v) => { await rpc("banking_application_open", { p_case: c.id, p_override: v.why }); await refresh(); }} />}
-      {edit && app && <FormModal wide title="Application details" initial={app} onClose={() => setEdit(false)} fields={[
-        { name: "assigned_to", label: "Assigned employee", type: "select", options: personOptions }, { name: "submission_method", label: "Submission method", type: "select", options: SUBMISSION_METHODS }, { name: "relationship_manager_text", label: "Relationship manager", help: (rms.data || []).map((r) => r.full_name).join(", ") || "None set up for this bank" },
-        { name: "bank_reference", label: "Application reference number" }, { name: "application_date", label: "Application date", type: "date" }, { name: "submission_date", label: "Submission date", type: "date" }, { name: "appointment_location", label: "Appointment location" }, { name: "next_follow_up", label: "Next follow-up", type: "date" }, { name: "form_prepared", label: "Application form prepared", type: "bool" }, { name: "bank_remarks", label: "Bank remarks", type: "textarea", full: true }, { name: "internal_remarks", label: "Internal remarks", type: "textarea", full: true },
-      ]} onSubmit={async (v) => { await rpc("banking_application_update", { p_app: app.id, p: v }); await refresh(); }} />}
-      {status && app && <StatusForm app={app} c={c} onClose={() => setStatus(false)} onDone={refresh} />}
-      {appt && <FormModal title="Bank appointment" initial={{ ...appt, appointment_at: appt.appointment_at ? appt.appointment_at.slice(0, 16) : "" }} onClose={() => setAppt(null)} fields={[{ name: "appointment_at", label: "Date and time", type: "datetime", required: true }, { name: "location", label: "Location" }, { name: "relationship_manager_text", label: "Relationship manager" }, { name: "attendees", label: "Attendees" }, { name: "status", label: "Status", type: "select", options: ["Scheduled", "Completed", "Rescheduled", "Cancelled", "No Show"], required: true }, { name: "remarks", label: "Remarks", type: "textarea", full: true }]}
-        onSubmit={async (v) => { if (appt.id) await updateRow("banking_appointments", appt.id, v); else await insertRow("banking_appointments", { ...v, case_id: c.id, application_id: app.id }); await appts.reload(); }} />}
-    </div>
-  );
-}
-
-function StatusForm({ app, c, onClose, onDone }) {
-  const { can } = useBanking();
-  const [file, setFile] = useState(null);
-  return (
-    <FormModal title={`Update status (now: ${app.status})`} onClose={onClose} submitLabel="Update" note={<>Supporting document (optional): <input type="file" aria-label="Supporting document" onChange={(e) => setFile(e.target.files?.[0] || null)} /></>}
-      fields={[{ name: "status", label: "New status", type: "select", required: true, options: APP_STATUSES.filter((s) => s !== app.status && s !== "Not Started") }, { name: "remarks", label: "Remarks", type: "textarea", full: true }, { name: "next", label: "Next follow-up date", type: "date" }, ...(can("workflow.override") ? [{ name: "override", label: "Override justification (only to bypass a rule)", type: "textarea", full: true }] : [])]}
-      onSubmit={async (v) => {
-        const u = file ? await uploadFile(c.id, "applications", file) : null;
-        await rpc("banking_application_set_status", { p_app: app.id, p_status: v.status, p_remarks: v.remarks, p_next: v.next, p_path: u?.path ?? null, p_override: v.override ?? null });
-        await onDone();
-      }} />
   );
 }
 

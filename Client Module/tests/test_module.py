@@ -201,6 +201,104 @@ def test_crm_can_read_documents_from_listed_origin_only(tmp_path):
     assert body["id"] and body["extraction"]["fields"]
 
 
+def test_remote_mode_requires_crm_permission_and_exposes_only_document_routes(tmp_path, monkeypatch):
+    import clientmodule.api as api
+
+    crm = "https://crm.example"
+    settings = Settings.load(
+        storage_root=tmp_path,
+        data_dir=tmp_path / "d",
+        embed_origins=[crm],
+        allowed_hosts=["ocr.example.com"],
+        remote_mode=True,
+        supabase_url="https://supabase.example",
+        supabase_anon_key="public-anon-key",
+        virus_scan=False,
+        ai_enabled=False,
+    )
+    c = TestClient(create_app(settings))
+    headers = {"host": "ocr.example.com", "origin": crm}
+
+    async def allowed(_settings, token):
+        return "allowed" if token == "valid" else "forbidden"
+
+    monkeypatch.setattr(api, "verify_remote_document_access", allowed)
+    assert c.post("/api/batches", json={}, headers=headers).status_code == 401
+    assert c.post("/api/batches", json={}, headers={**headers, "authorization": "Bearer denied"}).status_code == 403
+    assert c.get("/api/clients", headers={**headers, "authorization": "Bearer valid"}).status_code == 404
+    assert c.get("/api/health", headers=headers).json() == {"app": "client-module"}
+
+    preflight = c.options("/api/batches", headers={**headers, "access-control-request-method": "POST"})
+    assert preflight.status_code == 204
+    assert "authorization" in preflight.headers["access-control-allow-headers"].lower()
+
+    batch = c.post("/api/batches", json={}, headers={**headers, "authorization": "Bearer valid"})
+    assert batch.status_code == 200 and batch.json()["batch"]
+    batch_id = batch.json()["batch"]
+    credential = {"host": "ocr.example.com", "origin": crm, "authorization": "Bearer valid"}
+    uploaded = c.post(
+        f"/api/batches/{batch_id}/files",
+        files={"file": ("trade licence.txt", b"COMMERCIAL LICENSE\nLicense No: 123456\nCompany Name: TEST TRADING LLC\n")},
+        headers=credential,
+    )
+    assert uploaded.status_code == 200 and uploaded.json()["id"]
+    assert c.get(f"/api/batches/{batch_id}", headers=credential).status_code == 404
+    assert c.post(f"/api/batches/{batch_id}/ai-extract", headers=credential).status_code == 404
+    assert c.delete(f"/api/batches/{batch_id}/files/{uploaded.json()['id']}", headers=credential).status_code == 200
+
+    bad_origin = c.post("/api/batches", json={}, headers={"host": "ocr.example.com", "origin": "https://evil.example"})
+    assert bad_origin.status_code == 403
+    bad_host = c.post("/api/batches", json={}, headers={"host": "evil.example", "origin": crm})
+    assert bad_host.status_code == 403
+
+
+def test_remote_access_check_validates_session_and_banking_permissions(monkeypatch, tmp_path):
+    import asyncio
+    import clientmodule.api as api
+
+    calls = []
+
+    class Response:
+        status_code = 200
+        is_success = True
+
+        def __init__(self, body):
+            self.body = body
+
+        def json(self):
+            return self.body
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, headers):
+            calls.append((url, headers))
+            return Response({"id": "signed-in-user"})
+
+        async def post(self, url, headers, json):
+            calls.append((url, headers, json))
+            return Response({"permissions": ["docs.manage"]})
+
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda **_kwargs: Client())
+    settings = Settings.load(
+        storage_root=tmp_path,
+        data_dir=tmp_path / "d",
+        remote_mode=True,
+        allowed_hosts=["ocr.example.com"],
+        embed_origins=["https://crm.example"],
+        supabase_url="https://supabase.example",
+        supabase_anon_key="public-anon-key",
+    )
+    assert asyncio.run(api.verify_remote_document_access(settings, "session-token")) == "allowed"
+    assert len(calls) == 2
+    assert all(call[1]["Authorization"] == "Bearer session-token" for call in calls)
+    assert calls[1][0].endswith("/rest/v1/rpc/banking_my_access")
+
+
 def test_generated_documents_go_only_to_their_folder(tmp_path):
     crm = "https://crm.example"
     quotes = tmp_path / "Quotes Generated"

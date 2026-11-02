@@ -17,7 +17,8 @@ Same pattern as the Business Development Module. The Main Module imports this fo
 |---|---|
 | `components/BankingModule.jsx` | Shell, permissions, navigation |
 | `components/NewLeadWizard.jsx` | New lead: upload documents, autofill, fill what is missing |
-| `components/CaseWorkspace.jsx` | Case header, guided 18 steps, plan picker |
+| `components/CaseWorkspace.jsx` | Case header, guided 15 steps, plan picker |
+| `components/BankProcess.jsx` | Bank Follow-up timeline and Completion summary with account details |
 | `components/{Dashboard,Leads,Clients,Cases,KycForm,BankingPartners,Documentation,Masters,WorkLists,Reports,ExcelImport,Settings}.jsx` | Pages |
 | `logic/leadTemplate.js` | The only accepted upload: template check and row validation. Build: `scripts/build_import_template.py` |
 | `logic/excelImport.js`, `paymentNotes.js` | One-off reader for the old working sheet, kept for its tests and the rows already staged |

@@ -58,7 +58,7 @@ select public.ok('CRM admin has access', (public.banking_my_access() ->> 'role')
 
 -- ── Masters from seed ──
 select public.ok('official names kept with old names as aliases', (select bank_name = 'Abu Dhabi Commercial Bank PJSC' and 'ADCB' = any(aliases) and website is not null from public.banking_partners where bank_code = 'ADCB'));
-select public.ok('12 brief banks plus Mashreq, SIB and Banque Misr', (select count(*) from public.banking_partners) = 15);
+select public.ok('12 brief banks plus Mashreq, SIB, Banque Misr and FOMOPAY', (select count(*) from public.banking_partners) = 16);
 select public.ok('checklists unverified by default', not exists (select 1 from public.banking_checklist_templates where verification_status <> 'Unverified'));
 select public.ok('standard list has 16 items', (select count(*) from public.banking_checklist_items i join public.banking_checklist_templates t on t.id = i.template_id where t.template_code = 'STANDARD') = 16);
 select public.ok('ADCB list has 9 items', (select count(*) from public.banking_checklist_items i join public.banking_checklist_templates t on t.id = i.template_id where t.template_code = 'ADCB') = 9);
@@ -478,7 +478,7 @@ select public.as_user('0c');
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));
-select public.ok('catalogue lists banks with plans', (select count(*) from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3')))) = 15 and exists (select 1 from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3'))) e where jsonb_array_length(e -> 'plans') > 0));
+select public.ok('catalogue lists banks with plans', (select count(*) from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3')))) = 16 and exists (select 1 from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3'))) e where jsonb_array_length(e -> 'plans') > 0));
 select public.ok('choose plan creates option and checklist', public.banking_choose_plan(public.id('case3'), (select id from public.banking_partners where bank_code = 'ADCB'), (select s.id from public.banking_schemes s join public.banking_partners b on b.id = s.bank_id where b.bank_code = 'ADCB' limit 1)) > 0);
 select public.as_user('0d');
 select public.keep('kdoc', public.banking_kyc_add_document((select client_id from public.banking_cases where id = public.id('case3')), 'MOA', null, 'x/y.pdf', 'y.pdf', 'application/pdf', 1, 'z'));
@@ -566,6 +566,44 @@ select public.must_fail('a member cannot read members', $$select public.admin_me
 select public.must_fail('a member cannot set tabs', $$select public.admin_set_tabs('00000000-0000-0000-0000-00000000000c', array['tax'])$$, 'Admin');
 select public.must_fail('a member cannot pause jobs', $$select public.admin_job_set_active(1, false)$$, 'Admin');
 select public.must_fail('a member cannot add employees', $$insert into public.hr_employees (employee_code, full_name) values ('E-2', 'X')$$, 'security');
+
+-- ── Simple bank process (015) ──
+select public.as_user('0f');
+select public.must_fail('reply needs a submission first', format($$select public.banking_bank_event(%L, 'reply', null, 'Under review')$$, public.id('rlcase')), 'submission');
+select public.must_fail('submission needs letter and payment', format($$select public.banking_bank_event(%L, 'submitted')$$, public.id('rlcase')), 'not yet met');
+select public.must_fail('banker cannot use the exception', format($$select public.banking_bank_event(%L, 'submitted', p_override => 'x')$$, public.id('rlcase')), 'permission');
+select public.as_user('0b');
+select public.banking_choose_plan(public.id('rlcase'), (select id from public.banking_partners order by bank_name limit 1), null, null);
+select public.banking_bank_event(public.id('rlcase'), 'submitted', current_date, null, 'Sent', current_date + 3, '[{"path":"c/a.pdf","name":"a.pdf"},{"path":"c/b.pdf","name":"b.pdf"}]', 'Manager approved');
+select public.ok('submission opens the application and keeps two files', (select a.status = 'Submitted to Bank' and jsonb_array_length(h.documents) = 2 from public.banking_applications a join public.banking_application_status_history h on h.application_id = a.id and h.event_kind = 'submitted' where a.case_id = public.id('rlcase')));
+select public.as_user('0f');
+select public.must_fail('cannot submit twice', format($$select public.banking_bank_event(%L, 'submitted')$$, public.id('rlcase')), 'Already');
+select public.must_fail('reply must be from the list', format($$select public.banking_bank_event(%L, 'reply', null, 'Whatever')$$, public.id('rlcase')), 'Choose');
+select public.banking_bank_event(public.id('rlcase'), 'reply', null, 'Under review');
+select public.banking_bank_event(public.id('rlcase'), 'reply', null, 'Query raised', 'Asked about source of funds');
+select public.ok('the same status can repeat', (select count(*) = 2 from public.banking_application_status_history h join public.banking_applications a on a.id = h.application_id where a.case_id = public.id('rlcase') and h.event_kind = 'reply' and h.new_status = 'Bank Review'));
+select public.banking_bank_event(public.id('rlcase'), 'resubmitted');
+select public.must_fail('rejection needs a reason', format($$select public.banking_bank_event(%L, 'rejected')$$, public.id('rlcase')), 'reason');
+select public.as_user('0b');
+select public.must_fail('details need an opened account', format($$select public.banking_account_details_save(%L, '{}')$$, public.id('rlcase')), 'opened first');
+select public.as_user('0f');
+select public.banking_bank_event(public.id('rlcase'), 'opened');
+select public.ok('opened needs no separate approval', (select current_stage = 18 and outcome = 'Approved' from public.banking_cases where id = public.id('rlcase')));
+select public.must_fail('nothing follows opening', format($$select public.banking_bank_event(%L, 'reply', null, 'Under review')$$, public.id('rlcase')), 'closed');
+select public.as_user('0b');
+select public.must_fail('completion needs account details', format($$select public.banking_complete_case(%L)$$, public.id('rlcase')), 'Account number, IBAN');
+select public.banking_account_details_save(public.id('rlcase'), '{"account_number":"123","iban":"ae07 0331","account_name":"Acme","opened_on":"2026-11-02"}');
+select public.ok('details saved about the client', (select a.iban = 'AE070331' and a.client_id = c.client_id from public.banking_client_accounts a join public.banking_cases c on c.id = a.case_id where a.case_id = public.id('rlcase')));
+select public.banking_account_details_save(public.id('rlcase'), '{"account_number":"456","iban":"AE070331","account_name":"Acme","opened_on":"2026-11-02"}');
+select public.ok('saving again updates the same record', (select count(*) = 1 and min(account_number) = '456' from public.banking_client_accounts where case_id = public.id('rlcase')));
+select public.must_fail('details cannot be written directly', format($$update public.banking_client_accounts set iban = 'x' where case_id = %L$$, public.id('rlcase')), 'permission');
+select public.banking_complete_case(public.id('rlcase'), 'Done');
+select public.as_user('88');
+select public.ok('completion sends to Accounts', (select accounts_status = 'With Accounts' from public.banking_cases where id = public.id('rlcase')));
+select public.as_user('0b');
+select public.must_fail('details locked while with Accounts', format($$select public.banking_account_details_save(%L, '{"account_number":"9"}')$$, public.id('rlcase')), 'with Accounts');
+select public.as_user('0a');
+select public.ok('account numbers masked in the activity log', not exists (select 1 from public.banking_activity_logs where entity_table = 'banking_client_accounts' and (new_data ->> 'account_number' in ('123','456') or new_data ->> 'iban' = 'AE070331')));
 
 reset role;
 \echo === FAILURES ===
