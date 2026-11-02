@@ -56,7 +56,7 @@ async function readPdf(assets, file) {
       const viewport = page.getViewport({ scale: RENDER_SCALE });
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width; canvas.height = viewport.height;
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport, intent: "print" }).promise; // "print" keeps going in a background tab
       scanned.push(await ocr(assets, canvas));
     }
     const read = scanned.join("\n\f\n");
