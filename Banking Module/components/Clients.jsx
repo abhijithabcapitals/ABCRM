@@ -3,8 +3,8 @@ import { useState } from "react";
 import Cases from "./Cases";
 import KycForm from "./KycForm";
 import { Badge, Button, ClosedSection, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Spinner, fmtDate, useBanking, useLoad } from "./shared";
-import { rpc, run, table } from "../services/bankingApi";
-import { STAGES } from "../logic/constants";
+import { openFile, rpc, run, table } from "../services/bankingApi";
+import { stageLabel } from "../logic/constants";
 import { money } from "../logic/pricing";
 
 export default function Clients({ initialStep }) {
@@ -56,6 +56,7 @@ function ClientPage({ client, onBack }) {
   const [tab, setTab] = useState(tabs[0][0]);
   const [adding, setAdding] = useState(false);
   const cases = useLoad(() => run(table("banking_cases").select("id, case_ref, title, current_stage, outcome, is_historical, accounts_status, created_at, banking_bank_recommendations(is_selected, banking_partners(bank_name))").eq("client_id", client.id).order("created_at", { ascending: false })), [client.id]);
+  const accounts = useLoad(() => run(table("banking_client_accounts").select("*, banking_partners(bank_name)").eq("client_id", client.id).order("created_at", { ascending: false })), [client.id]);
   const bankOf = (c) => c.banking_bank_recommendations.find((r) => r.is_selected)?.banking_partners?.bank_name;
   return (
     <div>
@@ -71,10 +72,17 @@ function ClientPage({ client, onBack }) {
         <>
           <ErrorNote message={cases.error} />
           <div className="bk-panel"><KeyVals items={[["Bank", client.bank], ["Client Master", client.client_master_id || "Not linked"], ["Licence", client.license_number], ["Banking cases", client.cases], ["Open cases", client.open_cases], ...(can("payments.view") ? [["Total received", money(client.received)]] : [])]} /></div>
+          <h4 className="bk-subhead">Bank accounts</h4>
+          <ErrorNote message={accounts.error} />
+          <DataTable rows={accounts.data || []} empty="No account details saved yet." columns={[
+            { key: "b", label: "Bank", render: (a) => a.banking_partners?.bank_name }, { key: "account_name", label: "Account name" }, { key: "account_number", label: "Account number" }, { key: "iban", label: "IBAN" },
+            { key: "branch", label: "Branch" }, { key: "currency", label: "Currency" }, { key: "opened_on", label: "Opened", render: (a) => fmtDate(a.opened_on) }, { key: "relationship_manager", label: "RM" },
+            { key: "w", label: "Welcome letter", render: (a) => (a.welcome_letter_path ? <button type="button" className="bk-link" onClick={() => openFile(a.welcome_letter_path)}>{a.welcome_letter_name || "Open"}</button> : "–") },
+          ]} />
           <h4 className="bk-subhead">Banking cases</h4>
           <DataTable rows={cases.data || []} onRow={(c) => openCase(c.id)} empty="No banking cases yet." columns={[
             { key: "case_ref", label: "Case" }, { key: "created_at", label: "Opened", render: (c) => fmtDate(c.created_at) }, { key: "b", label: "Bank", render: bankOf },
-            { key: "current_stage", label: "Step", render: (c) => `${c.current_stage}. ${STAGES[c.current_stage - 1]}` },
+            { key: "current_stage", label: "Step", render: (c) => stageLabel(c.current_stage) },
             { key: "outcome", label: "Outcome", render: (c) => (c.accounts_status === "Closed" ? <Badge>Closed</Badge> : c.outcome ? <Badge>{c.outcome}</Badge> : "Open") },
           ]} />
         </>

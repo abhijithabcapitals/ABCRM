@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Badge, Button, ClosedSection, DataTable, ErrorNote, FormModal, PageHead, Spinner, useBanking, useLoad } from "./shared";
 import { listAll, rpc } from "../services/bankingApi";
 import { money } from "../logic/pricing";
-import { STAGES } from "../logic/constants";
+import { STAGES, stageLabel, uiStep } from "../logic/constants";
 
 export default function Cases({ initialStep }) {
   const { can, openCase, personOptions } = useBanking();
@@ -15,7 +15,7 @@ export default function Cases({ initialStep }) {
   const clients = useLoad(() => listAll("banking_clients", "id, display_name, client_master_id", "display_name", true), []);
   useEffect(() => { const t = setTimeout(() => setTerm(q.trim()), 300); return () => clearTimeout(t); }, [q]);
 
-  const matching = (list.data?.rows || []).filter((r) => !step || r.current_stage === Number(step));
+  const matching = (list.data?.rows || []).filter((r) => !step || uiStep(r.current_stage) === Number(step));
   const rows = matching.filter((r) => r.accounts_status !== "Closed");
   const closed = matching.filter((r) => r.accounts_status === "Closed");
   const columns = [
@@ -23,7 +23,7 @@ export default function Cases({ initialStep }) {
     { key: "client", label: "Client" },
     { key: "client_master_id", label: "Client Master", render: (r) => r.client_master_id || <Badge tone="warn">Not linked</Badge> },
     { key: "bank", label: "Bank" },
-    { key: "current_stage", label: "Stage", render: (r) => `${r.current_stage}. ${STAGES[r.current_stage - 1]}` },
+    { key: "current_stage", label: "Stage", render: (r) => stageLabel(r.current_stage) },
     { key: "app_status", label: "Application", render: (r) => <>{r.app_status ? <Badge>{r.app_status}</Badge> : "–"}{r.accounts_status === "Reverted" && <> <Badge tone="bad">Reverted by Accounts</Badge></>}</> },
     { key: "employee", label: "Employee" },
     { key: "total", label: "Quotation", right: true, render: (r) => money(r.total) },

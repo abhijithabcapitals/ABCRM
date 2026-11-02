@@ -15,6 +15,7 @@ Database for the `Banking Module`. Tables are `public.banking_*` in the CRM Supa
 | `migrations/009_banking_lead_pipeline.sql` | Lead pick-up, and Converted meaning bank selected and payment received |
 | `migrations/010_banking_official_names.sql` | Official bank names and websites; old names kept as aliases |
 | `migrations/011_banking_handover_accounts.sql` | Reassign with acceptance; case lock and access rules while with Accounts (Accounts side: `Accounting Base`). Re-running 001 resets policies, so run 011 again after it |
+| `migrations/015_banking_simple_bank_process.sql` | Simple bank timeline and `banking_client_accounts`. Stages stay 1-18 in the data; screens show 14-17 as Bank Follow-up and 18 as Completion. Re-running 001 resets the audit mask, so run 015 again after it. Undo: `rollback/015_rollback.sql` |
 | `tests/run-local.sh` | Runs everything on a throwaway Postgres. Never touches Supabase |
 | `data/` | Local extracts, if any. Git-ignored |
 
