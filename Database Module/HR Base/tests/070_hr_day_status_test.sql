@@ -225,6 +225,101 @@ select public.ok('the edits table cannot be written directly', not has_table_pri
 reset role;
 
 reset role;
+-- ── pay ──
+update public.hr_settings set pay_day_divisor_mode = 'calendar_days', pay_unpaid_wage_base = 'total' where id = 1;
+update public.hr_leave_types set carry_forward = true where name = 'DS Paid';
+insert into public.hr_leave_types (name, paid) values ('Unpaid', false) on conflict (name) do update set paid = false;
+insert into public.hr_employees (id, employee_code, full_name, join_date, status) values
+  ('4b000000-0000-0000-0000-000000000001', 'PY-1', 'Pay One', '2026-01-01', 'Active'),
+  ('4b000000-0000-0000-0000-000000000002', 'PY-2', 'Pay Two', '2026-01-01', 'Active'),
+  ('4b000000-0000-0000-0000-000000000003', 'PY-3', 'Pay Three', '2026-01-01', 'Active'),
+  ('4b000000-0000-0000-0000-000000000004', 'PY-4', 'Pay Four', '2026-01-01', 'Active'),
+  ('4b000000-0000-0000-0000-000000000005', 'PY-5', 'Pay Late Joiner', '2027-06-01', 'Active');
+insert into public.hr_pay_details (employee_id, effective_from, basic, iban) select id, '2026-01-01', 1000, 'AE070331234567890123456' from public.hr_employees where employee_code like 'PY-%';
+create or replace function public.py(p int) returns uuid language sql as $$ select ('4b000000-0000-0000-0000-00000000000' || p)::uuid $$;
+grant execute on function public.py(int) to authenticated;
+create or replace function public.net(p_month date, p_e int) returns numeric language sql security definer as $$
+  select public.hr_pay_sum(c -> 'earnings') - public.hr_pay_sum(c -> 'deductions') from (select public.hr_pay_compute(p_month, public.py(p_e)) c) x
+$$;
+-- Every Monday to Saturday of a month Present, so a test's own removals are the only unpaid days.
+create or replace function public.py_fill(p_e int, p_from date, p_to date) returns void language sql as $$
+  insert into public.hr_attendance (employee_id, work_date, status)
+  select public.py(p_e), g::date, 'Present' from generate_series(p_from::timestamp, p_to::timestamp, interval '1 day') g where extract(dow from g) <> 0
+$$;
+select public.py_fill(1, '2026-09-01', '2026-10-31');
+
+select public.ok('a full month pays the full salary', public.net('2026-09-01', 1) = 1000, public.net('2026-09-01', 1)::text);
+delete from public.hr_attendance where employee_id = public.py(1) and work_date = '2026-09-08';
+select public.ok('one Absent in a 30-day month deducts 33.33', public.net('2026-09-01', 1) = 966.67, public.net('2026-09-01', 1)::text);
+update public.hr_attendance set time_in = '10:00', time_out = '20:00' where employee_id = public.py(1) and work_date = '2026-09-09';
+select public.ok('late and overtime do not change pay', public.net('2026-09-01', 1) = 966.67, public.net('2026-09-01', 1)::text);
+delete from public.hr_attendance where employee_id = public.py(1) and work_date = '2026-09-26';
+select public.ok('a WFH Saturday is paid', public.net('2026-09-01', 1) = 966.67, public.net('2026-09-01', 1)::text);
+delete from public.hr_attendance where employee_id = public.py(1) and work_date = '2026-09-10';
+insert into public.hr_leave_requests (employee_id, leave_type_id, from_date, to_date, days, status) values (public.py(1), '41000000-0000-0000-0000-000000000001', '2026-09-10', '2026-09-10', 1, 'approved');
+select public.ok('a paid leave day is paid', public.net('2026-09-01', 1) = 966.67, public.net('2026-09-01', 1)::text);
+delete from public.hr_attendance where employee_id = public.py(1) and work_date in ('2026-10-06', '2026-10-07');
+insert into public.hr_leave_requests (employee_id, leave_type_id, from_date, to_date, days, status) values (public.py(1), '41000000-0000-0000-0000-000000000002', '2026-10-06', '2026-10-07', 2, 'approved');
+select public.ok('two unpaid leave days in a 31-day month deduct 64.52', public.net('2026-10-01', 1) = 935.48, public.net('2026-10-01', 1)::text);
+select public.ok('every working day Absent still pays Sundays and the WFH Saturday, and is not negative', public.net('2026-08-01', 2) = 193.55, public.net('2026-08-01', 2)::text);
+
+-- ── leave days ──
+select public.ok('a WFH Saturday counts as a leave day, a Sunday does not', public.hr_leave_days('2026-09-26', '2026-09-28') = 2);
+select public.ok('a holiday does not count as a leave day', public.hr_leave_days('2026-10-12', '2026-10-13') = 1);
+
+-- ── annual balance ──
+insert into public.hr_leave_requests (employee_id, leave_type_id, from_date, to_date, days, status) values (public.py(3), '41000000-0000-0000-0000-000000000001', '2026-03-02', '2026-03-06', 5, 'approved');
+set role authenticated;
+select public.as_user('0a');
+select public.ok('2026 balance is 30 less 5, nothing carried in', (select carried = 0 and remaining = 25 from public.hr_leave_balance(public.py(3), 2026) where leave_type = 'DS Paid'));
+select public.ok('2027 carries 25 for a balance of 55', (select carried = 25 and remaining = 55 from public.hr_leave_balance(public.py(3), 2027) where leave_type = 'DS Paid'));
+select public.ok('2028 keeps carrying with no cap', (select carried = 55 and remaining = 85 from public.hr_leave_balance(public.py(3), 2028) where leave_type = 'DS Paid'));
+select public.ok('a type without carry forward carries nothing', (select carried = 0 from public.hr_leave_balance(public.py(3), 2027) where leave_type = 'DS Unpaid'));
+select public.ok('a 2027 joiner carries nothing into 2027', (select carried = 0 and remaining = 30 from public.hr_leave_balance(public.py(5), 2027) where leave_type = 'DS Paid'));
+select public.ok('a 2027 joiner carries 30 into 2028', (select carried = 30 and remaining = 60 from public.hr_leave_balance(public.py(5), 2028) where leave_type = 'DS Paid'));
+
+-- ── beyond the balance ──
+create temp table t_lv as select (public.hr_leave_request(public.py(4), '41000000-0000-0000-0000-000000000001', '2026-03-02', '2026-04-07', 'long') -> 'ids' ->> 0)::uuid as id;
+create temp table t_lv_dec as select public.hr_leave_decide((select id from t_lv), true, null) as r;
+select public.ok('the split warns', (select r ->> 'warning' ilike '%unpaid%' from t_lv_dec), (select r ->> 'warning' from t_lv_dec));
+select public.ok('30 days stay on the annual type', (select days = 30 and to_date = '2026-04-04' from public.hr_leave_requests where id = (select id from t_lv)), (select to_date::text from public.hr_leave_requests where id = (select id from t_lv)));
+select public.ok('2 days become unpaid', (select count(*) = 1 and sum(r.days) = 2 and min(r.from_date) = '2026-04-06' and max(r.to_date) = '2026-04-07' from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id where r.employee_id = public.py(4) and t.name = 'Unpaid' and r.status = 'approved'));
+select public.ok('the balance ends at zero, not below', (select remaining = 0 from public.hr_leave_balance(public.py(4), 2026) where leave_type = 'DS Paid'));
+create temp table t_lv2 as select (public.hr_leave_request(public.py(4), '41000000-0000-0000-0000-000000000001', '2026-05-04', '2026-05-05', null) -> 'ids' ->> 0)::uuid as id;
+select public.hr_leave_decide((select id from t_lv2), true, null) is null;
+select public.ok('with no balance left the whole request becomes unpaid', (select t.name = 'Unpaid' from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id where r.id = (select id from t_lv2)));
+reset role;
+select public.ok('the split days are deducted', (select count(*) = 2 from public.hr_pay_unpaid_days(public.py(4), '2026-04-01', '2026-04-30', false) where why = 'Unpaid leave'));
+
+-- A rule change that alters a deduction stops approval until the run is recalculated.
+delete from public.hr_pay_lines where run_id in (select id from public.hr_pay_runs where period_month = '2026-07-01');
+update public.hr_employees set status = 'Left', exit_date = '2026-06-30' where employee_code like 'PY-%' and employee_code <> 'PY-2';
+update public.hr_employees set status = 'Left', exit_date = '2026-06-30' where employee_code like 'DS-%';
+set role authenticated;
+select public.as_user('0b');
+create temp table t_run as select public.hr_payrun_create('2026-07-01') as id;
+reset role;
+insert into public.hr_wfh_saturday_rules (effective_from, effective_to, pattern) values ('2026-07-01', '2026-07-31', 'second_and_last');
+set role authenticated;
+select public.as_user('0a');
+select public.must_fail('a WFH rule change stops approval', $s$select public.hr_payrun_approve((select id from t_run))$s$, 'Recalculate');
+reset role;
+
+-- ── the live seed, rolled back ──
+begin;
+\ir ../seed_ab_capital.sql
+select count(*) as seed_rows from public.hr_pay_details where effective_from = '2026-01-01' and basic = 1000 and iban is null \gset
+\ir ../seed_ab_capital.sql
+select count(*) as seed_rows_again from public.hr_pay_details where effective_from = '2026-01-01' and basic = 1000 and iban is null \gset
+select count(*) as seed_rules from public.hr_wfh_saturday_rules where pattern = 'second_and_last' and effective_from = '2027-01-01' \gset
+select (annual_days = 30 and paid and carry_forward) as seed_annual from public.hr_leave_types where name = 'Annual' \gset
+select (absent_from_blank_days and weekend_days = '{0}' and pay_day_divisor_mode = 'calendar_days' and pay_unpaid_wage_base = 'total') as seed_settings from public.hr_settings where id = 1 \gset
+rollback;
+select public.ok('the seed adds salaries once', :seed_rows = :seed_rows_again, :'seed_rows' || ' then ' || :'seed_rows_again');
+select public.ok('the seed adds rules once', :seed_rules <= 2, :'seed_rules');
+select public.ok('the seed sets the annual type', :'seed_annual'::boolean);
+select public.ok('the seed sets the settings', :'seed_settings'::boolean);
+
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;
 \echo === SUMMARY ===

@@ -136,6 +136,7 @@ begin
   return n;
 end $$;
 
+drop function if exists public.hr_leave_balance(uuid, int); -- 010 adds a column; create or replace cannot change a return type
 -- Balance per leave type for one employee and year. HR any; manager direct reports; employee own.
 create or replace function public.hr_leave_balance(p_employee uuid, p_year int)
 returns table (leave_type_id uuid, leave_type text, paid boolean, year int, entitlement numeric, adjustment numeric, used numeric, pending numeric, remaining numeric)

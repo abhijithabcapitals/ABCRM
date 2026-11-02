@@ -338,3 +338,141 @@ revoke all on function public.hr_is_wfh_saturday(date), public.hr_attendance_day
 grant execute on function public.hr_attendance_range(date, date), public.hr_dashboard_period(text, date),
   public.hr_attendance_set(uuid, date, text, time, time, text), public.hr_attendance_request(uuid, date, text, time, time, text, text),
   public.hr_attendance_decide(uuid, boolean, text), public.hr_attendance_edits_pending() to authenticated;
+
+-- ── pay and leave ──
+alter table public.hr_leave_types add column if not exists carry_forward boolean not null default false;
+alter table public.hr_settings add column if not exists leave_carry_start_year int not null default 2026;
+
+-- Dates in a range that are unpaid: every day inside approved unpaid leave, and every Absent day not inside approved paid leave, each date once.
+-- Absent comes from hr_attendance_days, so a blank working day counts once absent_from_blank_days is on. Leave is checked first because pay has
+-- always counted approved leave over a stored day; the line's review note says so. p_working_only keeps only working days.
+create or replace function public.hr_pay_unpaid_days(p_employee uuid, p_from date, p_to date, p_working_only boolean)
+returns table (day date, why text)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select g.d::date, case when coalesce(a.status, '') = 'Absent' then 'Absent' else 'Unpaid leave' end
+  from generate_series(p_from::timestamp, p_to::timestamp, interval '1 day') g(d)
+  left join public.hr_attendance_days(p_from, p_to, p_employee) a on a.work_date = g.d::date
+  left join lateral (
+    select bool_or(t.paid) as has_paid, bool_or(not t.paid) as has_unpaid
+    from public.hr_leave_requests r join public.hr_leave_types t on t.id = r.leave_type_id
+    where r.employee_id = p_employee and r.status = 'approved' and g.d::date between r.from_date and r.to_date
+  ) lv on true
+  where (coalesce(lv.has_unpaid, false) or (coalesce(a.status, '') = 'Absent' and not coalesce(lv.has_paid, false)))
+    and (not p_working_only
+         or (not (extract(dow from g.d)::int = any ((select s.weekend_days from public.hr_settings s where s.id = 1)::int[]))
+             and not exists (select 1 from public.hr_holidays h where h.holiday_date = g.d::date)))
+  order by 1
+$$;
+
+-- Internal. Days carried into p_year: each earlier year's remainder from the start year or the join year, never below 0.
+create or replace function public.hr_leave_carried(p_employee uuid, p_type uuid, p_year int) returns numeric
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  ty public.hr_leave_types%rowtype; e public.hr_employees%rowtype; start_y int; y int; carry numeric := 0; ent numeric; adj numeric; used numeric;
+begin
+  select * into ty from public.hr_leave_types where id = p_type;
+  if not coalesce(ty.carry_forward, false) then return 0; end if;
+  select * into e from public.hr_employees where id = p_employee;
+  start_y := greatest((select leave_carry_start_year from public.hr_settings where id = 1), coalesce(extract(year from e.join_date)::int, 0));
+  for y in start_y .. p_year - 1 loop
+    select coalesce(b.entitlement, ty.annual_days, 0), coalesce(b.adjustment, 0) into ent, adj
+    from (select 1) one left join public.hr_leave_balances b on b.employee_id = p_employee and b.leave_type_id = p_type and b.year = y;
+    select coalesce(sum(r.days), 0) into used from public.hr_leave_requests r
+    where r.employee_id = p_employee and r.leave_type_id = p_type and r.status = 'approved' and extract(year from r.from_date) = y;
+    carry := greatest(carry + ent + adj - used, 0);
+  end loop;
+  return carry;
+end $$;
+
+-- As in 005, with what was carried in. HR any; manager direct reports; employee own.
+drop function if exists public.hr_leave_balance(uuid, int);
+create function public.hr_leave_balance(p_employee uuid, p_year int)
+returns table (leave_type_id uuid, leave_type text, paid boolean, year int, entitlement numeric, adjustment numeric, used numeric, pending numeric, remaining numeric, carried numeric)
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  if not (public.hr_is_admin_or_hr() or p_employee is not distinct from public.hr_my_employee_id() or public.hr_manages(p_employee)) then
+    raise exception 'You are not allowed to see this balance';
+  end if;
+  return query
+  select t.id, t.name, t.paid, p_year,
+         coalesce(b.entitlement, t.annual_days),
+         coalesce(b.adjustment, 0),
+         u.approved,
+         u.waiting,
+         case when t.paid and coalesce(b.entitlement, t.annual_days) is not null then
+           coalesce(b.entitlement, t.annual_days) + coalesce(b.adjustment, 0) + public.hr_leave_carried(p_employee, t.id, p_year) - u.approved
+         end,
+         public.hr_leave_carried(p_employee, t.id, p_year)
+  from public.hr_leave_types t
+  left join public.hr_leave_balances b on b.employee_id = p_employee and b.leave_type_id = t.id and b.year = p_year
+  cross join lateral (
+    select coalesce(sum(r.days) filter (where r.status = 'approved'), 0) as approved, coalesce(sum(r.days) filter (where r.status = 'pending'), 0) as waiting
+    from public.hr_leave_requests r where r.employee_id = p_employee and r.leave_type_id = t.id and extract(year from r.from_date) = p_year
+  ) u
+  order by t.name;
+end $$;
+
+-- Approve or reject a pending request. HR any; a manager for direct reports. Nobody decides their own.
+-- A carry-forward type beyond its balance is split: the balance stays on the type and the rest moves to the type named Unpaid.
+-- Returns {warning}: approval beyond a balance, and any locked month. Neither stops the decision.
+create or replace function public.hr_leave_decide(p_request uuid, p_approve boolean, p_note text) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  r public.hr_leave_requests%rowtype; new_status text; ty public.hr_leave_types%rowtype; rem numeric; warns text[] := '{}'; locked text; yr int;
+  unpaid_id uuid; keep numeric; split_at date; d date; counted numeric := 0;
+begin
+  select * into r from public.hr_leave_requests where id = p_request for update;
+  if not found then raise exception 'Leave request not found'; end if;
+  if r.employee_id is not distinct from public.hr_my_employee_id() then
+    raise exception 'You cannot decide your own leave';
+  end if;
+  if not (public.hr_is_admin_or_hr() or public.hr_manages(r.employee_id)) then
+    raise exception 'You are not allowed to decide this request';
+  end if;
+  if r.status <> 'pending' then raise exception 'Only a pending request can be decided (this one is %)', r.status; end if;
+  new_status := case when p_approve then 'approved' else 'rejected' end;
+  select * into ty from public.hr_leave_types where id = r.leave_type_id;
+  yr := extract(year from r.from_date)::int;
+
+  if p_approve and ty.paid and ty.carry_forward then
+    select b.remaining into rem from public.hr_leave_balance(r.employee_id, yr) b where b.leave_type_id = r.leave_type_id;
+    if rem < r.days then
+      select id into unpaid_id from public.hr_leave_types where name = 'Unpaid' and not paid;
+      if unpaid_id is null then raise exception 'Add an Unpaid leave type first'; end if;
+      keep := greatest(floor(rem), 0);
+      if keep = 0 then
+        update public.hr_leave_requests set leave_type_id = unpaid_id where id = p_request;
+        warns := warns || format('%s %s: no balance left, so all %s day(s) are unpaid', ty.name, yr, r.days);
+      else
+        d := r.from_date;
+        loop
+          counted := counted + public.hr_leave_days(d, d);
+          exit when counted >= keep;
+          d := d + 1;
+        end loop;
+        split_at := d;
+        update public.hr_leave_requests set to_date = split_at, days = keep where id = p_request;
+        insert into public.hr_leave_requests (employee_id, leave_type_id, from_date, to_date, days, status, note, approver, decided_at, decision_note, created_by)
+        select r.employee_id, unpaid_id, g.first_d, r.to_date, r.days - keep, 'approved', r.note, auth.uid(), now(), p_note, r.created_by
+        from (select min(x.d)::date as first_d from generate_series((split_at + 1)::timestamp, r.to_date::timestamp, interval '1 day') x(d) where public.hr_leave_days(x.d::date, x.d::date) > 0) g;
+        warns := warns || format('%s %s: %s day(s) from the balance, %s day(s) unpaid', ty.name, yr, keep, r.days - keep);
+      end if;
+    end if;
+  end if;
+
+  update public.hr_leave_requests set status = new_status, approver = auth.uid(), decided_at = now(), decision_note = p_note where id = p_request;
+  perform public.hr_audit('leave.' || new_status, 'hr_leave_requests:' || p_request,
+    jsonb_build_object('status', r.status),
+    jsonb_build_object('status', new_status, 'employee_id', r.employee_id, 'from_date', r.from_date, 'to_date', r.to_date, 'days', r.days, 'note', p_note));
+  if p_approve and ty.paid and not coalesce(ty.carry_forward, false) then
+    select b.remaining into rem from public.hr_leave_balance(r.employee_id, yr) b where b.leave_type_id = r.leave_type_id;
+    if rem < 0 then warns := warns || format('%s %s: approved %s day(s), which is %s beyond the balance', ty.name, yr, r.days, -rem); end if;
+  end if;
+  locked := public.hr_locked_month_warning(r.from_date, r.to_date);
+  if locked is not null then warns := warns || locked; end if;
+  return jsonb_build_object('warning', case when cardinality(warns) > 0 then array_to_string(warns, '; ') end);
+end $$;
+
+revoke all on function public.hr_pay_unpaid_days(uuid, date, date, boolean), public.hr_leave_carried(uuid, uuid, int),
+  public.hr_leave_balance(uuid, int), public.hr_leave_decide(uuid, boolean, text) from public, anon, authenticated;
+grant execute on function public.hr_leave_balance(uuid, int), public.hr_leave_decide(uuid, boolean, text) to authenticated;
