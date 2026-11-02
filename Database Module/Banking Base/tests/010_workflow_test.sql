@@ -58,7 +58,7 @@ select public.ok('CRM admin has access', (public.banking_my_access() ->> 'role')
 
 -- ── Masters from seed ──
 select public.ok('official names kept with old names as aliases', (select bank_name = 'Abu Dhabi Commercial Bank PJSC' and 'ADCB' = any(aliases) and website is not null from public.banking_partners where bank_code = 'ADCB'));
-select public.ok('12 brief banks plus Mashreq and SIB', (select count(*) from public.banking_partners) = 14);
+select public.ok('12 brief banks plus Mashreq, SIB and Banque Misr', (select count(*) from public.banking_partners) = 15);
 select public.ok('checklists unverified by default', not exists (select 1 from public.banking_checklist_templates where verification_status <> 'Unverified'));
 select public.ok('standard list has 16 items', (select count(*) from public.banking_checklist_items i join public.banking_checklist_templates t on t.id = i.template_id where t.template_code = 'STANDARD') = 16);
 select public.ok('ADCB list has 9 items', (select count(*) from public.banking_checklist_items i join public.banking_checklist_templates t on t.id = i.template_id where t.template_code = 'ADCB') = 9);
@@ -478,7 +478,7 @@ select public.as_user('0c');
 -- ── Guided flow additions ──
 select public.as_user('0b');
 select public.keep('case3', public.banking_new_case((select client_id from public.banking_cases where id = public.id('case1')), null, 'New', 'Business', null, 4));
-select public.ok('catalogue lists banks with plans', (select count(*) from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3')))) = 14 and exists (select 1 from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3'))) e where jsonb_array_length(e -> 'plans') > 0));
+select public.ok('catalogue lists banks with plans', (select count(*) from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3')))) = 15 and exists (select 1 from jsonb_array_elements(public.banking_plan_catalogue(public.id('case3'))) e where jsonb_array_length(e -> 'plans') > 0));
 select public.ok('choose plan creates option and checklist', public.banking_choose_plan(public.id('case3'), (select id from public.banking_partners where bank_code = 'ADCB'), (select s.id from public.banking_schemes s join public.banking_partners b on b.id = s.bank_id where b.bank_code = 'ADCB' limit 1)) > 0);
 select public.as_user('0d');
 select public.keep('kdoc', public.banking_kyc_add_document((select client_id from public.banking_cases where id = public.id('case3')), 'MOA', null, 'x/y.pdf', 'y.pdf', 'application/pdf', 1, 'z'));
