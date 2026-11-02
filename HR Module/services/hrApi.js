@@ -69,10 +69,17 @@ export const leaveCancel = (request) => rpc("hr_leave_cancel", { p_request: requ
 export const leaveBalance = (employee, year) => rpc("hr_leave_balance", { p_employee: employee, p_year: year });
 export const saveLeaveBalance = async (employee, type, year, entitlement, adjustment) => { check(await table("hr_leave_balances").upsert({ employee_id: employee, leave_type_id: type, year, entitlement, adjustment: adjustment ?? 0 }, { onConflict: "employee_id,leave_type_id,year" })); };
 
-// Attendance. hr_attendance_month returns one row per in-scope employee per day (status null = nothing recorded and not leave, holiday or weekend).
-// hr_attendance_set returns { warning: text | null }: a locked month.
-export const attendanceMonth = (year, month) => rpc("hr_attendance_month", { p_year: year, p_month: month });
+// Attendance. hr_attendance_range returns one row per in-scope employee per day, with the worked-out status, late and overtime minutes.
+// hr_attendance_set is admin only. Others call hr_attendance_request, and an admin decides. Set and decide return { warning: text | null }: a locked month.
+export const attendanceRange = (from, to) => rpc("hr_attendance_range", { p_from: from, p_to: to });
 export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => rpc("hr_attendance_set", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null });
+export const attendanceRequest = (employee, date, status, timeIn, timeOut, note, reason) => rpc("hr_attendance_request", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null, p_reason: reason || null });
+export const attendanceDecide = (edit, approve, note) => rpc("hr_attendance_decide", { p_edit: edit, p_approve: approve, p_note: note || null });
+export const attendanceEdits = (state) => run(table("hr_attendance_edits").select("*, hr_employees(employee_code, full_name)").eq("state", state).order("requested_at", { ascending: false }).limit(50));
+export const attendanceEditsPending = () => rpc("hr_attendance_edits_pending");
+export const dashboardPeriod = (period, date) => rpc("hr_dashboard_period", { p_period: period, p_date: date });
+export const wfhRules = () => run(table("hr_wfh_saturday_rules").select("*").order("effective_from", { nullsFirst: true }));
+export const saveWfhRule = async (id, values) => { check(id ? await table("hr_wfh_saturday_rules").update(values).eq("id", id) : await table("hr_wfh_saturday_rules").insert(values)); };
 
 // Biometric (e-timeoffice). The sync itself runs in the hr-biometric-sync Edge Function; range is { from, to } as YYYY-MM-DD, or nothing for recent days.
 export const biometricStatus = () => rpc("hr_biometric_status");

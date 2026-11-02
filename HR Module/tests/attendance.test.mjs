@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { monthDays, shiftMonth, groupMonth, canEditDay, parseTime, dubaiToday } from "../logic/attendance.js";
+import { monthDays, shiftMonth, groupRange, canEditDay, parseTime, dubaiToday } from "../logic/attendance.js";
 
 test("monthDays gives every date of the month, leap year included", () => {
   assert.equal(monthDays(2025, 2).length, 28);
@@ -13,17 +13,17 @@ test("shiftMonth rolls over year ends", () => {
   assert.deepEqual(shiftMonth(2025, 1, -1), { year: 2024, month: 12 });
   assert.deepEqual(shiftMonth(2025, 6, 0), { year: 2025, month: 6 });
 });
-test("groupMonth makes one line per employee keyed by date", () => {
+test("groupRange makes one line per employee keyed by date", () => {
   const rows = [
     { employee_id: "a", employee_code: "E1", full_name: "A", work_date: "2025-03-01", status: "Weekend" },
     { employee_id: "a", employee_code: "E1", full_name: "A", work_date: "2025-03-03", status: "Present", time_in: "09:00:00", time_out: null },
     { employee_id: "b", employee_code: "E2", full_name: "B", work_date: "2025-03-03", status: null },
   ];
-  const g = groupMonth(rows);
+  const g = groupRange(rows);
   assert.equal(g.length, 2);
   assert.equal(g[0].employee_code, "E1");
   assert.equal(g[0].days["2025-03-03"].status, "Present");
-  assert.deepEqual(g[0].counts, { Present: 1, Absent: 0, Leave: 0, Holiday: 0, Weekend: 1 });
+  assert.deepEqual(g[0].counts, { Present: 1, Absent: 0, WFH: 0, Leave: 0, Holiday: 0, Weekend: 1, Late: 0, Overtime: 0 });
   assert.equal(g[1].days["2025-03-03"].status, null);
 });
 test("canEditDay follows the database rules", () => {
@@ -44,8 +44,8 @@ test("canEditDay: a Left employee with no exit date cannot be edited, one with a
   assert.equal(canEditDay({ ...base, date: "2025-03-07", employeeStatus: "Active", exitDate: null }), true);
   assert.equal(canEditDay({ ...base, role: "manager", date: "2025-03-05", employeeStatus: "Left", exitDate: null }), false);
 });
-test("groupMonth keeps the employee status and exit date", () => {
-  const g = groupMonth([{ employee_id: "a", employee_code: "E1", full_name: "A", work_date: "2025-03-01", status: null, employee_status: "Left", exit_date: null }]);
+test("groupRange keeps the employee status and exit date", () => {
+  const g = groupRange([{ employee_id: "a", employee_code: "E1", full_name: "A", work_date: "2025-03-01", status: null, employee_status: "Left", exit_date: null }]);
   assert.equal(g[0].employee_status, "Left");
   assert.equal(g[0].exit_date, null);
 });

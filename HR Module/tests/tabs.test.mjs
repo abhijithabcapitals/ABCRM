@@ -5,13 +5,13 @@ import { tabsFor, firstTab } from "../logic/tabs.js";
 const keys = (role, implemented) => tabsFor(role, implemented).map((t) => t.key);
 
 test("hr sees every tab", () => {
-  assert.deepEqual(keys("hr"), ["dashboard", "employees", "documents", "leave", "attendance", "payroll", "settings"]);
+  assert.deepEqual(keys("hr"), ["dashboard", "employees", "attendance", "salary", "leave", "payroll", "documents", "approvals", "settings"]);
 });
 test("manager sees Dashboard, Employees, Documents (own only), Leave, Attendance, Payroll (own approved lines only)", () => {
-  assert.deepEqual(keys("manager"), ["dashboard", "employees", "documents", "leave", "attendance", "payroll"]);
+  assert.deepEqual(keys("manager"), ["dashboard", "employees", "attendance", "leave", "payroll", "documents"]);
 });
 test("employee sees Dashboard, Employees, Documents, Leave, Attendance, Payroll", () => {
-  assert.deepEqual(keys("employee"), ["dashboard", "employees", "documents", "leave", "attendance", "payroll"]);
+  assert.deepEqual(keys("employee"), ["dashboard", "employees", "attendance", "leave", "payroll", "documents"]);
 });
 test("no linked employee record sees nothing", () => {
   assert.deepEqual(keys("none"), []);
