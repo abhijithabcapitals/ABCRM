@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Button, ErrorNote, Modal, useBanking, useLoad } from "./shared";
 import { insertRow, readDocuments, rpc, run, table, uploadFile } from "../services/bankingApi";
 import { buildAutofill, compareWithCurrent, DOC_TYPE_MAP } from "../logic/kycAutofill";
+import { ProgressRing } from "./ReadingWidget";
 
 const shown = (v) => (v === true ? "Yes" : v === false ? "No" : v === null || v === undefined || v === "" ? "–" : String(v));
 
@@ -17,6 +18,7 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
   const [ticks, setTicks] = useState({});
   const [partnerTicks, setPartnerTicks] = useState({});
   const [busy, setBusy] = useState(null);
+  const [percent, setPercent] = useState(null);
   const [error, setError] = useState(null);
   const canDocs = can("docs.manage");
 
@@ -27,9 +29,9 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
   };
 
   const read = async () => {
-    setBusy("Reading documents…"); setError(null);
+    setBusy("Reading documents…"); setError(null); setPercent(0);
     try {
-      const docs = await readDocuments(files.map((f) => f.file), (n) => setBusy(`Read ${n} of ${files.length}…`));
+      const docs = await readDocuments(files.map((f) => f.file), (n) => setBusy(`Read ${n} of ${files.length}…`), (p) => setPercent((now) => Math.max(now, Math.min(99, Math.floor(p)))));
       setFiles((l) => l.map((f) => {
         const d = docs.find((x) => x.name === f.name);
         return { ...f, status: d ? d.label || d.doc_type || "Read" : "Could not read", docCode: f.docCode || DOC_TYPE_MAP[d?.doc_type] || "" };
@@ -44,7 +46,7 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
     } catch (e) {
       setError(e.message);
     }
-    setBusy(null);
+    setBusy(null); setPercent(null);
   };
 
   const apply = async () => {
@@ -78,7 +80,8 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
           </button>
           <input ref={fileInput} className="bk-file-input" type="file" multiple onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
           {files.map((f) => <div className="bk-row" key={f.name}><span>{f.name}</span><button type="button" className="bk-link" onClick={() => setFiles((l) => l.filter((x) => x.name !== f.name))}>Remove</button></div>)}
-          <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!files.length} busy={!!busy} onClick={read}>{busy || "Read documents"}</Button></div>
+          {percent !== null && <div className="crm-reading-inline"><ProgressRing percent={percent} /><div><strong>{busy}</strong><small>Keep this window open until it finishes.</small></div></div>}
+          <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!files.length || !!busy} busy={!!busy} onClick={read}>{busy || "Read documents"}</Button></div>
         </>
       ) : (
         <>

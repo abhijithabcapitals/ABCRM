@@ -21,9 +21,12 @@ const loadPython = once(async (assets) => {
   return py;
 });
 
+let reportOcr = null; // the worker has one logger, so it reports to whichever page is being read
+
 const loadOcr = once(async (assets) => {
   const { default: Tesseract } = await importAsset(`${assets}tesseract/tesseract.esm.min.js`);
-  return Tesseract.createWorker("eng", 1, { workerPath: `${assets}tesseract/worker.min.js`, corePath: `${assets}tesseract/`, langPath: `${assets}tesseract/` });
+  const logger = (m) => { if (m.status === "recognizing text") reportOcr?.(m.progress); };
+  return Tesseract.createWorker("eng", 1, { workerPath: `${assets}tesseract/worker.min.js`, corePath: `${assets}tesseract/`, langPath: `${assets}tesseract/`, logger });
 });
 
 const loadPdf = once(async (assets) => {
@@ -32,14 +35,16 @@ const loadPdf = once(async (assets) => {
   return pdfjs;
 });
 
-async function ocr(assets, image) {
+async function ocr(assets, image, onProgress) {
   const worker = await loadOcr(assets);
+  reportOcr = onProgress;
   const { data } = await worker.recognize(image);
+  reportOcr = null;
   return data.text;
 }
 
 // Same rule as docai/readers.py: trust a PDF's own text unless it is too thin, then OCR its pages.
-async function readPdf(assets, file) {
+async function readPdf(assets, file, onProgress) {
   const pdfjs = await loadPdf(assets);
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   try {
@@ -51,13 +56,14 @@ async function readPdf(assets, file) {
     const text = pages.join("\n").slice(0, MAX_CHARS);
     if (lettersIn(text) >= 80 * Math.max(1, Math.min(pdf.numPages, 3))) return { text, method: "text-layer" };
     const scanned = [];
-    for (let i = 1; i <= Math.min(pdf.numPages, MAX_OCR_PAGES); i++) {
+    const count = Math.min(pdf.numPages, MAX_OCR_PAGES);
+    for (let i = 1; i <= count; i++) {
       const page = await pdf.getPage(i);
       const viewport = page.getViewport({ scale: RENDER_SCALE });
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width; canvas.height = viewport.height;
       await page.render({ canvasContext: canvas.getContext("2d"), viewport, intent: "print" }).promise; // "print" keeps going in a background tab
-      scanned.push(await ocr(assets, canvas));
+      scanned.push(await ocr(assets, canvas, (p) => onProgress?.((i - 1 + p) / count)));
     }
     const read = scanned.join("\n\f\n");
     if (lettersIn(read) > lettersIn(text)) return { text: read.slice(0, MAX_CHARS), method: "ocr" };
@@ -67,18 +73,19 @@ async function readPdf(assets, file) {
   }
 }
 
-async function readImage(assets, file) {
-  const text = await ocr(assets, file);
+async function readImage(assets, file, onProgress) {
+  const text = await ocr(assets, file, onProgress);
   return { text: text.slice(0, MAX_CHARS), method: text.trim() ? "ocr" : "none" };
 }
 
 // Resolves to one docai result. A file that fails docai's checks, or cannot be read, rejects with a staff-facing message.
-export async function readDocument(file, assets) {
+// onProgress gets this file's progress from 0 to 1 while its text is being recognised.
+export async function readDocument(file, assets, onProgress) {
   const py = await loadPython(assets);
   let found = {};
   try {
-    if (/\.pdf$/i.test(file.name)) found = await readPdf(assets, file);
-    else if (IMAGE.test(file.name)) found = await readImage(assets, file);
+    if (/\.pdf$/i.test(file.name)) found = await readPdf(assets, file, onProgress);
+    else if (IMAGE.test(file.name)) found = await readImage(assets, file, onProgress);
   } catch {
     found = { text: "", method: "none" }; // unreadable or malformed files are classified by name only, as in docai
   }
