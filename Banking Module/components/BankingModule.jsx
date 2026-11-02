@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./banking.css";
 import { BankingContext, ErrorNote, Spinner, useLoad } from "./shared";
 import { profiles, rpc } from "../services/bankingApi";
-import { takeOpenRequest, useReadingJob } from "../services/readingJob";
+import { takeOpenRequest, useOpenRequest } from "../services/readingJob";
 import Dashboard from "./Dashboard";
 import Leads from "./Leads";
 import Clients from "./Clients";
@@ -33,8 +33,8 @@ export default function BankingModule({ profile }) {
   const [openCase, setOpenCase] = useState(null);
   const [pageParams, setPageParams] = useState(null);
 
-  // The corner card asked to go back to the lead whose documents were being read.
-  useReadingJob();
+  // The corner card asked to go back to the unfinished lead.
+  useOpenRequest();
   useEffect(() => {
     if (!takeOpenRequest()) return;
     setOpenCase(null);
