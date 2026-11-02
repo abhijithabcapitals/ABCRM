@@ -7,6 +7,7 @@ update public.hr_settings set
   shift_end = '18:30',
   saturday_end = '14:00',
   absent_from_blank_days = true,
+  attendance_tracked_from = '2026-08-10', -- the first punch e-timeoffice holds
   pay_day_divisor_mode = 'calendar_days',
   pay_unpaid_wage_base = 'total'
 where id = 1;

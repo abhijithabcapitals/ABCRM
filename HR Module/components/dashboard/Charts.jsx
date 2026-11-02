@@ -1,15 +1,17 @@
 // Plain SVG with text labels, so the numbers read without hovering.
 const COLOURS = { present: "#2f9e5b", absent: "#d9574e", late: "#e08a2e" };
-const LABELS = { present: "Present", absent: "Absent", late: "Late" };
 
 export function DailyShare({ counts }) {
-  const parts = ["present", "absent", "late"].map((k) => ({ key: k, value: counts[k] || 0 }));
+  // Late is a part of Present: on time and late fill the bar, and absent the rest.
+  const present = counts.present || 0;
+  const late = Math.min(counts.late || 0, present);
+  const parts = [{ key: "present", value: present - late, label: "On time" }, { key: "late", value: late, label: "Late" }, { key: "absent", value: counts.absent || 0, label: "Absent" }];
   const total = parts.reduce((s, p) => s + p.value, 0);
   if (!total) return <p className="bk-note hr-quiet">Nothing counted for this period.</p>;
   let x = 0;
   return (
     <div>
-      <svg className="hr-share" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label={parts.map((p) => `${LABELS[p.key]} ${p.value}`).join(", ")}>
+      <svg className="hr-share" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label={parts.map((p) => `${p.label} ${p.value}`).join(", ")}>
         {parts.map((p) => {
           const w = (p.value / total) * 100;
           const r = <rect key={p.key} x={x} y="0" width={w} height="8" fill={COLOURS[p.key]} />;
@@ -18,7 +20,7 @@ export function DailyShare({ counts }) {
         })}
       </svg>
       <div className="hr-chart-key">
-        {parts.map((p) => <span key={p.key}><i style={{ background: COLOURS[p.key] }} />{LABELS[p.key]} {p.value} ({Math.round((p.value / total) * 100)}%)</span>)}
+        {parts.map((p) => <span key={p.key}><i style={{ background: COLOURS[p.key] }} />{p.label} {p.value} ({Math.round((p.value / total) * 100)}%)</span>)}
       </div>
     </div>
   );

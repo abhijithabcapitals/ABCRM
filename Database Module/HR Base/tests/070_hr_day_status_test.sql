@@ -305,6 +305,14 @@ select public.as_user('0a');
 select public.must_fail('a WFH rule change stops approval', $s$select public.hr_payrun_approve((select id from t_run))$s$, 'Recalculate');
 reset role;
 
+-- ── nothing before tracking starts counts as Absent ──
+update public.hr_settings set attendance_tracked_from = '2026-08-10' where id = 1;
+select public.ok('a day before tracking starts is not Absent, whatever the join date', (select count(*) = 0 from public.hr_attendance_days('2026-01-01', '2026-08-09', public.py(2)) where status = 'Absent'));
+select public.ok('a day after tracking starts is Absent', (select count(*) = 1 from public.hr_attendance_days('2026-08-10', '2026-08-10', public.py(2)) where status = 'Absent'));
+select public.ok('no pay is lost before tracking starts', (select count(*) = 0 from public.hr_pay_unpaid_days(public.py(2), '2026-01-01', '2026-08-09', false)));
+select public.ok('tracking does not invent days for someone with no dates', (select count(*) = 0 from public.hr_attendance_days('2026-08-10', '2026-08-20', public.ds('f2'))));
+update public.hr_settings set attendance_tracked_from = null where id = 1;
+
 -- ── the live seed, rolled back ──
 begin;
 \ir ../seed_ab_capital.sql

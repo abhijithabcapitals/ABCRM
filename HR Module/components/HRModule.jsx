@@ -21,7 +21,7 @@ const BUILT = new Set(Object.keys(SCREENS));
 export default function HRModule({ profile, onOpenTask }) {
   const access = useLoad(myAccess, []);
   const isAdmin = profile?.role === "admin";
-  const pending = useLoad(() => (isAdmin ? attendanceEditsPending() : 0), [isAdmin]);
+  const pending = useLoad(async () => (isAdmin ? attendanceEditsPending() : 0), [isAdmin]);
   const [page, setPage] = useState("dashboard");
   const [intent, setIntent] = useState(null);
   const role = access.data?.role;

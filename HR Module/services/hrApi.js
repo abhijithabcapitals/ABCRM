@@ -71,7 +71,16 @@ export const saveLeaveBalance = async (employee, type, year, entitlement, adjust
 
 // Attendance. hr_attendance_range returns one row per in-scope employee per day, with the worked-out status, late and overtime minutes.
 // hr_attendance_set is admin only. Others call hr_attendance_request, and an admin decides. Set and decide return { warning: text | null }: a locked month.
-export const attendanceRange = (from, to) => rpc("hr_attendance_range", { p_from: from, p_to: to });
+// A year for everyone is more rows than one response carries, so this reads page by page.
+export async function attendanceRange(from, to) {
+  const PAGE = 1000;
+  const all = [];
+  for (let at = 0; ; at += PAGE) {
+    const rows = check(await supabase.rpc("hr_attendance_range", { p_from: from, p_to: to }).range(at, at + PAGE - 1));
+    all.push(...rows);
+    if (rows.length < PAGE) return all;
+  }
+}
 export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => rpc("hr_attendance_set", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null });
 export const attendanceRequest = (employee, date, status, timeIn, timeOut, note, reason) => rpc("hr_attendance_request", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null, p_reason: reason || null });
 export const attendanceDecide = (edit, approve, note) => rpc("hr_attendance_decide", { p_edit: edit, p_approve: approve, p_note: note || null });

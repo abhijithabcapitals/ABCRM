@@ -14,6 +14,8 @@ alter table public.hr_settings add column if not exists shift_start time not nul
 alter table public.hr_settings add column if not exists shift_end time not null default '18:30';
 alter table public.hr_settings add column if not exists saturday_end time not null default '14:00';
 alter table public.hr_settings add column if not exists absent_from_blank_days boolean not null default false;
+-- No day before this counts as Absent, whatever the join date: there is no attendance data for it. Protects old pay months and gratuity service.
+alter table public.hr_settings add column if not exists attendance_tracked_from date;
 
 create table if not exists public.hr_wfh_saturday_rules (
   id uuid primary key default gen_random_uuid(),
@@ -69,7 +71,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
   first_last as (select p.emp_code, min(p.punch_at)::date as first_p, max(p.punch_at)::date as last_p from public.hr_biometric_punches p group by p.emp_code),
   people as (
     select e.id, e.employee_code, e.full_name, e.status, e.exit_date,
-           coalesce(e.join_date, f.first_p) as start_d,
+           case when coalesce(e.join_date, f.first_p) is not null
+                then greatest(coalesce(e.join_date, f.first_p), (select s.attendance_tracked_from from public.hr_settings s where s.id = 1)) end as start_d,
            least((now() at time zone 'Asia/Dubai')::date, e.exit_date,
                  case when e.status = 'Left' and e.exit_date is null then coalesce(f.last_p, date '0001-01-01') end) as stop_d
     from public.hr_employees e
