@@ -2,7 +2,7 @@
 export const HR_TABS = [
   { key: "dashboard", label: "Dashboard", roles: ["hr", "manager", "employee"] },
   { key: "employees", label: "Employees", roles: ["hr", "manager", "employee"] },
-  { key: "documents", label: "Documents", roles: ["hr", "employee"] },
+  { key: "documents", label: "Documents", roles: ["hr", "manager", "employee"] },
   { key: "leave", label: "Leave", roles: ["hr", "manager", "employee"] },
   { key: "attendance", label: "Attendance", roles: ["hr", "manager", "employee"] },
   { key: "payroll", label: "Payroll", roles: ["hr", "manager", "employee"] },

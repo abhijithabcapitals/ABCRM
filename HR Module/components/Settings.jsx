@@ -32,14 +32,14 @@ export default function Settings({ profile }) {
   return (
     <div>
       <PageHead title="Settings" sub="HR access, leave types, holidays, working week and payroll basis. Visible to HR only." />
-      <ErrorNote message={error || access.error || types.error || holidays.error || settings.error} onClose={() => setError(null)} />
+      <ErrorNote message={error || access.error || profiles.error || types.error || holidays.error || settings.error} onClose={() => setError(null)} />
 
       {isAdmin ? (
       <Panel title="HR access list" sub="People here see and change all HR data. Administrators always have access." actions={<Button onClick={() => setModal("access")}>+ Add person</Button>}>
         <DataTable rows={(access.data || []).map((a) => ({ ...a, id: a.profile_id }))} empty="No one on the list." columns={[
           { key: "name", label: "Person", render: (a) => nameOf[a.profile_id] || a.profile_id },
           { key: "granted_at", label: "Added", render: (a) => fmtDate(a.granted_at) },
-          { key: "x", label: "", render: (a) => <Button onClick={() => guard(async () => check(await table("hr_access").delete().eq("profile_id", a.profile_id)), access.reload)}>Remove</Button> },
+          { key: "x", label: "", render: (a) => <Button onClick={() => { if (window.confirm(`Remove ${nameOf[a.profile_id] || "this person"} from the HR access list?`)) guard(async () => check(await table("hr_access").delete().eq("profile_id", a.profile_id)), access.reload); }}>Remove</Button> },
         ]} />
       </Panel>
       ) : (

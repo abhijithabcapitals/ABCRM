@@ -71,3 +71,8 @@ test("internal notes are not printed", () => {
 test("a blank employee name throws", () => {
   for (const emp of [null, undefined, {}, { full_name: "  " }, { full_name: undefined, employee_code: "E1" }]) assert.throws(() => payslipHtml(line(), emp, run), /name/);
 });
+
+test("the pay-change acknowledgement never reaches the payslip", () => {
+  const html = payslipHtml({ ...line(), pay_change_ack: { pay_detail_id: "ACK-ROW-ID", by: "ACK-USER", at: "2026-10-05" } }, employee, run);
+  assert.ok(!html.includes("ACK-ROW-ID") && !html.includes("ACK-USER"));
+});

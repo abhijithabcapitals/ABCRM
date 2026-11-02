@@ -11,6 +11,8 @@ const sql = readdirSync(migDir).filter((f) => f.endsWith(".sql")).map((f) => rea
 
 test("every hr_* table enables row level security", () => {
   const tables = new Set([...sql.matchAll(/create table if not exists public\.(hr_\w+)/gi)].map((m) => m[1]));
+  // 14 today: employees, access, audit_log, employee_personal, documents, settings, holidays, leave_types, leave_balances, leave_requests,
+  // attendance, pay_details, pay_runs, pay_lines. A floor, so the regex cannot quietly match nothing. Raise it when a table is added.
   assert.ok(tables.size >= 14, `expected at least 14 hr_ tables, found ${tables.size}`);
   const bare = [...sql.matchAll(/create table (?!if not exists)public\.(hr_\w+)/gi)].map((m) => m[1]);
   assert.deepEqual(bare, [], "create table without if not exists");

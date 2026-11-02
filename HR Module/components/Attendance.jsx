@@ -33,8 +33,8 @@ export default function Attendance({ role, employeeId }) {
   const submit = async (v) => {
     const timeIn = parseTime(v.time_in);
     const timeOut = parseTime(v.time_out);
-    await attendanceSet(editing.person.employee_id, editing.date, v.status, timeIn, timeOut, v.note);
-    setNotice(`Saved ${editing.person.full_name}, ${fmtDate(editing.date)}.`);
+    const r = await attendanceSet(editing.person.employee_id, editing.date, v.status, timeIn, timeOut, v.note);
+    setNotice(`Saved ${editing.person.full_name}, ${fmtDate(editing.date)}.${r?.warning ? ` ${r.warning}.` : ""}`);
     await rows.reload();
   };
 

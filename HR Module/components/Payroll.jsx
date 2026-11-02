@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { myEmployee, myPayLines, payDetailFull, payDetailsList, payrunAdjust, payrunApprove, payrunCreate, payrunDelete, payrunLines, payrunRecalc, payruns, savePayDetail, payrollEmployees, payrollSettings } from "../services/hrApi";
+import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
+import { gratuity, myEmployee, myPayLines, payDetailFull, payDetailsList, payrunAckPayChange, payrunAdjust, payrunApprove, payrunChangesAfter, payrunCreate, payrunDelete, payrunLines, payrunRecalc, payruns, savePayDetail, payrollEmployees, payrollSettings } from "../services/hrApi";
 import { payslipHtml } from "../logic/payslip";
-import { formatAllowances, maskIban, missingData, missingSettings, money, monthLabel, monthStart, parseAllowances, runTotals } from "../logic/payroll";
+import { formatAllowances, gratuitySteps, hasPayChangeBlocker, maskIban, missingData, missingSettings, money, monthLabel, monthStart, parseAllowances, runTotals } from "../logic/payroll";
 
 // HR sees runs and pay details; anyone else sees only their own lines from approved runs. The database enforces it: this screen only follows.
 export default function Payroll({ role, profile, employeeId }) {
@@ -119,15 +119,18 @@ function HrPayroll({ profile }) {
       </Panel>
       {run && <RunPanel key={run.id} run={run} nameOf={nameOf} codeOf={codeOf} profile={profile} onChanged={runs.reload} onGone={() => setRunId(null)} />}
       <PayDetails employees={employees.data || []} />
+      <GratuityPanel employees={employees.data || []} />
     </div>
   );
 }
 
 function RunPanel({ run, nameOf, codeOf, profile, onChanged, onGone }) {
   const lines = useLoad(() => payrunLines(run.id), [run.id, run.status]);
+  const later = useLoad(async () => (run.status === "approved" ? payrunChangesAfter(run.id) : []), [run.id, run.status]);
   const [error, setError] = useState(null);
   const [detail, setDetail] = useState(null);
   const [adjusting, setAdjusting] = useState(null);
+  const [acking, setAcking] = useState(null);
   const [approving, setApproving] = useState(false);
   const draft = run.status === "draft";
   const totals = runTotals(lines.data);
@@ -141,7 +144,7 @@ function RunPanel({ run, nameOf, codeOf, profile, onChanged, onGone }) {
   return (
     <Panel title={`${monthLabel(run.period_month)}: ${draft ? "draft" : "approved and locked"}`} sub={`${totals.headcount} people, total net ${money(totals.totalNet)}`}
       actions={draft && <><Button onClick={recalc}>Recalculate</Button> <Button onClick={remove}>Delete draft</Button> <Button variant="primary" onClick={() => setApproving(true)}>Approve</Button></>}>
-      <ErrorNote message={error || lines.error} onClose={() => setError(null)} />
+      <ErrorNote message={error || lines.error || later.error} onClose={() => setError(null)} />
       {draft && missing.length > 0 && (
         <div className="hr-warning" role="status">
           These stop approval:
@@ -156,7 +159,7 @@ function RunPanel({ run, nameOf, codeOf, profile, onChanged, onGone }) {
           { key: "a", label: "Adjustments", render: (l) => money(l.adjustments.reduce((s, x) => s + Number(x.amount), 0)) },
           { key: "net", label: "Net", render: (l) => money(l.net) },
           { key: "n", label: "Check", render: (l) => (l.blockers.length ? <Badge tone="bad">Missing data</Badge> : l.notes.some((n) => /review/i.test(n)) ? <Badge tone="warn">Review note</Badge> : "") },
-          { key: "x", label: "", render: (l) => <><Button onClick={() => setDetail(l)}>How worked out</Button>{!draft && <> <Button disabled={!nameOf[l.employee_id]} onClick={() => print(l)}>Print payslip</Button></>}{draft && <> <Button onClick={() => setAdjusting(l)}>Adjust</Button></>}</> },
+          { key: "x", label: "", render: (l) => <><Button onClick={() => setDetail(l)}>How worked out</Button>{!draft && <> <Button disabled={!nameOf[l.employee_id]} onClick={() => print(l)}>Print payslip</Button></>}{draft && <> <Button onClick={() => setAdjusting(l)}>Adjust</Button></>}{draft && hasPayChangeBlocker(l) && <> <Button onClick={() => setAcking(l)}>Acknowledge pay change</Button></>}</> },
         ]} />
       )}
       {detail && <LineDetail line={detail} name={nameOf[detail.employee_id]} onClose={() => setDetail(null)} onPrint={draft || !nameOf[detail.employee_id] ? undefined : () => printNow(detail)} />}
@@ -164,6 +167,16 @@ function RunPanel({ run, nameOf, codeOf, profile, onChanged, onGone }) {
         note="An adjustment stays on the line and cannot be edited. To reverse one, add the opposite amount."
         fields={[{ name: "label", label: "Reason", required: true }, { name: "amount", label: "Amount", type: "number", required: true, help: "Negative to reduce pay" }]}
         onSubmit={async (v) => { await payrunAdjust(adjusting.id, v.label, v.amount); await Promise.all([lines.reload(), onChanged()]); }} />}
+      {acking && <FormModal title={`Acknowledge the pay change for ${nameOf[acking.employee_id]}`} submitLabel="Acknowledge" initial={{}} onClose={() => setAcking(null)}
+        note="Records that you reviewed the change and that the new pay stands for the whole month. It adds no amount and changes no figure. The note goes to the audit log, not the payslip. A later pay change blocks approval again."
+        fields={[{ name: "note", label: "Why this is right", type: "textarea", required: true, full: true }]}
+        onSubmit={async (v) => { await payrunAckPayChange(acking.id, v.note); await Promise.all([lines.reload(), onChanged()]); }} />}
+      {!draft && (later.data || []).length > 0 && (
+        <div className="hr-warning" role="status">
+          <strong>Changes to this month after approval.</strong> They did not change this run. Add an adjustment in a later run where pay is affected.
+          <ul>{later.data.map((c, i) => <li key={i}>{fmtDateTime(c.at)}, {c.actor_name || "system"}: {c.action}{c.employee_name ? `, ${c.employee_name}` : ""}. {c.detail}</li>)}</ul>
+        </div>
+      )}
       {approving && <ApproveModal run={run} totals={totals} missing={missing} samePerson={run.prepared_by === profile?.id} onClose={() => setApproving(false)}
         onDone={async () => { await onChanged(); await lines.reload(); setApproving(false); }} />}
     </Panel>
@@ -190,6 +203,43 @@ function ApproveModal({ run, totals, missing, samePerson, onClose, onDone }) {
         <Button variant="primary" busy={busy} disabled={samePerson && !ack} onClick={approve}>Approve and lock</Button>
       </div>
     </Modal>
+  );
+}
+
+// An estimate from the database for a person to check. Never added to pay. If a setting is missing, the database's message says which.
+function GratuityPanel({ employees }) {
+  const [employee, setEmployee] = useState("");
+  const [exit, setExit] = useState("");
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const pick = (id) => { setEmployee(id); setResult(null); setExit(employees.find((e) => e.id === id)?.exit_date || ""); };
+  const work = async () => {
+    setError(null); setResult(null); setBusy(true);
+    try { setResult(await gratuity(employee, exit)); } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+  return (
+    <Panel title="Gratuity estimate" sub="HR only. An estimate that needs confirmation. It is not added to pay and nothing is saved.">
+      <ErrorNote message={error} onClose={() => setError(null)} />
+      <div className="hr-file-row">
+        <select aria-label="Employee" value={employee} onChange={(e) => pick(e.target.value)}>
+          <option value="">Choose employee</option>
+          {employees.map((e) => <option key={e.id} value={e.id}>{e.employee_code} {e.full_name}</option>)}
+        </select>
+        <label htmlFor="grat-exit">Exit date</label>
+        <input id="grat-exit" type="date" value={exit} onChange={(e) => { setExit(e.target.value); setResult(null); }} />
+        <Button variant="primary" busy={busy} disabled={!employee || !exit} onClick={work}>Work out</Button>
+      </div>
+      {result && (
+        <>
+          <table className="bk-table"><tbody>
+            {gratuitySteps(result).map(([k, v]) => <tr key={k}><td>{k}</td><td>{v}</td></tr>)}
+          </tbody></table>
+          <p className="bk-note">Estimate only: confirm it before relying on it. {result.note}</p>
+        </>
+      )}
+    </Panel>
   );
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatAllowances, maskIban, missingData, missingSettings, money, monthStart, parseAllowances, runTotals } from "../logic/payroll.js";
+import { formatAllowances, gratuitySteps, hasPayChangeBlocker, maskIban, missingData, missingSettings, money, monthStart, parseAllowances, runTotals } from "../logic/payroll.js";
 
 test("parseAllowances reads one label and amount per line", () => {
   assert.deepEqual(parseAllowances("Housing: 3000\n Transport : 1000.50 \n\n"), { Housing: 3000, Transport: 1000.5 });
@@ -48,4 +48,19 @@ test("money shows two decimals", () => {
 test("maskIban keeps only the last 4", () => {
   assert.equal(maskIban("AE070331234567890123452"), "****3452");
   assert.equal(maskIban(null), null);
+});
+
+test("hasPayChangeBlocker finds only the pay-change blocker", () => {
+  assert.equal(hasPayChangeBlocker({ blockers: ["IBAN missing", "Pay changed during the month: review this line, then add an adjustment or acknowledge the change"] }), true);
+  assert.equal(hasPayChangeBlocker({ blockers: ["IBAN missing"] }), false);
+  assert.equal(hasPayChangeBlocker({}), false);
+});
+test("gratuitySteps labels the database's figures and calculates nothing", () => {
+  const steps = gratuitySteps({ join_date: "2020-01-01", exit_date: "2023-01-01", excluded_unpaid_days: 2, whole_years: 3, years: 3, days: 63, basic: 5000, daily_wage: 166.67, uncapped: 10500, cap: 120000, capped: false, amount: 10500, settings: { daily_divisor: 30, cap_base: "basic", part_year_method: "months_12", exit_date_counts: false } });
+  const by = Object.fromEntries(steps);
+  assert.equal(steps.at(-1)[0], "Estimate");
+  assert.equal(by.Estimate, "10,500.00");
+  assert.match(by.Service, /does not count/);
+  assert.match(by.Cap, /not reached/);
+  assert.equal(by["Unpaid days left out of service"], "2");
 });

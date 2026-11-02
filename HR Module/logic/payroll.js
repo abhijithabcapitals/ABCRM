@@ -32,6 +32,26 @@ export function missingData(lines, nameOf) {
     .filter((x) => x.problems.length);
 }
 
+// The pay-change blocker text comes from hr_pay_change_blocker(). Only that blocker can be acknowledged.
+export const hasPayChangeBlocker = (line) => (line?.blockers || []).some((b) => /^Pay changed during the month/.test(b));
+
+// hr_gratuity's jsonb as labelled steps, in the order the database worked them out. Nothing is calculated here.
+export function gratuitySteps(g) {
+  const s = g?.settings || {};
+  return [
+    ["Service", `${g.join_date} to ${g.exit_date}. The exit date ${s.exit_date_counts ? "counts" : "does not count"} as a day of service`],
+    ["Unpaid days left out of service", String(g.excluded_unpaid_days)],
+    ["Completed years", String(g.whole_years)],
+    ["Years counted", `${g.years} (part year: ${s.part_year_method === "months_12" ? "completed months / 12" : "days / 365"}). Nothing under one completed year`],
+    ["Gratuity days", `${g.days} (21 a year for the first 5 years, 30 a year after)`],
+    ["Basic wage", money(g.basic)],
+    ["One day's wage", `${money(g.daily_wage)} (basic / ${s.daily_divisor})`],
+    ["Before the cap", money(g.uncapped)],
+    ["Cap", `${money(g.cap)} (24 months of the ${s.cap_base} wage)${g.capped ? ": applied" : ": not reached"}`],
+    ["Estimate", money(g.amount)],
+  ];
+}
+
 export function missingSettings(s) {
   const out = [];
   if (!s?.pay_day_divisor_mode) out.push("Pay day divisor mode");

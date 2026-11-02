@@ -6,15 +6,22 @@ import { fieldsFromRead } from "../logic/documentFields";
 
 export const DOC_TYPES = ["Passport", "Residence visa", "Emirates ID", "Labour card", "Medical insurance", "Driving licence", "Other"];
 
-// HR sees every employee's documents and adds for anyone. An employee sees and adds their own. Managers have no Documents tab.
+// HR sees every employee's documents and adds for anyone. An employee or a manager sees and adds only their own (the database enforces it; the filter keeps the screen to the same rows).
 export default function Documents({ role, employeeId }) {
   const isHr = role === "hr";
-  const docs = useLoad(async () => run(table("hr_documents").select("*, hr_employees(employee_code, full_name)").order("expiry_date", { ascending: true, nullsFirst: false })), []);
+  const docs = useLoad(async () => {
+    const query = table("hr_documents").select("*, hr_employees(employee_code, full_name, status)");
+    return run((isHr ? query : query.eq("employee_id", employeeId)).order("expiry_date", { ascending: true, nullsFirst: false }));
+  }, [isHr, employeeId]);
   const people = useLoad(async () => (isHr ? run(table("hr_employees").select("id, employee_code, full_name, status").order("employee_code")) : []), [isHr]);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState(null);
   const today = dubaiToday();
-  const rows = useMemo(() => (docs.data || []).map((d) => ({ ...d, band: expiryBand(d.expiry_date, today), days: daysUntil(d.expiry_date, today) })), [docs.data, today]);
+  // A leaver's document gets no band, the same as the dashboard count and the alert list, and says why.
+  const rows = useMemo(() => (docs.data || []).map((d) => {
+    const left = d.hr_employees?.status === "Left";
+    return { ...d, left, band: left ? null : expiryBand(d.expiry_date, today), days: daysUntil(d.expiry_date, today) };
+  }), [docs.data, today]);
 
   const open = async (path) => { setError(null); try { await openDocument(path); } catch (e) { setError(e.message); } };
   const columns = [
@@ -23,7 +30,7 @@ export default function Documents({ role, employeeId }) {
     { key: "doc_number", label: "Number" },
     { key: "issue_date", label: "Issued", render: (d) => fmtDate(d.issue_date) },
     { key: "expiry_date", label: "Expires", render: (d) => fmtDate(d.expiry_date) },
-    { key: "band", label: "Expiry", render: (d) => (d.band ? <><Badge tone={BAND_TONE[d.band]}>{bandLabel(d.band)}</Badge> <span className="hr-days">{d.days < 0 ? `${-d.days} days ago` : `${d.days} days`}</span></> : "–") },
+    { key: "band", label: "Expiry", render: (d) => (d.band ? <><Badge tone={BAND_TONE[d.band]}>{bandLabel(d.band)}</Badge> <span className="hr-days">{d.days < 0 ? `${-d.days} days ago` : `${d.days} days`}</span></> : d.left ? <span className="hr-days">Left: not tracked</span> : "–") },
     { key: "storage_path", label: "File", render: (d) => (d.storage_path ? <Button onClick={(e) => { e.stopPropagation(); open(d.storage_path); }}>View</Button> : "–") },
   ];
 

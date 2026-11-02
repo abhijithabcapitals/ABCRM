@@ -22,6 +22,10 @@ export const expiringDocuments = () => rpc("hr_documents_expiring");
 export const employeeTasks = () => rpc("hr_employee_tasks");
 export const dashboardNumbers = () => rpc("hr_dashboard");
 
+// Linking a login to an employee: admin only, audited. A null profile unlinks.
+export const loginProfiles = () => run(table("profiles").select("id, full_name").order("full_name"));
+export const employeeLink = (employee, profile) => rpc("hr_employee_link", { p_employee: employee, p_profile: profile || null });
+
 // Stores a file in the private bucket under the employee's folder and returns the path. Stored files are never replaced.
 export async function uploadDocument(employeeId, file) {
   if (!employeeId) throw new Error("Choose the employee first");
@@ -58,12 +62,15 @@ export async function readDocument(file) {
 }
 
 // Leave. hr_leave_request returns { ids: uuid[], warning: text | null }; a range over a year end becomes one row per year.
+// hr_leave_decide and hr_leave_cancel return { warning: text | null }: a locked month, or approval beyond a paid balance.
 export const leaveRequest = (employee, type, from, to, note) => rpc("hr_leave_request", { p_employee: employee, p_type: type, p_from: from, p_to: to, p_note: note || null });
 export const leaveDecide = (request, approve, note) => rpc("hr_leave_decide", { p_request: request, p_approve: approve, p_note: note || null });
 export const leaveCancel = (request) => rpc("hr_leave_cancel", { p_request: request });
 export const leaveBalance = (employee, year) => rpc("hr_leave_balance", { p_employee: employee, p_year: year });
+export const saveLeaveBalance = async (employee, type, year, entitlement, adjustment) => { check(await table("hr_leave_balances").upsert({ employee_id: employee, leave_type_id: type, year, entitlement, adjustment: adjustment ?? 0 }, { onConflict: "employee_id,leave_type_id,year" })); };
 
 // Attendance. hr_attendance_month returns one row per in-scope employee per day (status null = nothing recorded and not leave, holiday or weekend).
+// hr_attendance_set returns { warning: text | null }: a locked month.
 export const attendanceMonth = (year, month) => rpc("hr_attendance_month", { p_year: year, p_month: month });
 export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => rpc("hr_attendance_set", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null });
 
@@ -75,11 +82,13 @@ export const myPayLines = async () => {
   return rows.sort((a, b) => b.hr_pay_runs.period_month.localeCompare(a.hr_pay_runs.period_month));
 };
 export const myEmployee = (id) => run(table("hr_employees").select("id, employee_code, full_name").eq("id", id).single());
-export const payrollEmployees = () => run(table("hr_employees").select("id, employee_code, full_name").order("full_name"));
+export const payrollEmployees = () => run(table("hr_employees").select("id, employee_code, full_name, exit_date").order("full_name"));
 export const payrollSettings = () => run(table("hr_settings").select("*").eq("id", 1).single());
 export const payrunCreate = (month) => rpc("hr_payrun_create", { p_month: month });
 export const payrunRecalc = (id) => rpc("hr_payrun_recalc", { p_run: id });
 export const payrunAdjust = (line, label, amount) => rpc("hr_payrun_adjust", { p_line: line, p_label: label, p_amount: amount });
+export const payrunAckPayChange = (line, note) => rpc("hr_payrun_ack_pay_change", { p_line: line, p_note: note });
+export const payrunChangesAfter = (id) => rpc("hr_payrun_changes_after", { p_run: id });
 export const payrunApprove = (id, ackSamePerson) => rpc("hr_payrun_approve", { p_run: id, p_ack_same_person: !!ackSamePerson });
 export const payrunDelete = (id) => rpc("hr_payrun_delete", { p_run: id });
 export const gratuity = (employee, exitDate) => rpc("hr_gratuity", { p_employee: employee, p_exit: exitDate });
