@@ -33,6 +33,19 @@
 .hr-grid .hr-grid-name { position: sticky; left: 0; z-index: 1; min-width: 150px; max-width: 190px; padding: 6px 8px; text-align: left; background: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hr-grid thead .hr-grid-name { background: #f6f8f9; z-index: 2; }
 .hr-grid .hr-grid-sum { min-width: 90px; padding: 6px 8px; color: #5f7077; white-space: nowrap; }
+/* Dashboard */
+.hr-quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.hr-period-cards { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.hr-period-cards button.bk-card { font: inherit; text-align: left; cursor: pointer; }
+.hr-chart-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.hr-share { display: block; width: 100%; height: 22px; border-radius: 6px; overflow: hidden; }
+.hr-bars { display: block; width: 100%; height: 140px; }
+.hr-chart-key { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; color: #5f7077; }
+.hr-chart-key span { display: inline-flex; align-items: center; gap: 5px; }
+.hr-chart-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.hr-chart-axis { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 11px; color: #667780; }
+.hr-people-list { margin: 0; padding: 0; list-style: none; }
+.hr-people-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #eef2f3; }
 .hr-grid td { vertical-align: middle; }
 /* Month grid: name and totals stay put, days shrink to fit a normal screen and scroll below that */
 .hr-grid-month { width: 100%; min-width: 1020px; table-layout: fixed; }

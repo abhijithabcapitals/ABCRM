@@ -2,27 +2,33 @@ import { useEffect, useState } from "react";
 import "@banking/components/banking.css";
 import { ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import "./hr.css";
-import { myAccess } from "../services/hrApi";
+import { attendanceEditsPending, myAccess } from "../services/hrApi";
 import { firstTab, tabsFor } from "../logic/tabs";
 import Dashboard from "./Dashboard";
 import Employees from "./Employees";
 import Documents from "./Documents";
 import Leave from "./Leave";
 import Attendance from "./Attendance";
+import SalaryMaster from "./SalaryMaster";
 import Payroll from "./Payroll";
+import Approvals from "./Approvals";
 import Settings from "./Settings";
 
 // Tabs that exist so far.
-const SCREENS = { dashboard: Dashboard, employees: Employees, documents: Documents, leave: Leave, attendance: Attendance, payroll: Payroll, settings: Settings };
+const SCREENS = { dashboard: Dashboard, employees: Employees, attendance: Attendance, salary: SalaryMaster, documents: Documents, leave: Leave, payroll: Payroll, approvals: Approvals, settings: Settings };
 const BUILT = new Set(Object.keys(SCREENS));
 
 export default function HRModule({ profile, onOpenTask }) {
   const access = useLoad(myAccess, []);
+  const isAdmin = profile?.role === "admin";
+  const pending = useLoad(() => (isAdmin ? attendanceEditsPending() : 0), [isAdmin]);
   const [page, setPage] = useState("dashboard");
+  const [intent, setIntent] = useState(null);
   const role = access.data?.role;
-  const tabs = tabsFor(role, BUILT);
+  const tabs = tabsFor(role, BUILT).filter((t) => t.key !== "approvals" || isAdmin); // only an admin decides; the database enforces it
   const current = firstTab(tabs, page);
   useEffect(() => { if (current && current !== page) setPage(current); }, [current, page]);
+  const go = (tab, next) => { setIntent(next || null); setPage(tab); };
 
   if (access.loading && !access.data) return <div className="bk-root"><Spinner label="Loading HR" /></div>;
   if (access.error) {
@@ -38,15 +44,16 @@ export default function HRModule({ profile, onOpenTask }) {
     return <div className="bk-root"><h1>HR</h1><p className="bk-note hr-access-msg">No employee record is linked to your login. Ask HR or an administrator to link your account to your employee record.</p></div>;
   }
   const Screen = SCREENS[current];
+  const label = (t) => (t.key === "approvals" && pending.data > 0 ? `${t.label} (${pending.data})` : t.label);
   return (
     <div className="bk-root">
       <header className="bk-header"><div><span className="bk-eyebrow">AB CAPITAL SERVICES FZE</span><h1>HR</h1></div></header>
       <div className="bk-nav-wrap"><nav className="bk-nav" aria-label="HR">
         {tabs.map((t) => (
-          <button type="button" key={t.key} data-label={t.label} aria-current={current === t.key ? "page" : undefined} className={current === t.key ? "active" : ""} onClick={() => setPage(t.key)}>{t.label}</button>
+          <button type="button" key={t.key} data-label={label(t)} aria-current={current === t.key ? "page" : undefined} className={current === t.key ? "active" : ""} onClick={() => go(t.key)}>{label(t)}</button>
         ))}
       </nav></div>
-      <Screen key={current} profile={profile} role={role} employeeId={access.data.employee_id} onOpenTask={onOpenTask} />
+      <Screen key={current} profile={profile} role={role} employeeId={access.data.employee_id} onOpenTask={onOpenTask} onGo={go} intent={intent} onDecided={pending.reload} />
     </div>
   );
 }

@@ -97,6 +97,7 @@ export default function Leave({ role, employeeId }) {
             { key: "leave_type", label: "Type" },
             { key: "paid", label: "Paid", render: (b) => (b.paid ? "Paid" : "Unpaid") },
             { key: "entitlement", label: "Entitlement", render: (b) => b.entitlement ?? "–" },
+            { key: "carried", label: "Carried in" },
             { key: "adjustment", label: "Adjustment" },
             { key: "used", label: "Used" },
             { key: "pending", label: "Pending" },

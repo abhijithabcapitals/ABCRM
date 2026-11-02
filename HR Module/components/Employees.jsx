@@ -13,12 +13,12 @@ const PERSONAL_FIELDS = [
 const statusTone = (s) => (s === "Active" ? "good" : "warn");
 
 // HR works on every employee. A manager sees themselves and direct reports (read only). An employee sees their own record.
-export default function Employees({ role, employeeId, profile }) {
+export default function Employees({ role, employeeId, profile, intent }) {
   const isHr = role === "hr";
   const isAdmin = profile?.role === "admin"; // display only: the database refuses anyone else
   const list = useLoad(async () => run(table("hr_employees").select("*").order("employee_code")), []);
   const [openId, setOpenId] = useState(role === "employee" ? employeeId : null);
-  const [edit, setEdit] = useState(null);
+  const [edit, setEdit] = useState(isHr && intent?.add ? { status: "Active", on_payroll: true } : null);
   const rows = list.data || [];
   const byId = Object.fromEntries(rows.map((e) => [e.id, e]));
   const opened = openId ? byId[openId] : null;
