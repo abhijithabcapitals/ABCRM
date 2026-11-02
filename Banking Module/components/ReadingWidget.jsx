@@ -1,6 +1,8 @@
 // Round progress for document reading, and the corner card that follows staff around the CRM while it runs.
 import "./reading.css";
+import { useEffect } from "react";
 import { discardReading, requestOpen, useReadingJob } from "../services/readingJob";
+import { clearDraft, loadDraft, noteReadingStopped, useUnfinishedLead } from "../services/leadDraft";
 
 export function ProgressRing({ percent, size = 56 }) {
   const radius = 20;
@@ -18,18 +20,36 @@ export const readingText = (job) => `${job.done} of ${job.total} document(s) rea
 
 export default function ReadingWidget({ owner, onOpen }) {
   const job = useReadingJob();
-  if (!job || job.owner !== owner) return null;
-  const open = () => { requestOpen(); onOpen(job.view); };
+  const unfinished = useUnfinishedLead(owner);
+  useEffect(() => { if (owner) loadDraft(owner); }, [owner]); // finds a lead left behind by a refresh
+  const open = (view) => { requestOpen(); onOpen(view); };
+  if (!job || job.owner !== owner) {
+    if (!unfinished) return null;
+    const discard = () => { if (window.confirm("Discard this unfinished lead and its files? This cannot be undone.")) clearDraft(owner); };
+    return (
+      <aside className="crm-reading" aria-live="polite">
+        <div className="crm-reading-text">
+          <strong>Unfinished new lead{unfinished.name ? `: ${unfinished.name}` : ""}</strong>
+          <span>{unfinished.files} document(s) kept on this PC. Continue where you left off.</span>
+          <span className="crm-reading-actions">
+            <button type="button" className="crm-reading-open" onClick={() => open("business-banking")}>Continue</button>
+            <button type="button" className="crm-reading-stop" onClick={discard}>Discard</button>
+          </span>
+        </div>
+      </aside>
+    );
+  }
+  const stop = () => { discardReading(); noteReadingStopped(); };
   return (
     <aside className="crm-reading" aria-live="polite">
       <ProgressRing percent={job.percent} />
       <div className="crm-reading-text">
-        {job.status === "reading" && <><strong>Reading {job.label}</strong><span>{readingText(job)}. You can keep working. Keep this browser tab open.</span></>}
+        {job.status === "reading" && <><strong>Reading {job.label}</strong><span>{readingText(job)}. You can keep working.</span></>}
         {job.status === "done" && <><strong>Finished reading {job.label}</strong><span>Continue to check the details.</span></>}
         {job.status === "failed" && <><strong>Could not read {job.label}</strong><span>{job.error}</span></>}
         <span className="crm-reading-actions">
-          <button type="button" className="crm-reading-open" onClick={open}>{job.status === "reading" ? "Open" : "Continue"}</button>
-          <button type="button" className="crm-reading-stop" onClick={discardReading}>{job.status === "reading" ? "Stop" : "Dismiss"}</button>
+          <button type="button" className="crm-reading-open" onClick={() => open(job.view)}>{job.status === "reading" ? "Open" : "Continue"}</button>
+          <button type="button" className="crm-reading-stop" onClick={stop}>{job.status === "reading" ? "Stop" : "Dismiss"}</button>
         </span>
       </div>
     </aside>

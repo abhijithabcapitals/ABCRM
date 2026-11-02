@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, ErrorNote, Field, PageHead, Panel, Spinner, cleanValues, today, useBanking, useLoad } from "./shared";
 import { insertRow, loadSettings, readDocuments, rpc, run, table, updateRow, uploadFile } from "../services/bankingApi";
 import { discardReading, startReading, takeResult, useReadingJob } from "../services/readingJob";
+import { clearDraft, loadDraft, saveDraft, setLeadOpen } from "../services/leadDraft";
 import { ProgressRing, readingText } from "./ReadingWidget";
 import { buildAutofill, DOC_TYPE_MAP } from "../logic/kycAutofill";
 import { KYC_REQUIRED_FIELDS, KYC_SECTIONS } from "./KycForm";
@@ -26,16 +27,28 @@ const LEAD_FIELDS = (sources, people) => [
 ];
 
 const READING_KIND = "new-lead";
-let draft = null; // the unfinished lead, kept while staff work elsewhere, until it is saved or cancelled
 
+// An unfinished lead comes back here, after moving around the CRM or after a refresh.
 export default function NewLeadWizard({ onCancel }) {
+  const { profile } = useBanking();
+  const [loaded, setLoaded] = useState(null);
+  useEffect(() => {
+    let live = true;
+    loadDraft(profile?.id).then((draft) => { if (live) setLoaded({ draft }); });
+    setLeadOpen(true);
+    return () => { live = false; setLeadOpen(false); };
+  }, [profile?.id]);
+  if (!loaded) return <Spinner />;
+  return <Wizard resume={loaded.draft} onCancel={onCancel} />;
+}
+
+function Wizard({ resume, onCancel }) {
   const { can, personOptions, profile, openCase } = useBanking();
   const canDocs = can("docs.manage");
   const canKyc = can("kyc.manage");
   const fileInput = useRef(null);
   const settings = useLoad(() => loadSettings(), []);
   const types = useLoad(() => run(table("banking_document_types").select("doc_code, doc_name").eq("is_active", true).order("doc_name")), []);
-  const [resume] = useState(() => (draft?.owner === profile?.id ? draft : null));
   const [step, setStep] = useState(resume?.step ?? (canDocs ? 1 : 2));
   const [files, setFiles] = useState(resume?.files ?? []); // { file, name, docCode, status, label }
   const [notice, setNotice] = useState(resume?.notice ?? null);
@@ -56,7 +69,7 @@ export default function NewLeadWizard({ onCancel }) {
   const reading = job?.kind === READING_KIND && job.owner === profile?.id && job.status === "reading" ? job : null;
 
   useEffect(() => {
-    if (!closed.current) draft = { owner: profile?.id, step, files, notice, auto, lead, kyc, partners, onlyMissing, edited, saved: saved.current, uploaded: uploaded.current };
+    if (!closed.current) saveDraft({ owner: profile?.id, step, files, notice, auto, lead, kyc, partners, onlyMissing, edited, saved: saved.current, uploaded: uploaded.current, reading: !!reading });
   });
 
   // Copy now: clearing the file input right after this call empties the browser's live FileList.
@@ -87,6 +100,11 @@ export default function NewLeadWizard({ onCancel }) {
     else applyRead(result.docs);
   }, [job]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A read cut off by a refresh starts again by itself.
+  useEffect(() => {
+    if (resume?.reading && !job && files.length) readAll();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const readAll = () => {
     setError(null); setNotice(null);
     const list = files.map((f) => f.file);
@@ -95,7 +113,7 @@ export default function NewLeadWizard({ onCancel }) {
 
   const close = () => {
     closed.current = true;
-    draft = null;
+    clearDraft(profile?.id);
     if (reading) discardReading();
   };
 
@@ -198,7 +216,7 @@ export default function NewLeadWizard({ onCancel }) {
           {reading ? (
             <div className="crm-reading-inline">
               <ProgressRing percent={reading.percent} size={84} />
-              <div><strong>Reading documents…</strong><small>{readingText(reading)}. You can open other pages and do other work. It carries on, and you can continue from the card in the corner. Keep this browser tab open.</small></div>
+              <div><strong>Reading documents…</strong><small>{readingText(reading)}. You can open other pages and do other work. It carries on, and you can continue from the card in the corner. If you refresh, nothing is lost and reading starts again.</small></div>
             </div>
           ) : (
             <div className="bk-modal-actions">
