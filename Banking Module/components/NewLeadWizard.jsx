@@ -1,6 +1,6 @@
 // New lead: upload what the client gave, let the documents fill the form, type only what is missing.
 // Extraction runs on the local Document Module; if it is off, the same form is simply filled by hand.
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Badge, Button, ErrorNote, Field, PageHead, Panel, Spinner, cleanValues, today, useBanking, useLoad } from "./shared";
 import { insertRow, loadSettings, readDocuments, rpc, run, table, updateRow, uploadFile } from "../services/bankingApi";
 import { buildAutofill, DOC_TYPE_MAP } from "../logic/kycAutofill";
@@ -27,6 +27,7 @@ export default function NewLeadWizard({ onCancel }) {
   const { can, personOptions, profile, openCase } = useBanking();
   const canDocs = can("docs.manage");
   const canKyc = can("kyc.manage");
+  const fileInput = useRef(null);
   const settings = useLoad(() => loadSettings(), []);
   const types = useLoad(() => run(table("banking_document_types").select("doc_code, doc_name").eq("is_active", true).order("doc_name")), []);
   const [step, setStep] = useState(canDocs ? 1 : 2);
@@ -38,12 +39,19 @@ export default function NewLeadWizard({ onCancel }) {
   const [kyc, setKyc] = useState({});
   const [partners, setPartners] = useState([]);
   const [onlyMissing, setOnlyMissing] = useState(true);
+  const [edited, setEdited] = useState({}); // fields typed in stay visible, or "only missing" would hide them at the first key
   const [matches, setMatches] = useState(null);
   const [busy, setBusy] = useState(null);
   const clients = useClientLookup();
   const [error, setError] = useState(null);
+  const saved = useRef(null); // the lead's conversion, so a retry after a failed upload continues instead of adding a second lead
+  const uploaded = useRef(new Set());
 
-  const addFiles = (list) => setFiles((f) => [...f, ...[...list].filter((x) => !f.some((y) => y.name === x.name)).map((file) => ({ file, name: file.name, docCode: "", status: "Waiting" }))]);
+  // Copy now: clearing the file input right after this call empties the browser's live FileList.
+  const addFiles = (list) => {
+    const picked = [...list];
+    setFiles((f) => [...f, ...picked.filter((x) => !f.some((y) => y.name === x.name)).map((file) => ({ file, name: file.name, docCode: "", status: "Waiting" }))]);
+  };
 
   const readAll = async () => {
     setError(null); setNotice(null);
@@ -62,8 +70,8 @@ export default function NewLeadWizard({ onCancel }) {
       setPartners(a.shareholders);
       setLead((l) => ({ ...l, company_name: a.values.legal_name || a.values.trade_name || l.company_name, contact_person: l.contact_person || a.shareholders[0]?.full_name, nationality: l.nationality || a.shareholders[0]?.nationality, email: l.email || a.values.company_email, mobile: l.mobile || a.values.company_phone }));
       setStep(2);
-    } catch {
-      setNotice("The Document Module is not reachable, so nothing was read. Start Client Module\\Start-ClientModule.cmd on this PC and try again, or continue and type the details. Your files will still be saved.");
+    } catch (e) {
+      setNotice(`${e.message} You can continue and type the details, or choose document types manually so the files can be saved.`);
     }
     setReading(null);
   };
@@ -76,6 +84,11 @@ export default function NewLeadWizard({ onCancel }) {
 
   // Nothing is saved while a required field is empty: those fields blink until filled.
   const flagIncomplete = (continueFlow) => {
+    if (canDocs && untyped.length) {
+      setError(`Choose a document type for ${untyped.map((f) => f.name).join(", ")}, or remove the file. A file with no type cannot be saved.`);
+      setStep(1);
+      return true;
+    }
     const empty = [...leadMissing, ...(continueFlow && canKyc ? missing : [])];
     if (!empty.length) return false;
     setError(`Please fill in the highlighted fields: ${empty.map((f) => f.label).join(", ")}.`);
@@ -87,16 +100,18 @@ export default function NewLeadWizard({ onCancel }) {
   const save = async (continueFlow, clientId) => {
     setBusy("Saving…"); setError(null);
     try {
-      if (clientId === undefined) {
+      if (!saved.current && clientId === undefined) {
         const found = await rpc("banking_find_clients", { p_name: lead.company_name, p_license: kyc.license_number || null });
         if (found.length) { setMatches({ found, continueFlow }); setBusy(null); return; }
       }
       setMatches(null);
-      const row = await insertRow("banking_leads", { ...cleanValues(leadFields, lead), lead_date: lead.lead_date, status: "Interested", picked_up_at: new Date().toISOString(), picked_up_by: lead.assigned_to || profile?.id, company_type: kyc.legal_structure || null, business_activity: kyc.business_activity || null, license_authority: kyc.issuing_authority || null, license_number: kyc.license_number || null });
-      const conv = await rpc("banking_convert_lead", { p_lead: row.id, p_client: clientId || null });
+      const row = saved.current ? null : await insertRow("banking_leads", { ...cleanValues(leadFields, lead), lead_date: lead.lead_date, status: "Interested", picked_up_at: new Date().toISOString(), picked_up_by: lead.assigned_to || profile?.id, company_type: kyc.legal_structure || null, business_activity: kyc.business_activity || null, license_authority: kyc.issuing_authority || null, license_number: kyc.license_number || null });
+      const conv = saved.current || await rpc("banking_convert_lead", { p_lead: row.id, p_client: clientId || null });
+      saved.current = conv;
       if (canKyc) {
         const profile_ = await run(table("banking_kyc_profiles").select("id").eq("client_id", conv.client_id).single());
-        await updateRow("banking_kyc_profiles", profile_.id, Object.fromEntries(Object.entries(cleanKyc(kyc)).filter(([, v]) => v !== null)));
+        const filled = Object.fromEntries(Object.entries(cleanKyc(kyc)).filter(([, v]) => v !== null));
+        if (Object.keys(filled).length) await updateRow("banking_kyc_profiles", profile_.id, filled); // an empty update returns no row and would fail
         if (can("kyc.sensitive")) {
           // The conversion adds the contact as a first partner; replace it with the people from the documents.
           const existing = await run(table("banking_kyc_shareholders").select("id, full_name").eq("kyc_profile_id", profile_.id));
@@ -110,10 +125,11 @@ export default function NewLeadWizard({ onCancel }) {
       if (canDocs) {
         for (let i = 0; i < files.length; i++) {
           const f = files[i];
-          if (!f.docCode) continue;
+          if (!f.docCode || uploaded.current.has(f.name)) continue;
           setBusy(`Saving file ${i + 1} of ${files.length}…`);
           const u = await uploadFile(conv.case_id, "kyc", f.file);
           await rpc("banking_kyc_add_document", { p_client: conv.client_id, p_doc_code: f.docCode, p_shareholder: null, p_path: u.path, p_file: u.name, p_mime: u.mime, p_size: u.size, p_sha: u.sha256, p_expiry: f.docCode === "TRADE_LICENSE" ? kyc.license_expiry_date || null : null });
+          uploaded.current.add(f.name);
         }
       }
       if (continueFlow) {
@@ -138,10 +154,10 @@ export default function NewLeadWizard({ onCancel }) {
 
       {step === 1 && (
         <Panel title="Upload all available documents" sub="Trade licence, MOA, passports, Emirates IDs, VAT certificate and so on. Details are read from them and you check the result. Files stay on this PC while being read, and nothing is verified automatically.">
-          <label className="bk-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
+          <button type="button" className="bk-drop" onClick={() => fileInput.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
             <strong>Drop files here or click to choose</strong>
-            <input type="file" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
-          </label>
+          </button>
+          <input ref={fileInput} className="bk-file-input" type="file" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
           {files.length > 0 && (
             <div className="bk-mt">
               {files.map((f) => (
@@ -170,19 +186,19 @@ export default function NewLeadWizard({ onCancel }) {
           </div>
           {Object.keys(auto.conflicts).length > 0 && <Panel title="Documents disagree: please check"><ul className="bk-issues">{Object.entries(auto.conflicts).map(([k, v]) => <li key={k}>{k}: {v.join(" / ")}</li>)}</ul></Panel>}
           <Panel title="Lead">
-            <div className="bk-grid"><ClientLists clients={clients} keys={Object.values(leadMap)} />{leadFields.filter((f) => !onlyMissing || !lead[f.name] || !f.required).map((f) => <Tagged key={f.name} field={f} value={lead[f.name]} onChange={(v) => setLead((l) => (leadMap[f.name] ? applyClient(l, leadMap, f.name, v, clients) : { ...l, [f.name]: v }))} />)}</div>
+            <div className="bk-grid"><ClientLists clients={clients} keys={Object.values(leadMap)} />{leadFields.filter((f) => !onlyMissing || !lead[f.name] || !f.required || edited[f.name]).map((f) => <Tagged key={f.name} field={f} value={lead[f.name]} onChange={(v) => { setEdited((e) => ({ ...e, [f.name]: true })); setLead((l) => (leadMap[f.name] ? applyClient(l, leadMap, f.name, v, clients) : { ...l, [f.name]: v })); }} />)}</div>
           </Panel>
           {canKyc ? KYC_SECTIONS.map(([title, fields]) => {
-            const list = onlyMissing ? fields.filter((f) => kyc[f.name] === undefined || kyc[f.name] === null || kyc[f.name] === "") : fields;
+            const list = onlyMissing ? fields.filter((f) => kyc[f.name] === undefined || kyc[f.name] === null || kyc[f.name] === "" || edited[f.name]) : fields;
             if (!list.length) return null;
-            return <Panel key={title} title={title}><div className="bk-grid">{list.map((f) => <Tagged key={f.name} field={f} value={kyc[f.name]} source={auto.sources[f.name]} onChange={(v) => setKyc((s) => ({ ...s, [f.name]: v }))} />)}</div></Panel>;
+            return <Panel key={title} title={title}><div className="bk-grid">{list.map((f) => <Tagged key={f.name} field={f} value={kyc[f.name]} source={auto.sources[f.name]} onChange={(v) => { setEdited((e) => ({ ...e, [f.name]: true })); setKyc((s) => ({ ...s, [f.name]: v })); }} />)}</div></Panel>;
           }) : <p className="bk-note">KYC details are completed by a Document Executive after you save this lead.</p>}
           {canKyc && partners.length > 0 && can("kyc.sensitive") && (
             <Panel title="Partners found in documents" sub="Added to the KYC. Edit or add more on the KYC step.">
               {partners.map((p) => <div className="bk-row" key={p.full_name}><span>{p.full_name} · {p.nationality || "nationality not read"}{p.ownership_percent != null ? ` · ${p.ownership_percent}%` : ""} <small className="bk-muted">from {p.source}</small></span><button type="button" className="bk-link" onClick={() => setPartners((l) => l.filter((x) => x !== p))}>Remove</button></div>)}
             </Panel>
           )}
-          {untyped.length > 0 && <div className="bk-alert bk-alert-warn">{untyped.length} file(s) have no document type and will not be saved. <button type="button" className="bk-link" onClick={() => setStep(1)}>Set types</button></div>}
+          {untyped.length > 0 && <div className="bk-alert bk-alert-warn">{untyped.length} file(s) still need a document type before you can save. <button type="button" className="bk-link" onClick={() => setStep(1)}>Set types</button></div>}
           {matches && (
             <Panel title="This client may already exist" sub="Reuse it rather than creating a duplicate. One client can have many banking cases.">
               {matches.found.map((m) => <div className="bk-row" key={m.id}><span>{m.display_name} · {m.license_number || "no licence"} · {m.cases} case(s)</span><Button onClick={() => save(matches.continueFlow, m.id)}>Use this client</Button></div>)}

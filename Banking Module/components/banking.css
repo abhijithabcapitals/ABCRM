@@ -158,8 +158,9 @@
 .bk-wizard-steps { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .bk-wizard-steps span { padding: 6px 12px; border-radius: 999px; background: #eef2f4; color: #5f7077; font-size: 12px; font-weight: 700; }
 .bk-wizard-steps span.active { background: #0d7d82; color: #fff; }
-.bk-drop { display: block; padding: 30px; border: 2px dashed #b7d4d5; border-radius: 12px; background: #f8fcfc; text-align: center; cursor: pointer; }
-.bk-drop input { display: none; }
+.bk-drop { display: block; width: 100%; padding: 30px; border: 2px dashed #b7d4d5; border-radius: 12px; background: #f8fcfc; color: inherit; font: inherit; text-align: center; cursor: pointer; }
+.bk-drop:hover { border-color: #0d7d82; background: #f5fbfb; }
+.bk-file-input { display: none; }
 .bk-field-auto input, .bk-field-auto select, .bk-field-auto textarea { border-color: #7cc4a1 !important; background: #f3fbf6 !important; }
 .bk-field-missing input, .bk-field-missing select, .bk-field-missing textarea { border-color: #e2b65a !important; background: #fffaf0 !important; }
 .bk-field-from { color: #1f6e49; font-size: 10.5px; }
