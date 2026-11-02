@@ -328,3 +328,15 @@ def test_open_generated_only_inside_its_folders(tmp_path, monkeypatch):
     assert c.post("/api/generated-open", json={"path": str(folder / "gone.docx")}).status_code == 404
     assert c.post("/api/generated-open", json={"path": str(folder / ".." / "secret.docx")}).status_code == 403
     assert len(calls) == 1
+
+
+def test_validated_client_document_goes_to_the_clients_folder(tmp_path):
+    existing = tmp_path / "1. Accounting Clients" / "ABC Trading LLC - CL000001"
+    existing.mkdir(parents=True)
+    c = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d")))
+    post = lambda client, cid, typ, name: c.post("/api/clients-folder", data={"client": client, "client_id": cid, "doc_type": typ}, files={"file": (name, b"x")})
+    assert post("ABC", "CL000001", "Passport / ID", "p.pdf").json()["path"] == str(existing / "KYC" / "p.pdf")
+    assert post("ABC", "CL000001", "Passport / ID", "p.pdf").json()["path"] == str(existing / "KYC" / "p (2).pdf")
+    assert post("New Co", "", "Other", "a.pdf").json()["path"] == str(tmp_path / "5. Others" / "Client Portal" / "New Co" / "Others" / "a.pdf")
+    assert post("../../evil", "", "Other", "../../a.pdf").json()["path"] == str(tmp_path / "5. Others" / "Client Portal" / "-..-evil" / "Others" / "a.pdf")
+    assert post("New Co", "", "Other", "a.exe").status_code == 400

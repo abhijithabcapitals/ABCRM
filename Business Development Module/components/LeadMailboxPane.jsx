@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   callLeadSources, fetchLatestPlatformReplyDraft, fetchEmailSignatures, savePlatformReplyDraft,
 } from "../logic/businessDevelopmentData";
+import BoldLineTextarea from "@app/components/BoldLineTextarea";
 
 // The chosen signature is kept as the last block of the reply text, so the saved draft is exactly what is sent.
 const signatureText = (signature) => signature.body_text.trim();
@@ -262,7 +263,7 @@ export default function LeadMailboxPane({ prospect, onClose, onSaved, onSent }) 
               {expleeDraft === "loading" ? "Getting Explee's draft…" : expleeDraft === "loaded" ? "Draft written by Explee. Review it, then save or send." : expleeDraft}
             </small>
           )}
-          <textarea
+          <BoldLineTextarea
             aria-label="Reply message"
             maxLength={10000}
             value={body}

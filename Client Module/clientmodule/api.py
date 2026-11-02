@@ -29,7 +29,7 @@ import httpx
 import re
 import subprocess
 from pathlib import Path
-from fastapi import Body, FastAPI, File, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from docai import PipelineError, document_types
@@ -68,6 +68,12 @@ async def verify_remote_document_access(settings: Settings, token: str) -> str:
             return "unavailable"
         permissions = access_data.get("permissions", [])
         return "allowed" if {"docs.manage", "kyc.manage", "leads.manage"}.intersection(permissions) else "forbidden"
+
+
+CLIENT_FILE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".eml", ".msg"}
+MAX_CLIENT_FILE = 25 * 1024 * 1024
+CLIENT_SUBFOLDERS = {"Trade Licence": "Company Documents", "MOA / AOA": "Company Documents", "VAT Document": "Company Documents",
+                     "Corporate Tax Document": "Company Documents", "Passport / ID": "KYC", "Bank Statement": "Bank Statements"}
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -275,6 +281,30 @@ def create_app(settings: Settings) -> FastAPI:
             target = folder / f"{Path(name).stem} ({n}){Path(name).suffix}"
             n += 1
         target.write_bytes(file.file.read())
+        return {"path": str(target)}
+
+    # ---- a client document validated in the CRM: into that client's folder, never overwrites ----
+    @app.post("/api/clients-folder")
+    def save_client_document(file: UploadFile = File(...), client: str = Form(...), client_id: str = Form(""), doc_type: str = Form("Other")):
+        def clean(s: str) -> str:
+            return re.sub(r'[<>:"/\\|?*\[\]\x00-\x1f]+', "-", s).strip(" .")
+        name, client_name, cid = clean(Path(file.filename or "document").name), clean(client), clean(client_id)
+        if not client_name or Path(name).suffix.lower() not in CLIENT_FILE_TYPES:
+            return JSONResponse({"error": "That client or file type cannot be saved."}, status_code=400)
+        data = file.file.read(MAX_CLIENT_FILE + 1)
+        if len(data) > MAX_CLIENT_FILE:
+            return JSONResponse({"error": "Files must be under 25 MB."}, status_code=400)
+        # An existing folder is "<Legal Name> - <Client ID>" under a service folder (see DataBase/STORAGE-MAP.md).
+        found = [*settings.storage_root.glob(f"*/* - {cid}"), *settings.storage_root.glob(f"*/*/* - {cid}")] if cid else []
+        home = next((p for p in sorted(found) if p.is_dir()), settings.storage_root / "5. Others" / "Client Portal" / client_name)
+        folder = home / CLIENT_SUBFOLDERS.get(doc_type, "Others")
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / name
+        n = 2
+        while target.exists():
+            target = folder / f"{Path(name).stem} ({n}){Path(name).suffix}"
+            n += 1
+        target.write_bytes(data)
         return {"path": str(target)}
 
     # Opens Explorer on a generated document. Only existing files inside the configured folders.

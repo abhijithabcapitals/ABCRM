@@ -7,6 +7,7 @@ import { supabase } from "../supabase";
 import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE } from "../tabs";
 import { TriggersPanel } from "./AdminTriggers";
 import { cronText } from "./triggerSchedule";
+import { EMP_FIELDS } from "../empFields";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
@@ -156,10 +157,6 @@ export function AuditPanel() {
   );
 }
 
-const EMP_FIELDS = [
-  { name: "employee_code", label: "Employee code", required: true }, { name: "full_name", label: "Full name", required: true }, { name: "work_email", label: "Work email" }, { name: "phone", label: "Phone" },
-  { name: "department", label: "Department" }, { name: "designation", label: "Designation" }, { name: "join_date", label: "Join date", type: "date" }, { name: "status", label: "Status", type: "select", options: ["Active", "On Leave", "Left"], required: true },
-];
 const HEADINGS = { "employee code": "employee_code", "emp code": "employee_code", code: "employee_code", "full name": "full_name", name: "full_name", email: "work_email", "work email": "work_email", phone: "phone", mobile: "phone", department: "department", designation: "designation", "join date": "join_date", status: "status" };
 
 export function EmployeesPanel() {

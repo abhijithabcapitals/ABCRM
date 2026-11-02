@@ -1,27 +1,35 @@
-// The CRM's Clients page: all converted clients across business lines, plus the Client Master.
+// The CRM's Clients page: all converted clients across business lines, the Client Master,
+// documents sent through the portal (Client Inputs) and, for admins only, the Client Portal.
 import { useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import ClientMaster from "./ClientMaster";
+import ClientInputs from "./ClientInputs";
+import ClientPortalAdmin, { ClientAccess } from "./ClientPortalAdmin";
 
 const LINES = ["Business Banking", "Business Setup", "Accounting"];
 
 export default function ClientsHub({ profile }) {
   const [view, setView] = useState("all");
+  const isAdmin = profile?.role === "admin";
+  const tabs = [["all", "All Clients"], ["master", "Client Master"], ["inputs", "Client Inputs"], ...(isAdmin ? [["portal", "Client Portal"]] : [])];
   return (
     <div>
       <div className="bk-root bk-hub-tabs">
         <nav className="bk-nav" aria-label="Clients">
-          {[["all", "All Clients"], ["master", "Client Master"]].map(([k, label]) => <button type="button" key={k} data-label={label} aria-current={view === k ? "page" : undefined} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
+          {tabs.map(([k, label]) => <button type="button" key={k} data-label={label} aria-current={view === k ? "page" : undefined} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
         </nav>
       </div>
-      {view === "all" ? <AllClients /> : <ClientMaster />}
+      {view === "all" && <AllClients isAdmin={isAdmin} />}
+      {view === "master" && <ClientMaster />}
+      {view === "inputs" && <ClientInputs />}
+      {view === "portal" && isAdmin && <ClientPortalAdmin />}
     </div>
   );
 }
 
-function AllClients() {
+function AllClients({ isAdmin }) {
   const list = useLoad(() => rpc("client_base_list"), []);
   const [line, setLine] = useState("");
   const [open, setOpen] = useState(null);
@@ -51,6 +59,7 @@ function AllClients() {
       {open && (
         <Panel title={open.display_name} sub="Key details from KYC and the lead.">
           <KeyVals items={[["Legal name", open.legal_name], ["Trade name", open.trade_name], ["Type", open.client_type], ["Legal structure", open.legal_structure], ["Business activity", open.business_activity], ["Issuing authority", open.issuing_authority], ["Licence", open.license_number], ["Licence expiry", fmtDate(open.license_expiry_date)], ["VAT TRN", open.vat_trn], ["Address", open.registered_address], ["Contact", open.contact_person], ["Nationality", open.nationality], ["Phone", open.phone], ["Email", open.email], ["KYC complete", open.kyc_percent != null ? `${open.kyc_percent}%` : null], ["Engagements", open.engagements]]} />
+          {isAdmin && <ClientAccess bankingClientId={open.id} />}
         </Panel>
       )}
     </div>
