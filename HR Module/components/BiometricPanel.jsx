@@ -32,7 +32,7 @@ export default function BiometricPanel({ onChanged }) {
   };
 
   return (
-    <Panel title="Biometric sync" sub="e-timeoffice, every 15 minutes. A day with punches becomes Present. A day HR edited by hand is never overwritten, and no day is marked Absent by the sync."
+    <Panel title="Biometric sync" sub="e-timeoffice. A day with punches becomes Present. A day edited by hand is never overwritten. A working day with no punches counts as Absent."
       actions={<>
         <Button onClick={() => setLinking({})}>Link a code</Button>
         <Button onClick={() => setCatchUp(true)}>Catch up dates</Button>
