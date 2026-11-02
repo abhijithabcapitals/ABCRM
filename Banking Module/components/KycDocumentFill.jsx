@@ -1,6 +1,6 @@
 // Fills an existing client's KYC from uploaded documents, read by the local Document Module (DOC OCR Module).
 // Empty fields are ticked by default. A value that differs from what is saved stays unticked for a person to decide.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, ErrorNote, Modal, useBanking, useLoad } from "./shared";
 import { insertRow, readDocuments, rpc, run, table, uploadFile } from "../services/bankingApi";
 import { buildAutofill, compareWithCurrent, DOC_TYPE_MAP } from "../logic/kycAutofill";
@@ -12,6 +12,7 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
   const types = useLoad(() => run(table("banking_document_types").select("doc_code, doc_name").eq("is_active", true).order("doc_name")), []);
   const existing = useLoad(() => (profileId && can("kyc.sensitive") ? run(table("banking_kyc_shareholders").select("full_name").eq("kyc_profile_id", profileId).is("deleted_at", null)) : Promise.resolve([])), [profileId]);
   const [files, setFiles] = useState([]);
+  const fileInput = useRef(null);
   const [result, setResult] = useState(null); // { rows, shareholders, conflicts }
   const [ticks, setTicks] = useState({});
   const [partnerTicks, setPartnerTicks] = useState({});
@@ -19,7 +20,11 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
   const [error, setError] = useState(null);
   const canDocs = can("docs.manage");
 
-  const add = (list) => setFiles((f) => [...f, ...[...list].filter((x) => !f.some((y) => y.name === x.name)).map((file) => ({ file, name: file.name, docCode: "", status: "" }))]);
+  // Copy now: clearing the file input right after this call empties the browser's live FileList.
+  const add = (list) => {
+    const picked = [...list];
+    setFiles((f) => [...f, ...picked.filter((x) => !f.some((y) => y.name === x.name)).map((file) => ({ file, name: file.name, docCode: "", status: "" }))]);
+  };
 
   const read = async () => {
     setBusy("Reading documents…"); setError(null);
@@ -36,8 +41,8 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
       setResult({ rows, partners, conflicts: a.conflicts, read: docs.length });
       setTicks(Object.fromEntries(rows.map((r) => [r.field, r.state === "new"])));
       setPartnerTicks(Object.fromEntries(partners.map((p) => [p.full_name, true])));
-    } catch {
-      setError("The Document Module is not reachable. Start Client Module\\Start-ClientModule.cmd on this PC, then try again.");
+    } catch (e) {
+      setError(e.message);
     }
     setBusy(null);
   };
@@ -68,10 +73,10 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
       {!result ? (
         <>
           <p className="bk-note">Upload the client's documents. They are read on this PC by the Document Module, and you choose which values to use.</p>
-          <label className="bk-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); add(e.dataTransfer.files); }}>
+          <button type="button" className="bk-drop" onClick={() => fileInput.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); add(e.dataTransfer.files); }}>
             <strong>Drop files here or click to choose</strong>
-            <input type="file" multiple onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
-          </label>
+          </button>
+          <input ref={fileInput} className="bk-file-input" type="file" multiple onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
           {files.map((f) => <div className="bk-row" key={f.name}><span>{f.name}</span><button type="button" className="bk-link" onClick={() => setFiles((l) => l.filter((x) => x.name !== f.name))}>Remove</button></div>)}
           <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!files.length} busy={!!busy} onClick={read}>{busy || "Read documents"}</Button></div>
         </>
