@@ -57,7 +57,7 @@ export default function GenerateTab({ templates, downloadTemplateBuffer, profile
       saveAs(blob, fname);
       const nameField = fields.find((f) => clientKeyOf(f) === "name");
       const filed = await recordTemplateDocument(blob, fname, nameField && values[nameField.key]);
-      const fileMsg = filed.local ? ` · Saved to ${filed.local}` : " · Kept in the database; not in the PC folder because the Client Module is not running here.";
+      const fileMsg = filed.local ? ` · Saved to ${filed.local}` : " · Saved online.";
 
       let crmMsg = fileMsg;
       if (makeTask) {

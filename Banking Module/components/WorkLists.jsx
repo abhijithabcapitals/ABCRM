@@ -65,7 +65,7 @@ function Receipts() {
       const client = { display_name: p.banking_cases?.banking_clients?.display_name };
       const { blob, fileName, number } = await receiptDocx(p, client, { case_ref: p.banking_cases?.case_ref }, settings.data?.company);
       const row = await saveGenerated({ kind: "receipt", caseId: p.case_id, blob, fileName, number, paymentId: p.id });
-      setNote(row.local_path ? `Saved to ${row.local_path}` : "Kept in the database, but not saved to the PC folder because the Client Module is not running here.");
+      setNote(row.local_path ? `Saved to ${row.local_path}` : "Saved online.");
       await list.reload();
     } catch (err) { setError(err.message); }
   };

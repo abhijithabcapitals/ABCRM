@@ -9,3 +9,5 @@ The CRM's one list of converted clients, across Business Banking, Business Setup
 It reads each business line's own records instead of copying them, so the list cannot go out of step. Only Business Banking feeds it today. When Business Setup or Accounting has clients, add them to the `lines` part of the function.
 
 `migrations/002_client_master.sql` holds the Client Master online: one row per client (`data` = the 134 columns of `Client Module/clientmodule/schema.json`), its append-only history, duplicate checks and the IDs (`CL000001`...), plus `client_lookup()`, which forms use to fill themselves when a client is chosen. Read: `kyc.view`. Write: `kyc.manage`, through `client_master_save` only. A banking client links to it by `client_master_id`.
+
+`migrations/003_client_portal.sql` holds the Client Portal: client logins, sessions, uploaded documents and the Client Inputs review. See `Client Module/README.md`.

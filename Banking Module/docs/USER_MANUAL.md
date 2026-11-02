@@ -23,9 +23,8 @@ Open **Business Banking** in the CRM sidebar. An administrator gives you a banki
 | 10 Payment | Record each payment separately; a receipt is created. Fix mistakes with Reverse |
 | 11 Acceptance | Accept the issued quotation |
 | 12-13 Agreement | Generate the letter, then record the signature with the signed scan |
-| 14-15 Application, Submission | Open the application, tick form prepared, submit or book an appointment |
-| 16-17 Follow-up, Decision | Update the status as the bank responds |
-| 18 Completion | Mark Account Opened only when the bank confirms the account exists |
+| 14 Bank Follow-up | Press **Submitted to bank**. Then record each **Reply from bank** and any **Resubmitted**, and finish with **Rejected** or **Account opened**. A payment and the signed letter are needed before the first submission |
+| 15 Completion | Check the summary, press **Fill** on anything missing, enter the account details, then **Mark complete and send to Accounts** |
 
 Overview, Tasks, Follow-ups and Activity History are under **Case records**.
 
@@ -41,7 +40,7 @@ In **In Pipeline**, press **Reassign** and choose the employee. The lead stays w
 
 ## Handing over to Accounts
 
-When an application is Approved or Account Opened, press **Mark complete and send to Accounts** on the case. It leaves your lists and nobody can change it. Accounts reviews it on the **Accounting** page: **Revert** returns it to you with remarks; **Validate and close** closes it. Closed cases appear greyed in a collapsed **Closed** section under the table.
+After **Account opened**, go to step 15. Account number, IBAN, account name and opening date are required; they are saved on the client and shown under **Banking Clients > Other Details > Bank accounts**. Press **Mark complete and send to Accounts**. The case leaves your lists and nobody can change it. Accounts reviews it on the **Accounting** page: **Revert** returns it to you with remarks; **Validate and close** closes it. Closed cases appear greyed in a collapsed **Closed** section under the table.
 
 ## Tasks
 

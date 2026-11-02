@@ -4,13 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-ocr-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-ocr-assets.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
+    "@tesseract.js-data/eng": "1.0.0",
     "@tiptap/extension-image": "^3.24.0",
     "@tiptap/extension-link": "^3.24.0",
     "@tiptap/extension-placeholder": "^3.24.0",
@@ -27,10 +30,14 @@
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
     "papaparse": "^5.5.3",
+    "pdfjs-dist": "4.10.38",
     "pizzip": "^3.2.0",
+    "pyodide": "0.27.8",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1",
+    "tesseract.js": "6.0.1",
+    "tesseract.js-core": "6.1.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

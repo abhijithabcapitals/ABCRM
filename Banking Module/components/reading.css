@@ -1,0 +1,17 @@
+.crm-ring { flex: none; }
+.crm-ring circle { fill: none; stroke-width: 5; }
+.crm-ring-track { stroke: #e2ecec; }
+.crm-ring-value { stroke: #0f6f73; stroke-linecap: round; transition: stroke-dashoffset 0.3s ease; }
+.crm-ring text { fill: #17333a; font-size: 11px; font-weight: 700; }
+
+.crm-reading { position: fixed; right: 20px; bottom: 20px; z-index: 9000; display: flex; gap: 14px; align-items: center; width: min(360px, calc(100vw - 32px)); padding: 14px 16px; border-radius: 14px; background: #fff; color: #17333a; font-size: 13px; box-shadow: 0 10px 34px rgba(16, 40, 46, 0.22); }
+.crm-reading-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; line-height: 1.4; overflow-wrap: anywhere; }
+.crm-reading-text > span { color: #5f7077; }
+.crm-reading-actions { display: flex; gap: 8px; margin-top: 4px; }
+.crm-reading-actions button { padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.crm-reading-open { border: 0; background: #0f6f73; color: #fff; }
+.crm-reading-stop { border: 1px solid #d5dfe1; background: #fff; color: #17333a; }
+.crm-reading-actions button:focus-visible { outline: 2px solid #0f6f73; outline-offset: 2px; }
+
+.crm-reading-inline { display: flex; gap: 14px; align-items: center; margin: 12px 0; font-size: 13px; color: #17333a; }
+.crm-reading-inline small { display: block; color: #5f7077; }

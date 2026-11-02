@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../supabase";
+import { portalLogin } from "@client-module/portal/portalApi";
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -9,11 +10,22 @@ export default function Login({ onLogin }) {
 
   async function handleLogin() {
     if (!email.trim() || !password.trim()) {
-      setError("Please enter your email and password.");
+      setError("Please enter your email or username, and your password.");
       return;
     }
     setLoading(true);
     setError("");
+    // Staff sign in with an email; clients have a username with no @ and go to the Client Portal.
+    if (!email.includes("@")) {
+      try {
+        await portalLogin(email.trim(), password);
+        window.location.reload();
+      } catch (e) {
+        setError(e.message);
+        setLoading(false);
+      }
+      return;
+    }
     const { data, error: authError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
@@ -49,7 +61,7 @@ export default function Login({ onLogin }) {
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 22, fontWeight: 700 }}>AB Capital</div>
           <div style={{ fontSize: 13, color: "#888", marginTop: 4 }}>
-            Internal workspace
+            Sign in
           </div>
         </div>
 
@@ -79,10 +91,12 @@ export default function Login({ onLogin }) {
               marginBottom: 5,
             }}
           >
-            Email
+            Email or username
           </label>
           <input
-            type="email"
+            type="text"
+            autoComplete="username"
+            autoCapitalize="none"
             placeholder="you@abcapital.ae"
             value={email}
             onChange={(e) => setEmail(e.target.value)}

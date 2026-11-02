@@ -81,6 +81,15 @@ This runs stages 1–6 and the review decision, then prints JSON. Nothing is fil
 
 AI extraction uses the Claude Code CLI already on this PC: no API key, no tools, and a neutral working folder. Only extracted **text** is sent, never credential files, and that text does leave this PC. Each run is capped with `--max-budget-usd`. Spending is logged in `ai-usage.csv`, and runs are blocked once the monthly budget is reached. AI values are never above *medium* confidence, so they always need verification.
 
+## In the browser
+
+The CRM runs this module in each staff member's browser, so reading needs no server, no fee and no office PC left on. Files stay on that PC while being read.
+
+- `browser/readDocument.js` gets PDF text with PDF.js and reads scans and photos with Tesseract. `docai/browser.py`, run through Pyodide, does the file checks, classification, extraction and confidence with the same Python code.
+- `Main Module/scripts/copy-ocr-assets.mjs` copies the engines and `docai/*.py` into `public/ocr`, so the site serves them itself. The first read in a browser downloads them, later reads use the browser cache.
+- No virus scan runs in the browser. Results carry `scan: "not scanned"`, and only the staff PC's own antivirus covers the file.
+- Excel files and the on-request AI extraction are not available in the browser. Excel files are classified by name.
+
 ## Requirements
 
 Python 3.12 with `pypdf` and `openpyxl`. The tests need `pytest`. On Windows 10/11, OCR and the virus scan need no installs. It runs in the shared CRM environment `D:\Abhijith Projects\CRM\.venv` (versions pinned in `requirements.txt`).

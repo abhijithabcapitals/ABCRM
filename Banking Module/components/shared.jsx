@@ -77,6 +77,7 @@ export function Field({ field, value, onChange }) {
   switch (field.type) {
     case "textarea": input = <textarea rows={field.rows || 3} {...common} />; break;
     case "number": input = <input type="number" step="any" {...common} />; break;
+    case "password": input = <input type="password" autoComplete="off" {...common} />; break;
     case "date": input = <input type="date" {...common} />; break;
     case "datetime": input = <input type="datetime-local" {...common} />; break;
     case "select":

@@ -1,11 +1,12 @@
 // Client Master: one row per client, kept in the CRM database so every employee sees the same record.
-// Reading documents still needs the Client Module on this PC; everything else works from anywhere.
+// Documents are read in the browser, so all of this works from anywhere.
 import { useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, useLoad } from "@banking/components/shared";
 import { readDocuments, rpc, run, table } from "@banking/services/bankingApi";
 import { useClientLookup } from "@banking/components/ClientLookup";
 import { flagMissing } from "@banking/components/Attention";
+import { ProgressRing } from "@banking/components/ReadingWidget";
 import { findClient } from "@banking/logic/clientLookup";
 import { COLUMNS, DOC_STATUSES, NA, STAGES, VR, VR_SUFFIX, applies, blank, complete, docsFromCell, docsToCell, fillFromClient, fillFromDocuments, listFromCell, listToCell, needsVerification, parseUaeDate, plain, splitCell, unknown } from "./masterLogic";
 
@@ -55,6 +56,7 @@ function ClientForm({ row, canEdit, onClose }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
+  const [percent, setPercent] = useState(0);
   const [conflicts, setConflicts] = useState([]);
   const files = useRef(null);
   const clients = useClientLookup(!existing);
@@ -72,13 +74,13 @@ function ClientForm({ row, canEdit, onClose }) {
   };
 
   const readFiles = async (list) => {
-    setBusy("read"); setError(null); setNote(null);
+    setBusy("read"); setError(null); setNote(null); setPercent(0);
     try {
-      const docs = await readDocuments([...list]);
+      const docs = await readDocuments([...list], null, (p) => setPercent((now) => Math.max(now, Math.min(99, Math.floor(p)))));
       const r = fillFromDocuments(values, docs);
       setValues(r.values); setConflicts(r.conflicts);
       setNote(`${docs.length} document(s) read, ${r.filled.length} field(s) filled. Check each one marked for verification.`);
-    } catch { setError("The Document Module is not reachable. Start Client Module\\Start-ClientModule.cmd on this PC to read documents, or type the details."); }
+    } catch (e) { setError(`${e.message} You can type the details instead.`); }
     setBusy(null);
     if (files.current) files.current.value = "";
   };
@@ -106,9 +108,9 @@ function ClientForm({ row, canEdit, onClose }) {
       {note && <div className="bk-alert bk-alert-ok">{note}</div>}
       {conflicts.length > 0 && <div className="bk-alert bk-alert-warn"><strong>Different readings, left for you to decide:</strong><ul>{conflicts.map((c) => <li key={c}>{c}</li>)}</ul></div>}
       {canEdit && (
-        <Panel title="Fill from documents" sub="Reads through the Document Module on this PC. Files are not stored by this page.">
+        <Panel title="Fill from documents" sub="Read in this browser. Files stay on this PC and are not stored by this page.">
           <input ref={files} type="file" multiple aria-label="Client documents" onChange={(e) => e.target.files.length && readFiles(e.target.files)} disabled={busy === "read"} />
-          {busy === "read" && <Spinner />}
+          {busy === "read" && <div className="crm-reading-inline"><ProgressRing percent={percent} /><div><strong>Reading documents…</strong><small>Stay on this page until it finishes.</small></div></div>}
         </Panel>
       )}
       <div className="bk-tabs bk-cm-stages" role="tablist" aria-label="Onboarding stage">

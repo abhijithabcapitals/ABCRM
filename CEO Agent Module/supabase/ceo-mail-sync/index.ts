@@ -67,7 +67,6 @@ const SUMMARY_WINDOW_DAYS = 7;
 const MAX_SUMMARY_MESSAGE_CHARS = 3000;
 const MAX_SUMMARY_CHARS = 12_000;
 const SUMMARY_CONCURRENCY = 6;
-const EMAIL_ADDRESSES = ["info@abcapital.ae", "bharat@ardentaxit.tax"];
 const STALE_LOCK_MS = 10 * 60 * 1000;
 
 const CATEGORIES = ["client", "internal", "vendor", "government", "bank", "newsletter", "personal", "other"];
@@ -147,9 +146,12 @@ function passwordSecretName(address: string) {
   return `MAIL_PASSWORD_${address.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
 }
 
-function mailboxLogin(address: string) {
+// A password saved in Settings > Email Accounts (Vault) wins; otherwise the Edge Function secret.
+async function mailboxLogin(creds: Db, address: string, loginUser?: string | null) {
+  const { data: saved } = await creds.rpc("credential_get", { p_name: passwordSecretName(address) });
+  if (typeof saved === "string" && saved) return { user: loginUser || address, pass: saved };
   const pass = Deno.env.get(passwordSecretName(address));
-  if (pass) return { user: address, pass };
+  if (pass) return { user: loginUser || address, pass };
   const legacyUser = Deno.env.get("MAIL_IMAP_USER")?.trim();
   const legacyPass = Deno.env.get("MAIL_IMAP_PASSWORD");
   if (legacyUser && legacyPass && legacyUser.toLowerCase() === address.toLowerCase()) return { user: legacyUser, pass: legacyPass };
@@ -732,15 +734,11 @@ async function handle(req: Request) {
   }
 
   const apiKey = Deno.env.get("OPENROUTER_API_KEY");
+  const credsDb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 
   const { data: accounts, error } = await admin.from("mailboxes").select("*")
-    .eq("enabled", true).in("address", EMAIL_ADDRESSES);
+    .eq("enabled", true);
   if (error) return json({ error: `Could not load mail accounts: ${error.message}` }, 500);
-  const found = new Set((accounts || []).map((account: Row) => account.address));
-  const missing = EMAIL_ADDRESSES.filter((address) => !found.has(address));
-  if (missing.length) {
-    return json({ error: `Approved mailbox(es) missing or disabled in CRM Email Base: ${missing.join(", ")}.` }, 404);
-  }
 
   // Mailboxes sync one after another, each with an equal share of the run's budget.
   const deadline = Date.now() + FETCH_BUDGET_MS;
@@ -755,8 +753,8 @@ async function handle(req: Request) {
       return { address: account.address, error: message };
     };
     if (!apiKey) return fail("Mail is not set up yet: add the OPENROUTER_API_KEY secret.");
-    const login = mailboxLogin(account.address);
-    if (!login) return fail(`No password for ${account.address}: add the Edge Function secret ${passwordSecretName(account.address)}.`);
+    const login = await mailboxLogin(credsDb, account.address, account.login_user);
+    if (!login) return fail(`No password for ${account.address}: add it in Settings > Email Accounts.`);
 
     // One sync at a time per mailbox; a lock older than 10 minutes is treated as stale.
     const staleBefore = new Date(Date.now() - STALE_LOCK_MS).toISOString();

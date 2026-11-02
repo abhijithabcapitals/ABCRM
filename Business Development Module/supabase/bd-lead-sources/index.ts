@@ -308,7 +308,10 @@ async function handle(req: Request) {
   if (!conn) return json({ error: "You do not have access to lead sources, or Explee is not set up." }, 403);
 
   // Tolerate a pasted header name, "Bearer " prefix or surrounding quotes.
-  const key = Deno.env.get("EXPLEE_API_KEY")?.trim()
+  // A key saved in Settings > Integrations (Vault) wins over the Edge Function secret.
+  const { data: savedKey } = await createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } })
+    .rpc("credential_get", { p_name: "EXPLEE_API_KEY" });
+  const key = (typeof savedKey === "string" && savedKey ? savedKey : Deno.env.get("EXPLEE_API_KEY"))?.trim()
     .replace(/^(x-api-key\s*:\s*|bearer\s+)/i, "").replace(/^["']|["']$/g, "").trim();
   const projectId = Number(conn.settings?.project_id) || null;
 

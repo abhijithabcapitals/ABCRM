@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./banking.css";
 import { BankingContext, ErrorNote, Spinner, useLoad } from "./shared";
 import { profiles, rpc } from "../services/bankingApi";
+import { takeOpenRequest, useOpenRequest } from "../services/readingJob";
 import Dashboard from "./Dashboard";
 import Leads from "./Leads";
 import Clients from "./Clients";
@@ -31,6 +32,15 @@ export default function BankingModule({ profile }) {
   const [page, setPage] = useState("dashboard");
   const [openCase, setOpenCase] = useState(null);
   const [pageParams, setPageParams] = useState(null);
+
+  // The corner card asked to go back to the unfinished lead.
+  useOpenRequest();
+  useEffect(() => {
+    if (!takeOpenRequest()) return;
+    setOpenCase(null);
+    setPage("leads");
+    setPageParams({ mode: "new", at: Date.now() });
+  });
 
   const ctx = useMemo(() => {
     const perms = new Set(access.data?.permissions || []);
@@ -84,7 +94,7 @@ export default function BankingModule({ profile }) {
         ) : (
           <>
             {current === "dashboard" && <Dashboard />}
-            {current === "leads" && <Leads key={pageParams?.mode || "list"} initialMode={pageParams?.mode} />}
+            {current === "leads" && <Leads key={pageParams?.at || pageParams?.mode || "list"} initialMode={pageParams?.mode} />}
             {current === "cases" && <Clients key={pageParams?.step || "all"} initialStep={pageParams?.step} />}
             {current === "banks" && <BankingPartners />}
             {current === "documentation" && <Documentation key={pageParams?.tab || "docs"} initialTab={pageParams?.tab} />}

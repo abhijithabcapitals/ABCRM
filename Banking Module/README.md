@@ -17,7 +17,8 @@ Same pattern as the Business Development Module. The Main Module imports this fo
 |---|---|
 | `components/BankingModule.jsx` | Shell, permissions, navigation |
 | `components/NewLeadWizard.jsx` | New lead: upload documents, autofill, fill what is missing |
-| `components/CaseWorkspace.jsx` | Case header, guided 18 steps, plan picker |
+| `components/CaseWorkspace.jsx` | Case header, guided 15 steps, plan picker |
+| `components/BankProcess.jsx` | Bank Follow-up timeline and Completion summary with account details |
 | `components/{Dashboard,Leads,Clients,Cases,KycForm,BankingPartners,Documentation,Masters,WorkLists,Reports,ExcelImport,Settings}.jsx` | Pages |
 | `logic/leadTemplate.js` | The only accepted upload: template check and row validation. Build: `scripts/build_import_template.py` |
 | `logic/excelImport.js`, `paymentNotes.js` | One-off reader for the old working sheet, kept for its tests and the rows already staged |
@@ -47,7 +48,9 @@ Same pattern as the Business Development Module. The Main Module imports this fo
 
 ## Assistant and OCR
 
-All document reading goes through `DOC OCR Module` (via `readDocuments` in `services/bankingApi.js`): New Lead, **Fill from documents** on any client's KYC, and expiry dates on checklist uploads. New Lead autofill reads uploads through the local Document Module (`Client Module`, this PC only) and fills the form for a person to check. It works on licences, VAT and CT certificates, passports with a readable MRZ and similar; on another PC, or with the module off, staff type the details.
+All document reading goes through `DOC OCR Module` (via `readDocuments` in `services/bankingApi.js`): New Lead, **Fill from documents** on any client's KYC, and expiry dates on checklist uploads. It runs in the staff member's browser (see `DOC OCR Module/README.md`), so it needs no server and no office PC left on, and files stay on that PC while being read. It works on licences, VAT and CT certificates, passports with a readable MRZ and similar. If reading fails, staff type the details.
+
+Optional: set `VITE_DOCUMENT_MODULE_URL` to the HTTPS address of a hosted Document Module to read there instead, for example to keep its virus scan. The separate variable keeps the Client Module's Client Master UI local. For GitHub Pages, configure the optional `VITE_DOCUMENT_MODULE_URL` Actions secret so deployment builds use the remote host. Remote OCR requests include the signed-in Supabase session and require Business Banking document, KYC or lead permissions; see `Client Module/README.md` for server setup. The server must retain Windows OCR/Defender support and its Python port must not be opened directly to the internet.
 
 `banking_ai_suggestions` is the review queue for every engine. A rules engine fills it today: missing documents, expiring documents, possible duplicate clients. Staff accept (which can open a task) or dismiss.
 

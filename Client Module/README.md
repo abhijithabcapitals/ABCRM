@@ -55,6 +55,29 @@ The launcher uses the shared CRM environment `D:\Abhijith Projects\CRM\.venv` (P
 
 The tests use temporary folders and the fictional sample documents in `..\DOC OCR Module\tests\samples`. They never touch the real master or the DataBase folder.
 
+## Client Portal
+
+Clients sign in on the CRM's normal page with a username (no @). Admins issue, reset and revoke logins from
+Clients > All Clients (open a row), Clients > Client Portal, or Settings > Client Portal.
+
+| Path | Purpose |
+|---|---|
+| `portal/ClientPortal.jsx` | The client's only screen: their record, uploads and each document's status. Admins see it read-only |
+| `portal/portalApi.js` | Calls the Edge Function. The session token stays in the browser tab |
+| `crm/ClientPortalAdmin.jsx` | Admin screen: give access, new password, revoke, restore, view as client |
+| `crm/ClientInputs.jsx` | Staff review: assign to me, open, validate or reject, save to PC |
+| `supabase/client-portal/index.ts` | Edge Function, deployed with `--no-verify-jwt` because it checks its own sessions |
+| `../Database Module/Client Base/migrations/003_client_portal.sql` | Tables, private bucket and permissions |
+
+Clients are not Supabase Auth users, because many staff tables allow any `authenticated` user. Only the Edge
+Function (service role) reads their data, and `client_portal_me` returns named fields only: add a field there
+to show it to clients. Five wrong passwords lock a login for 15 minutes; sessions last 12 hours; revoking ends them.
+
+A validated file is copied to `filed/<client>/<type>/` in the `client-portal` bucket. When this module runs on
+the reviewer's PC, a copy also goes to the client's folder under `storageRoot`: the existing
+`<Legal Name> - <Client ID>` folder when the client has a Client Master ID, otherwise
+`5. Others/Client Portal/<client>`. Uploads are not virus scanned.
+
 ## Relation to the earlier projects
 
 - `D:\Abhijith Projects\Agents\Client Master`: the PowerShell version of the interview. This module replaces it; that folder is left unchanged.
