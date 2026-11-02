@@ -13,7 +13,7 @@ If the page shows an error about a missing function, the HR database set-up has 
 
 ## Dashboard
 
-Four numbers at the top: headcount, present today, pending leave and documents expiring (expired or within 90 days). Below them, each person's open tasks from the CRM, overdue first. Click a task to open it.
+Cards at the top: today's date, Present, Absent, On Leave (with Annual and Unpaid shown separately), Late, Overtime, Work From Home and Active. Click a card to see who is in it. Below them, each person's Annual leave this year (credit, used, pending, balance), then pending leave, documents expiring (expired or within 90 days) and each person's open tasks from the CRM, overdue first. Click a task to open it.
 
 - Administrators and HR see everyone. A manager sees their direct reports and themselves. An employee sees only themselves.
 - **Managers see the titles of their reports' open tasks.** Those titles can name clients or work the manager does not otherwise have access to.
@@ -61,6 +61,7 @@ Choose a view: **Month grid**, **Calendar** (one person), **Week**, **Year** (on
 
 - P = Present, A = Absent, WH = Work From Home, L = Leave, H = Holiday, W = Weekly Off. A blank cell is not counted, for example before someone started or a future day.
 - Hours are 09:30 to 18:30, and 09:30 to 14:00 on Saturday. Late means the first punch is after 09:30. Overtime means the last punch is after the day's end. Neither changes pay.
+- A late day's colour runs from yellow just after 09:30 to full orange at 10:30 and later. Extra time worked after the day's end is taken off the lateness first, so a day fully made up stays green. The Late card still counts that arrival.
 - Each day is worked out in this order: a day edited by hand, approved leave, a holiday, punches, a Work From Home Saturday, the weekly off. **A working day with none of these is Absent, and Absent is deducted from pay.**
 - Someone who has stopped coming shows Absent every day until HR records their exit date.
 - Until a join date is entered, Absent counts only from the person's first punch.

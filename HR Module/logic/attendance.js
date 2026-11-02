@@ -60,6 +60,60 @@ export function shiftMonth(year, month, by) {
 // The Asia/Dubai calendar date, the same one the database uses for "today".
 export const dubaiToday = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 
+// A date as "Tue, 3 Nov 2026". Read as UTC, so the machine's zone cannot move it to another day.
+export const todayLabel = (date) => {
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" }).formatToParts(utc(date));
+  const part = (type) => p.find((x) => x.type === type).value;
+  return `${part("weekday")}, ${part("day")} ${part("month")} ${part("year")}`;
+};
+
+// Lateness left after the extra time worked that day. The Late card still counts the arrival; only the colour is set off.
+export const netLateMinutes = (row) => Math.max((row?.late_minutes || 0) - (row?.overtime_minutes || 0), 0);
+
+const LATE_FROM = [0xff, 0xe6, 0x80]; // yellow, just after 09:30
+const LATE_TO = [0xf2, 0x8c, 0x28]; // orange, from 10:30
+const LATE_FULL_MINUTES = 60;
+
+// The cell colour for net late minutes, or null when none are left.
+export function lateShade(minutes) {
+  if (!(minutes > 0)) return null;
+  const t = Math.min(minutes / LATE_FULL_MINUTES, 1);
+  return `#${LATE_FROM.map((c, i) => Math.round(c + (LATE_TO[i] - c) * t).toString(16).padStart(2, "0")).join("")}`;
+}
+
+export function setOffNote(row) {
+  if (!(row?.late_minutes > 0 && row?.overtime_minutes > 0)) return "";
+  const net = netLateMinutes(row);
+  return net > 0 ? `, ${net} min net late` : ", set off by overtime";
+}
+
+// One row per person from their hr_leave_balance rows, in the same order. A negative adjustment is days already used, which is how the opening sheet was loaded.
+export function annualRows(people, balances) {
+  return people.map((p, i) => {
+    const b = (balances[i] || []).find((x) => x.leave_type === "Annual");
+    if (!b) return { id: p.id, full_name: p.full_name, credit: null, used: null, pending: null, balance: null };
+    const adjustment = Number(b.adjustment || 0);
+    return {
+      id: p.id,
+      full_name: p.full_name,
+      credit: Number(b.entitlement || 0) + Number(b.carried || 0) + Math.max(adjustment, 0),
+      used: Number(b.used || 0) + Math.max(-adjustment, 0),
+      pending: Number(b.pending || 0),
+      balance: b.remaining === null || b.remaining === undefined ? null : Number(b.remaining),
+    };
+  });
+}
+
+// The On Leave card: hr_dashboard_period's Annual and Unpaid together, each person marked with which.
+export function leaveCard(data) {
+  const annual = data?.counts?.leave_annual || 0;
+  const unpaid = data?.counts?.leave_unpaid || 0;
+  const mark = (list, kind) => (list || []).map((p) => ({ ...p, kind }));
+  const people = [...mark(data?.people?.leave_annual, "Annual"), ...mark(data?.people?.leave_unpaid, "Unpaid")]
+    .sort((a, b) => a.full_name.localeCompare(b.full_name) || a.kind.localeCompare(b.kind));
+  return { count: annual + unpaid, annual, unpaid, people };
+}
+
 // Rows from hr_attendance_range -> one entry per employee: { employee_id, employee_code, full_name, days: {date: row}, counts }.
 export function groupRange(rows) {
   const by = new Map();

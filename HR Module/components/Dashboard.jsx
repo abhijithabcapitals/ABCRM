@@ -3,6 +3,7 @@ import { Badge, Button, ErrorNote, PageHead, Panel, Spinner, fmtDate, useLoad } 
 import { dashboardNumbers, dashboardPeriod, employeeTasks, run, table } from "../services/hrApi";
 import { groupTasks, openTaskArgs } from "../logic/taskView";
 import { dubaiToday, periodRange, shiftPeriod } from "../logic/attendance";
+import AnnualLeaveTable from "./dashboard/AnnualLeaveTable";
 import PeriodCards from "./dashboard/PeriodCards";
 import { DailyShare, PresentBars } from "./dashboard/Charts";
 
@@ -103,8 +104,9 @@ export default function Dashboard({ onOpenTask, onGo, role }) {
 
   return (
     <div>
-      <PageHead title="Dashboard" sub="Attendance for any day, week, month or year, then documents that need attention and each person's open tasks." />
+      <PageHead title="Dashboard" sub="Attendance for any day, week, month or year, Annual leave balances, then documents that need attention and each person's open tasks." />
       <PeriodPanel role={role} onGo={onGo} />
+      {employees.data && <AnnualLeaveTable employees={employees.data} />}
       <ErrorNote message={numbers.error || employees.error || tasks.error} />
       {numbers.data && <Cards numbers={numbers.data} />}
       {loading ? <Spinner label="Loading tasks" /> : !groups.length ? (
