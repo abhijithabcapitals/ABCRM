@@ -4,6 +4,7 @@ const BUCKET = "banking-documents";
 const MAX_FILE = 25 * 1024 * 1024;
 const ALLOWED = /\.(pdf|png|jpe?g|webp|tiff?|docx?|xlsx?|csv|txt|eml|msg)$/i;
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
+const DOCUMENT_MODULE_URL = (import.meta.env.VITE_DOCUMENT_MODULE_URL || "").replace(/\/$/, "");
 
 function check({ data, error }) {
   if (error) throw new Error(error.hint ? `${error.message} (${error.hint})` : error.message);
@@ -61,23 +62,62 @@ export async function openInFolder(path) {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Could not open the folder.");
 }
 
-// Reads files through the local Document Module (Client Module on this PC), then clears them from its staging area.
+// Reads files with DOC OCR Module in this browser, so it needs no server and no PC left on.
+// With VITE_DOCUMENT_MODULE_URL set, a hosted Document Module does the reading instead.
 export async function readDocuments(files, onProgress) {
+  if (DOCUMENT_MODULE_URL) return readDocumentsRemotely(files, onProgress);
+  const { readDocument } = await import("../../DOC OCR Module/browser/readDocument.js");
+  const out = [];
+  for (let i = 0; i < files.length; i++) {
+    out.push(await readDocument(files[i], `${import.meta.env.BASE_URL}ocr/`));
+    onProgress?.(i + 1);
+  }
+  return out;
+}
+
+async function readDocumentsRemotely(files, onProgress) {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) throw new Error(`Could not read the CRM session: ${error.message}`);
+  if (!session?.access_token) throw new Error("Sign in to the CRM before reading documents.");
+  const authHeaders = { Authorization: `Bearer ${session.access_token}` };
   const call = async (path, init) => {
-    const res = await fetch(`${CLIENT_MODULE_URL}${path}`, init);
-    if (!res.ok && res.status !== 409 && res.status !== 400) throw new Error(`Document Module: ${res.status}`);
-    return res.json();
+    let res;
+    try {
+      res = await fetch(`${DOCUMENT_MODULE_URL}${path}`, {
+        ...init,
+        headers: { ...authHeaders, ...(init.headers || {}) },
+      });
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new Error(`Could not connect to the Document Module at ${DOCUMENT_MODULE_URL}. Check the office server and VPN, or start Client Module\\Start-ClientModule.cmd on this PC.`);
+      }
+      throw error;
+    }
+
+    let body;
+    try {
+      body = await res.json();
+    } catch {
+      throw new Error(`Document Module returned an invalid response (${res.status}).`);
+    }
+    if (!res.ok) throw new Error(body.error || body.detail || `Document Module: ${res.status}`);
+    return body;
   };
   const batch = await call("/api/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  if (!batch.batch) throw new Error("Document Module did not create an upload batch.");
   const out = [];
   for (let i = 0; i < files.length; i++) {
     const form = new FormData();
     form.append("file", files[i]);
     const r = await call(`/api/batches/${batch.batch}/files`, { method: "POST", body: form });
-    if (r.id) {
-      out.push(r);
-      await fetch(`${CLIENT_MODULE_URL}/api/batches/${batch.batch}/files/${r.id}`, { method: "DELETE" }).catch(() => {});
-    }
+    if (!r.id) throw new Error(`Document Module did not return a result for ${files[i].name}.`);
+    out.push(r);
+    await fetch(`${DOCUMENT_MODULE_URL}/api/batches/${batch.batch}/files/${r.id}`, {
+      method: "DELETE",
+      headers: authHeaders,
+    }).catch((error) => {
+      console.error(`Could not clear staged document ${files[i].name}:`, error);
+    });
     onProgress?.(i + 1);
   }
   return out;

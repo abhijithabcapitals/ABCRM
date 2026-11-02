@@ -1,4 +1,4 @@
-// Fills an existing client's KYC from uploaded documents, read by the local Document Module (DOC OCR Module).
+// Fills an existing client's KYC from uploaded documents, read in the browser by DOC OCR Module.
 // Empty fields are ticked by default. A value that differs from what is saved stays unticked for a person to decide.
 import { useRef, useState } from "react";
 import { Button, ErrorNote, Modal, useBanking, useLoad } from "./shared";
@@ -72,7 +72,7 @@ export default function KycDocumentFill({ clientId, profileId, values, labels, o
       <ErrorNote message={error || types.error} />
       {!result ? (
         <>
-          <p className="bk-note">Upload the client's documents. They are read on this PC by the Document Module, and you choose which values to use.</p>
+          <p className="bk-note">Upload the client's documents. They are read in this browser and stay on this PC, and you choose which values to use.</p>
           <button type="button" className="bk-drop" onClick={() => fileInput.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); add(e.dataTransfer.files); }}>
             <strong>Drop files here or click to choose</strong>
           </button>
