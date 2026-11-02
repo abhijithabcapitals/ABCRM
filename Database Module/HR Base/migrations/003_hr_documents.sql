@@ -3,7 +3,7 @@
 -- =====================================================================
 -- Visa, passport, Emirates ID, labour card and similar, with expiry dates, and a private storage bucket for the files.
 -- HR and admin: everything. An employee reads their own rows and files and may add their own, never change or remove.
--- Managers: nothing. Bucket path: <employee id>/<uuid>-<file name>. Storage part is skipped on plain PostgreSQL. Idempotent.
+-- Managers: nothing about their reports, only their own like any employee. Bucket path: <employee id>/<uuid>-<file name>. Storage part is skipped on plain PostgreSQL. Idempotent.
 -- Requires 002 (hr_is_admin_or_hr, hr_my_employee_id).
 -- =====================================================================
 create table if not exists public.hr_documents (

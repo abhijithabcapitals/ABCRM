@@ -42,6 +42,7 @@ create policy hr_attendance_read on public.hr_attendance for select to authentic
 -- no write policy and no write grant
 
 -- ── functions ──
+drop function if exists public.hr_attendance_set(uuid, date, text, time, time, text); -- 008 returns jsonb; create or replace cannot change a return type
 create or replace function public.hr_attendance_set(p_employee uuid, p_date date, p_status text, p_in time, p_out time, p_note text)
 returns void
 language plpgsql security definer set search_path = public, pg_temp as $$

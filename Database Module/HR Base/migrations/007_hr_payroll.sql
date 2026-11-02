@@ -11,7 +11,7 @@
 --   Divisor: pay_day_divisor_mode. fixed = pay_days_basis, calendar_days = days in the month, working_days = days neither weekend nor holiday.
 --   The arithmetic, and how the unpaid wage base meets the paid fraction, is described above hr_pay_compute.
 --   Paid leave counts as fully paid; half-pay tiers are not calculated (leave types marked half_pay_note put a review note on the line).
---   A pay change inside the month blocks approval until the line carries an adjustment made against the pay row now in use (the audited way HR records that it was dealt with).
+--   A pay change inside the month blocks approval until the line carries an adjustment made against the pay row now in use. 008 adds an audited acknowledgement that also clears it.
 -- Rounding: each money figure round(x, 2); net = earnings - deductions + adjustments from the rounded parts.
 -- input_hash: sha-256 over everything a line was computed from. Approval recomputes each line; any difference stops approval.
 -- Requires 002 (access helpers, hr_audit), 003 (hr_touch), 005 (settings, leave), 006 (attendance). Idempotent.

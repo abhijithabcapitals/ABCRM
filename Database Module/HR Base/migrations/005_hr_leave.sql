@@ -204,6 +204,7 @@ begin
   return jsonb_build_object('ids', to_jsonb(ids), 'warning', case when array_length(warns, 1) > 0 then array_to_string(warns, '; ') end);
 end $$;
 
+drop function if exists public.hr_leave_decide(uuid, boolean, text); -- 008 returns jsonb; create or replace cannot change a return type
 -- Approve or reject a pending request. HR any; a manager for direct reports. Nobody decides their own.
 create or replace function public.hr_leave_decide(p_request uuid, p_approve boolean, p_note text) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -225,6 +226,7 @@ begin
     jsonb_build_object('status', new_status, 'employee_id', r.employee_id, 'from_date', r.from_date, 'to_date', r.to_date, 'days', r.days, 'note', p_note));
 end $$;
 
+drop function if exists public.hr_leave_cancel(uuid); -- 008 returns jsonb
 -- Cancel a pending or approved request. HR or the employee. Cancelling an approved one restores the balance (balance is derived).
 create or replace function public.hr_leave_cancel(p_request uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$

@@ -99,7 +99,7 @@ select public.ok('admin can grant HR access', (select count(*) = 2 from public.h
 delete from public.hr_access where profile_id = '00000000-0000-0000-0000-00000000000e';
 
 -- ── audit log ──
-select public.ok('admin reads audit log', (select count(*) = 1 from public.hr_audit_log));
+select public.ok('admin reads audit log', (select count(*) = 1 from public.hr_audit_log where action = 'seed'));
 select public.must_fail('audit log rejects update', $$update public.hr_audit_log set action = 'x'$$, 'permission');
 select public.must_fail('audit log rejects delete', $$delete from public.hr_audit_log$$, 'permission');
 select public.must_fail('audit log rejects direct insert', $$insert into public.hr_audit_log (action, target) values ('forged', 'x')$$, 'permission');
@@ -120,10 +120,10 @@ reset role;
 insert into public.hr_employees (id, employee_code, full_name, status) values
   ('10000000-0000-0000-0000-00000000000f', 'E-L', 'Leaver', 'Left');
 insert into public.hr_documents (employee_id, doc_type, doc_number, expiry_date) values
-  ('10000000-0000-0000-0000-00000000000d', 'Passport', 'P-D', current_date + 10),
-  ('10000000-0000-0000-0000-00000000000d', 'Emirates ID', 'EID-D', current_date + 200),
-  ('10000000-0000-0000-0000-00000000000e', 'Visa', 'V-E', current_date - 5),
-  ('10000000-0000-0000-0000-00000000000f', 'Visa', 'V-L', current_date + 5);
+  ('10000000-0000-0000-0000-00000000000d', 'Passport', 'P-D', (now() at time zone 'Asia/Dubai')::date + 10),
+  ('10000000-0000-0000-0000-00000000000d', 'Emirates ID', 'EID-D', (now() at time zone 'Asia/Dubai')::date + 200),
+  ('10000000-0000-0000-0000-00000000000e', 'Visa', 'V-E', (now() at time zone 'Asia/Dubai')::date - 5),
+  ('10000000-0000-0000-0000-00000000000f', 'Visa', 'V-L', (now() at time zone 'Asia/Dubai')::date + 5);
 
 -- A stand-in for Supabase Storage, so the bucket policies are exercised too. 003 is re-run on top (idempotence).
 create schema storage;
@@ -135,13 +135,14 @@ grant usage on schema storage to authenticated;
 grant select, insert, update, delete on storage.objects to authenticated;
 grant execute on function storage.foldername(text) to authenticated;
 \ir ../migrations/003_hr_documents.sql
+\ir ../migrations/008_hr_review_fixes.sql
 
 select public.ok('bucket is private with a 25 MB limit', (select not public and file_size_limit = 26214400 from storage.buckets where id = 'hr-documents'));
 
 set role authenticated;
 select public.as_user('0d');
 select public.ok('employee reads only own documents', (select count(*) = 2 and bool_and(employee_id = '10000000-0000-0000-0000-00000000000d') from public.hr_documents));
-insert into public.hr_documents (employee_id, doc_type, doc_number, expiry_date) values ('10000000-0000-0000-0000-00000000000d', 'Labour card', 'LC-D', current_date + 80);
+insert into public.hr_documents (employee_id, doc_type, doc_number, expiry_date) values ('10000000-0000-0000-0000-00000000000d', 'Labour card', 'LC-D', (now() at time zone 'Asia/Dubai')::date + 80);
 select public.ok('employee can add own document row', (select count(*) = 3 from public.hr_documents));
 select public.must_fail('employee cannot add a row for someone else', $$insert into public.hr_documents (employee_id, doc_type) values ('10000000-0000-0000-0000-00000000000e', 'Passport')$$, 'row-level security');
 update public.hr_documents set doc_number = 'HACK' where doc_number = 'P-D';

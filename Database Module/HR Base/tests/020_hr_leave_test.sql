@@ -100,8 +100,9 @@ select public.as_user('a3');
 select public.must_fail('other employee cannot cancel', format($$select public.hr_leave_cancel(%L)$$, public.tid('r1#1')), 'not allowed');
 select public.must_fail('employee cannot read another balance', $$select * from public.hr_leave_balance('20000000-0000-0000-0000-0000000000a2', 2026)$$, 'not allowed');
 
-select public.as_user('a2');
+select public.as_user('0b'); -- approved leave already started: only HR can cancel it (008)
 select public.hr_leave_cancel(public.tid('r1#1'));
+select public.as_user('a2');
 select public.ok('cancelling approved restores balance', (select used = 0 and remaining = 30 from public.hr_leave_balance('20000000-0000-0000-0000-0000000000a2', 2026) where leave_type = 'Annual'));
 select public.must_fail('cancelling twice fails', format($$select public.hr_leave_cancel(%L)$$, public.tid('r1#1')), 'cannot be cancelled');
 select public.ok('cancelled request no longer blocks overlap', (select jsonb_array_length(public.t_req('r2', 'a2', 'Annual', '2026-11-02', '2026-11-03') -> 'ids') = 1));
