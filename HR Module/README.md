@@ -55,7 +55,7 @@ Same pattern as the Banking Module. The Main Module imports this folder directly
 | WPS file | Not built. The button is hidden | No bank sample or official specification was available |
 | PDF payslip | Browser print dialog (Save as PDF) from an approved run; not stored | No new dependency |
 | Document reading | Autofill goes through the local Document Module; if it is not running, type the fields | Uploads always work without it |
-| Attendance | Entered by hand; no biometric import | Out of scope |
+| Attendance | Punches from e-timeoffice, with status worked out when read by `hr_attendance_days`. Only an admin changes a day directly; others send it for approval | One answer for every screen and for pay. Design: `docs/specs/2026-11-02-hr-attendance-dashboard-design.md` |
 
 ## Tests
 
