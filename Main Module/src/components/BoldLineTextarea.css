@@ -1,0 +1,12 @@
+.bold-draft { position: relative; display: flex; min-width: 0; background: #fff; }
+.bold-draft-mirror {
+  position: absolute; inset: 0; overflow: hidden; scrollbar-gutter: stable;
+  border: 0 solid transparent; white-space: pre-wrap; overflow-wrap: break-word; pointer-events: none;
+}
+.bold-draft-mirror b { font-weight: 700; }
+.bold-draft-input {
+  position: relative; flex: 1; min-width: 0; background: transparent !important; scrollbar-gutter: stable;
+  white-space: pre-wrap; overflow-wrap: break-word; -webkit-text-fill-color: transparent;
+}
+.bold-draft-input::placeholder { -webkit-text-fill-color: #9ca3af; }
+.bold-draft-input::selection { background: rgba(13, 125, 130, .25); }

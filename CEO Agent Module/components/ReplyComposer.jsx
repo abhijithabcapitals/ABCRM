@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import BoldLineTextarea from "@app/components/BoldLineTextarea";
 
 // Reply composer for one Inbox conversation, with the same flow as the Business
 // Development reply mailer: save draft, AI redraft with instructions and undo,
@@ -306,7 +307,8 @@ export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
           <input value={subject} maxLength={1000} onChange={(e) => { setSubject(e.target.value); edited(); }} disabled={!!busy}
             placeholder="Subject" aria-label="Subject" />
         </div>
-        <textarea
+        <BoldLineTextarea
+          wrapperClassName="ceo-compose-body-wrap"
           className="ceo-compose-body"
           aria-label="Reply message"
           maxLength={10000}
@@ -426,6 +428,7 @@ function ReplyStyles() {
       .ceo-compose-from b { font-weight: 500; font-size: 13.5px; }
       .ceo-compose-link { border: 0; background: none; color: #444; font: inherit; font-size: 13.5px; cursor: pointer; padding: 0 2px; }
       .ceo-compose-link:hover { text-decoration: underline; }
+      .ceo-compose-body-wrap { flex: 1; min-height: 120px; }
       .ceo-compose-body { flex: 1; min-height: 120px; margin: 0; padding: 12px 16px; border: 0; outline: 0; resize: none; font: inherit; font-size: 14px; line-height: 1.55; }
       .ceo-compose-maximized .ceo-compose-body { font-size: 15px; }
       .ceo-compose-logo { padding: 0 16px 6px; }
