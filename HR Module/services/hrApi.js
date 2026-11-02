@@ -71,9 +71,10 @@ export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => 
 export const payruns = () => run(table("hr_pay_runs").select("*").order("period_month", { ascending: false }));
 export const payrunLines = (runId) => run(table("hr_pay_lines").select("*").eq("run_id", runId));
 export const myPayLines = async () => {
-  const rows = await run(table("hr_pay_lines").select("id, net, earnings, deductions, adjustments, notes, blockers, iban, hr_pay_runs(period_month)"));
+  const rows = await run(table("hr_pay_lines").select("id, net, earnings, deductions, adjustments, notes, blockers, iban, hr_pay_runs(period_month, status)"));
   return rows.sort((a, b) => b.hr_pay_runs.period_month.localeCompare(a.hr_pay_runs.period_month));
 };
+export const myEmployee = (id) => run(table("hr_employees").select("id, employee_code, full_name").eq("id", id).single());
 export const payrollEmployees = () => run(table("hr_employees").select("id, employee_code, full_name").order("full_name"));
 export const payrollSettings = () => run(table("hr_settings").select("*").eq("id", 1).single());
 export const payrunCreate = (month) => rpc("hr_payrun_create", { p_month: month });

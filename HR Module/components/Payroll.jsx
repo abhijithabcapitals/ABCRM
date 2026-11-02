@@ -1,11 +1,22 @@
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { myPayLines, payDetailFull, payDetailsList, payrunAdjust, payrunApprove, payrunCreate, payrunDelete, payrunLines, payrunRecalc, payruns, savePayDetail, payrollEmployees, payrollSettings } from "../services/hrApi";
+import { myEmployee, myPayLines, payDetailFull, payDetailsList, payrunAdjust, payrunApprove, payrunCreate, payrunDelete, payrunLines, payrunRecalc, payruns, savePayDetail, payrollEmployees, payrollSettings } from "../services/hrApi";
+import { payslipHtml } from "../logic/payslip";
 import { formatAllowances, maskIban, missingData, missingSettings, money, monthLabel, monthStart, parseAllowances, runTotals } from "../logic/payroll";
 
 // HR sees runs and pay details; anyone else sees only their own lines from approved runs. The database enforces it: this screen only follows.
-export default function Payroll({ role, profile }) {
-  return role === "hr" ? <HrPayroll profile={profile} /> : <MyPay />;
+export default function Payroll({ role, profile, employeeId }) {
+  return role === "hr" ? <HrPayroll profile={profile} /> : <MyPay employeeId={employeeId} />;
+}
+
+// Opens the payslip in a new window and starts the browser's print dialog. Throws if pop-ups are blocked or the figures do not add up.
+function printPayslip(line, employee, run) {
+  const html = payslipHtml(line, employee, run);
+  const w = window.open("", "_blank");
+  if (!w) throw new Error("Allow pop-ups for this site to print the payslip");
+  w.document.write(html);
+  w.document.close();
+  w.onload = () => w.print();
 }
 
 function Figures({ title, items }) {
@@ -21,7 +32,7 @@ function Figures({ title, items }) {
 }
 
 // Every figure on a line, with the notes that trace it.
-function LineDetail({ line, name, onClose }) {
+function LineDetail({ line, name, onClose, onPrint }) {
   return (
     <Modal title={name ? `How ${name}'s pay was worked out` : "How this pay was worked out"} onClose={onClose} wide>
       {line.blockers?.length > 0 && <div className="hr-warning" role="alert">Blocks approval: {line.blockers.join("; ")}</div>}
@@ -32,26 +43,30 @@ function LineDetail({ line, name, onClose }) {
       {line.iban && <p className="bk-note">Paid to IBAN {maskIban(line.iban)}</p>}
       <h4>Notes</h4>
       <ul>{(line.notes || []).map((n, i) => <li key={i}>{n}</li>)}</ul>
+      {onPrint && <div className="bk-modal-actions"><Button onClick={onPrint}>Print payslip</Button></div>}
     </Modal>
   );
 }
 
-function MyPay() {
+function MyPay({ employeeId }) {
   const lines = useLoad(myPayLines, []);
+  const me = useLoad(() => myEmployee(employeeId), [employeeId]);
   const [open, setOpen] = useState(null);
+  const [printError, setPrintError] = useState(null);
+  const print = (l) => { setPrintError(null); try { printPayslip(l, me.data, l.hr_pay_runs); } catch (e) { setPrintError(e.message); } };
   if (lines.loading && !lines.data) return <Spinner label="Loading your pay" />;
   return (
     <div>
       <PageHead title="Payroll" sub="Your pay from approved months." />
-      <ErrorNote message={lines.error} />
+      <ErrorNote message={printError || lines.error || me.error} onClose={() => setPrintError(null)} />
       <Panel>
         <DataTable rows={lines.data || []} empty="No approved pay yet." columns={[
           { key: "m", label: "Month", render: (l) => monthLabel(l.hr_pay_runs.period_month) },
           { key: "net", label: "Net pay", render: (l) => money(l.net) },
-          { key: "x", label: "", render: (l) => <Button onClick={() => setOpen(l)}>Details</Button> },
+          { key: "x", label: "", render: (l) => <><Button onClick={() => setOpen(l)}>Details</Button> <Button onClick={() => print(l)}>Print payslip</Button></> },
         ]} />
       </Panel>
-      {open && <LineDetail line={open} onClose={() => setOpen(null)} />}
+      {open && <LineDetail line={open} onClose={() => setOpen(null)} onPrint={() => print(open)} />}
     </div>
   );
 }
@@ -66,6 +81,7 @@ function HrPayroll({ profile }) {
   const [busy, setBusy] = useState(false);
   const needed = missingSettings(settings.data);
   const nameOf = Object.fromEntries((employees.data || []).map((e) => [e.id, e.full_name]));
+  const codeOf = Object.fromEntries((employees.data || []).map((e) => [e.id, e.employee_code]));
 
   const create = async () => {
     setError(null); setBusy(true);
@@ -78,6 +94,7 @@ function HrPayroll({ profile }) {
   return (
     <div>
       <PageHead title="Payroll" sub="Create the month, review each line, then approve. An approved run is locked." />
+      <p className="bk-note">The WPS salary file needs a sample or specification from the bank before it can be built.</p>
       <ErrorNote message={error || runs.error || employees.error || settings.error} onClose={() => setError(null)} />
       {needed.length > 0 && <div className="hr-warning" role="status">A run needs these in Settings first: {needed.join(", ")}.</div>}
       <Panel title="Runs">
@@ -93,13 +110,13 @@ function HrPayroll({ profile }) {
           { key: "x", label: "", render: (r) => <Button onClick={() => setRunId(r.id)}>Open</Button> },
         ]} />
       </Panel>
-      {run && <RunPanel key={run.id} run={run} nameOf={nameOf} profile={profile} onChanged={runs.reload} onGone={() => setRunId(null)} />}
+      {run && <RunPanel key={run.id} run={run} nameOf={nameOf} codeOf={codeOf} profile={profile} onChanged={runs.reload} onGone={() => setRunId(null)} />}
       <PayDetails employees={employees.data || []} />
     </div>
   );
 }
 
-function RunPanel({ run, nameOf, profile, onChanged, onGone }) {
+function RunPanel({ run, nameOf, codeOf, profile, onChanged, onGone }) {
   const lines = useLoad(() => payrunLines(run.id), [run.id, run.status]);
   const [error, setError] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -109,6 +126,7 @@ function RunPanel({ run, nameOf, profile, onChanged, onGone }) {
   const totals = runTotals(lines.data);
   const missing = missingData(lines.data, nameOf);
   const guard = async (fn) => { setError(null); try { await fn(); } catch (e) { setError(e.message); } };
+  const print = (l) => guard(async () => printPayslip(l, { full_name: nameOf[l.employee_id], employee_code: codeOf[l.employee_id] }, run));
   const recalc = () => guard(async () => { await payrunRecalc(run.id); await Promise.all([lines.reload(), onChanged()]); });
   const remove = () => { if (window.confirm(`Delete the draft run for ${monthLabel(run.period_month)}?`)) guard(async () => { await payrunDelete(run.id); onGone(); await onChanged(); }); };
 
@@ -130,10 +148,10 @@ function RunPanel({ run, nameOf, profile, onChanged, onGone }) {
           { key: "a", label: "Adjustments", render: (l) => money(l.adjustments.reduce((s, x) => s + Number(x.amount), 0)) },
           { key: "net", label: "Net", render: (l) => money(l.net) },
           { key: "n", label: "Check", render: (l) => (l.blockers.length ? <Badge tone="bad">Missing data</Badge> : l.notes.some((n) => /review/i.test(n)) ? <Badge tone="warn">Review note</Badge> : "") },
-          { key: "x", label: "", render: (l) => <><Button onClick={() => setDetail(l)}>How worked out</Button>{draft && <> <Button onClick={() => setAdjusting(l)}>Adjust</Button></>}</> },
+          { key: "x", label: "", render: (l) => <><Button onClick={() => setDetail(l)}>How worked out</Button>{!draft && <> <Button onClick={() => print(l)}>Print payslip</Button></>}{draft && <> <Button onClick={() => setAdjusting(l)}>Adjust</Button></>}</> },
         ]} />
       )}
-      {detail && <LineDetail line={detail} name={nameOf[detail.employee_id]} onClose={() => setDetail(null)} />}
+      {detail && <LineDetail line={detail} name={nameOf[detail.employee_id]} onClose={() => setDetail(null)} onPrint={draft ? undefined : () => print(detail)} />}
       {adjusting && <FormModal title={`Adjust ${nameOf[adjusting.employee_id]}`} submitLabel="Add adjustment" initial={{}} onClose={() => setAdjusting(null)}
         note="An adjustment stays on the line and cannot be edited. To reverse one, add the opposite amount."
         fields={[{ name: "label", label: "Reason", required: true }, { name: "amount", label: "Amount", type: "number", required: true, help: "Negative to reduce pay" }]}
