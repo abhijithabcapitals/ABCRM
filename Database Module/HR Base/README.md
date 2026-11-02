@@ -45,11 +45,11 @@ Enforced by row-level security on every `hr_*` table and on the `hr-documents` b
 
 ## Before go-live
 
-Nothing here has been applied to live Supabase. All of this needs the user's decision or approval first.
+Migrations 001 to 009 are on live Supabase (2026-11-02). The rest needs the user's decision or approval first.
 
-1. **Apply migrations 001 to 009 in order** to live, after the user approves them. Confirm the CRM base schema they depend on is present.
+1. **Apply migrations 001 to 009 in order.** Done 2026-11-02. Function bodies, columns, policies and triggers were compared with a copy built from these files and match. A later change to a migration needs its own live step.
 2. **Redeploy the `admin-users` Edge Function, then deploy the frontend.** Redeploy from `Main Module/db/edge-function-admin-users.ts` (the `hr` tab was added to its tab list) before the frontend goes out, so the HR tab can be granted when the screens arrive. The redeploy is a manual step in Supabase.
-3. **Confirm the own-profile update policies are dropped on live** (`Main Module/db/security_fixes.sql`, lines 20 and 21). If they are still there, a member could rename themselves to match a colleague and read that colleague's task titles through the dashboard.
+3. **Own-profile update policies are dropped on live.** Checked 2026-11-02: `profiles` has only the admin update policy and two read policies.
 4. **Free-zone question.** The company is AB Capital Services FZE. `docs/PAYROLL_RULES.md` covers mainland employers only and says not to apply it to free-zone employers. The user must say which free zone applies and whether these rules apply to it. Until then payroll and gratuity must not be relied on.
 5. **Fill every null setting** in HR Settings. A run or gratuity calculation is blocked until each is set: pay day divisor mode, pay days basis (when the mode is fixed), unpaid leave wage base, gratuity fraction method, gratuity cap base, gratuity daily divisor, and whether service counts the end date. Leave types start empty, and the weekend days and holidays need entering.
 6. **WPS.** No bank or MOHRE sample or specification exists, so the WPS file is not built and its button is hidden. Obtain a sample from the bank or exchange house before building it.

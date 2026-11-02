@@ -30,9 +30,9 @@ Brings punches from the e-timeoffice biometric service into HR > Attendance. It 
 
 ## Go-live, in order
 
-Nothing here is on live. Each step needs the user's approval.
+Migrations 001 to 009 are on live (2026-11-02). The Edge Function, the schedule and the screens are not. Each step needs the user's approval.
 
-1. Put the HR Module live first (`../README.md`, Before go-live), including migrations 001 to 009.
+1. Put the HR Module live first (`../README.md`, Before go-live). Migrations are done; the screens need `hr-module` merged and the frontend deployed, because **Sync now** is on the HR tab.
 2. Add the login as Edge Function secrets or in Settings > Integrations where that screen is live: `ETIMEOFFICE_CORPORATE_ID`, `ETIMEOFFICE_USERNAME`, `ETIMEOFFICE_PASSWORD`.
 3. Deploy `hr-biometric-sync` with JWT verification off (`--no-verify-jwt`): copy `index.ts` and `etimeoffice.js` into one `supabase/functions/hr-biometric-sync` folder and use `--project-ref pnnakrhfzyxudjaghoxx --use-api`.
 4. On HR > Attendance, press **Sync now**. Check the result against the e-timeoffice portal for a few people, and link any listed codes.
