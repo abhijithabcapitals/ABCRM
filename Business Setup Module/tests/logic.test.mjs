@@ -82,7 +82,7 @@ test("the Zoho panel sits before the Banking handover button and blocks nothing"
 
 test("the quote screen sends every contact field the database asks for", () => {
   const flow = readFileSync(fileURLToPath(new URL("../components/NewServiceFlow.jsx", import.meta.url)), "utf8");
-  for (const f of ["client_id", "client_name", "contact_name", "contact_email", "contact_phone", "client_address", "lines", "template_key"]) assert.match(flow, new RegExp(`\b${f}\b`), f);
+  for (const f of ["client_id", "client_name", "contact_name", "contact_email", "contact_phone", "client_address", "lines", "template_key"]) assert.ok(flow.includes(f), f);
 });
 
 test("private price files are ignored by the repository itself", () => {
