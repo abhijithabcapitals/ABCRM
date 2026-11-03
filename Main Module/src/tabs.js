@@ -31,3 +31,33 @@ export function resolveView(view, isAdmin, tabs) {
   if (!ADMIN_ONLY.has(view) && (tabs || []).includes(tabOf(view))) return view;
   return (tabs || []).find((t) => t !== "spaces") || "profile";
 }
+
+// Each person's own sidebar order, kept in this browser. Tabs not in the saved order go last.
+const orderKey = (userId) => `crm-tab-order:${userId}`;
+export function readTabOrder(userId) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(orderKey(userId)));
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+export function saveTabOrder(userId, keys) {
+  try {
+    localStorage.setItem(orderKey(userId), JSON.stringify(keys));
+  } catch {
+    // The new order still applies until the page reloads.
+  }
+}
+export function orderTabs(items, order) {
+  const rank = (item) => (order.includes(item.key) ? order.indexOf(item.key) : order.length);
+  return items.map((item, i) => [item, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([item]) => item);
+}
+// Puts the dragged tab where the target tab is; the tabs between them shift by one.
+export function moveTab(keys, from, to) {
+  const at = keys.indexOf(to);
+  if (from === to || at < 0 || !keys.includes(from)) return keys;
+  const rest = keys.filter((k) => k !== from);
+  rest.splice(at, 0, from);
+  return rest;
+}
