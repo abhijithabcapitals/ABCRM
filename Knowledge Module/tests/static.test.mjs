@@ -40,3 +40,10 @@ test("no Knowledge code reads the private banking columns", () => {
   const hits = code.filter(([, src]) => /service_fee_min|service_fee_max|banking_pricing/.test(src)).map(([f]) => f);
   assert.deepEqual(hits, []);
 });
+
+test("the admin-users edge function lets admins grant the knowledge tab", () => {
+  const edge = readFileSync(join(here, "../Main Module/db/edge-function-admin-users.ts"), "utf8");
+  const tabs = edge.match(/const TABS = \[([^\]]*)\]/);
+  assert.ok(tabs, "TABS list not found");
+  assert.ok(tabs[1].includes('"knowledge"'), "knowledge missing from TABS");
+});

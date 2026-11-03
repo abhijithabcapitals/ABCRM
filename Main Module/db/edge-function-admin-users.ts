@@ -30,7 +30,7 @@ const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 
 const ROLES = ["admin", "member"];
-const TABS = ["mytasks", "dashboard", "business-development", "business-setup", "business-banking", "accounts", "quotations", "clients", "tax", "hr", "spaces"];
+const TABS = ["mytasks", "dashboard", "business-development", "business-setup", "business-banking", "accounts", "quotations", "clients", "tax", "hr", "spaces", "knowledge"];
 const DATA_ROLES = ["READ_ONLY", "SALES_EXECUTIVE", "DOCUMENT_EXECUTIVE", "BANKING_EXECUTIVE", "FINANCE", "ACCOUNTS", "MANAGER", "ADMIN"];
 const cleanTabs = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).filter((t) => TABS.includes(t)))];
 
