@@ -1,6 +1,6 @@
 # Accounting Module
 
-The CRM's **Accounting** page, with a **Business Banking** tab (case validation) , a **Business Setup** tab (empty until that module is built) and an **Accounting** tab (empty for now).
+The CRM's **Accounting** page, with a **Business Banking** tab (case validation) , a **Business Setup** tab (quotes the team has finished, in `components/SetupValidation.jsx`) and an **Accounting** tab (empty for now).
 
 When the business team finishes an approved banking case and sends it to Accounts, the case leaves their lists and cannot be changed by anyone. Accounts reviews it here, then:
 
