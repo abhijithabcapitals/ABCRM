@@ -865,6 +865,113 @@ select public.bs_as('00000000-0000-0000-0000-000000000099');
 select public.bs_expect_error(format($$select business_setup_quote_balance('%s')$$, pg_temp.fx('q_pay3')), 'permission');
 select public.bs_as(null);
 
+-- ── Workspace reads, tasks, files and expiries ──
+select public.bs_as(null);
+insert into public.client_master (client_id, legal_name, data) values
+  ('CL900040', 'Workspace Client LLC', '{"Primary Contact":"Contact One","General Email":"a@b.test","General Phone":"+971500000000"}'),
+  ('CL900041', 'No Phone LLC', '{"General Email":"c@d.test"}'),
+  ('CL900042', 'Bare Client LLC', '{}'),
+  ('CL900043', 'Gone Company LLC', '{}');
+insert into public.business_setup_kyc_profiles (client_id, client_status, kyc_state) values ('CL900041', 'Active', 'Done');
+insert into public.business_setup_kyc_profiles (client_id, company_status, business_activity, licence_expiry, client_status, kyc_state)
+  values ('CL900040', 'New', 'Trading', ((now() at time zone 'Asia/Dubai')::date + 30), 'Active', 'Done');
+insert into public.business_setup_kyc_profiles (client_id, licence_expiry, client_status) values ('CL900043', ((now() at time zone 'Asia/Dubai')::date - 400), 'Liquidated');
+insert into public.business_setup_kyc_partners (kyc_id, full_name, nationality, passport_number)
+  select id, 'Partner One', 'Indian', 'A1234567' from public.business_setup_kyc_profiles where client_id = 'CL900040';
+insert into public.business_setup_visas (client_id, person_name, occupation, expiry_date, status) values
+  ('CL900040', 'past visa', 'PARTNER', ((now() at time zone 'Asia/Dubai')::date - 1), 'Active'),
+  ('CL900040', 'soon visa', 'PARTNER', ((now() at time zone 'Asia/Dubai')::date + 90), 'Active'),
+  ('CL900040', 'far visa', 'PARTNER', ((now() at time zone 'Asia/Dubai')::date + 91), 'Active'),
+  ('CL900040', 'cancelled visa', 'PARTNER', ((now() at time zone 'Asia/Dubai')::date + 5), 'VISA CANCELLED'),
+  ('CL900040', 'no date visa', 'PARTNER', null, 'Active');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into bs_fx values ('q_ws', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900040','lines', jsonb_build_array(
+    jsonb_build_object('service_name','WS one','amount',300), jsonb_build_object('service_name','WS two','amount',200))))::text);
+select public.business_setup_quote_accept(pg_temp.fx('q_ws')::uuid) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.fx('q_ws'), 'amount', 100)) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+
+create function pg_temp.exp(p_label text) returns jsonb language sql as $$
+  select e from jsonb_array_elements(public.business_setup_expiries()) e where e ->> 'label' = p_label
+$$;
+select public.bs_check('past date state', pg_temp.exp('past visa') ->> 'state' = 'Past date');
+select public.bs_check('90 days included', pg_temp.exp('soon visa') ->> 'state' = 'Upcoming');
+select public.bs_check('91 days excluded', pg_temp.exp('far visa') is null);
+select public.bs_check('a wider window finds it', exists (select 1 from jsonb_array_elements(public.business_setup_expiries(120)) e where e ->> 'label' = 'far visa'));
+select public.bs_check('a cancelled visa is not an expiry', pg_temp.exp('cancelled visa') is null);
+select public.bs_check('no date, no expiry', pg_temp.exp('no date visa') is null);
+select public.bs_check('expiry carries kind, client and date', pg_temp.exp('past visa') ->> 'kind' = 'Visa' and pg_temp.exp('past visa') ->> 'client_id' = 'CL900040' and pg_temp.exp('past visa') ->> 'date' ~ '^\d{4}-\d{2}-\d{2}$');
+select public.bs_check('a licence expiry is listed', exists (select 1 from jsonb_array_elements(public.business_setup_expiries()) e where e ->> 'kind' = 'Licence' and e ->> 'client_id' = 'CL900040'));
+select public.bs_check('a liquidated company is not chased', not exists (select 1 from jsonb_array_elements(public.business_setup_expiries()) e where e ->> 'client_id' = 'CL900043'));
+-- Client Master licence dates are DD/MM/YYYY text; a date that does not parse must not break the list
+select public.bs_as(null);
+update public.client_master set data = data || '{"License Expiry Date":"not a date"}' where client_id = 'CL900041';
+insert into public.client_master (client_id, legal_name, data) values ('CL900044', 'Text Date LLC', jsonb_build_object('License Expiry Date', to_char((now() at time zone 'Asia/Dubai')::date + 10, 'DD/MM/YYYY')));
+insert into public.business_setup_kyc_profiles (client_id) values ('CL900044');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('a bad date is skipped, the rest still list', jsonb_array_length(public.business_setup_expiries()) > 0
+  and not exists (select 1 from jsonb_array_elements(public.business_setup_expiries()) e where e ->> 'client_id' = 'CL900041'));
+select public.bs_check('a Client Master date is read as day first', exists (select 1 from jsonb_array_elements(public.business_setup_expiries()) e where e ->> 'client_id' = 'CL900044' and e ->> 'state' = 'Upcoming'));
+
+create function pg_temp.cl(p_id text) returns jsonb language sql as $$
+  select c from jsonb_array_elements(public.business_setup_client_list()) c where c ->> 'client_id' = p_id
+$$;
+select public.bs_check('missing contact flag', (pg_temp.cl('CL900041') ->> 'missing_contact')::boolean);
+select public.bs_check('contact present, no flag', not (pg_temp.cl('CL900040') ->> 'missing_contact')::boolean);
+select public.bs_check('list shows state and status', pg_temp.cl('CL900040') ->> 'kyc_state' = 'Done' and pg_temp.cl('CL900040') ->> 'client_status' = 'Active' and pg_temp.cl('CL900040') ->> 'legal_name' = 'Workspace Client LLC');
+select public.bs_check('list counts active services', (pg_temp.cl('CL900040') ->> 'active_services')::int = 2);
+select public.bs_check('list balance is total less net paid', (pg_temp.cl('CL900040') ->> 'balance')::numeric = 400);
+select public.bs_check('a client with no Business Setup record is not listed', pg_temp.cl('CL900042') is null);
+
+select public.bs_check('partner ID masked without sensitive right', public.business_setup_workspace('CL900040')::text !~ 'A1234567');
+select public.bs_check('partner still shown when masked', public.business_setup_workspace('CL900040')::text ~ 'Partner One');
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.bs_check('partner ID visible with sensitive right', public.business_setup_workspace('CL900040')::text ~ 'A1234567');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('client with no KYC profile renders', public.business_setup_workspace('CL900042') -> 'client' ->> 'client_id' = 'CL900042' and public.business_setup_workspace('CL900042') -> 'services' = '[]'::jsonb);
+select public.bs_expect_error($$select business_setup_workspace('CL999999')$$, 'not found');
+select public.bs_check('workspace holds services, quotes and payments', jsonb_array_length(public.business_setup_workspace('CL900040') -> 'services') = 2
+  and jsonb_array_length(public.business_setup_workspace('CL900040') -> 'quotes') = 1 and jsonb_array_length(public.business_setup_workspace('CL900040') -> 'payments') = 1);
+select public.bs_check('quote carries its balance', (public.business_setup_workspace('CL900040') -> 'quotes' -> 0 -> 'balance' ->> 'outstanding')::numeric = 400);
+select public.bs_check('payment carries its receipt number', public.business_setup_workspace('CL900040') -> 'payments' -> 0 ->> 'receipt_number' ~ 'BSR');
+
+-- tasks
+select public.bs_expect_error($$select business_setup_task_save('{"client_id":"CL900040","title":"  "}')$$, 'title');
+insert into bs_fx select 'task1', public.business_setup_task_save('{"client_id":"CL900040","title":"Chase passport"}')::text;
+select public.bs_check('task saved open', (select status = 'Open' from public.business_setup_tasks where id = pg_temp.fx('task1')::uuid));
+select public.business_setup_task_save(jsonb_build_object('id', pg_temp.fx('task1'), 'client_id', 'CL900040', 'title', 'Chase passport', 'status', 'Done')) as ignored \gset
+select public.bs_check('task updated', (select status = 'Done' from public.business_setup_tasks where id = pg_temp.fx('task1')::uuid));
+select public.bs_check('task in workspace', jsonb_array_length(public.business_setup_workspace('CL900040') -> 'tasks') = 1);
+select public.bs_check('task change is in the audit log', public.bs_audit_count('task_save', pg_temp.fx('task1'), '{"title":"Chase passport"}') = 2);
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_expect_error($$select business_setup_task_save('{"client_id":"CL900040","title":"x"}')$$, 'permission');
+select public.bs_expect_error($$select business_setup_workspace('CL900040')$$, 'permission');
+select public.bs_expect_error($$select business_setup_client_list()$$, 'permission');
+select public.bs_expect_error($$select business_setup_dashboard()$$, 'permission');
+select public.bs_expect_error($$select business_setup_expiries()$$, 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+
+-- documents
+select public.bs_expect_error($$select business_setup_document_add('{"client_id":"CL900040","file_name":"a.pdf"}')$$, 'storage');
+insert into bs_fx select 'doc1', public.business_setup_document_add('{"client_id":"CL900040","kind":"Licence","file_name":"a.pdf","storage_path":"CL900040/a.pdf"}')::text;
+select public.bs_check('document in workspace', public.business_setup_workspace('CL900040') -> 'documents' -> 0 ->> 'file_name' = 'a.pdf');
+select public.bs_expect_error(format($$select business_setup_document_add('%s')$$, jsonb_build_object('client_id','CL900041','file_name','b.pdf','storage_path','x/b.pdf','service_id',(select id from public.business_setup_services where name = 'WS one'))), 'service');
+select public.bs_as(null);
+select public.bs_check('bucket is private', (select not public from storage.buckets where id = 'business-setup-documents'));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+
+-- dashboard
+select public.bs_check('dashboard counts', (public.business_setup_dashboard() ->> 'active_services')::int >= 2 and (public.business_setup_dashboard() ->> 'outstanding')::numeric >= 400
+  and (public.business_setup_dashboard() ->> 'accepted_without_letter')::int >= 1 and public.business_setup_dashboard() ? 'open_quotes' and public.business_setup_dashboard() ? 'expiries'
+  and public.business_setup_dashboard() ? 'forms_waiting' and public.business_setup_dashboard() ? 'ready_for_accounts' and public.business_setup_dashboard() ? 'reverted_by_accounts');
+
+-- visas
+select public.bs_expect_error($$insert into business_setup_visas (client_id, person_name) values ('CL900040', 'direct')$$, 'permission');
+select public.bs_check('visa read through the API', (select count(*) from public.business_setup_visas where client_id = 'CL900040') = 5);
+select public.bs_check('visas are in the workspace', jsonb_array_length(public.business_setup_workspace('CL900040') -> 'visas') = 5);
+select public.bs_as(null);
+
 -- ── Summary: raise when anything failed so psql exits non-zero ──
 do $$
 declare f int; t int;
