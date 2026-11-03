@@ -4,7 +4,7 @@ import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { flagMissing } from "@banking/components/Attention";
 import { supabase } from "../supabase";
-import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE } from "../tabs";
+import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE, toggleAllTabs } from "../tabs";
 import { TriggersPanel } from "./AdminTriggers";
 import { cronText } from "./triggerSchedule";
 import { EMP_FIELDS } from "../empFields";
@@ -193,7 +193,9 @@ export function EmployeesPanel() {
 
 function TabPicker({ value, onChange }) {
   const toggle = (k) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k]);
-  return <div className="bk-admin-tabs">{GRANTABLE_TABS.map((t) => <label className="bk-check" key={t.key}><input type="checkbox" checked={value.includes(t.key)} onChange={() => toggle(t.key)} /> {t.label}</label>)}</div>;
+  const all = GRANTABLE_TABS.every((t) => value.includes(t.key));
+  const some = !all && GRANTABLE_TABS.some((t) => value.includes(t.key));
+  return <div className="bk-admin-tabs"><label className="bk-check" style={{ gridColumn: "1 / -1" }}><input type="checkbox" checked={all} ref={(el) => { if (el) el.indeterminate = some; }} onChange={() => onChange(toggleAllTabs(value))} /> <strong>All</strong></label>{GRANTABLE_TABS.map((t) => <label className="bk-check" key={t.key}><input type="checkbox" checked={value.includes(t.key)} onChange={() => toggle(t.key)} /> {t.label}</label>)}</div>;
 }
 const needsRole = (tabs) => tabs.some((t) => NEEDS_DATA_ROLE.has(t));
 

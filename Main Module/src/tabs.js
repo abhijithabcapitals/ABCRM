@@ -13,6 +13,9 @@ export const GRANTABLE_TABS = [
   { key: "spaces", label: "Spaces, Tasks and Documents" },
 ];
 const KEYS = new Set(GRANTABLE_TABS.map((t) => t.key));
+
+// The "All" tick: everything when any tab is still off, nothing when all are on.
+export const toggleAllTabs = (value) => (GRANTABLE_TABS.every((t) => value.includes(t.key)) ? [] : GRANTABLE_TABS.map((t) => t.key));
 const ADMIN_ONLY = new Set(["settings", "ceo", "email-agent"]);
 
 // These pages show nothing until the member also has a data role.
