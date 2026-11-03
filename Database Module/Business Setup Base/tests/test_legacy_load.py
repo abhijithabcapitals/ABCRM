@@ -119,9 +119,17 @@ def test_main_writes_json_and_sql_and_a_report(tmp_path, capsys):
     res = _resources(tmp_path)
     out = tmp_path / "rows.json"
     sql = tmp_path / "stage.sql"
-    ll.main(["--resources", str(res), "--out", str(out), "--sql-out", str(sql), "--import-id", "00000000-0000-0000-0000-000000000001"])
+    ll.main(["--resources", str(res), "--out", str(out), "--sql-out", str(sql), "--import-id", "00000000-0000-0000-0000-000000000001", "--admin", "00000000-0000-0000-0000-000000000002"])
     assert len(json.loads(out.read_text(encoding="utf8"))) == 6
     assert "business_setup_import_stage('00000000-0000-0000-0000-000000000001'" in sql.read_text(encoding="utf8")
+    assert "set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true)" in sql.read_text(encoding="utf8")
+    assert sql.read_text(encoding="utf8").startswith("begin;")
     report = capsys.readouterr().out
     assert "company: 2" in report and "ZZZ" in report
     assert "Acme" not in report   # no client names in the printed report
+
+
+def test_sql_needs_an_admin(tmp_path):
+    res = _resources(tmp_path)
+    with pytest.raises(SystemExit):
+        ll.main(["--resources", str(res), "--out", str(tmp_path / "r.json"), "--sql-out", str(tmp_path / "s.sql"), "--import-id", "x"])

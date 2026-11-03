@@ -14,7 +14,8 @@ export default function Overview({ w, clientId, reload, goTab }) {
   const missing = w.kyc_status?.missing || [];
   return (
     <div>
-      {missing.length > 0 && <div className="bk-alert bk-alert-warn">KYC is incomplete: {missing.join(", ")}. A quote cannot be accepted until these are filled. <button type="button" className="bk-link" onClick={() => goTab("kyc")}>Open KYC</button></div>}
+      {missing.length > 0 && w.kyc?.kyc_state !== "Done" && <div className="bk-alert bk-alert-warn">KYC is incomplete: {missing.join(", ")}. A quote cannot be accepted until these are filled. <button type="button" className="bk-link" onClick={() => goTab("kyc")}>Open KYC</button></div>}
+      {(!w.client.email || !w.client.phone) && <div className="bk-alert bk-alert-warn">Email or phone is missing. A quote cannot be issued until they are in Client Master. <button type="button" className="bk-link" onClick={() => goTab("kyc")}>Add them</button></div>}
       <Panel title="Client" actions={can("setup.quotes.manage") && <Button variant="primary" onClick={() => setAdding(true)}>+ New Service</Button>}>
         <KeyVals items={[["Email", w.client.email || "Missing"], ["Phone", w.client.phone || "Missing"], ["KYC", w.kyc?.kyc_state || "Not done"], ["Status", w.kyc?.client_status || "–"],
           ["Jurisdiction", w.kyc?.jurisdiction || "–"], ["Licence", w.kyc?.licence_number || "–"], ["Licence expiry", fmtDate(w.kyc?.licence_expiry)], ["Outstanding", money(outstanding)]]} />

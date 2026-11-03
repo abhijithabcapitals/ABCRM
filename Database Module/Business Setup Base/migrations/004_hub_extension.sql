@@ -130,12 +130,14 @@ begin
     p := jsonb_build_object('doc_type', 'letter', 'parent_id', q.id, 'department', q.department, 'client_name', q.client_name, 'contact_name', q.contact_name, 'contact_email', q.contact_email, 'contact_phone', q.contact_phone, 'client_address', q.client_address, 'license_number', q.license_number, 'vat_trn', q.vat_trn, 'services', to_jsonb(q.services), 'lines', q.lines, 'vat_mode', q.vat_mode, 'vat_rate', q.vat_rate);
     v_mode := q.vat_mode; v_rate := q.vat_rate; v_client := q.client_id; v_revises := null;
   end if;
+  -- Business Setup documents reach a client's login, so issuing one needs the department's right. A letter takes its department from its quote above.
+  if p ->> 'department' = 'Business Setup' then perform business_setup_require('setup.quotes.manage'); end if;
   if v_type <> 'quote' then v_revises := null; v_template := null; end if;
   if v_template is not null and not exists (select 1 from business_setup_quote_templates where key = v_template and active) then raise exception 'Unknown quote template %', v_template; end if;
   if v_client is not null and not exists (select 1 from client_master where client_id = v_client) then raise exception 'Unknown client %', v_client; end if;
   if nullif(trim(p ->> 'client_name'), '') is null then raise exception 'Enter the client name'; end if;
   if v_type in ('quote','letter') then
-    if nullif(trim(p ->> 'contact_name'), '') is null or nullif(trim(p ->> 'contact_email'), '') is null or nullif(trim(p ->> 'contact_phone'), '') is null or nullif(trim(p ->> 'client_address'), '') is null then
+    if nullif(trim(p ->> 'contact_name'), '') is null or nullif(trim(p ->> 'contact_email'), '') is null or nullif(trim(p ->> 'contact_phone'), '') is null or (nullif(trim(p ->> 'client_address'), '') is null and p ->> 'department' <> 'Business Setup') then
       raise exception 'Fill in the client details first';
     end if;
   end if;

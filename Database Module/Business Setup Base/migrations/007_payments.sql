@@ -167,6 +167,34 @@ begin
   return jsonb_build_object('reversal_id', v_rev, 'payment_id', o.id);
 end $$;
 
+-- ── Refund ───────────────────────────────────────────────────────────
+-- Money really returned, as opposed to a reversal, which says the payment never happened. Up to the net paid on the quote.
+create or replace function public.business_setup_refund_add(p jsonb) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare q hub_documents; v_amount numeric; v_reason text; v_id uuid; v_net numeric;
+begin
+  perform business_setup_require('setup.payments.manage');
+  p := coalesce(p, '{}'::jsonb);
+  select * into q from hub_documents where id = nullif(p ->> 'quote_id', '')::uuid for update;
+  if q.id is null or q.doc_type <> 'quote' or q.department <> 'Business Setup' or q.client_id is null then raise exception 'Quote not found'; end if;
+  if business_setup_quote_locked(q.id) then raise exception 'This quote is locked because Accounts holds it: no refund can be recorded'; end if;
+  begin
+    v_amount := nullif(btrim(coalesce(p ->> 'amount', '')), '')::numeric;
+  exception when others then
+    v_amount := null;
+  end;
+  if v_amount is null or v_amount <= 0 or v_amount <> round(v_amount, 2) then raise exception 'Enter an amount above zero with at most two decimals'; end if;
+  v_reason := nullif(btrim(coalesce(p ->> 'reason', '')), '');
+  if v_reason is null then raise exception 'Give a reason for the refund'; end if;
+  v_net := business_setup_net_paid(q.id);
+  if v_amount > v_net then raise exception 'This refund is above the % paid on the quote', to_char(v_net, 'FM999,999,999,990.00'); end if;
+  insert into business_setup_payments (client_id, quote_id, paid_on, amount, method, reference, type, note)
+  values (q.client_id, q.id, (now() at time zone 'Asia/Dubai')::date, v_amount, nullif(btrim(coalesce(p ->> 'method', '')), ''), nullif(btrim(coalesce(p ->> 'reference', '')), ''), 'Refund', v_reason)
+  returning id into v_id;
+  perform business_setup_audit('business_setup_payments', v_id::text, 'refund_add', null, jsonb_build_object('client_id', q.client_id, 'quote_id', q.id, 'amount', v_amount, 'reason', v_reason));
+  return v_id;
+end $$;
+
 -- ── Receipt file ─────────────────────────────────────────────────────
 -- Records where the generated receipt file is stored, on the receipt and in the voucher register.
 create or replace function public.business_setup_receipt_attach(p_id uuid, p_path text) returns void
@@ -184,8 +212,8 @@ begin
           jsonb_build_object('receipt_number', r.receipt_number));
 end $$;
 
-revoke all on function public.business_setup_payment_add(jsonb), public.business_setup_payment_reverse(uuid, text), public.business_setup_receipt_attach(uuid, text),
+revoke all on function public.business_setup_payment_add(jsonb), public.business_setup_payment_reverse(uuid, text), public.business_setup_receipt_attach(uuid, text), public.business_setup_refund_add(jsonb),
   public.business_setup_quote_balance(uuid), public.business_setup_quote_locked(uuid),
   public.voucher_from_business_setup_receipt(), public.voucher_from_business_setup_payment() from public, anon, authenticated;
-grant execute on function public.business_setup_payment_add(jsonb), public.business_setup_payment_reverse(uuid, text), public.business_setup_receipt_attach(uuid, text),
+grant execute on function public.business_setup_payment_add(jsonb), public.business_setup_payment_reverse(uuid, text), public.business_setup_receipt_attach(uuid, text), public.business_setup_refund_add(jsonb),
   public.business_setup_quote_balance(uuid) to authenticated;

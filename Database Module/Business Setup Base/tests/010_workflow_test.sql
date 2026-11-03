@@ -972,6 +972,53 @@ select public.bs_check('visa read through the API', (select count(*) from public
 select public.bs_check('visas are in the workspace', jsonb_array_length(public.business_setup_workspace('CL900040') -> 'visas') = 5);
 select public.bs_as(null);
 
+-- ── Final review fixes ──
+select public.bs_as(null);
+insert into public.client_master (client_id, legal_name, data) values ('CL900045', 'Imported Done LLC', '{"General Email":"d@x.test","General Phone":"1","Primary Contact":"D"}');
+insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL900045', 'Done');
+create function pg_temp.noaddr(p_dept text, p_client text default null) returns jsonb language sql as $$
+  select jsonb_build_object('doc_type','quote','department',p_dept,'client_id',p_client,'client_name','No Address','contact_name','C','contact_email','c@x.ae','contact_phone','1','lines','[{"description":"Licence","amount":100}]'::jsonb)
+$$;
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+-- A Business Setup quote needs no address, as the client form does not collect one. Other departments still do.
+insert into bs_fx select 'q_noaddr', (public.hub_document_create(pg_temp.noaddr('Business Setup', 'CL900045'))).id::text;
+select public.bs_check('a Business Setup quote issues without an address', pg_temp.fx('q_noaddr') is not null);
+select public.bs_expect_error(format($$select hub_document_create('%s')$$, pg_temp.noaddr('Accounting')), 'client details');
+select public.bs_check('an imported client with KYC done can accept', (public.business_setup_quote_accept(pg_temp.fx('q_noaddr')::uuid)) is not null);
+select public.business_setup_quote_reject(pg_temp.bs_quote('Business Setup', '{"client_id":"CL900045"}'), 'Other work') as ignored \gset
+-- Only people with the right can issue a Business Setup quote or letter.
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_expect_error(format($$select hub_document_create('%s')$$, pg_temp.noaddr('Business Setup', 'CL900045')), 'permission');
+select public.bs_expect_error(format($$select hub_document_create('%s')$$, jsonb_build_object('doc_type','letter','parent_id',pg_temp.fx('q_noaddr'))), 'permission');
+select public.bs_check('another department is unaffected', (public.hub_document_create(pg_temp.noaddr('Accounting') || '{"client_address":"Dubai"}')).id is not null);
+-- Refunds
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_noaddr'), 'amount', 10, 'reason', 'x')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.fx('q_noaddr'), 'amount', 100)) as ignored \gset
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_noaddr'), 'amount', 10)), 'reason');
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_noaddr'), 'amount', 101, 'reason', 'x')), 'above');
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_noaddr'), 'amount', 0, 'reason', 'x')), 'amount');
+insert into bs_fx select 'refund2', public.business_setup_refund_add(jsonb_build_object('quote_id', pg_temp.fx('q_noaddr'), 'amount', 40, 'reason', 'Service cancelled'))::text;
+select public.bs_check('a refund lowers net paid', (public.business_setup_quote_balance(pg_temp.fx('q_noaddr')::uuid) ->> 'net_paid')::numeric = 60);
+select public.bs_check('a refund has no receipt and is in the audit log', not exists (select 1 from public.business_setup_receipts where payment_id = pg_temp.fx('refund2')::uuid) and public.bs_audit_count('refund_add', pg_temp.fx('refund2'), '{"reason":"Service cancelled"}') = 1);
+select public.bs_as(null);
+update public.business_setup_services set locked = true where quote_id = pg_temp.fx('q_noaddr')::uuid;
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_noaddr'), 'amount', 10, 'reason', 'x')), 'Accounts');
+select public.bs_as(null);
+update public.business_setup_services set locked = false where quote_id = pg_temp.fx('q_noaddr')::uuid;
+-- Accounts can open output files.
+select public.bs_check('Accounts can read the file bucket', (select qual from pg_policies where policyname = 'business_setup_docs_read') ~ 'accounts.review');
+-- Visas can be corrected.
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into bs_fx select 'visa_new', public.business_setup_visa_save('{"client_id":"CL900045","person_name":"New Visa","expiry_date":"2030-01-01","status":"Active"}')::text;
+select public.business_setup_visa_save(jsonb_build_object('id', pg_temp.fx('visa_new'), 'client_id','CL900045','person_name','New Visa','expiry_date','2031-01-01','status','Active')) as ignored \gset
+select public.bs_check('a visa can be corrected', (select expiry_date = '2031-01-01' from public.business_setup_visas where id = pg_temp.fx('visa_new')::uuid));
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_expect_error($$select business_setup_visa_save('{"client_id":"CL900045","person_name":"x"}')$$, 'permission');
+select public.bs_as(null);
+
 -- ── Summary: raise when anything failed so psql exits non-zero ──
 do $$
 declare f int; t int;

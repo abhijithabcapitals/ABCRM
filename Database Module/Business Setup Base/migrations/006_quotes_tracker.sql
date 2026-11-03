@@ -51,7 +51,8 @@ begin
   if q.status <> 'issued' then raise exception 'Only an issued quote can be accepted (this one is %)', q.status; end if;
   if q.client_id is null then raise exception 'Link this quote to a client before accepting it'; end if;
   kyc := business_setup_kyc_status(q.client_id);
-  if (kyc ->> 'percent')::int < 100 then
+  -- KYC already done (validated here, or marked Done in the old records) is not asked for again.
+  if (kyc ->> 'percent')::int < 100 and not exists (select 1 from business_setup_kyc_profiles where client_id = q.client_id and kyc_state = 'Done') then
     raise exception 'The client KYC is incomplete: missing %', (select string_agg(m, ', ') from jsonb_array_elements_text(kyc -> 'missing') m);
   end if;
   if q.valid_until is not null and q.valid_until < v_today and not coalesce(p_allow_expired, false) then

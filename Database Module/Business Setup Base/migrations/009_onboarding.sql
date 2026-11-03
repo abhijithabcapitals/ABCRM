@@ -71,28 +71,22 @@ create policy business_setup_forms_read on public.business_setup_onboarding_form
 revoke all on public.business_setup_form_versions, public.business_setup_onboarding_forms from anon, authenticated;
 grant select on public.business_setup_form_versions, public.business_setup_onboarding_forms to authenticated;
 
--- ── A login creates the form ─────────────────────────────────────────
+-- ── A Business Setup login creates the form ──────────────────────────
+-- Called when this module issues a login, not for every portal account: a Banking client keeps the portal as it is.
 -- A client whose KYC is already done (imported from the old CRM, or validated before) has nothing to fill in.
-create or replace function public.business_setup_form_for_account() returns trigger
+drop trigger if exists business_setup_form_on_account on public.client_portal_accounts;
+drop function if exists public.business_setup_form_for_account();
+create or replace function public.business_setup_form_create(p_client text, p_account uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_client text := new.client_master_id;
 begin
-  if v_client is null and new.banking_client_id is not null then
-    select client_master_id into v_client from banking_clients where id = new.banking_client_id;
-  end if;
-  if v_client is null then return new; end if;
-  insert into business_setup_kyc_profiles (client_id) values (v_client) on conflict (client_id) do nothing;
-  if exists (select 1 from business_setup_kyc_profiles where client_id = v_client and kyc_state = 'Done')
-     or exists (select 1 from business_setup_onboarding_forms where client_id = v_client) then
-    return new;
+  insert into business_setup_kyc_profiles (client_id) values (p_client) on conflict (client_id) do nothing;
+  if exists (select 1 from business_setup_kyc_profiles where client_id = p_client and kyc_state = 'Done')
+     or exists (select 1 from business_setup_onboarding_forms where client_id = p_client) then
+    return;
   end if;
   insert into business_setup_onboarding_forms (client_id, account_id, form_version)
-  values (v_client, new.id, (select max(version) from business_setup_form_versions));
-  return new;
+  values (p_client, p_account, (select max(version) from business_setup_form_versions));
 end $$;
-drop trigger if exists business_setup_form_on_account on public.client_portal_accounts;
-create trigger business_setup_form_on_account after insert on public.client_portal_accounts
-  for each row execute function public.business_setup_form_for_account();
 
 -- ── What is still missing ────────────────────────────────────────────
 -- p_validated false: a document counts once uploaded and not rejected (what submitting needs).
@@ -234,6 +228,7 @@ language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   f business_setup_onboarding_forms; m client_master; a jsonb; miss text[]; e jsonb; kid uuid;
   v_email text; v_phone text; v_old_email text; v_old_phone text; v_name text; v_data jsonb;
+  k business_setup_kyc_profiles; v_new jsonb; v_key text; v_kept text[] := '{}';
 begin
   perform business_setup_require('setup.kyc.manage');
   p_contact := coalesce(p_contact, '{}'::jsonb);
@@ -264,8 +259,17 @@ begin
   if client_master_plain(split_part(coalesce(m.data ->> 'Primary Contact', ''), ';', 1)) is null then v_data := v_data || jsonb_build_object('Primary Contact', v_name); end if;
   perform client_master_save(f.client_id, v_data, null);
 
-  perform business_setup_kyc_save(f.client_id, jsonb_build_object('company_status', a ->> 'company_status', 'business_activity', a ->> 'activity', 'jurisdiction', a ->> 'zone',
-    'licence_number', a ->> 'licence_number', 'licence_expiry', a ->> 'licence_expiry', 'details', jsonb_strip_nulls(jsonb_build_object('issuing_authority', a ->> 'issuing_authority', 'services', a -> 'services'))));
+  -- The form fills what is empty. A value already held stays, and its name goes in the audit log for staff to compare.
+  select * into k from business_setup_kyc_profiles where client_id = f.client_id;
+  v_new := jsonb_strip_nulls(jsonb_build_object('company_status', a ->> 'company_status', 'business_activity', nullif(btrim(coalesce(a ->> 'activity', '')), ''), 'jurisdiction', nullif(btrim(coalesce(a ->> 'zone', '')), ''),
+    'licence_number', nullif(btrim(coalesce(a ->> 'licence_number', '')), ''), 'licence_expiry', a ->> 'licence_expiry'));
+  for v_key in select key from jsonb_each(v_new) loop
+    if to_jsonb(k) ->> v_key is not null then
+      if to_jsonb(k) ->> v_key <> v_new ->> v_key then v_kept := array_append(v_kept, v_key); end if;
+      v_new := v_new - v_key;
+    end if;
+  end loop;
+  perform business_setup_kyc_save(f.client_id, v_new || jsonb_build_object('details', jsonb_strip_nulls(jsonb_build_object('issuing_authority', coalesce(k.details ->> 'issuing_authority', a ->> 'issuing_authority'), 'services', a -> 'services'))));
   select id into kid from business_setup_kyc_profiles where client_id = f.client_id;
   for e in select * from jsonb_array_elements(a -> 'partners') loop
     if nullif(btrim(coalesce(e ->> 'name', '')), '') is not null
@@ -275,7 +279,7 @@ begin
   end loop;
   update business_setup_kyc_profiles set kyc_state = 'Done' where id = kid;
   update business_setup_onboarding_forms set status = 'Validated', reviewed_by = auth.uid(), reviewed_at = now(), return_note = null, updated_at = now() where id = p_id;
-  perform business_setup_audit('business_setup_onboarding_forms', p_id::text, 'form_validate', null, jsonb_build_object('client_id', f.client_id));
+  perform business_setup_audit('business_setup_onboarding_forms', p_id::text, 'form_validate', null, jsonb_build_object('client_id', f.client_id, 'kept', to_jsonb(v_kept)));
 end $$;
 
 create or replace function public.business_setup_form_missing(p_id uuid) returns text[]
@@ -285,18 +289,51 @@ begin
   return business_setup_form_missing_items(p_id, true);
 end $$;
 
--- Setup staff who validate forms also review the uploaded documents, as in Client Inputs.
-create or replace function public.client_inputs_can() returns boolean
+-- Setup staff who validate forms review the documents of forms. Other portal uploads stay with Client Inputs staff, so
+-- these three are Client Base 003's functions with that one addition, and client_inputs_can and the list stay as they are.
+create or replace function public.business_setup_form_doc_can(p_id uuid) returns boolean
 language sql stable security definer set search_path = public, pg_temp as $$
-  select client_portal_is_admin() or business_setup_can('setup.kyc.manage') or exists (select 1 from member_tab_access where profile_id = auth.uid() and tab_key = 'clients')
+  select business_setup_can('setup.kyc.manage') and exists (select 1 from client_portal_documents where id = p_id and form_id is not null)
 $$;
+
+create or replace function public.client_inputs_assign(p_id uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not (client_inputs_can() or business_setup_form_doc_can(p_id)) then raise exception 'You do not have access to Client Inputs.'; end if;
+  update client_portal_documents set status = 'in_review', assigned_to = auth.uid(), assigned_at = now()
+   where id = p_id and status = 'pending' and upload_complete;
+  if not found then raise exception 'Someone else has already taken this document.'; end if;
+end $$;
+
+create or replace function public.client_inputs_release(p_id uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not (client_inputs_can() or business_setup_form_doc_can(p_id)) then raise exception 'You do not have access to Client Inputs.'; end if;
+  update client_portal_documents set status = 'pending', assigned_to = null, assigned_at = null
+   where id = p_id and status = 'in_review' and (assigned_to = auth.uid() or client_portal_is_admin());
+  if not found then raise exception 'Only the person it is assigned to can release this document.'; end if;
+end $$;
+
+create or replace function public.client_inputs_file(p_id uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare r jsonb;
+begin
+  if not (client_inputs_can() or business_setup_form_doc_can(p_id)) then raise exception 'You do not have access to Client Inputs.'; end if;
+  select jsonb_build_object('id', d.id, 'storage_path', d.storage_path, 'file_name', d.file_name, 'doc_type', d.doc_type,
+         'status', d.status, 'client', a.display_name, 'filed_path', d.filed_path, 'actor', auth.uid(),
+         'can_review', d.assigned_to = auth.uid() or client_portal_is_admin())
+    into r from client_portal_documents d join client_portal_accounts a on a.id = d.account_id
+   where d.id = p_id and d.upload_complete;
+  if r is null then raise exception 'Document not found.'; end if;
+  return r;
+end $$;
 
 create or replace function public.business_setup_dash_forms() returns int
 language sql stable security definer set search_path = public, pg_temp as $$
   select count(*)::int from business_setup_onboarding_forms where status in ('Submitted', 'In review')
 $$;
 
-revoke all on function public.business_setup_form_for_account(), public.business_setup_form_missing_items(uuid, boolean), public.business_setup_person_name(uuid),
+revoke all on function public.business_setup_form_create(text, uuid), public.business_setup_form_doc_can(uuid), public.business_setup_form_missing_items(uuid, boolean), public.business_setup_person_name(uuid),
   public.business_setup_form_get(uuid), public.business_setup_form_save(uuid, jsonb), public.business_setup_form_submit(uuid),
   public.business_setup_form_list(text), public.business_setup_form_detail(uuid), public.business_setup_form_take(uuid), public.business_setup_form_return(uuid, text),
   public.business_setup_form_validate(uuid, jsonb, integer), public.business_setup_form_missing(uuid), public.business_setup_dash_forms() from public, anon, authenticated;

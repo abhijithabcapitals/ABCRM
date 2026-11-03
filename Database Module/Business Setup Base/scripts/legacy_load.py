@@ -1,7 +1,7 @@
 """Turns the Business Setup department's workbooks and old CRM exports into rows for migration 012.
 
     python legacy_load.py --resources "<folder>" --out "<folder>/rows.json"
-    python legacy_load.py --resources "<folder>" --out "<folder>/rows.json" --sql-out "<folder>/stage.sql" --import-id <uuid>
+    python legacy_load.py --resources "<folder>" --out "<folder>/rows.json" --sql-out "<folder>/stage.sql" --import-id <uuid> --admin <profile uuid>
 
 The Master List sheet is the authority for licence data and Business Setup Master for visa dates. The CSV
 exports are read only for status, because their other custom columns came out empty. Writes files and
@@ -190,10 +190,11 @@ def main(argv=None):
     a.add_argument("--out", required=True)
     a.add_argument("--sql-out")
     a.add_argument("--import-id")
+    a.add_argument("--admin", help="profile of the person staging the rows, who needs setup.import.manage")
     a.add_argument("--ignore-lock", action="store_true", help="read a workbook that is open in Excel; for a dry run only, as it may be missing unsaved edits")
     args = a.parse_args(argv)
-    if args.sql_out and not args.import_id:
-        a.error("--sql-out needs --import-id")
+    if args.sql_out and not (args.import_id and args.admin):
+        a.error("--sql-out needs --import-id and --admin")
     if not args.ignore_lock:
         for name in (WORK_SHEET, VISA_SHEET, EJARI_SHEET):
             check_not_open(Path(args.resources) / name)
@@ -201,11 +202,13 @@ def main(argv=None):
     Path(args.out).write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf8")
     if args.sql_out:
         with open(args.sql_out, "w", encoding="utf8") as f:
+            f.write(f"begin;\nselect set_config('request.jwt.claim.sub', '{args.admin}', true);\n")
             for i in range(0, len(rows), CHUNK):
                 body = json.dumps(rows[i:i + CHUNK], ensure_ascii=False)
                 if "$json$" in body:
                     raise ValueError("A row holds the SQL quote marker")
                 f.write(f"select public.business_setup_import_stage('{args.import_id}', $json${body}$json$::jsonb);\n")
+            f.write("commit;\n")
     report(rows)
 
 

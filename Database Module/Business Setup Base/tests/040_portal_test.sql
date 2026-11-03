@@ -19,6 +19,7 @@ insert into public.client_master (client_id, legal_name, data) values
 insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values ('CL900080', 'A', 'portal.a', 'x'), ('CL900081', 'B', 'portal.b', 'x');
 insert into public.client_portal_accounts (display_name, username, password_hash) values ('Nobody', 'portal.none', 'x');
 insert into f40 select 'acc_a', id::text from public.client_portal_accounts where username = 'portal.a';
+select public.business_setup_form_create('CL900080', pg_temp.fx('acc_a')::uuid);
 insert into f40 select 'acc_b', id::text from public.client_portal_accounts where username = 'portal.b';
 insert into f40 select 'acc_none', id::text from public.client_portal_accounts where username = 'portal.none';
 -- An older account linked only through its Banking client.
@@ -91,6 +92,7 @@ select public.bs_check('banking-linked account resolves', public.business_setup_
 select public.bs_check('unlinked account gets empty view', public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'services' = '[]'::jsonb and public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'quotes' = '[]'::jsonb);
 select public.bs_check('unlinked account has no form', public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'form' = 'null'::jsonb or public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'form' is null);
 select public.bs_check('contact from client master', public.client_portal_me(pg_temp.fx('acc_a')::uuid) -> 'record' ->> 'email' = 'master@a.test' and public.client_portal_me(pg_temp.fx('acc_a')::uuid) -> 'record' ->> 'phone' = '+971501');
+select public.bs_check('a Banking client gets no form', public.business_setup_portal_view(pg_temp.fx('acc_banking')::uuid) -> 'form' = 'null'::jsonb and not exists (select 1 from public.business_setup_kyc_profiles where client_id = 'CL900082'));
 select public.bs_check('a Banking-only client keeps the old portal', public.client_portal_me(pg_temp.fx('acc_none')::uuid) ? 'documents');
 
 -- ── A revoked login ──

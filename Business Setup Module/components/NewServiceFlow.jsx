@@ -28,11 +28,12 @@ export default function NewServiceFlow({ w, clientId, revises, onClose, onDone }
   const issue = async () => {
     const bad = rows.find((r) => !r.service_name.trim() || r.amount === "" || Number(r.amount) < 0);
     if (bad) return setError("Each line needs a service and a fee.");
+    if (!w.client.email || !w.client.phone) return setError("Add the client's email and phone first, on the KYC tab.");
     setBusy(true); setError(null);
     const lines = buildLines(rows);
     try {
-      const doc = await createDocument({ doc_type: "quote", department: "Business Setup", client_id: clientId, client_name: w.client.legal_name, contact_name: w.client.data?.["Primary Contact"]?.split(";")[0] || null,
-        contact_email: w.client.email, contact_phone: w.client.phone, services: lines.map((l) => l.service_name), lines, vat_mode: vat, valid_until: validUntil, template_key: template, revises_id: revises?.id || null, notes: w.kyc?.business_activity || null });
+      const doc = await createDocument({ doc_type: "quote", department: "Business Setup", client_id: clientId, client_name: w.client.legal_name, contact_name: w.client.data?.["Primary Contact"]?.split(";")[0] || w.client.legal_name,
+        contact_email: w.client.email, contact_phone: w.client.phone, client_address: w.client.data?.["Registered Address"] || null, services: lines.map((l) => l.service_name), lines, vat_mode: vat, valid_until: validUntil, template_key: template, revises_id: revises?.id || null, notes: w.kyc?.business_activity || null });
       try { await fileQuote(doc, w.kyc?.business_activity); } catch (e) { setError(`Quote ${doc.document_number} is saved, but its file was not created: ${e.message}. Use Create file on the quote.`); setBusy(false); return null; }
       await onDone();
     } catch (e) { setError(e.message); setBusy(false); }

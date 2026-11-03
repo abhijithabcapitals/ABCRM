@@ -13,6 +13,7 @@ declare a uuid; f uuid;
 begin
   insert into public.client_master (client_id, legal_name, data) values (p_client, p_client || ' LLC', '{}') on conflict do nothing;
   insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values (p_client, p_client, lower(p_client), 'x') returning id into a;
+  perform public.business_setup_form_create(p_client, a);
   select id into f from public.business_setup_onboarding_forms where account_id = a;
   update public.business_setup_onboarding_forms set answers = p_answers, status = p_status where id = f;
   insert into f30 values (p_key, f::text), (p_key || '_acc', a::text);
@@ -32,6 +33,8 @@ select public.bs_as(null);
 insert into public.client_master (client_id, legal_name, data) values ('CL900050', 'Form Client LLC', '{}');
 insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values ('CL900050', 'Form Client', 'form.client', 'x');
 insert into f30 select 'acc', id::text from public.client_portal_accounts where username = 'form.client';
+select public.bs_check('a login made elsewhere creates no form', not exists (select 1 from public.business_setup_onboarding_forms where client_id = 'CL900050'));
+select public.business_setup_form_create('CL900050', pg_temp.fx('acc')::uuid);
 select public.bs_check('login creates form', exists (select 1 from public.business_setup_onboarding_forms where account_id = pg_temp.fx('acc')::uuid and status = 'Draft' and form_version = 1));
 select public.bs_check('the client is listed under Business Setup', exists (select 1 from public.business_setup_kyc_profiles where client_id = 'CL900050'));
 select public.bs_check('one open form', (select count(*) from public.business_setup_onboarding_forms where client_id = 'CL900050' and status <> 'Validated') = 1);
@@ -40,6 +43,7 @@ select public.bs_expect_error($$insert into business_setup_onboarding_forms (cli
 insert into public.client_master (client_id, legal_name, data) values ('CL900051', 'Imported LLC', '{}');
 insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL900051', 'Done');
 insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values ('CL900051', 'Imported', 'imported.client', 'x');
+select public.business_setup_form_create('CL900051', (select id from public.client_portal_accounts where username = 'imported.client'));
 select public.bs_check('a KYC done client gets no form', not exists (select 1 from public.business_setup_onboarding_forms where client_id = 'CL900051'));
 select public.bs_check('form_get is empty for them', public.business_setup_form_get((select id from public.client_portal_accounts where username = 'imported.client')) is null);
 
@@ -58,6 +62,7 @@ insert into f30 select 'f1', id::text from public.business_setup_onboarding_form
 select public.bs_check('dashboard counts it', public.business_setup_dash_forms() >= 1);
 
 -- ── Who may call what ──
+insert into f30 select 'f1_doc', id::text from public.client_portal_documents where form_id = pg_temp.fx('f1')::uuid limit 1;
 select public.bs_check('portal functions are for the service role only',
   not has_function_privilege('authenticated', 'public.business_setup_form_get(uuid)', 'execute') and not has_function_privilege('anon', 'public.business_setup_form_save(uuid, jsonb)', 'execute')
   and not has_function_privilege('authenticated', 'public.business_setup_form_submit(uuid)', 'execute') and has_function_privilege('service_role', 'public.business_setup_form_get(uuid)', 'execute'));
@@ -69,7 +74,9 @@ select public.bs_expect_error(format($$select business_setup_form_validate('%s',
 
 -- ── Staff review ──
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.bs_check('document reviewers include Setup staff', public.client_inputs_can());
+select public.bs_check('Setup staff are not Client Inputs reviewers', not public.client_inputs_can());
+select public.bs_expect_error($$select client_inputs_list()$$, 'access');
+select public.bs_check('Setup staff can open a form document', public.client_inputs_file(pg_temp.fx('f1_doc')::uuid) ->> 'doc_type' is not null);
 select public.bs_check('the form is in the waiting list', exists (select 1 from jsonb_array_elements(public.business_setup_form_list('Submitted')) e where e ->> 'id' = pg_temp.fx('f1')));
 select public.business_setup_form_take(pg_temp.fx('f1')::uuid) as ignored \gset
 select public.bs_check('in review', (select status = 'In review' from public.business_setup_onboarding_forms where id = pg_temp.fx('f1')::uuid));
@@ -155,6 +162,26 @@ select public.bs_expect_error(format($$select business_setup_form_validate('%s',
 select public.bs_check('detail shows both values', public.business_setup_form_detail(pg_temp.fx('f_conflict')::uuid) ->> 'master_email' = 'old@b.test' and public.business_setup_form_detail(pg_temp.fx('f_conflict')::uuid) -> 'answers' ->> 'email' = 'a@b.test');
 select public.business_setup_form_validate(pg_temp.fx('f_conflict')::uuid, '{"email":"old@b.test"}', null) as ignored \gset
 select public.bs_check('staff choice is kept', (select data ->> 'General Email' = 'old@b.test' and data ->> 'General Phone' = '+971500000001' from public.client_master where client_id = 'CL900060'));
+select public.bs_as(null);
+
+-- ── Validation keeps what the CRM already holds ──
+select public.bs_as(null);
+select pg_temp.mk('CL900061', 'f_keep', pg_temp.ans() || '{"zone":null}') as ignored \gset
+select pg_temp.doc(pg_temp.fx('f_keep')::uuid, 'Passport');
+select pg_temp.doc(pg_temp.fx('f_keep')::uuid, 'Ejari');
+update public.business_setup_kyc_profiles set jurisdiction = 'IFZA', licence_number = 'L-KEEP', licence_expiry = '2030-01-01', company_status = 'Existing', business_activity = 'Staff activity' where client_id = 'CL900061';
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_form_validate(pg_temp.fx('f_keep')::uuid, '{}', null) as ignored \gset
+select public.bs_check('validation keeps existing KYC values', (select jurisdiction = 'IFZA' and licence_number = 'L-KEEP' and licence_expiry = '2030-01-01' and company_status = 'Existing' and business_activity = 'Staff activity' from public.business_setup_kyc_profiles where client_id = 'CL900061'));
+select public.bs_check('kept values are recorded', public.bs_audit_count('form_validate', pg_temp.fx('f_keep'), '{"kept":["company_status","business_activity"]}') = 1);
+-- A plain portal upload stays with Client Inputs staff.
+select public.bs_as(null);
+insert into public.client_portal_documents (account_id, doc_type, file_name, storage_path, upload_complete, status)
+  select account_id, 'Bank Statement', 'bank.pdf', gen_random_uuid()::text, true, 'pending' from public.business_setup_onboarding_forms where id = pg_temp.fx('f_keep')::uuid;
+insert into f30 select 'plain', id::text from public.client_portal_documents where file_name = 'bank.pdf';
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select client_inputs_file('%s')$$, pg_temp.fx('plain')), 'access');
+select public.bs_expect_error(format($$select client_inputs_assign('%s')$$, pg_temp.fx('plain')), 'access');
 select public.bs_as(null);
 
 -- ── Summary: raise when anything failed so psql exits non-zero ──

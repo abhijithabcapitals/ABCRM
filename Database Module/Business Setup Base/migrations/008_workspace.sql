@@ -62,7 +62,7 @@ values ('business-setup-documents', 'business-setup-documents', false, 26214400,
 on conflict (id) do update set public = false;
 drop policy if exists business_setup_docs_read on storage.objects;
 create policy business_setup_docs_read on storage.objects for select to authenticated
-  using (bucket_id = 'business-setup-documents' and public.business_setup_can('setup.access'));
+  using (bucket_id = 'business-setup-documents' and (public.business_setup_can('setup.access') or public.banking_can('accounts.review')));
 drop policy if exists business_setup_docs_insert on storage.objects;
 create policy business_setup_docs_insert on storage.objects for insert to authenticated
   with check (bucket_id = 'business-setup-documents' and (public.business_setup_can('setup.services.manage') or public.business_setup_can('setup.kyc.manage')));

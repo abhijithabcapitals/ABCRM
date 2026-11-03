@@ -169,6 +169,7 @@ begin
            failed_attempts = 0, locked_until = null, revoked_at = null, revoked_by = null where id = v_id;
     delete from client_portal_sessions where account_id = v_id;
   end if;
+  perform business_setup_form_create(p_client, v_id);
   perform business_setup_audit('client_portal_accounts', v_id::text, 'login_save', null, jsonb_build_object('client_id', p_client, 'username', v_user));
   return v_id;
 end $$;

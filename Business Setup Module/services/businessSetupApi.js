@@ -29,6 +29,8 @@ export const usdRate = async () => {
 export const saveKyc = (client, p) => rpc("business_setup_kyc_save", { p_client: client, p });
 export const savePartner = (client, p) => rpc("business_setup_partner_save", { p_client: client, p });
 export const deletePartner = (id) => rpc("business_setup_partner_delete", { p_id: id });
+export const saveClientContact = (client, data, version) => rpc("client_master_save", { p_id: client, p_data: data, p_version: version });
+export const saveVisa = (p) => rpc("business_setup_visa_save", { p });
 
 // Fees and templates
 export const listFees = () => run(table("business_setup_fee_items").select("*").order("sort_order"));
@@ -46,6 +48,7 @@ export const completeService = (id, details, reason = null) => rpc("business_set
 
 // Money
 export const addPayment = (p) => rpc("business_setup_payment_add", { p });
+export const addRefund = (p) => rpc("business_setup_refund_add", { p });
 export const reversePayment = (id, reason) => rpc("business_setup_payment_reverse", { p_id: id, p_reason: reason });
 export const attachReceipt = (id, path) => rpc("business_setup_receipt_attach", { p_id: id, p_path: path });
 export async function storeReceipt(receiptId, blob, fileName) {

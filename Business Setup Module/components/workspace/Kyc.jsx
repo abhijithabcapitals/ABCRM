@@ -4,12 +4,15 @@ import { Button, DataTable, ErrorNote, FilePick, FormGrid, FormModal, Panel, fmt
 import { readDocuments } from "@banking/services/bankingApi";
 import { buildAutofill } from "@banking/logic/kycAutofill";
 import { useSetup } from "../SetupContext";
-import { deletePartner, saveKyc, savePartner } from "../../services/businessSetupApi";
+import { deletePartner, saveClientContact, saveKyc, savePartner } from "../../services/businessSetupApi";
 
 const FIELDS = [
   { name: "company_status", label: "Company status", type: "select", options: ["New", "Existing"], required: true },
   { name: "business_activity", label: "Business activity", required: true }, { name: "jurisdiction", label: "Jurisdiction" },
   { name: "licence_number", label: "Licence number" }, { name: "licence_expiry", label: "Licence expiry", type: "date" }, { name: "issuing_authority", label: "Issuing authority" },
+];
+const CONTACT = [
+  { name: "Primary Contact", label: "Contact person" }, { name: "General Email", label: "Email" }, { name: "General Phone", label: "Phone" }, { name: "Registered Address", label: "Address", full: true },
 ];
 const PARTNER = [
   { name: "full_name", label: "Name", required: true }, { name: "nationality", label: "Nationality", required: true }, { name: "share_percent", label: "Share %", type: "number" }, { name: "is_ubo", label: "Ultimate beneficial owner", type: "bool" },
@@ -22,6 +25,7 @@ export default function Kyc({ w, clientId, reload }) {
   const sensitive = can("setup.kyc.sensitive");
   const [values, setValues] = useState({ ...w.kyc, issuing_authority: w.kyc?.details?.issuing_authority || "" });
   const [partner, setPartner] = useState(null);
+  const [contact, setContact] = useState(Object.fromEntries(CONTACT.map((f) => [f.name, w.client.data?.[f.name] || ""])));
   const [reading, setReading] = useState(false);
   const [note, setNote] = useState(null);
   const { error, setError, busy, act } = useAction(reload);
@@ -37,9 +41,14 @@ export default function Kyc({ w, clientId, reload }) {
   };
   const save = () => act(() => saveKyc(clientId, { company_status: values.company_status, business_activity: values.business_activity, jurisdiction: values.jurisdiction,
     licence_number: values.licence_number, licence_expiry: values.licence_expiry, details: { issuing_authority: values.issuing_authority } }));
+  const saveContact = () => act(() => saveClientContact(clientId, { "Client Legal Name": w.client.data?.["Client Legal Name"] || w.client.legal_name, ...contact }, w.client.version));
   return (
     <div>
       <ErrorNote message={error} onClose={() => setError(null)} />
+      <Panel title="Contact" sub="Kept in Client Master, the one place for these details.">
+        {w.client.data ? <FormGrid fields={CONTACT} values={contact} setValues={setContact} /> : <p className="bk-note">You do not have access to these details.</p>}
+        {can("kyc.manage") && w.client.data && <div className="bk-modal-actions"><Button variant="primary" busy={busy} onClick={saveContact}>Save contact</Button></div>}
+      </Panel>
       {note && <div className="bk-alert bk-alert-ok">{note}</div>}
       <Panel title="Company" sub={w.kyc_status?.missing?.length ? `Still missing: ${w.kyc_status.missing.join(", ")}` : "KYC details are complete."}
         actions={manage && <FilePick label="Fill from documents" busy={reading} onFile={read} accept=".pdf,.png,.jpg,.jpeg" />}>
