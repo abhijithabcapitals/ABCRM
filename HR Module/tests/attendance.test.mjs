@@ -28,10 +28,16 @@ test("groupRange makes one line per employee keyed by date", () => {
 });
 test("canEditDay follows the database rules", () => {
   const today = "2025-03-10";
-  assert.equal(canEditDay({ role: "hr", myId: "m", employeeId: "m", date: "2025-03-09", today }), true, "HR may set their own");
+  assert.equal(canEditDay({ role: "hr", myId: "m", employeeId: "m", date: "2025-03-09", today }), true, "HR may ask for their own");
   assert.equal(canEditDay({ role: "manager", myId: "m", employeeId: "r", date: "2025-03-09", today }), true);
-  assert.equal(canEditDay({ role: "manager", myId: "m", employeeId: "m", date: "2025-03-09", today }), false, "manager not own");
-  assert.equal(canEditDay({ role: "employee", myId: "e", employeeId: "e", date: "2025-03-09", today }), false);
+  assert.equal(canEditDay({ role: "manager", myId: "m", employeeId: "m", date: "2025-03-09", today }), true, "a manager may ask for their own");
+  assert.equal(canEditDay({ role: "employee", myId: "e", employeeId: "e", date: "2025-03-09", today }), true, "an employee may ask for their own");
+  assert.equal(canEditDay({ role: "employee", myId: "e", employeeId: "x", date: "2025-03-09", today }), false, "not someone else's");
+  assert.equal(canEditDay({ role: "employee", myId: "e", employeeId: "e", date: "2025-03-11", today }), false, "not a future day");
+  assert.equal(canEditDay({ role: "employee", myId: "e", employeeId: "e", date: "2025-03-09", today, status: "Holiday" }), false, "not their own holiday");
+  assert.equal(canEditDay({ role: "hr", myId: "e", employeeId: "e", date: "2025-03-09", today, status: "Weekend" }), false, "not HR's own weekly off");
+  assert.equal(canEditDay({ role: "hr", myId: "e", employeeId: "e", date: "2025-03-09", today, status: "Weekend", isAdmin: true }), true, "an admin may");
+  assert.equal(canEditDay({ role: "hr", myId: "m", employeeId: "x", date: "2025-03-09", today, status: "Holiday" }), true, "HR on someone else's holiday");
   assert.equal(canEditDay({ role: "hr", myId: "m", employeeId: "x", date: "2025-03-11", today }), false, "future");
   assert.equal(canEditDay({ role: "hr", myId: "m", employeeId: "x", date: "2025-03-10", today }), true, "today");
 });

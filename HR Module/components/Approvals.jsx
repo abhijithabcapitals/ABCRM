@@ -6,7 +6,7 @@ import { statusLabel } from "../logic/attendance";
 const value = (v) => {
   if (!v) return "Nothing recorded";
   const times = v.time_in || v.time_out ? ` ${String(v.time_in || "?").slice(0, 5)}-${String(v.time_out || "?").slice(0, 5)}` : "";
-  return `${statusLabel(v)}${times}`;
+  return `${v.use_annual ? "Annual leave" : statusLabel(v)}${times}`;
 };
 const TONE = { approved: "good", rejected: "bad", superseded: "plain" };
 

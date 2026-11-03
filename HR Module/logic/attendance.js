@@ -200,12 +200,13 @@ export function withEveryone(groups, today) {
   return [...groups, ...blank].sort((a, b) => String(a.employee_code).localeCompare(String(b.employee_code)));
 }
 
-export function canEditDay({ role, myId, employeeId, date, today, employeeStatus, exitDate }) {
+export function canEditDay({ role, myId, employeeId, date, today, employeeStatus, exitDate, status, isAdmin }) {
   if (date > today) return false;
   if (employeeStatus === "Left" && !exitDate) return false;
   if (exitDate && date > exitDate) return false;
+  if (employeeId === myId) return isAdmin || !["Holiday", "Weekend"].includes(status);
   if (role === "hr") return true;
-  if (role === "manager") return employeeId !== myId;
+  if (role === "manager") return true;
   return false;
 }
 

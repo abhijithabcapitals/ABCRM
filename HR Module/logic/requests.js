@@ -1,4 +1,5 @@
 // Staff requests. Leave stays in hr_leave_requests and everything else in hr_requests; the Requests screen shows both as one list.
+import { parseTime, statusLabel } from "./attendance.js";
 export const REQUEST_KINDS = {
   half_day: { label: "Half day", approver: "Your manager or HR", fields: ["work_date", "note"] },
   wfh: { label: "Work from home", approver: "Your manager or HR", fields: ["work_date", "note"] },
@@ -68,3 +69,31 @@ export function insuranceEnd(start, months) {
   last.setUTCDate(last.getUTCDate() - 1);
   return last.toISOString().slice(0, 10);
 }
+
+// An employee's correction of their own day.
+export const CORRECTIONS = [
+  { value: "annual", label: "Use Annual leave" },
+  { value: "wfh", label: "Work from home" },
+  { value: "timing", label: "Change timing" },
+];
+
+export function correctionValues(v) {
+  if (v.choice === "annual") return { status: "Leave", timeIn: null, timeOut: null, useAnnual: true };
+  if (v.choice === "wfh") return { status: "WFH", timeIn: null, timeOut: null, useAnnual: false };
+  if (v.choice !== "timing") throw new Error("Choose what to do with this day");
+  const timeIn = parseTime(v.time_in);
+  const timeOut = parseTime(v.time_out);
+  if (!timeIn || !timeOut) throw new Error("Give both the login and logoff times");
+  return { status: "Present", timeIn, timeOut, useAnnual: false };
+}
+
+const dayValue = (v) => {
+  if (!v?.status) return "Nothing recorded";
+  if (v.use_annual) return "Annual leave";
+  const times = v.time_in || v.time_out ? ` ${String(v.time_in || "?").slice(0, 5)}-${String(v.time_out || "?").slice(0, 5)}` : "";
+  return `${statusLabel(v)}${times}`;
+};
+const HISTORY_VERB = { "attendance.edit_requested": "Asked", "attendance.edit_approved": "Validated", "attendance.edit_rejected": "Rejected", "attendance.created": "Changed", "attendance.updated": "Changed" };
+
+// One row of hr_attendance_history in words.
+export const historyLine = (e) => `${HISTORY_VERB[e.action] || e.action}: ${dayValue(e.old_values)} to ${dayValue(e.new_values)}`;

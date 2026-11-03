@@ -24,6 +24,7 @@ Apply in this order, after the CRM base schema. Each can run more than once safe
 | `migrations/013_hr_pay_rules.sql` | 9-hour late rule, Annual leave accrual and ledger, pay deduction from the ledger, gratuity from unpaid days only, `hr_salary_payments` and its functions |
 | `migrations/014_hr_requests.sql` | `hr_insurance`, `hr_mobile_plans`, `hr_assets`, `hr_finance_managers`, `hr_requests` and its functions (half day, work from home, late concession, overtime, expense claims, other), and what approved requests do to days, leave and pay |
 | `migrations/015_hr_attendance_hr_power.sql` | The HR list changes attendance directly and decides approvals, except for their own day |
+| `migrations/016_hr_self_corrections.sql` | Employees ask to use Annual leave, work from home or correct the times on their own day, HR validates, and `hr_attendance_history` shows the trail |
 | `seed_ab_capital.sql` | Company values, run once on live after 014: hours, Sunday off, WFH Saturdays, Absent from blank days, deduction settings, Annual and Unpaid leave, 1,000 AED salaries. Not numbered, so test fixtures stay their own |
 | `seed_holidays.sql` | Holidays and marks for 2026 to 2036, run once on live after 011. Its header says where each date comes from |
 | `seed_leave_balances_2026.sql` | Opening Annual leave balances and join dates, run once on live after `seed_ab_capital.sql` |
@@ -34,7 +35,7 @@ Admins add or import employees in Settings > Employees, then onboard a member fr
 
 ## Tests
 
-Run `bash "Database Module/HR Base/tests/run-local.sh"`. It starts a throwaway Postgres, applies 001 to 015 twice (idempotence), then runs the eleven test files (`010_hr_test.sql` access and employees, `020_hr_leave_test.sql`, `030_hr_attendance_test.sql`, `040_hr_payroll_test.sql`, `050_hr_review_fixes_test.sql`, `060_hr_biometric_test.sql`, `070_hr_day_status_test.sql`, `080_hr_calendar_profile_test.sql`, `090_hr_pay_rules_test.sql`, `100_hr_requests_test.sql`, `110_hr_attendance_power_test.sql`) and prints a passed/failed count for each. Nothing touches Supabase. It needs PostgreSQL 18 under `C:\Program Files\PostgreSQL\18\bin` (or `PG_BIN`), and it reuses `Banking Base/tests/000_stub.sql`.
+Run `bash "Database Module/HR Base/tests/run-local.sh"`. It starts a throwaway Postgres, applies 001 to 016 twice (idempotence), then runs the twelve test files (`010_hr_test.sql` access and employees, `020_hr_leave_test.sql`, `030_hr_attendance_test.sql`, `040_hr_payroll_test.sql`, `050_hr_review_fixes_test.sql`, `060_hr_biometric_test.sql`, `070_hr_day_status_test.sql`, `080_hr_calendar_profile_test.sql`, `090_hr_pay_rules_test.sql`, `100_hr_requests_test.sql`, `110_hr_attendance_power_test.sql`, `120_hr_self_corrections_test.sql`) and prints a passed/failed count for each. Nothing touches Supabase. It needs PostgreSQL 18 under `C:\Program Files\PostgreSQL\18\bin` (or `PG_BIN`), and it reuses `Banking Base/tests/000_stub.sql`.
 
 The server sometimes fails to start with `pg_ctl: could not start server`. Run the script again.
 
