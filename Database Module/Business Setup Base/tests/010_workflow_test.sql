@@ -69,6 +69,10 @@ end $$;
 create function public.t_rows_changed(p_sql text) returns bigint language plpgsql as $$
 declare n bigint;
 begin execute p_sql; get diagnostics n = row_count; return n; end $$;
+-- Who may call what, checked before the blanket grant below hides it.
+select public.bs_check('API roles cannot call the internal payment and gate helpers', not has_function_privilege('authenticated', 'public.business_setup_net_paid(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.business_setup_start_gate(uuid, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_net_paid(uuid)', 'execute'));
+select public.bs_check('only signed-in users can call the tracker functions', has_function_privilege('authenticated', 'public.business_setup_service_update(uuid, text, jsonb, text)', 'execute') and has_function_privilege('authenticated', 'public.business_setup_service_complete(uuid, jsonb, text)', 'execute') and has_function_privilege('authenticated', 'public.business_setup_quote_template_save(jsonb)', 'execute')
+  and not has_function_privilege('anon', 'public.business_setup_service_update(uuid, text, jsonb, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_service_complete(uuid, jsonb, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_quote_template_save(jsonb)', 'execute'));
 grant execute on all functions in schema public to authenticated;
 
 select public.t_anon_refused('anon cannot select settings', 'select * from public.business_setup_settings');
@@ -201,6 +205,533 @@ select public.as_user('00000000-0000-0000-0000-0000000000d1');
 set role authenticated;
 select public.bs_expect_error('select business_setup_require(''setup.access'')', 'permission');
 reset role;
+
+-- ── Workflow: quotes, KYC, services, payments rules (users act through Business Setup roles) ──
+reset role;
+-- Act as a signed-in CRM user (null: back to the table owner).
+create function public.bs_as(p_user uuid) returns void language plpgsql as $$
+begin
+  perform set_config('request.jwt.claim.sub', coalesce(p_user::text, ''), false);
+  perform set_config('role', case when p_user is null then 'postgres' else 'authenticated' end, false);
+end $$;
+grant execute on function public.bs_as(uuid) to authenticated;
+-- Counts audit rows whatever the caller may read (the log needs setup.audit.view): action, optional row id, and a subset of new_data.
+create function public.bs_audit_count(p_action text, p_row text, p_new jsonb) returns bigint language sql security definer set search_path = public, pg_temp as $$
+  select count(*) from public.business_setup_audit_log where action = p_action and (p_row is null or row_id = p_row) and new_data @> p_new
+$$;
+grant execute on function public.bs_audit_count(text, text, jsonb) to authenticated;
+insert into public.profiles (id, full_name, role) values
+  ('00000000-0000-0000-0000-00000000000a', 'Admin', 'admin'),
+  ('00000000-0000-0000-0000-00000000000b', 'Manager', 'member'),
+  ('00000000-0000-0000-0000-00000000000c', 'Sales', 'member'),
+  ('00000000-0000-0000-0000-00000000000d', 'Docs', 'member'),
+  ('00000000-0000-0000-0000-00000000000e', 'Finance', 'member'),
+  ('00000000-0000-0000-0000-000000000099', 'Outsider', 'member');
+insert into public.business_setup_staff (user_id, role) values
+  ('00000000-0000-0000-0000-00000000000b', 'MANAGER'), ('00000000-0000-0000-0000-00000000000c', 'SALES_EXECUTIVE'),
+  ('00000000-0000-0000-0000-00000000000d', 'DOCUMENT_EXECUTIVE'), ('00000000-0000-0000-0000-00000000000e', 'FINANCE');
+
+-- ── Test data (as table owner) ──
+insert into public.client_master (client_id, legal_name, data) values ('CL900001', 'Test Client LLC', '{}');
+insert into public.business_setup_fee_items (grp, name, default_amount) values ('Test', 'Item A', 100);
+insert into public.business_setup_services (client_id, name) values ('CL900001', 'Test service');
+insert into public.business_setup_service_history (service_id, to_status) select id, 'Not started' from public.business_setup_services;
+insert into public.business_setup_payments (client_id, paid_on, amount, type) values ('CL900001', current_date, 100, 'Payment');
+insert into public.business_setup_kyc_profiles (client_id) values ('CL900001');
+insert into public.business_setup_kyc_partners (kyc_id, full_name, passport_number)
+  select id, 'Partner One', 'P1234567' from public.business_setup_kyc_profiles;
+
+-- ── Append-only (table owner, so only the trigger can refuse) ──
+select public.bs_expect_error($$update business_setup_payments set amount = 1$$, 'append-only');
+select public.bs_expect_error($$delete from business_setup_payments$$, 'append-only');
+select public.bs_expect_error($$update business_setup_service_history set note = 'x'$$, 'append-only');
+select public.bs_expect_error($$delete from business_setup_service_history$$, 'append-only');
+
+-- ── Payments: shape rules ──
+select public.bs_expect_error($$insert into business_setup_payments (client_id, paid_on, amount, type) values ('CL900001', current_date, -5, 'Payment')$$, 'check');
+select public.bs_expect_error($$insert into business_setup_payments (client_id, paid_on, amount, type) values ('CL900001', current_date, 0, 'Payment')$$, 'check');
+select public.bs_expect_error($$insert into business_setup_payments (client_id, paid_on, amount, type) values ('CL900001', current_date, 5, 'Gift')$$, 'check');
+select public.bs_expect_error($$insert into business_setup_payments (client_id, paid_on, amount, type) values ('CL900001', current_date, 5, 'Reversal')$$, 'check');
+select public.bs_expect_error($$insert into business_setup_payments (client_id, paid_on, amount, type, reverses_id) select client_id, current_date, 5, 'Payment', id from business_setup_payments$$, 'check');
+insert into public.business_setup_payments (client_id, paid_on, amount, type, reverses_id)
+  select client_id, current_date, amount, 'Reversal', id from public.business_setup_payments where type = 'Payment';
+select public.bs_expect_error($$insert into business_setup_payments (client_id, paid_on, amount, type, reverses_id) select client_id, current_date, amount, 'Reversal', id from business_setup_payments where type = 'Payment'$$, 'duplicate key');
+select public.bs_expect_error($$insert into business_setup_payments (client_id, paid_on, amount, type) values ('CL000000', current_date, 5, 'Payment')$$, 'foreign key');
+
+-- ── Fee master ──
+select public.bs_expect_error($$insert into business_setup_fee_items (grp, name, default_amount) values ('Test', 'Item A', 5)$$, 'duplicate key');
+insert into public.business_setup_fee_items (grp, name, default_amount) values ('Other', 'Item A', 5);
+select public.bs_check('same name allowed in another group', (select count(*) from public.business_setup_fee_items where name = 'Item A') = 2);
+
+-- ── Receipts: only file locations change ──
+insert into public.business_setup_receipts (payment_id, receipt_number)
+  select id, 'TEST-R1' from public.business_setup_payments where type = 'Payment';
+update public.business_setup_receipts set storage_path = 'a/b.pdf', local_path = 'C:/x/b.pdf';
+select public.bs_check('receipt file locations can be set', (select storage_path = 'a/b.pdf' from public.business_setup_receipts));
+select public.bs_expect_error($$update business_setup_receipts set receipt_number = 'TEST-R2'$$, 'append-only');
+select public.bs_expect_error($$delete from business_setup_receipts$$, 'append-only');
+
+-- ── Signed-in users cannot write directly ──
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error($$insert into business_setup_fee_items (name) values ('x')$$, 'permission denied');
+select public.bs_expect_error($$insert into business_setup_payments (client_id, paid_on, amount, type) values ('CL900001', current_date, 5, 'Payment')$$, 'permission denied');
+select public.bs_expect_error($$update business_setup_services set name = 'x'$$, 'permission denied');
+select public.bs_expect_error($$delete from business_setup_kyc_profiles$$, 'permission denied');
+
+-- ── Read access ──
+select public.bs_check('sales reads services', (select count(*) from public.business_setup_services) = 1);
+select public.bs_check('sales reads kyc profile', (select count(*) from public.business_setup_kyc_profiles) = 1);
+select public.bs_check('sales cannot see partner IDs', (select count(*) from public.business_setup_kyc_partners) = 0);
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.bs_check('document executive sees partner IDs', (select count(*) from public.business_setup_kyc_partners) = 1);
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_check('finance reads payments', (select count(*) from public.business_setup_payments) = 2);
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_check('outsider sees no services', (select count(*) from public.business_setup_services) = 0);
+select public.bs_check('outsider sees no payments', (select count(*) from public.business_setup_payments) = 0);
+select public.bs_check('outsider sees no fee items', (select count(*) from public.business_setup_fee_items) = 0);
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_check('CRM admin reads partner IDs', (select count(*) from public.business_setup_kyc_partners) = 1);
+select public.bs_as(null);
+
+-- ── Hub extension: client link, quote status, letter gate, receipt numbering ──
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+create temp table bs_fx (k text primary key, v text);
+grant all on bs_fx to authenticated;
+create function pg_temp.bs_quote(p_dept text, p_extra jsonb default '{}') returns uuid language sql as $$
+  select (public.hub_document_create(jsonb_build_object('doc_type','quote','department',p_dept,'client_name','Test Client LLC','contact_name','C','contact_email','c@x.ae','contact_phone','1','client_address','Dubai',
+    'lines','[{"description":"Licence","amount":100}]'::jsonb) || p_extra)).id $$;
+insert into bs_fx values ('bs_quote', pg_temp.bs_quote('Business Setup', '{"client_id":"CL900001"}')::text);
+insert into bs_fx values ('acct_quote', pg_temp.bs_quote('Accounting')::text);
+select public.bs_check('new quote is issued', (select status from public.hub_documents where id = (select v::uuid from bs_fx where k = 'bs_quote')) = 'issued');
+select public.bs_check('quote keeps client_id', (select client_id from public.hub_documents where id = (select v::uuid from bs_fx where k = 'bs_quote')) = 'CL900001');
+select public.bs_expect_error(format($$select pg_temp.bs_quote('Business Setup', '{"client_id":"CL000000"}')$$), 'client');
+select public.bs_expect_error(format($$select public.hub_document_create('{"doc_type":"letter","parent_id":"%s"}')$$, (select v from bs_fx where k = 'bs_quote')), 'Mark the quote as accepted first');
+select public.bs_check('Accounting letter still free', (public.hub_document_create(jsonb_build_object('doc_type','letter','parent_id',(select v from bs_fx where k = 'acct_quote')))).id is not null);
+select public.bs_check('Accounting quote stays unlinked and issued', (select client_id is null and status = 'issued' from public.hub_documents where id = (select v::uuid from bs_fx where k = 'acct_quote')));
+-- revision: marks the old quote superseded in the same call
+insert into bs_fx values ('bs_rev', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900001','revises_id',(select v from bs_fx where k = 'bs_quote')))::text);
+select public.bs_check('revision supersedes the old quote', (select status from public.hub_documents where id = (select v::uuid from bs_fx where k = 'bs_quote')) = 'superseded');
+select public.bs_check('revision links back', (select revises_id::text from public.hub_documents where id = (select v::uuid from bs_fx where k = 'bs_rev')) = (select v from bs_fx where k = 'bs_quote'));
+select public.bs_expect_error(format($$select pg_temp.bs_quote('Business Setup', '{"client_id":"CL900001","revises_id":"%s"}')$$, (select v from bs_fx where k = 'bs_quote')), 'issued');
+select public.bs_expect_error($$select pg_temp.bs_quote('Business Setup', '{"client_id":"CL900001","revises_id":"00000000-0000-0000-0000-0000000000ff"}')$$, 'quote');
+select public.bs_as(null);
+select public.bs_expect_error($$update hub_documents set status = 'bogus'$$, 'check');
+update public.hub_documents set status = 'accepted', status_at = now() where id = (select v::uuid from bs_fx where k = 'bs_rev');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select pg_temp.bs_quote('Business Setup', '{"client_id":"CL900001","revises_id":"%s"}')$$, (select v from bs_fx where k = 'bs_rev')), 'issued');
+insert into bs_fx values ('bs_letter', (public.hub_document_create(jsonb_build_object('doc_type','letter','parent_id',(select v from bs_fx where k = 'bs_rev')))).id::text);
+select public.bs_check('letter keeps client', (select client_id from public.hub_documents where id = (select v::uuid from bs_fx where k = 'bs_letter')) = 'CL900001');
+select public.bs_check('letter number is BSE', (select document_number ~ '^ABC/[0-9]{4}/[0-9]{2}/BSE[0-9]{3}$' from public.hub_documents where id = (select v::uuid from bs_fx where k = 'bs_letter')));
+select public.bs_as(null);
+
+-- Receipt numbering
+select public.bs_check('receipt number', public.hub_next_number('Business Setup','receipt') ~ '^ABC/[0-9]{4}/[0-9]{2}/BSR[0-9]{3}$');
+select public.bs_check('receipt serial increments', public.hub_serial_of('Business Setup','receipt',public.hub_next_number('Business Setup','receipt')) = 2);
+select public.bs_expect_error($$select public.hub_next_number('Accounting','receipt')$$, 'No numbering');
+-- A number already used by a receipt is skipped.
+insert into public.business_setup_receipts (payment_id, receipt_number)
+  select id, (public.hub_numbering_status() -> 'Business Setup' -> 'receipt' ->> 'preview') from public.business_setup_payments where type = 'Reversal';
+select public.bs_check('receipt number skips a used one', public.hub_next_number('Business Setup','receipt') <> (select receipt_number from public.business_setup_receipts where receipt_number <> 'TEST-R1'));
+-- Numbering page
+select public.bs_check('status lists BS receipt', (public.hub_numbering_status() -> 'Business Setup' -> 'receipt' ->> 'format') = 'ABC/{YYYY}/{MM}/BSR{SERIAL}');
+select public.bs_check('status has no Accounting receipt', not (public.hub_numbering_status() -> 'Accounting' ? 'receipt'));
+select public.bs_check('status keeps Accounting quote and letter', (public.hub_numbering_status() -> 'Accounting') ?& array['quote','letter']);
+select public.bs_check('status keeps Banking untouched', not (public.hub_numbering_status() -> 'Business Banking' ? 'receipt'));
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_expect_error($$select public.hub_numbering_save('Accounting','receipt','X{SERIAL}',3,'never',1)$$, 'Unknown document kind');
+select public.hub_numbering_save('Business Setup','receipt','ABC/{YYYY}/BSR{SERIAL}',4,'year',7);
+select public.bs_check('receipt numbering saved', (public.hub_numbering_status() -> 'Business Setup' -> 'receipt' ->> 'next_serial') = '7');
+select public.bs_as(null);
+
+-- Older documents: not treated as accepted
+select public.bs_check('no existing row got accepted by default', not exists (select 1 from public.hub_documents where status = 'accepted' and id not in (select v::uuid from bs_fx where k = 'bs_rev')));
+
+-- ── KYC, partners, fee items ──
+-- Identity lives in client_master: CL900001 has it all except the licence, CL900002 is an Existing company with none.
+update public.client_master set data = '{"Client Legal Name":"Test Client LLC","Primary Contact":"Jane Doe; Owner","General Email":"jane@test.ae","General Phone":"+971500000001"}' where client_id = 'CL900001';
+insert into public.client_master (client_id, legal_name, data) values
+  ('CL900002', 'Existing Co LLC', '{"Client Legal Name":"Existing Co LLC","Primary Contact":"Sam Roe","General Email":"sam@ex.ae","General Phone":"+971500000002"}');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+create temp table bs_kyc (k text primary key, v jsonb);
+grant all on bs_kyc to authenticated;
+insert into bs_kyc values ('empty', public.business_setup_kyc_status('CL900001'));
+select public.bs_check('no profile data: activity, status and partner are missing',
+  (select v -> 'missing' @> '["business activity","company status","partner"]'::jsonb and (v ->> 'percent')::int < 100 from bs_kyc where k = 'empty'));
+-- CL900001 already has a profile row and a partner from the table tests; clear nothing, check New + partner
+insert into bs_kyc values ('new1', public.business_setup_kyc_save('CL900001', '{"company_status":"New","business_activity":"Consulting","jurisdiction":"Dubai Mainland"}'));
+select public.bs_check('New company, partner without nationality: partner still missing', (select v -> 'missing' = '["partner"]'::jsonb from bs_kyc where k = 'new1'));
+select public.business_setup_partner_save('CL900001', '{"full_name":"Partner Two","nationality":"Indian","share_percent":60,"is_ubo":true,"passport_number":"P7654321","emirates_id":"784-1999-1234567-1"}') as ignored \gset
+insert into bs_kyc values ('new2', public.business_setup_kyc_status('CL900001'));
+select public.bs_check('New company with no licence is complete', (select (v ->> 'percent')::int = 100 and v -> 'missing' = '[]'::jsonb from bs_kyc where k = 'new2'));
+select public.bs_check('kyc_save returns same shape', (select v ? 'percent' and v ? 'missing' from bs_kyc where k = 'new1'));
+-- Existing company
+select public.business_setup_kyc_save('CL900002', '{"company_status":"Existing","business_activity":"Trading"}') as ignored \gset
+select public.business_setup_partner_save('CL900002', '{"full_name":"Sam Roe","nationality":"British"}') as ignored \gset
+select public.bs_check('Existing company lists the licence fields',
+  (select (public.business_setup_kyc_status('CL900002') -> 'missing') = '["licence number","licence expiry","issuing authority"]'::jsonb));
+select public.business_setup_kyc_save('CL900002', '{"licence_number":"L-1","licence_expiry":"2030-01-01","details":{"issuing_authority":"DED"}}') as ignored \gset
+select public.bs_check('Existing company with licence is complete', (public.business_setup_kyc_status('CL900002') ->> 'percent')::int = 100);
+select public.bs_expect_error($$select public.business_setup_kyc_save('CL900002', '{"company_status":"Maybe"}')$$, 'company status');
+select public.bs_expect_error($$select public.business_setup_kyc_save('CL000000', '{}')$$, 'not found');
+select public.bs_expect_error($$select public.business_setup_partner_save('CL900001', '{"nationality":"X"}')$$, 'name');
+-- Permissions
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_expect_error($$select public.business_setup_kyc_save('CL900001', '{}')$$, 'permission');
+select public.bs_expect_error($$select public.business_setup_kyc_status('CL900001')$$, 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error($$select public.business_setup_partner_save('CL900001', '{"full_name":"Z"}')$$, 'permission');
+-- Sensitive reads
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('user without setup.kyc.sensitive reads no partner rows', (select count(*) from public.business_setup_kyc_partners) = 0);
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.bs_check('user with setup.kyc.sensitive reads partner rows', (select count(*) from public.business_setup_kyc_partners where full_name = 'Partner Two') = 1);
+-- Delete
+select public.bs_as(null);
+insert into bs_kyc values ('pid', to_jsonb((select id::text from public.business_setup_kyc_partners where full_name = 'Partner Two')));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_partner_delete((select (v #>> '{}')::uuid from bs_kyc where k = 'pid'));
+select public.bs_as(null);
+select public.bs_check('partner delete sets deleted_at, row kept', (select deleted_at is not null from public.business_setup_kyc_partners where full_name = 'Partner Two'));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('deleted partner no longer counts', (public.business_setup_kyc_status('CL900001') -> 'missing') = '["partner"]'::jsonb);
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.bs_check('deleted partner hidden from readers', (select count(*) from public.business_setup_kyc_partners where full_name = 'Partner Two') = 0);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_partner_delete('%s')$$, (select (v #>> '{}') from bs_kyc where k = 'pid')), 'not found');
+select public.bs_as(null);
+-- Activity is masked
+select public.bs_check('audit log records kyc saves', exists (select 1 from public.business_setup_audit_log where new_data ->> 'client_id' = 'CL900001' and action like 'kyc%'));
+select public.bs_check('audit log never holds passport or ID values',
+  not exists (select 1 from public.business_setup_audit_log where new_data::text like '%P7654321%' or new_data::text like '%784-1999%' or old_data::text like '%P7654321%' or old_data::text like '%784-1999%'));
+select public.bs_check('audit log holds masked marker for passport', exists (select 1 from public.business_setup_audit_log where table_name = 'business_setup_kyc_partners' and new_data::text like '%***%'));
+-- Fee items
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+create temp table bs_fee (id uuid);
+grant all on bs_fee to authenticated;
+insert into bs_fee select public.business_setup_fee_item_save('{"grp":"Test","name":"Item B","default_amount":250}');
+select public.bs_check('fee item saved', (select default_amount = 250 from public.business_setup_fee_items where grp = 'Test' and name = 'Item B'));
+select public.business_setup_fee_item_save(jsonb_build_object('id', (select id from bs_fee), 'grp','Test','name','Item B','default_amount',300)) as ignored \gset
+select public.bs_check('fee item amount edited in place', (select count(*) = 1 and max(default_amount) = 300 from public.business_setup_fee_items where grp = 'Test' and name = 'Item B'));
+select public.bs_expect_error($$select public.business_setup_fee_item_save('{"grp":"Test","name":"Item C","default_amount":-1}')$$, 'negative');
+select public.bs_expect_error($$select public.business_setup_fee_item_save('{"grp":"Test","default_amount":1}')$$, 'name');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error($$select public.business_setup_fee_item_save('{"grp":"Test","name":"Item D","default_amount":1}')$$, 'permission');
+select public.bs_as(null);
+-- Seed: 24 rows when the private seed was loaded; skipped when absent (no prices printed)
+do $$
+declare n int;
+begin
+  select count(*) into n from public.business_setup_fee_items where grp not in ('Test', 'Other');
+  if n = 0 then
+    raise notice 'skip fee seed count: private/007 seed not loaded';
+  else
+    perform public.bs_check('fee seed has 24 rows', n = 24, n::text || ' rows');
+  end if;
+end $$;
+
+-- ── Task 3 fixes ──
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.business_setup_fee_item_save(jsonb_build_object('id', (select id from bs_fee), 'grp','Test','name','Item B')) as ignored \gset
+select public.bs_check('fee edit without default_amount keeps the amount', (select default_amount = 300 from public.business_setup_fee_items where grp = 'Test' and name = 'Item B'));
+select public.business_setup_fee_item_save('{"grp":"Test","name":"Item B","active":true}') as ignored \gset
+select public.bs_check('fee upsert by name without default_amount keeps the amount', (select default_amount = 300 from public.business_setup_fee_items where grp = 'Test' and name = 'Item B'));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_partner_save('CL900002', '{"full_name":"Detail Tester","details":{"note":"SECRETVALUE-XYZ","other":"v2other"}}') as ignored \gset
+select public.bs_as(null);
+select public.bs_check('partner audit never holds details values',
+  not exists (select 1 from public.business_setup_audit_log where new_data::text like '%SECRETVALUE%' or new_data::text like '%v2other%'));
+select public.bs_check('partner audit holds details key names',
+  exists (select 1 from public.business_setup_audit_log where action = 'partner_add' and new_data -> 'details_keys' @> '["note","other"]'::jsonb));
+
+-- ── Quote lifecycle and tracker ──
+create function pg_temp.fx(p_k text) returns text language sql as $$ select v from bs_fx where k = p_k $$;
+select public.bs_expect_error($$update business_setup_services set status = 'bogus'$$, 'check');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into bs_fx values
+  ('q', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','valid_until',current_date + 30,
+        'lines', jsonb_build_array(
+          jsonb_build_object('service_name','Licence renewal','action','Renewal','description','Renewal of licence','amount',100,'fee_item_id',(select id from public.business_setup_fee_items where grp='Test' and name='Item A')),
+          jsonb_build_object('description','Consulting only','amount',50))))::text),
+  ('q_nolink', pg_temp.bs_quote('Business Setup')::text),
+  ('q_no_kyc', pg_temp.bs_quote('Business Setup', '{"client_id":"CL900001"}')::text),
+  ('q_expired', pg_temp.bs_quote('Business Setup', '{"client_id":"CL900002","valid_until":"2020-01-01"}')::text),
+  ('q_zero', pg_temp.bs_quote('Business Setup', '{"client_id":"CL900002","lines":[{"description":"Free advice","amount":0}]}')::text),
+  ('q2', pg_temp.bs_quote('Business Setup', '{"client_id":"CL900002"}')::text);
+-- accept
+insert into bs_kyc values ('acc', public.business_setup_quote_accept(pg_temp.fx('q')::uuid));
+select public.bs_check('accept returns quote_id, status, services_created',
+  (select v ->> 'quote_id' = pg_temp.fx('q') and v ->> 'status' = 'accepted' and (v ->> 'services_created')::int = 2 from bs_kyc where k = 'acc'));
+select public.bs_check('quote is accepted with date and person', (select status = 'accepted' and status_at is not null and status_by is not null from public.hub_documents where id = pg_temp.fx('q')::uuid));
+select public.bs_check('one tracker line per quote line', (select count(*) from public.business_setup_services where quote_id = pg_temp.fx('q')::uuid) = 2);
+select public.bs_check('line keeps service name, action and fee item',
+  exists (select 1 from public.business_setup_services where quote_id = pg_temp.fx('q')::uuid and name = 'Licence renewal' and action = 'Renewal' and amount = 100
+          and fee_item_id = (select id from public.business_setup_fee_items where grp='Test' and name='Item A') and client_id = 'CL900002'));
+select public.bs_check('line without service name falls back to description, action to New',
+  exists (select 1 from public.business_setup_services where quote_id = pg_temp.fx('q')::uuid and name = 'Consulting only' and action = 'New' and status = 'Not started'));
+select public.bs_check('each new tracker line has an opening history row',
+  (select count(*) from public.business_setup_service_history h join public.business_setup_services s on s.id = h.service_id where s.quote_id = pg_temp.fx('q')::uuid and h.to_status = 'Not started' and h.from_status is null) = 2);
+select public.bs_check('accept writes an audit row', public.bs_audit_count('quote_accept', pg_temp.fx('q'), '{"client_id":"CL900002"}') = 1);
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q')), 'already');
+select public.bs_check('a refused accept creates no extra lines', (select count(*) from public.business_setup_services where quote_id = pg_temp.fx('q')::uuid) = 2);
+-- gates
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q_nolink')), 'Link this quote to a client');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q_no_kyc')), 'KYC');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q_expired')), 'expired');
+select public.bs_check('expired quote stays issued after refusal', (select status = 'issued' from public.hub_documents where id = pg_temp.fx('q_expired')::uuid));
+select public.bs_check('expired quote accepted with the flag', (public.business_setup_quote_accept(pg_temp.fx('q_expired')::uuid, true) ->> 'status') = 'accepted');
+select public.bs_check('zero total can be accepted', (public.business_setup_quote_accept(pg_temp.fx('q_zero')::uuid)) is not null);
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('acct_quote')), 'Business Setup');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, (select id from public.hub_documents where doc_type = 'letter' and department = 'Accounting')), 'Business Setup');
+select public.bs_expect_error($$select business_setup_quote_accept('00000000-0000-0000-0000-0000000000ff')$$, 'not found');
+-- renewal line links back to an earlier service of the same client
+insert into bs_fx values
+  ('q_ren', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(
+      jsonb_build_object('description','Renew again','action','Renewal','amount',10,'renews_service_id',(select id from public.business_setup_services where quote_id = pg_temp.fx('q')::uuid and name = 'Licence renewal')))))::text),
+  ('q_ren_bad', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(
+      jsonb_build_object('description','Renew other','action','Renewal','amount',10,'renews_service_id',(select id from public.business_setup_services where name = 'Test service')))))::text);
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q_ren_bad')), 'earlier service');
+select public.bs_check('refused renewal leaves the quote issued', (select status = 'issued' from public.hub_documents where id = pg_temp.fx('q_ren_bad')::uuid));
+select public.business_setup_quote_accept(pg_temp.fx('q_ren')::uuid) as ignored \gset
+select public.bs_check('renewal line carries renews_service_id',
+  (select renews_service_id = (select id from public.business_setup_services where quote_id = pg_temp.fx('q')::uuid and name = 'Licence renewal') from public.business_setup_services where quote_id = pg_temp.fx('q_ren')::uuid));
+-- reject
+select public.bs_expect_error(format($$select business_setup_quote_reject('%s','')$$, pg_temp.fx('q2')), 'reason');
+select public.bs_expect_error(format($$select business_setup_quote_reject('%s','   ')$$, pg_temp.fx('q2')), 'reason');
+select public.business_setup_quote_reject(pg_temp.fx('q2')::uuid, 'Client chose another provider');
+select public.bs_check('rejected with date, person and reason', (select status = 'rejected' and status_at is not null and status_by is not null and status_reason = 'Client chose another provider' from public.hub_documents where id = pg_temp.fx('q2')::uuid));
+select public.bs_check('reject writes an audit row', public.bs_audit_count('quote_reject', pg_temp.fx('q2'), '{}') = 1);
+select public.bs_expect_error(format($$select business_setup_quote_reject('%s','again')$$, pg_temp.fx('q2')), 'issued');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q2')), 'issued');
+select public.bs_expect_error(format($$select business_setup_quote_reject('%s','x')$$, pg_temp.fx('acct_quote')), 'Business Setup');
+select public.bs_check('rejecting created no tracker lines', (select count(*) from public.business_setup_services where quote_id = pg_temp.fx('q2')::uuid) = 0);
+-- revision chain: one accepted quote per root
+insert into bs_fx values ('r1', pg_temp.bs_quote('Business Setup', '{"client_id":"CL900002"}')::text);
+insert into bs_fx values ('r2', pg_temp.bs_quote('Business Setup', jsonb_build_object('revises_id', pg_temp.fx('r1')))::text);
+select public.bs_check('revision keeps the old quote client when none is given', (select client_id = 'CL900002' from public.hub_documents where id = pg_temp.fx('r2')::uuid));
+select public.bs_check('root_quote_id: own id for a first quote, the root for a revision',
+  (select root_quote_id = id from public.hub_documents where id = pg_temp.fx('r1')::uuid) and (select root_quote_id::text = pg_temp.fx('r1') from public.hub_documents where id = pg_temp.fx('r2')::uuid));
+select public.bs_expect_error(format($$select pg_temp.bs_quote('Business Setup', '{"client_id":"CL900001","revises_id":"%s"}')$$, pg_temp.fx('r2')), 'client');
+select public.business_setup_quote_accept(pg_temp.fx('r2')::uuid) as ignored \gset
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('r1')), 'already');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('r2')), 'already');
+select public.bs_as(null);
+select public.bs_expect_error(format($$update hub_documents set status = 'accepted' where id = '%s'$$, pg_temp.fx('r1')), 'duplicate key');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+-- link
+select public.bs_expect_error(format($$select business_setup_quote_link('%s','CL000000')$$, pg_temp.fx('q_nolink')), 'not found');
+select public.business_setup_quote_link(pg_temp.fx('q_nolink')::uuid, 'CL900002');
+select public.bs_check('link sets the client', (select client_id = 'CL900002' from public.hub_documents where id = pg_temp.fx('q_nolink')::uuid));
+select public.bs_check('link writes an audit row', public.bs_audit_count('quote_link', pg_temp.fx('q_nolink'), '{"client_id":"CL900002"}') = 1);
+select public.business_setup_quote_link(pg_temp.fx('q_nolink')::uuid, 'CL900002');
+select public.bs_expect_error(format($$select business_setup_quote_link('%s','CL900001')$$, pg_temp.fx('q_nolink')), 'different client');
+select public.bs_expect_error(format($$select business_setup_quote_link('%s','CL900002')$$, pg_temp.fx('acct_quote')), 'Business Setup');
+select public.bs_expect_error(format($$select business_setup_quote_link('%s','CL900002')$$, pg_temp.fx('bs_letter')), 'quote');
+select public.bs_check('after linking, the quote can be accepted', (public.business_setup_quote_accept(pg_temp.fx('q_nolink')::uuid) ->> 'status') = 'accepted');
+-- engagement letter and signing
+select public.bs_expect_error(format($$select business_setup_letter_sign('%s', ((now() at time zone 'Asia/Dubai')::date + 1), 'a/b.pdf')$$, pg_temp.fx('bs_letter')), 'future');
+select public.bs_expect_error(format($$select business_setup_letter_sign('%s', current_date, '')$$, pg_temp.fx('bs_letter')), 'scan');
+select public.bs_expect_error(format($$select business_setup_letter_sign('%s', null, 'a/b.pdf')$$, pg_temp.fx('bs_letter')), 'date');
+select public.bs_expect_error(format($$select business_setup_letter_sign('%s', current_date, 'a/b.pdf')$$, pg_temp.fx('bs_rev')), 'letter');
+select public.bs_expect_error(format($$select business_setup_letter_sign('%s', current_date, 'a/b.pdf')$$, (select id from public.hub_documents where doc_type = 'letter' and department = 'Accounting')), 'Business Setup');
+select public.bs_expect_error($$select business_setup_letter_sign('00000000-0000-0000-0000-0000000000ff', current_date, 'a/b.pdf')$$, 'not found');
+select public.business_setup_letter_sign(pg_temp.fx('bs_letter')::uuid, (now() at time zone 'Asia/Dubai')::date, 'signed/scan.pdf');
+select public.bs_check('letter signed with date and scan', (select signed_at = (now() at time zone 'Asia/Dubai')::date and signed_path = 'signed/scan.pdf' from public.hub_documents where id = pg_temp.fx('bs_letter')::uuid));
+select public.bs_check('sign writes an audit row', public.bs_audit_count('letter_sign', pg_temp.fx('bs_letter'), '{"client_id":"CL900001"}') = 1);
+-- service tracker: statuses and the start gate
+select public.bs_as(null);
+select public.bs_expect_error($$update business_setup_services set status = 'Waiting on partner'$$, 'check');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('statuses include waiting on client', business_setup_status_allowed('Waiting on client'));
+select public.bs_check('every tracker status is allowed', business_setup_status_allowed('Not started') and business_setup_status_allowed('In progress') and business_setup_status_allowed('Waiting on government') and business_setup_status_allowed('Completed') and business_setup_status_allowed('Cancelled'));
+select public.bs_check('an unknown status is not allowed', not business_setup_status_allowed('Done') and business_setup_status_allowed(null) is not true);
+insert into bs_fx values ('svc', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q')::uuid and name = 'Consulting only'));
+insert into bs_fx values ('svc_zero', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_zero')::uuid));
+-- 'q' totals 150 and has no payment yet
+select public.bs_expect_error(format($$select business_setup_service_update('%s','In progress')$$, pg_temp.fx('svc')), 'payment');
+select public.bs_expect_error(format($$select business_setup_service_update('%s','In progress','{}','Client will pay later')$$, pg_temp.fx('svc')), 'payment');
+select public.bs_check('a refused start leaves the service Not started', (select status = 'Not started' and started_at is null from public.business_setup_services where id = pg_temp.fx('svc')::uuid));
+select public.bs_check('a refused start writes no history', (select count(*) from public.business_setup_service_history where service_id = pg_temp.fx('svc')::uuid) = 1);
+-- a zero total starts without a payment
+select public.business_setup_service_update(pg_temp.fx('svc_zero')::uuid, 'In progress');
+select public.bs_check('zero total starts without payment', (select status = 'In progress' and started_at is not null from public.business_setup_services where id = pg_temp.fx('svc_zero')::uuid));
+-- a net payment above zero lets it start (the payment writer comes later, so the owner inserts the row)
+select public.bs_as(null);
+select public.bs_check('net paid is 0 before any payment', public.business_setup_net_paid(pg_temp.fx('q')::uuid) = 0);
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type) values ('CL900002', pg_temp.fx('q')::uuid, current_date, 60, 'Payment');
+select public.bs_check('net paid counts the payment', public.business_setup_net_paid(pg_temp.fx('q')::uuid) = 60);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_service_update(pg_temp.fx('svc')::uuid, 'In progress', '{"owner_id":"00000000-0000-0000-0000-00000000000d","start_date":"2026-11-03","notes":"Started"}');
+select public.bs_check('service updated: status, owner, start date, notes',
+  (select status = 'In progress' and owner_id = '00000000-0000-0000-0000-00000000000d' and start_date = '2026-11-03' and notes = 'Started' and started_at is not null from public.business_setup_services where id = pg_temp.fx('svc')::uuid));
+select public.bs_check('status change writes history', (select count(*) from public.business_setup_service_history where service_id = pg_temp.fx('svc')::uuid and from_status = 'Not started' and to_status = 'In progress') = 1);
+select public.business_setup_service_update(pg_temp.fx('svc')::uuid, 'In progress', '{"notes":"Still going"}');
+select public.bs_check('same status adds no history', (select count(*) from public.business_setup_service_history where service_id = pg_temp.fx('svc')::uuid) = 2);
+select public.business_setup_service_update(pg_temp.fx('svc')::uuid, null, '{"notes":"Fields only"}');
+select public.bs_check('a null status changes only the fields', (select status = 'In progress' and notes = 'Fields only' and owner_id is not null from public.business_setup_services where id = pg_temp.fx('svc')::uuid));
+select public.business_setup_service_update(pg_temp.fx('svc')::uuid, 'Waiting on client', '{}', 'Documents requested');
+select public.bs_check('waiting on client is a status', (select status = 'Waiting on client' from public.business_setup_services where id = pg_temp.fx('svc')::uuid));
+select public.business_setup_service_update(pg_temp.fx('svc')::uuid, 'In progress');
+select public.bs_expect_error(format($$select business_setup_service_update('%s','Cancelled')$$, pg_temp.fx('svc')), 'reason');
+select public.bs_expect_error(format($$select business_setup_service_update('%s','Cancelled','{}','  ')$$, pg_temp.fx('svc')), 'reason');
+select public.bs_expect_error(format($$select business_setup_service_update('%s','Done')$$, pg_temp.fx('svc')), 'status');
+select public.bs_check('refused status change left the service unchanged', (select status = 'In progress' from public.business_setup_services where id = pg_temp.fx('svc')::uuid));
+select public.bs_expect_error($$select business_setup_service_update('00000000-0000-0000-0000-0000000000ff','In progress')$$, 'not found');
+
+-- start override: a quote with a total and no payment
+insert into bs_fx values ('q_ov', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(
+    jsonb_build_object('service_name','Override one','amount',200), jsonb_build_object('service_name','Override two','amount',100))))::text);
+select public.business_setup_quote_accept(pg_temp.fx('q_ov')::uuid) as ignored \gset
+insert into bs_fx values ('ov', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_ov')::uuid and name = 'Override one')),
+  ('ov2', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_ov')::uuid and name = 'Override two'));
+select public.bs_expect_error(format($$select business_setup_service_update('%s','In progress','{}','Client will pay Friday')$$, pg_temp.fx('ov')), 'payment');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_expect_error(format($$select business_setup_service_update('%s','In progress')$$, pg_temp.fx('ov')), 'reason');
+select public.bs_check('the manager is refused too without a reason', (select status = 'Not started' from public.business_setup_services where id = pg_temp.fx('ov')::uuid));
+select public.business_setup_service_update(pg_temp.fx('ov')::uuid, 'In progress', '{}', 'Client will pay Friday');
+select public.bs_check('override starts the service with the reason on its history',
+  (select s.status = 'In progress' and s.started_at is not null and h.note = 'Client will pay Friday'
+     from public.business_setup_services s join public.business_setup_service_history h on h.service_id = s.id and h.to_status = 'In progress' where s.id = pg_temp.fx('ov')::uuid));
+select public.bs_check('the override is in the audit log', public.bs_audit_count('service_update', pg_temp.fx('ov'), '{"start_override": true}') = 1);
+select public.bs_check('an ordinary start is not logged as an override', public.bs_audit_count('service_update', pg_temp.fx('svc'), '{"start_override": false}') > 0);
+
+-- a reversed payment: started work stays, the next line is blocked again
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into bs_fx values ('q_rev', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(
+    jsonb_build_object('service_name','Reversal one','amount',100), jsonb_build_object('service_name','Reversal two','amount',100))))::text);
+select public.business_setup_quote_accept(pg_temp.fx('q_rev')::uuid) as ignored \gset
+insert into bs_fx values ('rev1', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_rev')::uuid and name = 'Reversal one')),
+  ('rev2', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_rev')::uuid and name = 'Reversal two'));
+select public.bs_as(null);
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type) values ('CL900002', pg_temp.fx('q_rev')::uuid, current_date, 100, 'Payment');
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type) values ('CL900002', pg_temp.fx('q_rev')::uuid, current_date, 30, 'Refund');
+select public.bs_check('net paid takes a refund away', public.business_setup_net_paid(pg_temp.fx('q_rev')::uuid) = 70);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_service_update(pg_temp.fx('rev1')::uuid, 'In progress');
+select public.bs_as(null);
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type, reverses_id)
+  select client_id, quote_id, current_date, amount, 'Reversal', id from public.business_setup_payments where quote_id = pg_temp.fx('q_rev')::uuid and type = 'Payment';
+select public.bs_check('net paid takes a reversal away', public.business_setup_net_paid(pg_temp.fx('q_rev')::uuid) = -30);
+select public.bs_check('only this quote is counted', public.business_setup_net_paid(pg_temp.fx('q_zero')::uuid) = 0);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('the started line stays In progress after the reversal', (select status = 'In progress' from public.business_setup_services where id = pg_temp.fx('rev1')::uuid));
+select public.bs_expect_error(format($$select business_setup_service_update('%s','In progress')$$, pg_temp.fx('rev2')), 'payment');
+select public.business_setup_service_update(pg_temp.fx('rev1')::uuid, 'Waiting on client');
+select public.business_setup_service_update(pg_temp.fx('rev1')::uuid, 'In progress');
+select public.bs_check('a started line can resume after the reversal', (select status = 'In progress' from public.business_setup_services where id = pg_temp.fx('rev1')::uuid));
+
+-- completion needs an output file
+select public.bs_expect_error(format($$select business_setup_service_update('%s','Completed')$$, pg_temp.fx('svc')), 'output');
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{}')$$, pg_temp.fx('svc')), 'output');
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{}','Nothing to upload')$$, pg_temp.fx('svc')), 'output');
+select public.bs_as(null);
+insert into public.business_setup_documents (client_id, kind, file_name, storage_path, service_id, is_output)
+  values ('CL900002', 'Note', 'working-note.pdf', 'CL900002/working-note.pdf', pg_temp.fx('svc')::uuid, false);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{}')$$, pg_temp.fx('svc')), 'output');
+select public.bs_check('a refused completion leaves the service In progress', (select status = 'In progress' and completed_at is null from public.business_setup_services where id = pg_temp.fx('svc')::uuid));
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{}')$$, pg_temp.fx('svc')), 'reason');
+select public.bs_as(null);
+insert into public.business_setup_documents (client_id, kind, file_name, storage_path, service_id, is_output)
+  values ('CL900002', 'Output', 'result.pdf', 'CL900002/result.pdf', pg_temp.fx('svc')::uuid, true);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_service_complete(pg_temp.fx('svc')::uuid, '{"note":"Delivered"}');
+select public.bs_check('completed with an output file: status, time, details',
+  (select status = 'Completed' and completed_at is not null and output_details ->> 'note' = 'Delivered' from public.business_setup_services where id = pg_temp.fx('svc')::uuid));
+select public.bs_check('completion writes history', (select count(*) from public.business_setup_service_history where service_id = pg_temp.fx('svc')::uuid and from_status = 'In progress' and to_status = 'Completed') = 1);
+select public.bs_check('completion with a file is not logged as an override', public.bs_audit_count('service_complete', pg_temp.fx('svc'), '{"without_output": false}') = 1);
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{}')$$, pg_temp.fx('svc')), 'already');
+-- override: completing without a file needs a reason
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.business_setup_service_complete(pg_temp.fx('ov')::uuid, '{}', 'Client collected the papers in person');
+select public.bs_check('override completes without an output file', (select status = 'Completed' from public.business_setup_services where id = pg_temp.fx('ov')::uuid));
+select public.bs_check('the completion override is in the audit log', public.bs_audit_count('service_complete', pg_temp.fx('ov'), '{"without_output": true}') = 1);
+-- a never-started line also meets the payment gate when it is completed
+select public.bs_as(null);
+insert into public.business_setup_documents (client_id, kind, file_name, storage_path, service_id, is_output)
+  values ('CL900002', 'Output', 'two.pdf', 'CL900002/two.pdf', pg_temp.fx('ov2')::uuid, true);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{}')$$, pg_temp.fx('ov2')), 'payment');
+select public.bs_check('a refused completion leaves a Not started line alone', (select status = 'Not started' and started_at is null from public.business_setup_services where id = pg_temp.fx('ov2')::uuid));
+-- cancelling
+insert into bs_fx select 'pay_before_cancel', count(*)::text from public.business_setup_payments;
+select public.business_setup_service_update(pg_temp.fx('svc')::uuid, 'Cancelled', '{}', 'Client withdrew');
+select public.bs_check('cancel history keeps the reason', (select note = 'Client withdrew' from public.business_setup_service_history where service_id = pg_temp.fx('svc')::uuid and to_status = 'Cancelled'));
+select public.bs_check('cancelling changes no payment', (select count(*) from public.business_setup_payments) = pg_temp.fx('pay_before_cancel')::int);
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{}')$$, pg_temp.fx('svc')), 'cancelled');
+select public.bs_check('service changes and completions are all in the audit log', public.bs_audit_count('service_update', pg_temp.fx('svc'), '{}') + public.bs_audit_count('service_complete', pg_temp.fx('svc'), '{}') = 7);
+select public.bs_expect_error($$select business_setup_service_complete('00000000-0000-0000-0000-0000000000ff','{}')$$, 'not found');
+
+-- company registration: licence details reach Client Master and the service expiry
+insert into bs_fx values ('q_reg', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(
+    jsonb_build_object('service_name','Company registration','amount',0))))::text);
+select public.business_setup_quote_accept(pg_temp.fx('q_reg')::uuid) as ignored \gset
+insert into bs_fx values ('reg', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_reg')::uuid));
+select public.bs_as(null);
+insert into public.business_setup_documents (client_id, kind, file_name, storage_path, service_id, is_output)
+  values ('CL900002', 'Output', 'licence.pdf', 'CL900002/licence.pdf', pg_temp.fx('reg')::uuid, true);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{"licence":{"number":"T-1","issue_date":"2026-01-15","expiry_date":"2027-01-14"}}')$$, pg_temp.fx('reg')), 'licence');
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{"licence":{"number":"T-1","authority":"DED","issue_date":"2026-01-15","expiry_date":"2025-01-14"}}')$$, pg_temp.fx('reg')), 'expiry');
+select public.bs_check('a refused licence leaves Client Master and the service alone',
+  (select data ->> 'Trade License Number' is null from public.client_master where client_id = 'CL900002') and (select status = 'Not started' and expiry_date is null from public.business_setup_services where id = pg_temp.fx('reg')::uuid));
+select public.business_setup_service_complete(pg_temp.fx('reg')::uuid, '{"licence":{"number":"T-1","authority":"DED","issue_date":"2026-01-15","expiry_date":"2027-01-14"}}');
+select public.bs_check('licence reaches client master', (select data ->> 'Trade License Number' from public.client_master where client_id = 'CL900002') = 'T-1');
+select public.bs_check('authority and dates reach client master as UAE dates',
+  (select data ->> 'License Issuing Authority' = 'DED' and data ->> 'License Issue Date' = '15/01/2026' and data ->> 'License Expiry Date' = '14/01/2027' from public.client_master where client_id = 'CL900002'));
+select public.bs_check('licence expiry sets the service expiry date', (select expiry_date = '2027-01-14' and status = 'Completed' from public.business_setup_services where id = pg_temp.fx('reg')::uuid));
+select public.bs_check('client master history records the licence', exists (select 1 from public.client_master_history where client_id = 'CL900002' and field = 'Trade License Number' and new_value = 'T-1'));
+
+-- quote templates
+select public.bs_as(null);
+select public.bs_check('six templates are seeded', (select array_agg(key order by key) from public.business_setup_quote_templates) = array['ifza','liquidation','mainland','rakez','service','shams']);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('sales reads the template list', (select count(*) from public.business_setup_quote_templates) = 6);
+select public.bs_expect_error($$insert into business_setup_quote_templates (key, label, storage_file) values ('x', 'X', 'x.docx')$$, 'permission denied');
+select public.bs_expect_error($$select business_setup_quote_template_save('{"key":"x","label":"X","storage_file":"x.docx"}')$$, 'permission');
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_check('outsider reads no templates', (select count(*) from public.business_setup_quote_templates) = 0);
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_check('save returns the key', public.business_setup_quote_template_save('{"key":"newzone","label":"New Zone","jurisdiction":"New Zone","storage_file":"NewZone.docx"}') = 'newzone');
+select public.business_setup_quote_template_save('{"key":"newzone","label":"New Zone FZ"}') as ignored \gset
+select public.bs_check('an edit changes only the keys given', (select label = 'New Zone FZ' and storage_file = 'NewZone.docx' and jurisdiction = 'New Zone' and active from public.business_setup_quote_templates where key = 'newzone'));
+select public.bs_expect_error($$select business_setup_quote_template_save('{"key":"Bad Key!","label":"X","storage_file":"x.docx"}')$$, 'key');
+select public.bs_expect_error($$select business_setup_quote_template_save('{"key":"nofile","label":"No file"}')$$, 'needs');
+select public.bs_expect_error($$select business_setup_quote_template_save('{"key":"newzone","label":"  "}')$$, 'name');
+select public.bs_check('template saves are in the audit log', (select count(*) from public.business_setup_audit_log where action = 'quote_template_save' and row_id = 'newzone') = 2);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into bs_fx values ('q_tpl', pg_temp.bs_quote('Business Setup', '{"client_id":"CL900002","template_key":"ifza"}')::text);
+select public.bs_check('a quote keeps its template', (select template_key = 'ifza' from public.hub_documents where id = pg_temp.fx('q_tpl')::uuid));
+select public.bs_check('a quote without a template has none', (select template_key is null from public.hub_documents where id = pg_temp.fx('q_nolink')::uuid));
+select public.bs_expect_error($$select pg_temp.bs_quote('Business Setup', '{"client_id":"CL900002","template_key":"nope"}')$$, 'template');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.business_setup_quote_template_save('{"key":"newzone","active":false}') as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error($$select pg_temp.bs_quote('Business Setup', '{"client_id":"CL900002","template_key":"newzone"}')$$, 'template');
+
+-- numbering is shared: a Business Setup manager cannot change it without the settings right
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_expect_error($$select public.hub_numbering_save('Business Setup','receipt','ABC/{YYYY}/BSR{SERIAL}',4,'year',9)$$, 'permission');
+select public.bs_check('the numbering page does not offer editing to a manager', (public.hub_numbering_status() ->> 'can_manage') = 'false');
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_check('the numbering page offers editing to a CRM admin', (public.hub_numbering_status() ->> 'can_manage') = 'true');
+select public.bs_as(null);
+-- permissions
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q_no_kyc')), 'permission');
+select public.bs_expect_error(format($$select business_setup_quote_reject('%s','x')$$, pg_temp.fx('q_no_kyc')), 'permission');
+select public.bs_expect_error(format($$select business_setup_quote_link('%s','CL900002')$$, pg_temp.fx('q_no_kyc')), 'permission');
+select public.bs_expect_error(format($$select business_setup_letter_sign('%s', current_date, 'a/b.pdf')$$, pg_temp.fx('bs_letter')), 'permission');
+select public.bs_expect_error(format($$select business_setup_service_update('%s',null,'{"notes":"x"}')$$, pg_temp.fx('svc')), 'permission');
+select public.bs_expect_error(format($$select business_setup_service_complete('%s','{}')$$, pg_temp.fx('svc')), 'permission');
+select public.bs_expect_error($$select business_setup_quote_template_save('{"key":"x","label":"X","storage_file":"x.docx"}')$$, 'permission');
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q_no_kyc')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q_no_kyc')), 'permission');
+select public.business_setup_service_update(pg_temp.fx('svc')::uuid, null, '{"notes":"Docs may update the tracker"}');
+select public.bs_as(null);
 
 -- ── Summary: raise when anything failed so psql exits non-zero ──
 do $$
