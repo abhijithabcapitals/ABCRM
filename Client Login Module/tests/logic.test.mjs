@@ -215,3 +215,13 @@ test("filterClients narrows by access, KYC and business line", async () => {
   assert.deepEqual(filterClients(rows, {}), rows);
   assert.deepEqual(filterClients(rows), rows);
 });
+
+test("Client Inputs shows Information Changes, which calls every client_changes_* function and sends p_force", () => {
+  const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8");
+  assert.match(read("../../Client Module/crm/ClientInputs.jsx"), /from "@client-login\/admin\/InformationChanges"/);
+  const src = read("../admin/InformationChanges.jsx");
+  for (const fn of ["list", "assignees", "take", "assign", "release", "decide"]) assert.match(src, new RegExp(`client_changes_${fn}"`), fn);
+  assert.match(src, /p_force/);
+  assert.match(src, /changed since/);
+  assert.doesNotMatch(src, /dangerouslySetInnerHTML|<a /);
+});
