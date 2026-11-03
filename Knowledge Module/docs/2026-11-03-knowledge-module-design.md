@@ -58,17 +58,23 @@ Procedures, checklists, plans and client answers.
 | `amount_aed` | numeric(12,2) |
 | `payee` | The study's "Who gets it" |
 | `confidence` | `High`, `Medium`, `Low` or null |
-| `basis` | The study's "Basis". Admin only on screen, never copied |
+| `basis` | The study's "Basis". Admin only, refused to members by the database, never copied |
 | `valid_until` | Optional date |
 | `status`, `visibility`, `source_ref`, `approved_by`, `approved_at` | Same as `knowledge_entries` |
 | Standard fields | Same as `knowledge_entries` |
+
+Column-level read: `authenticated` has SELECT on every `knowledge_price_lines` column except `basis`, `payee` and `confidence`, so the API refuses those three to everyone.
+
+`knowledge_price_line_review()`: `security definer` function, admin only (no rows for anyone else), returning `id`, `basis`, `payee` and `confidence` for the admin screens.
 
 ### `knowledge_banking_prices()`
 
 A `security definer` function. `banking_pricing` only opens to Banking users, so this function gives Knowledge users selected columns.
 
 - Requires `admin_is()` or `'knowledge' = any(my_tabs())`. Otherwise returns no rows.
-- Returns bank name from `banking_partners`, scheme name from `banking_schemes`, `account_opening_fee`, `initial_deposit`, `minimum_balance`, `other_bank_charges`, `service_fee`, `effective_date` and `expiry_date`.
+- Returns bank name from `banking_partners`, scheme name from `banking_schemes`, `account_opening_fee`, `initial_deposit`, `minimum_balance`, `other_bank_charges`, `service_fee`, `effective_date`, `expiry_date` and `vat_mode`.
+- A blank `service_fee` returns the `default_service_fee` setting. `vat_mode` comes from the `vat` setting and falls back to `inclusive`.
+- Leaves out inactive or deleted banks and schemes. On a same-day tie, the newest row wins.
 - Returns only prices in effect today.
 - Never returns `service_fee_min`, `service_fee_max`, `source`, `remarks` or `bank_fee_collected_by_ab`.
 - Banking prices count as Approved and Shareable, because the Banking team already manages them.
@@ -114,7 +120,8 @@ Each result shows title, department, last updated, and status and visibility bad
 - Appears only on Shareable items. Internal lines are never included, even for admins copying a group.
 - Never includes `basis`, `confidence`, `payee`, status or the Draft label.
 - Copying a Draft item first requires a tick confirming the staff member checked the price.
-- Copied prices state that they exclude VAT unless a line says otherwise. Accounts has not confirmed VAT per line.
+- Copied Business Setup prices state that they exclude VAT unless a line says otherwise. Accounts has not confirmed VAT per line.
+- Copied banking prices follow the Banking VAT setting: when `vat_mode` is `exclusive` they end "Prices exclude VAT unless stated otherwise."; otherwise they end "AB Capital service fee includes VAT."
 
 ### Admin controls
 

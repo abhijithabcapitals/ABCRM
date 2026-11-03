@@ -349,20 +349,36 @@ Each step needs the user's approval at that time. Say what will change before as
 
 - [ ] **Step 1: Run the migration on `pnnakrhfzyxudjaghoxx`, then `select * from audit_trail_attach_all();`**
 
+`audit_trail_attach_all()` exists live, so run it here.
+
 Expected: `failed` is empty. `knowledge_categories` has 6 rows. Run `get_advisors` and fix any new security finding on these objects.
 
 - [ ] **Step 2: Rebuild the import from the latest sources, then run `data/knowledge_import.sql`**
 
 Expected: table counts match the builder's report. A count of Shareable entries returns 0.
 
+- [ ] **Step 2a: Compare the deployed `admin-users` function with Git, then deploy it**
+
+Before merging or with the deploy, compare the deployed `admin-users` edge function with `Main Module/db/edge-function-admin-users.ts`. The live copy may differ from Git; if it does, stop and ask the user. Deploy only with the user's approval.
+
+Expected: the Settings screen saves a `knowledge` grant and keeps it on a later save.
+
 - [ ] **Step 3: Open a pull request, merge and deploy**
 
-Follow the repo's existing deploy path, and bind the pull request with the `ccd_pr` tools.
+Follow the repo's existing deploy path, and bind the pull request with the `ccd_pr` tools. If `banking-new-lead-fix` merges first, build the merged tree before deploying.
 
 - [ ] **Step 4: Check the deployed tab as an admin**
 
 Expected: Pricing shows Business Setup and live Banking prices. No console errors.
 
+- [ ] **Step 4a: Check a test member against the real backend**
+
+Use a test member who has the `knowledge` tab. Creating that member needs the user's approval.
+
+Expected: Pricing, search and copy work. Internal rows are absent. Selecting `basis`, `payee` or `confidence` is refused. Writes change no rows.
+
 - [ ] **Step 5: Grant the `knowledge` tab to the members the user names**
+
+Grant only after Steps 2a and 4a pass.
 
 Hand over: the builder's report, and the list of flagged articles for the team's review.
