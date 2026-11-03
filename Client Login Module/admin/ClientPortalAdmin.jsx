@@ -2,7 +2,7 @@
 // The SQL refuses anyone else; hiding the tab is only a courtesy.
 import { useEffect, useMemo, useState } from "react";
 import "@banking/components/banking.css";
-import { Badge, Button, DataTable, ErrorNote, Modal, PageHead, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { Badge, Button, DataTable, ErrorNote, KeyVals, Modal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import { supabase } from "@app/supabase";
 import ClientPortal from "../portal/ClientPortal";
@@ -58,11 +58,11 @@ function AccessModal({ client, onClose, onDone }) {
     <Modal title={`${client.account_id ? "New password for" : "Give access to"} ${client.display_name}`} onClose={onClose}>
       <ErrorNote message={error} />
       {saved?.emailed ? <>
-        <p>Access is on. The login was emailed to <strong>{saved.email}</strong>. The client sets their own password at first sign-in.</p>
+        <p>Access is on. The login was emailed to <strong>{saved.email}</strong>. You can see the password again in the client's login details.</p>
         <div className="bk-actions"><Button variant="primary" onClick={onClose}>Done</Button></div>
       </> : saved ? <>
         <ErrorNote message={`Access is on, but the email to ${saved.email} did not send: ${saved.email_error || "unknown error"}`} />
-        <p>Share these with the client securely. The password cannot be shown again.</p>
+        <p>Share these with the client securely.</p>
         <p><strong>Username:</strong> {username.trim().toLowerCase()}<br /><strong>Password:</strong> <code>{password}</code></p>
         <div className="bk-actions"><Button variant="primary" onClick={copy}>{copied ? "Copied" : "Copy"}</Button><Button onClick={onClose}>Done</Button></div>
       </> : <>
@@ -74,6 +74,30 @@ function AccessModal({ client, onClose, onDone }) {
         <div className="bk-actions bk-mt"><Button variant="primary" busy={busy} onClick={save}>Save and email</Button><Button onClick={() => setPassword(generatePassword())}>Generate again</Button></div>
       </>}
     </Modal>
+  );
+}
+
+// Reveals one client's password. The SQL allows admins only and logs every read, so it is fetched on request, never with the list.
+export function ShowPassword({ accountId }) {
+  const [shown, setShown] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const show = async () => {
+    setBusy(true); setError(null);
+    try {
+      const value = await rpc("client_portal_admin_password", { p_account: accountId });
+      if (value) setShown(value);
+      else setError("This password was set before passwords were kept. Use New password to set one you can see.");
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+  const copy = async () => { await navigator.clipboard.writeText(shown); setCopied(true); };
+  return (
+    <span className="bk-actions">
+      <ErrorNote message={error} />
+      {shown ? <><code>{shown}</code><Button onClick={copy}>{copied ? "Copied" : "Copy"}</Button><Button onClick={() => { setShown(null); setCopied(false); }}>Hide</Button></> : <Button busy={busy} onClick={show}>Show password</Button>}
+    </span>
   );
 }
 
@@ -101,16 +125,27 @@ export function AccessActions({ client, onChange }) {
   );
 }
 
-// The access controls inside the All Clients row panel.
-export function ClientAccess({ bankingClientId }) {
-  const list = useLoad(() => rpc("client_portal_admin_clients"), []);
-  const client = (list.data || []).find((c) => c.banking_client_id === bankingClientId);
+// The login inside a client's record, in All Clients and Client Master. Admins only: anyone else sees nothing here.
+export function ClientAccess({ bankingClientId = null, clientMasterId = null }) {
+  const login = useLoad(() => rpc("client_portal_admin_login", { p_banking_client_id: bankingClientId, p_client_master_id: clientMasterId }).catch((e) => { if (/Admins only/.test(e.message)) return null; throw e; }), [bankingClientId, clientMasterId]);
+  const c = login.data;
+  if (!c && !login.error) return null;
   return (
-    <div className="bk-mt">
-      <h4>Client Portal</h4>
-      <ErrorNote message={list.error} />
-      {client && <div className="bk-actions"><Badge tone={client.status === "active" ? "good" : client.status === "revoked" ? "bad" : undefined}>{client.status === "active" ? `Access on: ${client.username}` : client.status === "revoked" ? "Revoked" : "No access"}</Badge><AccessActions client={client} onChange={list.reload} /></div>}
-    </div>
+    <Panel title="Client login" sub="Only admins see this. Showing a password is logged.">
+      <ErrorNote message={login.error} />
+      {c && <>
+        <KeyVals items={[
+          ["Email", c.email || "Not on file"],
+          ["Login username", c.username || "No login yet"],
+          ["Access", c.status === "active" ? "On" : c.status === "revoked" ? "Revoked" : "None"],
+          ["Last sign-in", fmtDate(c.last_login_at) || "Never"],
+        ]} />
+        <div className="bk-actions bk-mt">
+          {c.account_id && <ShowPassword accountId={c.account_id} />}
+          <AccessActions client={c} onChange={login.reload} />
+        </div>
+      </>}
+    </Panel>
   );
 }
 
@@ -152,7 +187,7 @@ export default function ClientPortalAdmin() {
           { key: "status", label: "Access", render: (c) => <Badge tone={c.status === "active" ? "good" : c.status === "revoked" ? "bad" : undefined}>{c.status === "active" ? "On" : c.status === "revoked" ? "Revoked" : "None"}</Badge> },
           { key: "pending_edits", label: "Pending edits", render: (c) => (c.pending_edits > 0 ? <Badge tone="warn">{c.pending_edits}</Badge> : "–") },
           { key: "last_login_at", label: "Last sign-in", render: (c) => fmtDate(c.last_login_at) },
-          { key: "actions", label: "", render: (c) => <span className="bk-actions"><AccessActions client={c} onChange={list.reload} />{c.account_id && !c.unlinked && <Button onClick={() => setPreview(c)}>View as client</Button>}</span> },
+          { key: "actions", label: "", render: (c) => <span className="bk-actions"><AccessActions client={c} onChange={list.reload} />{c.account_id && <ShowPassword accountId={c.account_id} />}{c.account_id && !c.unlinked && <Button onClick={() => setPreview(c)}>View as client</Button>}</span> },
         ]} />
       )}
     </div>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs rollback/001_002_rollback.sql (twice) on a database copy made by run-local.sh (needs BIN, PORT and DBN), then checks:
+# Runs rollback 004, 003, then 001_002 (twice, newest first) on a database copy made by run-local.sh (needs BIN, PORT and DBN), then checks:
 # client_portal_me returns the old keys only, every new function and the new table are gone, and Client Base 003 still works.
 # Any failed check exits non-zero. Nothing touches Supabase.
 set -u
@@ -21,6 +21,8 @@ chk "before: me has the new 'changes' key" "$(one "select (public.client_portal_
 chk "before: client_change_submit exists" "$(one "select (to_regprocedure('public.client_change_submit(uuid,text,text)') is not null)::int")"
 
 for pass in 1 2; do
+  "${PS[@]}" -v ON_ERROR_STOP=1 -f "$HERE/../rollback/004_rollback.sql" >/dev/null 2>"$HERE/.rb_err" || { echo "FAIL rollback pass $pass"; cat "$HERE/.rb_err"; rm -f "$HERE/.rb_err"; exit 1; }
+  "${PS[@]}" -v ON_ERROR_STOP=1 -f "$HERE/../rollback/003_rollback.sql" >/dev/null 2>"$HERE/.rb_err" || { echo "FAIL rollback pass $pass"; cat "$HERE/.rb_err"; rm -f "$HERE/.rb_err"; exit 1; }
   "${PS[@]}" -v ON_ERROR_STOP=1 -f "$HERE/../rollback/001_002_rollback.sql" >/dev/null 2>"$HERE/.rb_err" || { echo "FAIL rollback pass $pass"; cat "$HERE/.rb_err"; rm -f "$HERE/.rb_err"; exit 1; }
 done
 rm -f "$HERE/.rb_err"

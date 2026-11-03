@@ -6,7 +6,7 @@
 // Client uploads are untrusted: they stay in a private bucket and leave only as short-lived download links.
 //
 // Client actions (POST JSON { action, token, ... }):
-//   login { username, password }, logout, me, change_password { current, next }
+//   login { username, password }, logout, me
 //   upload_start { file_name, size, doc_type, note? } -> { id, upload_url }
 //   upload_done { id }, doc_url { id }
 //   submit_change { field, value } -> { id }       asks staff to change one company detail
@@ -123,13 +123,6 @@ Deno.serve(async (req) => {
     const { data: accountId } = await admin.rpc("client_portal_session", { p_token: token });
     if (!accountId) return json({ error: "Please sign in again.", signed_out: true }, 401);
 
-    // A mailed password must be replaced before anything else opens. Enforced here, not just on screen.
-    const { data: account } = await admin.from("client_portal_accounts").select("must_change_password").eq("id", accountId).maybeSingle();
-    const mustChange = !!account?.must_change_password;
-    if (mustChange && !["me", "logout", "change_password"].includes(action)) {
-      return json({ error: "Please set your own password first.", must_change_password: true }, 403);
-    }
-
     const ownDoc = async () => {
       const { data } = await admin.from("client_portal_documents").select("*").eq("id", String(body.id || "")).eq("account_id", accountId).maybeSingle();
       if (!data) throw new InputError("Document not found.");
@@ -140,18 +133,11 @@ Deno.serve(async (req) => {
       case "me": {
         const { data, error } = await admin.rpc("client_portal_me", { p_account: accountId });
         if (error) throw new Error(error.message);
-        return json({ ...data, must_change_password: mustChange });
+        return json(data);
       }
       case "logout":
         await admin.rpc("client_portal_logout", { p_token: token });
         return json({ ok: true });
-      case "change_password": {
-        if (String(body.next || "").length < 10) throw new InputError("The new password needs at least 10 characters.");
-        if (String(body.next) === String(body.current || "")) throw new InputError("Choose a password different from your current one.");
-        const { data } = await admin.rpc("client_portal_change_password", { p_token: token, p_current: String(body.current || "").slice(0, 200), p_new: String(body.next).slice(0, 200) });
-        if (data !== true) throw new InputError("Your current password is not correct.");
-        return json({ ok: true });
-      }
       case "upload_start": {
         const name = displayName(String(body.file_name || ""));
         const ext = name.split(".").pop()?.toLowerCase() || "";

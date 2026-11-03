@@ -44,7 +44,6 @@ export const portalApi = {
   docUrl: async (id) => (await call("doc_url", { id })).url,
   submitChange: (field, value) => call("submit_change", { field, value }),
   galleryUrl: async (source, id) => (await call("gallery_url", { source, id })).url,
-  changePassword: (current, next) => call("change_password", { current, next }),
   logout: async () => {
     try { await call("logout"); } finally { signOutLocally(); }
   },

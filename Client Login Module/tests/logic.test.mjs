@@ -262,14 +262,16 @@ test("login email carries the sign-in details and asks for a new password", asyn
   const client = credentialEmail({ audience: "client", reset: false, name: "Alpha\r\nBcc: x", username: "alpha.user", password: "Secret123456" });
   assert.match(client.subject, /client portal login/);
   assert.match(client.text, /Username: alpha\.user/);
-  assert.match(client.text, /Temporary password: Secret123456/);
+  assert.match(client.text, /^Password: Secret123456$/m);
   assert.ok(client.text.includes(SIGN_IN_URL));
-  assert.match(client.text, /set your own password/);
+  assert.doesNotMatch(client.text, /set your own password/);
   assert.match(client.text, /^Dear Alpha Bcc: x,/);
   assert.doesNotMatch(client.subject, /Secret/);
   const staff = credentialEmail({ audience: "staff", reset: true, name: "", username: "a@b.test", password: "p" });
   assert.match(staff.subject, /Workspace password has been reset/);
   assert.match(staff.text, /^Dear Sir or Madam,/);
+  assert.match(staff.text, /Temporary password: p/);
+  assert.match(staff.text, /set your own password/);
 });
 
 test("login email: no copy to Sent, and no password in the audit row", () => {
@@ -279,14 +281,12 @@ test("login email: no copy to Sent, and no password in the audit row", () => {
   assert.match(src, /split\(mail\.password\)\.join\("\[hidden\]"\)/);
 });
 
-test("client-portal: a must-change client can only load, sign out or change the password", () => {
+test("client-portal: clients cannot change a password, and only admins can grant", () => {
   const src = readFileSync(fileURLToPath(new URL("../supabase/client-portal/index.ts", import.meta.url)), "utf8").replace(/^\s*\/\/.*$/gm, "");
-  assert.match(src, /mustChange && !\["me", "logout", "change_password"\]\.includes\(action\)/);
-  assert.ok(src.indexOf("mustChange && !") < src.indexOf("switch (action)"));
-  assert.match(src, /\.\.\.data, must_change_password: mustChange/);
+  assert.doesNotMatch(src, /change_password|must_change|mustChange/);
   const grant = src.slice(src.indexOf('if (action === "admin_grant_access")'), src.indexOf('if (action === "admin_preview")'));
+  assert.ok(grant.indexOf("isAdmin !== true") < grant.indexOf("client_portal_admin_grant"));
   assert.match(grant, /error\.code === "P0001"\) throw new InputError\(error\.message\)/);
-  assert.ok(grant.indexOf('isAdmin !== true') < grant.indexOf("client_portal_admin_grant"));
   assert.doesNotMatch(grant, /json\(\{[^}"]*\bpassword\b/);
 });
 
@@ -297,9 +297,13 @@ test("admin-users: every generated password is mailed and must be replaced", () 
   assert.doesNotMatch(src, /json\(\{[^}"]*\bpassword\b/);
 });
 
-test("forced change: the portal and the workspace both stop at it", () => {
+test("passwords: the portal cannot change one, staff still must, admins fetch on request", () => {
   const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8");
-  assert.match(read("../portal/ClientPortal.jsx"), /must_change_password && !readOnly/);
+  for (const f of ["../portal/ClientPortal.jsx", "../portal/portalApi.js"]) assert.doesNotMatch(read(f), /changePassword|Change password|must_change/);
   assert.match(read("../../Main Module/src/App.jsx"), /user_metadata\?\.must_change_password/);
-  assert.match(read("../admin/ClientPortalAdmin.jsx"), /admin_grant_access/);
+  const admin = read("../admin/ClientPortalAdmin.jsx");
+  assert.match(admin, /admin_grant_access/);
+  assert.match(admin, /client_portal_admin_password/);
+  assert.doesNotMatch(admin.slice(0, admin.indexOf("export function ShowPassword")), /client_portal_admin_password/);
+  assert.match(read("../../Client Module/crm/ClientMaster.jsx"), /<ClientAccess clientMasterId=\{row\.client_id\}/);
 });

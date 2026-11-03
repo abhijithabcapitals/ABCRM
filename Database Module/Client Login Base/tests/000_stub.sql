@@ -13,3 +13,12 @@ create table if not exists storage.objects (
 );
 alter table storage.objects enable row level security;
 create or replace function storage.foldername(name text) returns text[] language sql immutable as $$ select string_to_array(name, '/') $$;
+
+-- Stand-in for Supabase Vault. Nothing is encrypted in this throwaway database.
+create schema if not exists vault;
+create table if not exists vault.secrets (id uuid primary key default gen_random_uuid(), name text unique, secret text, description text);
+create or replace view vault.decrypted_secrets as select id, name, secret as decrypted_secret from vault.secrets;
+create or replace function vault.create_secret(new_secret text, new_name text, new_description text default '') returns uuid language sql as $$
+  insert into vault.secrets (name, secret, description) values (new_name, new_secret, new_description) returning id $$;
+create or replace function vault.update_secret(secret_id uuid, new_secret text) returns void language sql as $$
+  update vault.secrets set secret = new_secret where id = secret_id $$;
