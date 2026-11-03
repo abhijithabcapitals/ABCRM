@@ -48,7 +48,7 @@ create table if not exists public.knowledge_price_lines (
 );
 
 -- Stamps the edit, records who approved, and sends an Approved row back to Draft when its content changes.
-create or replace function public.knowledge_touch() returns trigger language plpgsql as $$
+create or replace function public.knowledge_touch() returns trigger language plpgsql set search_path = public, pg_temp as $$
 declare content_changed boolean := false;
 begin
   new.updated_at := now();
@@ -107,21 +107,25 @@ create policy knowledge_price_lines_read on public.knowledge_price_lines for sel
 
 -- banking_pricing is open to Banking users only, so this gives Knowledge users the customer-facing columns.
 -- The service fee range, source, remarks and the collected-by flag stay out.
+-- Like Banking quotes: a blank service fee means the default setting, the newest row wins a same-day tie, and VAT mode falls back to inclusive.
 create or replace function public.knowledge_banking_prices()
 returns table (price_id uuid, bank_name text, scheme_name text, account_opening_fee numeric, initial_deposit numeric,
-  minimum_balance numeric, other_bank_charges numeric, service_fee numeric, effective_date date, expiry_date date)
+  minimum_balance numeric, other_bank_charges numeric, service_fee numeric, effective_date date, expiry_date date, vat_mode text)
 language sql stable security definer set search_path = public, pg_temp as $$
   select * from (
     select distinct on (p.bank_id, p.scheme_id)
       p.id, b.bank_name, s.scheme_name, p.account_opening_fee, p.initial_deposit, p.minimum_balance,
-      p.other_bank_charges, p.service_fee, p.effective_date, p.expiry_date
+      p.other_bank_charges, coalesce(p.service_fee, (banking_setting('default_service_fee'))::text::numeric),
+      p.effective_date, p.expiry_date, coalesce(banking_setting('vat') ->> 'mode', 'inclusive')
     from banking_pricing p
     join banking_partners b on b.id = p.bank_id
     left join banking_schemes s on s.id = p.scheme_id
     where (public.admin_is() or 'knowledge' = any(public.my_tabs()))
+      and b.is_active and b.deleted_at is null
+      and (p.scheme_id is null or (s.is_active and s.deleted_at is null))
       and p.effective_date <= (now() at time zone 'Asia/Dubai')::date
       and (p.expiry_date is null or p.expiry_date >= (now() at time zone 'Asia/Dubai')::date)
-    order by p.bank_id, p.scheme_id, p.effective_date desc
+    order by p.bank_id, p.scheme_id, p.effective_date desc, p.created_at desc
   ) latest
   order by 2, 3
 $$;
@@ -150,6 +154,6 @@ create or replace view public.v_knowledge_search with (security_invoker = on) as
   select 'service', i.id, i.name, sc.department, sc.name || ' ' || i.name,
          'Approved', 'Shareable', null::timestamptz
   from public.service_items i join public.service_categories sc on sc.id = i.category_id
-  where i.is_active and (public.admin_is() or 'knowledge' = any(public.my_tabs()));
+  where i.is_active and sc.is_active and (public.admin_is() or 'knowledge' = any(public.my_tabs()));
 revoke all on public.v_knowledge_search from anon, authenticated;
 grant select on public.v_knowledge_search to authenticated;

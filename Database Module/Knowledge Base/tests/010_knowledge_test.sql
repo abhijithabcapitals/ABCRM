@@ -119,4 +119,60 @@ select t.fails('unknown status is refused', 'update knowledge_entries set status
 select t.fails('unknown entry type is refused', 'update knowledge_entries set entry_type = ''memo'' where source_ref = ''a1''', 'check constraint');
 select t.ok('admin gets the banking read', t.n('select 1 from knowledge_banking_prices()') = 1);
 reset role;
+-- Banking read: retired masters, same-day corrections, the default service fee and the VAT mode. All invented.
+insert into banking_partners (id, bank_name, is_active, deleted_at) values
+  ('10000000-0000-0000-0000-000000000002', 'Retired Bank', false, null),
+  ('10000000-0000-0000-0000-000000000003', 'Deleted Bank', true, now()),
+  ('10000000-0000-0000-0000-000000000004', 'Live Bank', true, null);
+insert into banking_schemes (id, bank_id, scheme_name, is_active, deleted_at) values
+  ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000004', 'Retired Scheme', false, null),
+  ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000004', 'Deleted Scheme', true, now()),
+  ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000004', 'Older First', true, null),
+  ('20000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000004', 'Newer First', true, null);
+insert into banking_pricing (bank_id, scheme_id, account_opening_fee, service_fee, effective_date, created_at) values
+  ('10000000-0000-0000-0000-000000000002', null, 11, 1, current_date, now()),
+  ('10000000-0000-0000-0000-000000000003', null, 12, 1, current_date, now()),
+  ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', 13, 1, current_date, now()),
+  ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000003', 14, 1, current_date, now()),
+  ('10000000-0000-0000-0000-000000000004', null, 15, null, current_date, now()),
+  ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000004', 16, 1, current_date, now() - interval '1 day'),
+  ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000004', 17, 1, current_date, now()),
+  ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000005', 19, 1, current_date, now()),
+  ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000005', 18, 1, current_date, now() - interval '1 day');
+insert into service_categories (id, name, department, is_active) values ('30000000-0000-0000-0000-000000000002', 'Retired group', 'Accounting', false);
+insert into service_items (category_id, name) values ('30000000-0000-0000-0000-000000000002', 'Item in a retired group');
+
+select set_config('test.uid', '00000000-0000-0000-0000-00000000000b', false);
+set role authenticated;
+select t.ok('a retired bank is not shown', t.n('select 1 from knowledge_banking_prices() where bank_name = ''Retired Bank''') = 0);
+select t.ok('a deleted bank is not shown', t.n('select 1 from knowledge_banking_prices() where bank_name = ''Deleted Bank''') = 0);
+select t.ok('a retired scheme is not shown', t.n('select 1 from knowledge_banking_prices() where scheme_name = ''Retired Scheme''') = 0);
+select t.ok('a deleted scheme is not shown', t.n('select 1 from knowledge_banking_prices() where scheme_name = ''Deleted Scheme''') = 0);
+select t.ok('a bank-level row with no scheme is kept', t.n('select 1 from knowledge_banking_prices() where bank_name = ''Live Bank'' and scheme_name is null') = 1);
+select t.ok('a same-day correction replaces the older row (older inserted first)', (select account_opening_fee from knowledge_banking_prices() where scheme_name = 'Older First') = 17);
+select t.ok('a same-day correction replaces the older row (newer inserted first)', (select account_opening_fee from knowledge_banking_prices() where scheme_name = 'Newer First') = 19);
+select t.ok('a blank service fee stays blank with no default set', (select service_fee is null from knowledge_banking_prices() where bank_name = 'Live Bank' and scheme_name is null));
+select t.ok('vat_mode falls back to inclusive with no setting', (select bool_and(vat_mode = 'inclusive') from knowledge_banking_prices()));
+select t.ok('a service in a retired category is not searchable', t.n('select 1 from v_knowledge_search where kind = ''service'' and title = ''Item in a retired group''') = 0);
+reset role;
+
+insert into banking_settings (key, value) values ('default_service_fee', '777'), ('vat', '{"mode": "exclusive", "rate": 5}');
+select set_config('test.uid', '00000000-0000-0000-0000-00000000000b', false);
+set role authenticated;
+select t.ok('a blank service fee uses the default', (select service_fee from knowledge_banking_prices() where bank_name = 'Live Bank' and scheme_name is null) = 777);
+select t.ok('a set service fee beats the default', (select service_fee from knowledge_banking_prices() where scheme_name = 'Older First') = 1);
+select t.ok('vat_mode follows the vat setting', (select bool_and(vat_mode = 'exclusive') from knowledge_banking_prices()));
+reset role;
+update banking_settings set value = '{"mode": "inclusive", "rate": 5}' where key = 'vat';
+select set_config('test.uid', '00000000-0000-0000-0000-00000000000b', false);
+set role authenticated;
+select t.ok('vat_mode reads inclusive', (select bool_and(vat_mode = 'inclusive') from knowledge_banking_prices()));
+reset role;
+update banking_settings set value = '{"rate": 5}' where key = 'vat';
+set role authenticated;
+select t.ok('vat_mode falls back to inclusive when the setting has no mode', (select bool_and(vat_mode = 'inclusive') from knowledge_banking_prices()));
+reset role;
+
+select t.ok('knowledge_touch fixes its search_path', (select array_to_string(proconfig, ',') = 'search_path=public, pg_temp' from pg_proc where oid = 'public.knowledge_touch'::regproc));
+
 select t.ok('all checks passed', true);

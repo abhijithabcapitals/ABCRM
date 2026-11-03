@@ -18,8 +18,8 @@ create function public.my_tabs() returns text[] language sql stable security def
 grant execute on function public.admin_is(), public.my_tabs() to authenticated;
 
 -- Banking Base: only the columns the Knowledge read touches. Like the real tables, closed to members.
-create table public.banking_partners (id uuid primary key default gen_random_uuid(), bank_name text not null unique);
-create table public.banking_schemes (id uuid primary key default gen_random_uuid(), bank_id uuid not null references public.banking_partners(id), scheme_name text not null, unique (bank_id, scheme_name));
+create table public.banking_partners (id uuid primary key default gen_random_uuid(), bank_name text not null unique, is_active boolean not null default true, deleted_at timestamptz);
+create table public.banking_schemes (id uuid primary key default gen_random_uuid(), bank_id uuid not null references public.banking_partners(id), scheme_name text not null, is_active boolean not null default true, deleted_at timestamptz, unique (bank_id, scheme_name));
 create table public.banking_pricing (
   id uuid primary key default gen_random_uuid(),
   bank_id uuid not null references public.banking_partners(id),
@@ -30,10 +30,14 @@ create table public.banking_pricing (
   bank_fee_collected_by_ab boolean not null default true,
   service_fee numeric(18,2), service_fee_min numeric(18,2), service_fee_max numeric(18,2),
   effective_date date not null default current_date, expiry_date date,
-  source text, remarks text
+  source text, remarks text,
+  created_at timestamptz not null default now()
 );
+create table public.banking_settings (key text primary key, value jsonb not null);
+create function public.banking_setting(p_key text) returns jsonb language sql stable security definer set search_path = public, pg_temp as $$
+  select value from banking_settings where key = p_key $$;
 
 -- Services Base
-create table public.service_categories (id uuid primary key default gen_random_uuid(), name text not null unique, department text not null);
+create table public.service_categories (id uuid primary key default gen_random_uuid(), name text not null unique, department text not null, is_active boolean not null default true);
 create table public.service_items (id uuid primary key default gen_random_uuid(), category_id uuid not null references public.service_categories(id), name text not null, is_active boolean not null default true);
 grant select on public.service_categories, public.service_items to authenticated;
