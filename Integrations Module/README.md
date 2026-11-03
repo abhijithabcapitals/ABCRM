@@ -39,9 +39,16 @@ Saving a credential does not build a connection. Only apps with status `in_use` 
 
 ### Zoho Books
 
-Connected through the `zoho-books` function. Admins use **Settings → Integrations → Zoho Books**: save the
-settings, press Test, then pick the 5% VAT code. The function can read Zoho's organisations, taxes, contacts, items, estimates and invoices, and create estimates
-and invoices (never sent to the client). It sends no update or delete request to Zoho. Credential values are never shown or logged.
+Connected through the `zoho-books` function. Admins use **Settings -> Integrations -> Zoho Books**: save the
+settings, press Test, then pick the 5% VAT code. Credential values are never shown or logged.
+
+The refresh token must hold exactly these six scopes: `ZohoBooks.invoices.READ`, `ZohoBooks.invoices.CREATE`,
+`ZohoBooks.estimates.READ`, `ZohoBooks.estimates.CREATE`, `ZohoBooks.contacts.READ` and `ZohoBooks.settings.READ`.
+Per Zoho's scope list, `settings.READ` is what covers organisations, taxes and items. The function sends no update
+or delete request to Zoho.
+
+Actions today are `connection_test`, `taxes_list`, `contacts_search`, `contact_link` and `contact_get`. Creating draft
+estimates and invoices is allowed by the Zoho client but not built yet.
 
 Deploy from the folder where `supabase/functions/zoho-books` is laid out. `secrets.ts` already sits next to
 `index.ts`, so nothing else needs copying:

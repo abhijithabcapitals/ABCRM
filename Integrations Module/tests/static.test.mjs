@@ -24,7 +24,9 @@ test("registry lists all six Zoho names with source and use", () => {
 
 test("components never mention client_secret or refresh_token", () => {
   const dir = join(here, "components");
-  for (const f of readdirSync(dir).filter((f) => /\.jsx?$/.test(f))) {
+  const files = readdirSync(dir).filter((f) => /\.jsx?$/.test(f));
+  assert.ok(files.length > 0, "no component files found");
+  for (const f of files) {
     const text = readFileSync(join(dir, f), "utf8");
     assert.ok(!/client_secret|refresh_token/i.test(text), `${f} mentions a token word`);
   }
@@ -32,12 +34,16 @@ test("components never mention client_secret or refresh_token", () => {
 
 test("zoho-books has no PUT or DELETE outside tests", () => {
   const dir = join(here, "supabase", "zoho-books");
-  for (const f of readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))) {
+  const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+  assert.ok(files.length > 0, "no function files found");
+  for (const f of files) {
     assert.ok(!/\b(PUT|DELETE)\b/.test(readFileSync(join(dir, f), "utf8")), `${f} has PUT or DELETE`);
   }
 });
 
 test("zoho-books/secrets.ts matches the shared copy", () => {
   const norm = (s) => s.replace(/\r\n/g, "\n");
-  assert.equal(norm(read("supabase", "zoho-books", "secrets.ts")), norm(read("supabase", "_shared", "secrets.ts")));
+  const shared = norm(read("supabase", "_shared", "secrets.ts"));
+  assert.ok(shared.trim().length > 0, "shared secrets.ts is empty");
+  assert.equal(norm(read("supabase", "zoho-books", "secrets.ts")), shared);
 });

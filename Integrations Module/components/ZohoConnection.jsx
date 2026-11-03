@@ -13,7 +13,7 @@ async function invoke(supabase, fn, body) {
   return out;
 }
 
-export default function ZohoConnection({ supabase }) {
+export default function ZohoConnection({ supabase, onSaved }) {
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState(null);
   const [taxes, setTaxes] = useState([]);
@@ -21,13 +21,15 @@ export default function ZohoConnection({ supabase }) {
   const [saved, setSaved] = useState("");
 
   async function test() {
-    setBusy("test"); setResult(null); setSaved("");
+    setBusy("test"); setResult(null); setSaved(""); setTaxes([]);
     try {
       const out = await invoke(supabase, "zoho-books", { action: "connection_test" });
       if (out?.connected === false) { setResult({ ok: false, text: out.message || "Zoho did not accept the connection." }); return; }
       setResult({ ok: true, text: "Connected to Zoho Books." });
-      const list = await invoke(supabase, "zoho-books", { action: "taxes_list" });
-      setTaxes(list?.taxes || []);
+      try {
+        const list = await invoke(supabase, "zoho-books", { action: "taxes_list" });
+        setTaxes(list?.taxes || []);
+      } catch (e) { setResult({ ok: true, text: "Connected to Zoho Books.", extra: `Could not load the tax list: ${e.message}` }); }
     } catch (e) { setResult({ ok: false, text: e.message }); } finally { setBusy(""); }
   }
 
@@ -40,6 +42,7 @@ export default function ZohoConnection({ supabase }) {
         integration_id: "zoho-books", integration_name: "Zoho Books", field_label: "ZOHO_VAT_TAX_ID",
       });
       setSaved("VAT code saved.");
+      if (onSaved) await onSaved();
     } catch (e) { setSaved(e.message); } finally { setBusy(""); }
   }
 
@@ -50,7 +53,10 @@ export default function ZohoConnection({ supabase }) {
       <div>
         <button type="button" className="btn btn-sm" disabled={!!busy} onClick={test}>{busy === "test" ? "Testing…" : "Test"}</button>
       </div>
-      {result && <div role="status" style={{ fontSize: 12, color: result.ok ? "#15803d" : "#b91c1c" }}>{result.text}</div>}
+      {result && <div role="status" style={{ fontSize: 12, color: result.ok ? "#15803d" : "#b91c1c" }}>{result.text}{result.extra && <div style={{ color: "#b91c1c" }}>{result.extra}</div>}</div>}
+      {taxes.length > 0 && (
+        <div style={{ fontSize: 11.5, color: "#9ca3af" }}>A code may already be saved; picking one replaces it.</div>
+      )}
       {taxes.length > 0 && (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <select aria-label="Zoho 5% VAT code" value={choice} onChange={(e) => setChoice(e.target.value)} style={{ padding: "6px 9px", border: "1px solid #d1d5db", borderRadius: 6, font: "inherit", fontSize: 12.5, flex: 1, minWidth: 0 }}>

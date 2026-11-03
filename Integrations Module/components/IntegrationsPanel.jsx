@@ -131,7 +131,7 @@ export default function IntegrationsPanel({ supabase }) {
                 </div>
               );
             })}
-            {i.id === "zoho-books" && <ZohoConnection supabase={supabase} />}
+            {i.id === "zoho-books" && <ZohoConnection supabase={supabase} onSaved={load} />}
           </div>
         )}
       </div>
