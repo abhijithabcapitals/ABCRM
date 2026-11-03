@@ -2,7 +2,7 @@
 
 Database for the `Business Setup Module`, in the CRM Supabase project. Tables are named `business_setup_*`, are read-only through the API, and change through permission-checked functions.
 
-**Nothing here has been applied to the live database yet.**
+Applied to live on 2026-11-03, with the private fee list. The screens are not published yet. The state before is in schema `bs_rollback` (`rollback/000_snapshot.sql`); `rollback/001_012_rollback.sql` restores it and loses all Business Setup data. `ROLLBACK_TEST=1 bash tests/run-local.sh` tests that on a throwaway database. Drop `bs_rollback` once the module has settled: it holds client records and password hashes.
 
 | Migration | Holds |
 |---|---|
