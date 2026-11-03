@@ -5,6 +5,7 @@ import Login from "./components/Login";
 import { BrandFooter } from "./components/Brand";
 import { setUsageUser } from "./jsx/selectUsage";
 import { resolveView } from "./tabs";
+import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
 import "./App.css";
@@ -43,6 +44,9 @@ export default function App() {
   );
   // A member only reaches the tabs they were given, however the page was asked for.
   const view = resolveView(requestedView, profile?.role === "admin", tabs);
+  const signedIn = Boolean(profile?.id);
+  useEffect(() => (signedIn ? startAuditEvents() : undefined), [signedIn]);
+  useEffect(() => { if (signedIn) recordPage(view); }, [signedIn, view]);
   const [activeSpace, setActiveSpace] = useState(null);
   const [activeFolder, setActiveFolder] = useState(null);
   const [activeList, setActiveList] = useState(null);
@@ -290,6 +294,7 @@ export default function App() {
   }
 
   async function handleLogout() {
+    await flushAuditEvents();
     await supabase.auth.signOut();
     localStorage.removeItem("abc_view");
     localStorage.removeItem("abc_space_id");
