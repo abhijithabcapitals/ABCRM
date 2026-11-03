@@ -69,7 +69,11 @@ One card per banking case: bank, account type, current step name, % and a progre
 |---|---|
 | `outcome = Approved` | 100%, "Account opened" |
 | `outcome = Rejected` | "Not approved", no % |
+| `outcome = Returned`, `Cancelled` or `Closed` | The outcome as a plain label, no % and no bar |
+| Open, `is_historical` true | "In progress", no % and no bar. All such cases sit at one import placeholder stage, so a percent would mislead. Any outcome above wins |
 | Open | `round(uiStep(current_stage) / 15 * 100)`, with the step name from `STEPS` |
+
+A Cancelled or Returned case shows paid only on the Accounts tab, with no payable, balance or direct-to-bank note, so nothing reads as owed.
 
 Approved cases also show the bank, account name, opening date and the IBAN masked to its last 4 characters, from `banking_client_accounts`. Step descriptions, staff names, remarks and commission are not shown.
 
@@ -102,7 +106,9 @@ A gallery of cards with file name, type, date and status, filterable by category
 | Your KYC documents | `banking_documents`, latest `banking_document_versions` | Yes, unless the type is sensitive |
 | From AB Capital | `banking_generated_documents` (quotations, engagement letters, receipts) | Yes |
 
-Types with `banking_document_types.is_sensitive` true (for example a partner's passport) show as a card marked "Held by AB Capital", with no download. One company login can be used by several people, and those files belong to individuals.
+Types with `banking_document_types.is_sensitive` true (for example a partner's passport) show as a card marked "Held by AB Capital", with no download. Their title and file name are null in the response, so the name never reaches the browser. One company login can be used by several people, and those files belong to individuals.
+
+A generated document is left out of the gallery, and gets no signed link, while its quotation is Draft or Approval Required or its letter is Draft or Cancelled.
 
 Deleted documents (`deleted_at`) never appear. Upload stays as it is today. Files open through signed links lasting 120 seconds, and the Edge Function checks the document belongs to the signed-in client's banking client first.
 
