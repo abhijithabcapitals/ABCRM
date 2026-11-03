@@ -31,6 +31,27 @@ for pass in 1 2; do
   done
   echo "migrations pass $pass ok"
 done
+# Each test file and the concurrency script get their own copy of the migrated database, so they cannot disturb each other.
+# Exit status is non-zero on any failed check, an aborted test file (psql error) or a failed concurrency script.
+RC=0
+N=0
 for t in "$HERE"/0*_test.sql; do
-  "${PSQL[@]}" -f "$t" 2>&1 | grep -vE '^\s*$|^(t|f)?$'
+  N=$((N+1)); DBN="t$N"
+  "${PSQL[@]}" -d template1 -c "create database $DBN template postgres" >/dev/null || exit 1
+  "${PSQL[@]}" -d "$DBN" -f "$t" >"$DATA/out" 2>&1
+  PRC=$?
+  grep -vE '^\s*$|^(t|f)?$' "$DATA/out"
+  if [ $PRC -ne 0 ]; then echo "TEST FILE ABORTED (psql exit $PRC): $(basename "$t")"; RC=1; continue; fi
+  SUMMARY=$(grep -E '^[0-9]+ passed, [0-9]+ failed$' "$DATA/out" | tail -1)
+  if [ -z "$SUMMARY" ]; then echo "TEST FILE HAS NO SUMMARY: $(basename "$t")"; RC=1
+  elif [ "${SUMMARY##*passed, }" != "0 failed" ]; then echo "TEST CHECKS FAILED: $(basename "$t") ($SUMMARY)"; RC=1; fi
 done
+for c in "$HERE"/0*.sh; do
+  N=$((N+1)); DBN="t$N"
+  "${PSQL[@]}" -d template1 -c "create database $DBN template postgres" >/dev/null || exit 1
+  BIN="$BIN" PORT="$PORT" DBN="$DBN" bash "$c"
+  CRC=$?
+  if [ $CRC -ne 0 ]; then echo "CONCURRENCY SCRIPT FAILED (exit $CRC): $(basename "$c")"; RC=1; fi
+done
+[ $RC -eq 0 ] && echo "ALL OK" || echo "RUN FAILED"
+exit $RC

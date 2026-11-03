@@ -54,3 +54,43 @@ test("no file still points at the old portal locations", () => {
   const bad = ["Main Module/src", "Client Module/crm"].flatMap((d) => walk(join(root, d))).filter((f) => /\.(jsx?|mjs)$/.test(f) && old.test(readFileSync(f, "utf8")));
   assert.deepEqual(bad, []);
 });
+
+// ── 002_change_requests.sql: its field table must stay equal to FIELDS, and master dates must be in the format the CRM reads ──
+const sql002 = () => readFileSync(fileURLToPath(new URL("../../Database Module/Client Login Base/migrations/002_change_requests.sql", import.meta.url)), "utf8");
+const sqlFields = () => {
+  const block = sql002().split("-- FIELDS:begin")[1]?.split("-- FIELDS:end")[0] ?? "";
+  return [...block.matchAll(/^\s*\('([a-z_]+)',\s*'(text|email|date)',\s*(null|'[a-z_]+'),\s*'([^']+)',\s*(true|false)\)/gm)]
+    .map((m) => ({ key: m[1], kind: m[2], kycCol: m[3] === "null" ? null : m[3].slice(1, -1), masterKey: m[4], masterOnly: m[5] === "true" }));
+};
+
+test("002 SQL field list equals FIELDS (keys, date type, masterOnly)", () => {
+  const sql = sqlFields();
+  assert.deepEqual(sql.map((f) => f.key).sort(), FIELDS.map((f) => f.key).sort());
+  assert.equal(new Set(sql.map((f) => f.key)).size, FIELDS.length);
+  for (const f of FIELDS) {
+    const s = sql.find((x) => x.key === f.key);
+    assert.equal(s.masterOnly, !!f.masterOnly, `${f.key} masterOnly`);
+    assert.equal(s.kind, f.type === "date" ? "date" : f.type === "email" ? "email" : "text", `${f.key} kind`);
+    assert.equal(s.kycCol === null, !!f.masterOnly, `${f.key} KYC column`);
+  }
+});
+
+test("002 SQL maps every field to its Client Master key", () => {
+  const expected = {
+    legal_name: "Client Legal Name", trade_name: "Trade Name", legal_structure: "Entity Type", business_activity: "Main Business Activity",
+    registered_address: "Registered Address", office_address: "Office Address", website: "Website", company_email: "General Email",
+    company_phone: "General Phone", vat_trn: "TRN", license_number: "Trade License Number", license_issue_date: "License Issue Date",
+    license_expiry_date: "License Expiry Date", issuing_authority: "License Issuing Authority", ct_registration_number: "CT Registration Number",
+    financial_year_end: "Financial Year End",
+  };
+  assert.deepEqual(Object.fromEntries(sqlFields().map((f) => [f.key, f.masterKey])), expected);
+});
+
+test("a master date written as DD/MM/YYYY is what fmtUae writes and parseUaeDate reads", async () => {
+  const { fmtUae, parseUaeDate } = await import("../../Client Module/crm/masterLogic.js");
+  assert.match(sql002(), /'DD\/MM\/YYYY'/);
+  const d = new Date(Date.UTC(2027, 11, 31));
+  assert.equal(fmtUae(d), "31/12/2027");
+  assert.equal(parseUaeDate("31/12/2027")?.getTime(), d.getTime());
+  assert.equal(parseUaeDate("2027-12-31"), null);
+});
