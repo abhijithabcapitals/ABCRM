@@ -72,6 +72,11 @@ export type ZohoConfig = {
   dc: string;
 };
 
+// Cache key for a client. Any setting that changes must change the key. Never log or return it.
+export function clientKey(cfg: ZohoConfig): string {
+  return JSON.stringify([cfg.clientId, cfg.clientSecret, cfg.refreshToken, cfg.orgId, cfg.dc]);
+}
+
 export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch) {
   const hosts = hostsFor(cfg.dc);
   let token: { value: string; expires: number } | undefined;
@@ -100,11 +105,19 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
     });
     // A redirect could carry the secrets to another host, so it is an error.
     const res = await fetchFn(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body, redirect: "error" });
-    if (!res.ok) throw new ZohoAccessError((await readError(res)).message);
+    if (!res.ok) {
+      const err = await readError(res);
+      // A rate limit or outage is not a lost connection. Only a refusal means reconnect.
+      if (res.status === 429 || res.status >= 500) throw err;
+      throw new ZohoAccessError(err.message);
+    }
     const json = await res.json().catch(() => ({}));
     if (typeof json?.error === "string" || typeof json?.access_token !== "string") {
       const reason = typeof json?.error === "string" ? json.error : "Zoho token refresh returned no access token.";
-      throw new ZohoAccessError(scrub(reason, secrets()));
+      const clean = scrub(reason, secrets());
+      // Zoho can report a rate limit inside a 200 reply.
+      if (/too many requests/i.test(reason)) throw new ZohoHttpError(429, clean);
+      throw new ZohoAccessError(clean);
     }
     const secs = typeof json.expires_in === "number" ? json.expires_in : 3600;
     token = { value: json.access_token, expires: Date.now() + secs * 1000 };

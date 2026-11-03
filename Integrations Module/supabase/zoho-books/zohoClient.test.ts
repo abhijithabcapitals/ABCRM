@@ -1,6 +1,8 @@
 import { assert, assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
+import { browserMessage } from "./handlers.ts";
 import {
   assertAllowed,
+  clientKey,
   createZohoClient,
   hostsFor,
   NotAllowedError,
@@ -190,5 +192,56 @@ Deno.test("a token reply with an error or no token is a ZohoAccessError", async 
     const f = (() => Promise.resolve(Response.json(reply))) as typeof fetch;
     const err = await assertRejects(() => createZohoClient(cfg, f).get("/items"), ZohoAccessError);
     assert(!err.message.includes("fake-client-secret"));
+  }
+});
+
+const RECONNECT = "Zoho access has stopped. An admin must reconnect.";
+
+// Token endpoint answers the first call with `first`, then succeeds.
+function tokenFetch(first: () => Response, counter: { n: number }): typeof fetch {
+  return ((input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/oauth/v2/token")) {
+      counter.n++;
+      return Promise.resolve(counter.n === 1 ? first() : Response.json({ access_token: "T", expires_in: 3600 }));
+    }
+    return Promise.resolve(Response.json({ code: 0 }));
+  }) as typeof fetch;
+}
+
+Deno.test("token endpoint failures map to the right browser message and can be retried", async () => {
+  const cases: [string, () => Response, string][] = [
+    ["429", () => Response.json({}, { status: 429 }), "Zoho is busy, try again shortly."],
+    ["503", () => Response.json({}, { status: 503 }), "Zoho refused the request."],
+    [
+      "200 rate limit",
+      () => Response.json({ error: "You have made too many requests continuously" }),
+      "Zoho is busy, try again shortly.",
+    ],
+    ["400", () => Response.json({ error: "invalid_code" }, { status: 400 }), RECONNECT],
+    ["401", () => Response.json({}, { status: 401 }), RECONNECT],
+    ["200 invalid_code", () => Response.json({ error: "invalid_code" }), RECONNECT],
+  ];
+  for (const [name, first, expected] of cases) {
+    const counter = { n: 0 };
+    const z = createZohoClient(cfg, tokenFetch(first, counter));
+    const err = await assertRejects(() => z.get("/items"));
+    assertEquals(browserMessage(err), expected, name);
+    await z.get("/items");
+    assertEquals(counter.n, 2, name);
+  }
+});
+
+Deno.test("clientKey changes when any setting changes", () => {
+  const base = clientKey(cfg);
+  assertEquals(clientKey({ ...cfg }), base);
+  for (const change of [
+    { clientId: "x" },
+    { clientSecret: "x" },
+    { refreshToken: "x" },
+    { orgId: "x" },
+    { dc: "com" },
+  ]) {
+    assert(clientKey({ ...cfg, ...change }) !== base);
   }
 });

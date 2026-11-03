@@ -15,7 +15,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { browserMessage, handle, permissionCheck, UserError } from "./handlers.ts";
 import { requireSecret } from "./secrets.ts";
-import { createZohoClient, scrub, type ZohoConfig } from "./zohoClient.ts";
+import { clientKey, createZohoClient, scrub, type ZohoConfig } from "./zohoClient.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -28,7 +28,7 @@ const json = (o: unknown, status = 200) =>
 // One client per warm instance, so the access token is reused. Rebuilt when any setting changes.
 let cached: { key: string; client: ReturnType<typeof createZohoClient> } | undefined;
 function zohoFor(cfg: ZohoConfig) {
-  const key = JSON.stringify([cfg.clientId, cfg.refreshToken, cfg.orgId, cfg.dc]);
+  const key = clientKey(cfg);
   if (cached?.key !== key) cached = { key, client: createZohoClient(cfg) };
   return cached.client;
 }
