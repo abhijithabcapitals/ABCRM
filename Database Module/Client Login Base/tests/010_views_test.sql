@@ -188,6 +188,8 @@ select public.ok('IBAN masked to the last four',
   (select public.svc('aa000000-0000-0000-0000-0000000000aa', 'T-OWN')::text));
 select public.ok('no full IBAN or account number anywhere',
   (select t !~ 'AE070331234567890123456|0123456789|REMARK-ACC' from (select public.client_portal_me('aa000000-0000-0000-0000-0000000000aa')::text t) x));
+select public.ok('banking_services carries is_historical',
+  (select public.svc('aa000000-0000-0000-0000-0000000000aa', 'T-HIST') -> 'is_historical' = 'true'::jsonb and public.svc('aa000000-0000-0000-0000-0000000000aa', 'T-OPEN') -> 'is_historical' = 'false'::jsonb));
 select public.ok('open case has no account', (select e -> 'account' = 'null'::jsonb from (select public.svc('aa000000-0000-0000-0000-0000000000aa', 'T-OPEN') e) x));
 
 -- ── filing record ──

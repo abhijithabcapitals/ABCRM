@@ -52,7 +52,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
          where x.client_id = coalesce((select client_master_id from a), (select client_master_id from c))),
   -- one row per case: bank, latest Accepted quotation, payment totals, and whether the money side is hidden
   cx as (
-    select cs.id, cs.case_ref, cs.account_kind, cs.current_stage, cs.outcome, cs.created_at,
+    select cs.id, cs.case_ref, cs.account_kind, cs.current_stage, cs.outcome, cs.is_historical, cs.created_at,
            (select r.bank_name from banking_bank_recommendations br join banking_partners r on r.id = br.bank_id
              where br.case_id = cs.id and br.is_selected) as bank,
            q.total_amount, q.direct_to_bank_total,
@@ -119,7 +119,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
     -- every case of the client; the account block only for an approved case, with the IBAN cut to its last four
     'banking_services', (select coalesce(jsonb_agg(jsonb_build_object(
         'case_id', x.id, 'case_ref', x.case_ref, 'account_kind', x.account_kind, 'bank', x.bank,
-        'current_stage', x.current_stage, 'outcome', x.outcome,
+        'current_stage', x.current_stage, 'outcome', x.outcome, 'is_historical', x.is_historical,
         'account', (select jsonb_build_object('bank', coalesce(pb.bank_name, x.bank), 'account_name', ca.account_name, 'opened_on', ca.opened_on,
                                               'iban_masked', case when nullif(trim(ca.iban), '') is null then null else repeat(chr(8226), 4) || right(regexp_replace(ca.iban, '\s', '', 'g'), 4) end)
                       from banking_client_accounts ca left join banking_partners pb on pb.id = ca.bank_id

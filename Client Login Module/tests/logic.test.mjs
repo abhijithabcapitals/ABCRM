@@ -24,6 +24,14 @@ test("bankingProgress: Returned, Cancelled and Closed show a plain label and no 
   }
 });
 
+test("bankingProgress: an open historical case says In progress with no percent; final outcomes still win", () => {
+  assert.deepEqual(bankingProgress({ current_stage: 8, outcome: null, is_historical: true }), { state: "open", percent: null, label: "In progress" });
+  assert.deepEqual(bankingProgress({ current_stage: 17, outcome: "Approved", is_historical: true }), { state: "approved", percent: 100, label: "Account opened" });
+  assert.deepEqual(bankingProgress({ current_stage: 17, outcome: "Rejected", is_historical: true }), { state: "rejected", percent: null, label: "Not approved" });
+  assert.deepEqual(bankingProgress({ current_stage: 8, outcome: "Cancelled", is_historical: true }), { state: "closed", percent: null, label: "Cancelled" });
+  assert.equal(bankingProgress({ current_stage: 8, outcome: null, is_historical: false }).percent, Math.round((8 / 15) * 100));
+});
+
 test("hidesBalance: only a Cancelled or Returned case hides what would read as owed", () => {
   assert.equal(hidesBalance("Cancelled"), true);
   assert.equal(hidesBalance("Returned"), true);

@@ -4,10 +4,12 @@ import { STAGES, uiStep } from "../../Banking Module/logic/constants.js";
 // Case outcomes that end the work with no account opened. Plain labels, no percent.
 const DEAD = { Returned: "Returned", Cancelled: "Cancelled", Closed: "Closed" };
 
-export function bankingProgress({ current_stage, outcome }) {
+export function bankingProgress({ current_stage, outcome, is_historical }) {
   if (outcome === "Approved") return { state: "approved", percent: 100, label: "Account opened" };
   if (outcome === "Rejected") return { state: "rejected", percent: null, label: "Not approved" };
   if (DEAD[outcome]) return { state: "closed", percent: null, label: DEAD[outcome] };
+  // Imported cases all sit at one placeholder stage, so a percent would mean nothing.
+  if (is_historical) return { state: "open", percent: null, label: "In progress" };
   const step = uiStep(current_stage);
   return { state: "open", percent: Math.round((step / 15) * 100), label: STAGES[step - 1] };
 }
