@@ -85,6 +85,11 @@ test("the quote screen sends every contact field the database asks for", () => {
   for (const f of ["client_id", "client_name", "contact_name", "contact_email", "contact_phone", "client_address", "lines", "template_key"]) assert.ok(flow.includes(f), f);
 });
 
+test("a quote's mail draft carries its lines, which the database asks for", () => {
+  const docs = readFileSync(fileURLToPath(new URL("../services/documents.js", import.meta.url)), "utf8");
+  assert.match(docs, /doc_type: "mail"[^;]*lines: doc\.lines/);
+});
+
 test("private price files are ignored by the repository itself", () => {
   const ignore = readFileSync(fileURLToPath(new URL("../../.gitignore", import.meta.url)), "utf8");
   assert.match(ignore, /Database Module\/Business Setup Base\/private\//);

@@ -23,7 +23,7 @@ export async function fileQuote(doc, activity) {
   const blob = await renderTemplate(tpl.storage_file, data, { builtIn: generic });
   const saved = await fileWithMail(doc, "quote", blob);
   const draft = mailDraft({ type: "quote", client: doc.client_name, contact: doc.contact_name, services: doc.services, number: doc.document_number, total: doc.total_amount, validUntil: doc.valid_until, company: settings.company });
-  await createDocument({ doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email, mail_subject: draft.subject, mail_body: draft.body }).catch(() => null);
+  await createDocument({ doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email, lines: doc.lines, mail_subject: draft.subject, mail_body: draft.body }).catch(() => null);
   return saved;
 }
 
