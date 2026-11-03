@@ -16,6 +16,8 @@ export async function templateBuffer(file, builtInUrl) {
     if (error) throw new Error(`Could not load the master template for ${file}: ${error.message}`);
     return data.arrayBuffer();
   }
+  // Some templates hold prices, so they have no built-in copy in the repository.
+  if (!builtInUrl) throw new Error(`Upload the master template for ${file} in Settings first`);
   const res = await fetch(builtInUrl);
   if (!res.ok) throw new Error(`Template ${file} not found`);
   return res.arrayBuffer();

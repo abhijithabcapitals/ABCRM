@@ -89,9 +89,9 @@ export async function openStored(path, bucket = BUCKET) {
   window.open(data.signedUrl, "_blank", "noopener");
 }
 
-export async function renderTemplate(templateFile, data) {
+export async function renderTemplate(templateFile, data, { builtIn = true } = {}) {
   const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
-  const buffer = await templateBuffer(templateFile, new URL(`../templates/${templateFile}`, import.meta.url).href);
+  const buffer = await templateBuffer(templateFile, builtIn ? new URL(`../templates/${templateFile}`, import.meta.url).href : null);
   const doc = new Docxtemplater(new PizZip(buffer), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
   doc.render(data);
   return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
