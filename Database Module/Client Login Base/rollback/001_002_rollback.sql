@@ -11,7 +11,8 @@
 --   3. Restores client_portal_me and client_portal_admin_clients exactly as Client Base 003 defines them,
 --      with the execute rights 003 gives them.
 -- It leaves client_portal_documents and every other 003 object alone. Safe to run more than once.
--- Run it before redeploying the earlier client-portal function: the earlier function expects the 003 shapes.
+-- Run it, then straight away redeploy the earlier client-portal function (it expects the 003 shapes) and revert the site.
+-- Until both are done, submit_change, gallery_url and the staff Information Changes screen fail, because the functions they call are gone.
 
 begin;
 

@@ -23,7 +23,7 @@ Database first, then function, then site:
 2. Deploy the Edge Function from a temporary working folder holding `supabase/functions/client-portal/index.ts` (copied from `supabase/client-portal/index.ts` here): `supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api`.
 3. Deploy the site.
 
-To undo the database part, run `Database Module/Client Login Base/rollback/001_002_rollback.sql`. **It deletes clients' pending edits** (`client_portal_change_requests`). Redeploy the earlier function version with it.
+To undo the database part, run `Database Module/Client Login Base/rollback/001_002_rollback.sql`. **It deletes clients' pending edits** (`client_portal_change_requests`). Straight after it, redeploy the earlier function version and revert the site. Until then `submit_change`, `gallery_url` and Information Changes fail, because the functions they call are gone.
 
 Checks before release: `bash "Database Module/Client Login Base/tests/run-local.sh"`, `node --test "Client Login Module/tests/logic.test.mjs"`, and `npm run build` in `Main Module`.
 
