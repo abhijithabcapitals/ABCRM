@@ -125,15 +125,21 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
     if (contact.currency_code !== "AED") {
       throw new UserError("Only a Zoho contact billed in AED can be linked, because CRM amounts are in AED.");
     }
+    const name = text(contact.contact_name);
+    if (!name) throw new UserError("That Zoho contact has no name. Add one in Zoho first.");
     const { error } = await deps.db.from("zoho_contact_links").upsert({
       client_id: clientId,
       zoho_contact_id: contactId,
-      zoho_contact_name: String(contact.contact_name ?? ""),
+      zoho_contact_name: name,
       linked_by: deps.userId,
       linked_at: deps.now().toISOString(),
     }, { onConflict: "client_id" });
-    if (error) throw new Error(error.message);
-    return { ok: true, zoho_contact_id: contactId, zoho_contact_name: String(contact.contact_name ?? "") };
+    if (error) {
+      if (error.code === "23503") throw new UserError("That client was not found.");
+      console.error("zoho-books: contact_link save failed:", error.code, error.message);
+      throw new UserError("Could not save the Zoho link.");
+    }
+    return { ok: true, zoho_contact_id: contactId, zoho_contact_name: name };
   }
 
   if (action === "contact_get") {
@@ -146,7 +152,10 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
       .select("zoho_contact_id, zoho_contact_name")
       .eq("client_id", clientId)
       .maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error("zoho-books: contact_get read failed:", error.code, error.message);
+      throw new UserError("Could not read the Zoho link.");
+    }
     if (!data) return { linked: false };
     return { linked: true, zoho_contact_id: data.zoho_contact_id, zoho_contact_name: data.zoho_contact_name };
   }

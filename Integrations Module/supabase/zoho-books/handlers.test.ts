@@ -8,6 +8,8 @@ function makeDeps(over: Record<string, unknown> = {}) {
   const calls: Call[] = [];
   const saved: unknown[] = [];
   const asked: string[] = [];
+  const tables: string[] = [];
+  const conflicts: unknown[] = [];
   const replies: Record<string, unknown> = {
     "/organizations": { organizations: [{ organization_id: "ORG1" }] },
     "/settings/taxes": { taxes: [{ tax_id: "1", tax_name: "VAT", tax_percentage: 5 }] },
@@ -22,17 +24,21 @@ function makeDeps(over: Record<string, unknown> = {}) {
       return Promise.resolve(true);
     },
     db: {
-      from: (_t: string) => ({
-        upsert: (row: unknown) => {
-          saved.push(row);
-          return Promise.resolve({ error: null });
-        },
-        select: () => ({
-          eq: () => ({
-            maybeSingle: () => Promise.resolve({ data: over.link ?? null, error: null }),
+      from: (t: string) => {
+        tables.push(t);
+        return {
+          upsert: (row: unknown, opts?: unknown) => {
+            saved.push(row);
+            conflicts.push(opts);
+            return Promise.resolve({ error: over.dbError ?? null });
+          },
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: over.link ?? null, error: over.dbError ?? null }),
+            }),
           }),
-        }),
-      }),
+        };
+      },
     },
     zoho: () =>
       Promise.resolve({
@@ -48,7 +54,7 @@ function makeDeps(over: Record<string, unknown> = {}) {
     ...over,
   };
   // deno-lint-ignore no-explicit-any
-  return { deps: deps as any, calls, saved, asked, replies };
+  return { deps: deps as any, calls, saved, asked, tables, conflicts, replies };
 }
 
 Deno.test("connection_test and taxes_list are admin only", async () => {
@@ -85,6 +91,7 @@ Deno.test("contacts_search needs the department permission", async () => {
     UserError,
     "permission",
   );
+  assertEquals(no.calls.length, 0);
 
   const bs = makeDeps();
   await handle("contacts_search", { query: "ac", department: "business_setup" }, bs.deps);
@@ -112,7 +119,7 @@ Deno.test("an unknown department is refused", async () => {
 });
 
 Deno.test("contact_link saves the name Zoho returns, not one from the browser", async () => {
-  const { deps, saved } = makeDeps();
+  const { deps, saved, tables, conflicts } = makeDeps();
   await handle(
     "contact_link",
     { client_id: "c1", zoho_contact_id: "11", department: "banking", zoho_contact_name: "Fake" },
@@ -124,6 +131,50 @@ Deno.test("contact_link saves the name Zoho returns, not one from the browser", 
   assertEquals(row.zoho_contact_id, "11");
   assertEquals(row.client_id, "c1");
   assertEquals(row.linked_by, "user-1");
+  assertEquals(tables, ["zoho_contact_links"]);
+  assertEquals(conflicts, [{ onConflict: "client_id" }]);
+});
+
+Deno.test("contact_link maps a missing client to a plain message", async () => {
+  const fk = { code: "23503", message: 'insert violates foreign key constraint "zoho_contact_links_client_id_fkey"' };
+  const { deps } = makeDeps({ dbError: fk });
+  await assertRejects(
+    () => handle("contact_link", { client_id: "CL000001", zoho_contact_id: "11", department: "banking" }, deps),
+    UserError,
+    "That client was not found.",
+  );
+});
+
+Deno.test("other database errors reach the caller as plain text only", async () => {
+  const pg = { code: "XX000", message: 'relation "zoho_contact_links" constraint "secret_name" broke' };
+  const { deps } = makeDeps({ dbError: pg });
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    for (
+      const [fn, args, msg] of [
+        ["contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, "Could not save the Zoho link."],
+        ["contact_get", { client_id: "c1", department: "banking" }, "Could not read the Zoho link."],
+      ] as const
+    ) {
+      const e = await assertRejects(() => handle(fn, args, deps), UserError, msg);
+      assertEquals(e.message.includes("zoho_contact_links"), false);
+      assertEquals(e.message.includes("secret_name"), false);
+    }
+  } finally {
+    console.error = quiet;
+  }
+});
+
+Deno.test("contact_link refuses a Zoho contact with no name", async () => {
+  const { deps, saved, replies } = makeDeps();
+  replies["/contacts/11"] = { contact: { contact_id: "11", contact_name: "  ", currency_code: "AED" } };
+  await assertRejects(
+    () => handle("contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, deps),
+    UserError,
+    "That Zoho contact has no name. Add one in Zoho first.",
+  );
+  assertEquals(saved.length, 0);
 });
 
 Deno.test("contact_link refuses a non-AED contact", async () => {
@@ -143,6 +194,8 @@ Deno.test("contact_link needs the manage permission and a numeric Zoho id", asyn
     UserError,
     "permission",
   );
+  assertEquals(no.calls.length, 0);
+  assertEquals(no.saved.length, 0);
   const { deps, saved } = makeDeps();
   await assertRejects(
     () => handle("contact_link", { client_id: "c1", zoho_contact_id: "../x", department: "banking" }, deps),
@@ -158,6 +211,8 @@ Deno.test("contact_get needs a view permission", async () => {
     UserError,
     "permission",
   );
+  assertEquals(no.calls.length, 0);
+  assertEquals(no.tables.length, 0);
 
   const bs = makeDeps();
   await handle("contact_get", { client_id: "c1", department: "business_setup" }, bs.deps);
