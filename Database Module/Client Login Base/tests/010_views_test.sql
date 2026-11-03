@@ -119,6 +119,22 @@ update public.banking_documents set current_version = 2 where id = 'd1000000-000
 insert into public.banking_generated_documents (id, case_id, kind, quotation_id, document_number, file_name, storage_path) values
   ('9e000000-0000-0000-0000-000000000001', 'c1000000-0000-0000-0000-000000000002', 'quote', 'e1000000-0000-0000-0000-000000000002', 'QT-1', 'quote.pdf', 'alpha/quote.pdf'),
   ('9e000000-0000-0000-0000-000000000002', 'c1000000-0000-0000-0000-000000000002', 'letter', null, 'EL-1', 'letter.pdf', '');
+-- generated files of quotations and letters that have not gone out, or were withdrawn, next to ones that have
+insert into public.banking_quotations (id, case_id, version, status, total_amount, direct_to_bank_total, is_imported) values
+  ('e1000000-0000-0000-0000-000000000063', 'c1000000-0000-0000-0000-000000000006', 3, 'Draft', 1, 0, false),
+  ('e1000000-0000-0000-0000-000000000064', 'c1000000-0000-0000-0000-000000000006', 4, 'Approval Required', 1, 0, false),
+  ('e1000000-0000-0000-0000-000000000065', 'c1000000-0000-0000-0000-000000000006', 5, 'Issued', 1, 0, false);
+insert into public.banking_engagement_letters (id, case_id, quotation_id, version, status) values
+  ('e3000000-0000-0000-0000-000000000001', 'c1000000-0000-0000-0000-000000000006', 'e1000000-0000-0000-0000-000000000062', 1, 'Draft'),
+  ('e3000000-0000-0000-0000-000000000002', 'c1000000-0000-0000-0000-000000000006', 'e1000000-0000-0000-0000-000000000062', 2, 'Cancelled'),
+  ('e3000000-0000-0000-0000-000000000003', 'c1000000-0000-0000-0000-000000000006', 'e1000000-0000-0000-0000-000000000062', 3, 'Sent to Client');
+insert into public.banking_generated_documents (id, case_id, kind, quotation_id, letter_id, document_number, file_name, storage_path) values
+  ('9e000000-0000-0000-0000-000000000011', 'c1000000-0000-0000-0000-000000000006', 'quote', 'e1000000-0000-0000-0000-000000000063', null, 'QT-DRAFT', 'quote-draft.pdf', 'alpha/quote-draft.pdf'),
+  ('9e000000-0000-0000-0000-000000000012', 'c1000000-0000-0000-0000-000000000006', 'quote', 'e1000000-0000-0000-0000-000000000064', null, 'QT-APPROVAL', 'quote-approval.pdf', 'alpha/quote-approval.pdf'),
+  ('9e000000-0000-0000-0000-000000000013', 'c1000000-0000-0000-0000-000000000006', 'quote', 'e1000000-0000-0000-0000-000000000065', null, 'QT-ISSUED', 'quote-issued.pdf', 'alpha/quote-issued.pdf'),
+  ('9e000000-0000-0000-0000-000000000021', 'c1000000-0000-0000-0000-000000000006', 'letter', null, 'e3000000-0000-0000-0000-000000000001', 'EL-DRAFT', 'letter-draft.pdf', 'alpha/letter-draft.pdf'),
+  ('9e000000-0000-0000-0000-000000000022', 'c1000000-0000-0000-0000-000000000006', 'letter', null, 'e3000000-0000-0000-0000-000000000002', 'EL-CANCELLED', 'letter-cancelled.pdf', 'alpha/letter-cancelled.pdf'),
+  ('9e000000-0000-0000-0000-000000000023', 'c1000000-0000-0000-0000-000000000006', 'letter', null, 'e3000000-0000-0000-0000-000000000003', 'EL-SENT', 'letter-sent.pdf', 'alpha/letter-sent.pdf');
 
 -- ── case in stage 8, record keys, nothing internal ──
 select public.ok('open case: stage 8 and bank name',
@@ -204,6 +220,22 @@ select public.ok('generated doc path function works, and refuses another client'
 select public.ok('generated doc without a path cannot open, path function null',
   (select g ->> 'can_open' = 'false' from (select public.card('aa000000-0000-0000-0000-0000000000aa', '9e000000-0000-0000-0000-000000000002') g) x)
   and public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'generated', '9e000000-0000-0000-0000-000000000002') is null);
+select public.ok('generated: draft and approval-required quotations absent from the gallery',
+  (select public.card('aa000000-0000-0000-0000-0000000000aa', '9e000000-0000-0000-0000-000000000011') is null and public.card('aa000000-0000-0000-0000-0000000000aa', '9e000000-0000-0000-0000-000000000012') is null));
+select public.ok('generated: draft and approval-required quotations have no path',
+  (select public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'generated', '9e000000-0000-0000-0000-000000000011') is null
+      and public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'generated', '9e000000-0000-0000-0000-000000000012') is null));
+select public.ok('generated: draft and cancelled letters absent from the gallery',
+  (select public.card('aa000000-0000-0000-0000-0000000000aa', '9e000000-0000-0000-0000-000000000021') is null and public.card('aa000000-0000-0000-0000-0000000000aa', '9e000000-0000-0000-0000-000000000022') is null));
+select public.ok('generated: draft and cancelled letters have no path',
+  (select public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'generated', '9e000000-0000-0000-0000-000000000021') is null
+      and public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'generated', '9e000000-0000-0000-0000-000000000022') is null));
+select public.ok('generated: no unissued number or file name anywhere in the output',
+  (select t !~ 'QT-DRAFT|QT-APPROVAL|EL-DRAFT|EL-CANCELLED|quote-draft|quote-approval|letter-draft|letter-cancelled' from (select public.client_portal_me('aa000000-0000-0000-0000-0000000000aa')::text t) x));
+select public.ok('generated: an issued quotation and a sent letter appear and open',
+  (select public.card('aa000000-0000-0000-0000-0000000000aa', '9e000000-0000-0000-0000-000000000013') ->> 'can_open' = 'true' and public.card('aa000000-0000-0000-0000-0000000000aa', '9e000000-0000-0000-0000-000000000023') ->> 'can_open' = 'true'
+      and public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'generated', '9e000000-0000-0000-0000-000000000013') ->> 'storage_path' = 'alpha/quote-issued.pdf'
+      and public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'generated', '9e000000-0000-0000-0000-000000000023') ->> 'storage_path' = 'alpha/letter-sent.pdf'));
 select public.ok('unknown source returns null', (select public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'other', 'd1000000-0000-0000-0000-000000000001') is null));
 select public.ok('gallery output holds no storage path',
   (select t !~ 'alpha/|beta/|storage_path' from (select (public.client_portal_me('aa000000-0000-0000-0000-0000000000aa') -> 'gallery')::text t) x));

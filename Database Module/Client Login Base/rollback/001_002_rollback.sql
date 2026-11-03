@@ -27,6 +27,7 @@ drop function if exists public.client_change_official(uuid, text);
 drop function if exists public.client_change_iso(text);
 drop function if exists public.client_change_field(text);
 drop function if exists public.client_portal_gallery_path(uuid, text, uuid);
+drop function if exists public.client_portal_generated_visible(text, uuid, uuid);
 
 drop table if exists public.client_portal_change_requests;
 

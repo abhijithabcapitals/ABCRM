@@ -34,6 +34,14 @@ grant all on public.client_portal_change_requests to service_role;
 
 -- ---- what a client sees ------------------------------------------------------------------------------
 
+-- A generated file is saved before its quotation or letter is issued. Clients see it only once that has gone out and was not withdrawn.
+create or replace function public.client_portal_generated_visible(p_kind text, p_quotation uuid, p_letter uuid) returns boolean
+language sql stable set search_path = public, pg_temp as $$
+  select not (
+    (p_kind = 'quote' and exists (select 1 from banking_quotations q where q.id = p_quotation and q.status in ('Draft', 'Approval Required')))
+    or (p_kind = 'letter' and exists (select 1 from banking_engagement_letters l where l.id = p_letter and l.status in ('Draft', 'Cancelled'))))
+$$;
+
 -- Existing keys (username, display_name, record, services, master_services, documents) keep their meaning; the rest is new.
 create or replace function public.client_portal_me(p_account uuid) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
@@ -70,7 +78,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
            g.created_at::date, g.file_name, false, nullif(g.storage_path, '') is not null
       from c
       join banking_cases cs on cs.client_id = c.id
-      join banking_generated_documents g on g.case_id = cs.id)
+      join banking_generated_documents g on g.case_id = cs.id
+     where client_portal_generated_visible(g.kind, g.quotation_id, g.letter_id))
   select jsonb_build_object(
     'username', (select username from a),
     'display_name', (select display_name from a),
@@ -148,7 +157,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
               order by field_key, created_at desc) r))
 $$;
 
--- The storage path and file name behind one gallery card, or null: not this client's, deleted, sensitive, or no path.
+-- The storage path and file name behind one gallery card, or null: not this client's, deleted, sensitive, unissued, or no path.
 -- The Edge Function signs the link; the browser never sees the path.
 create or replace function public.client_portal_gallery_path(p_account uuid, p_source text, p_id uuid) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
@@ -166,6 +175,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
       join banking_cases cs on cs.client_id = a.banking_client_id
       join banking_generated_documents g on g.case_id = cs.id
      where p_source = 'generated' and a.id = p_account and g.id = p_id and nullif(g.storage_path, '') is not null
+       and client_portal_generated_visible(g.kind, g.quotation_id, g.letter_id)
   ) x limit 1
 $$;
 
@@ -219,7 +229,7 @@ end $$;
 do $$
 declare f text;
 begin
-  foreach f in array array['client_portal_me(uuid)', 'client_portal_gallery_path(uuid, text, uuid)', 'client_portal_admin_clients()']
+  foreach f in array array['client_portal_generated_visible(text, uuid, uuid)', 'client_portal_me(uuid)', 'client_portal_gallery_path(uuid, text, uuid)', 'client_portal_admin_clients()']
   loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);

@@ -29,7 +29,7 @@ chk "rollback ran twice without error" 1
 chk "me returns the old top-level keys only" "$([ "$(one "select string_agg(k, ',' order by k) from jsonb_object_keys(public.client_portal_me('$ACC')) k")" = "display_name,documents,master_services,record,services,username" ] && echo 1 || echo 0)"
 REC=$(one "select (select count(*) from jsonb_object_keys(public.client_portal_me('$ACC')->'record'))")
 chk "me record has the old 14 keys" "$([ "$REC" = "14" ] && echo 1 || echo 0)" "(got $REC)"
-LEFT=$(one "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'client\_change\_%' or p.proname like 'client\_changes\_%' or p.proname = 'client_portal_gallery_path')")
+LEFT=$(one "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'client\_change\_%' or p.proname like 'client\_changes\_%' or p.proname in ('client_portal_gallery_path', 'client_portal_generated_visible'))")
 chk "no new function remains" "$([ "$LEFT" = "0" ] && echo 1 || echo 0)" "(left $LEFT)"
 chk "change requests table is gone" "$(one "select (to_regclass('public.client_portal_change_requests') is null)::int")"
 chk "client_portal_documents kept" "$(one "select (to_regclass('public.client_portal_documents') is not null)::int")"
