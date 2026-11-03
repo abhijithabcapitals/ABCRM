@@ -30,6 +30,10 @@ The backend for the `Business Development Module` UI, which is still under devel
 
 `Knowledge Base/` holds the export and import tools for the CRM's Knowledge Base articles (the `wiki_*` tables). See its README.
 
+## Client Login Base
+
+`Client Login Base/` defines what a client sees in the client portal and the admin client list (views, change requests, local tests, rollback). It runs **after Client Base 003** (and after Banking Base). See its README. Nothing has been applied to the live project until Task 9 of the Client Login plan.
+
 ## Workbook layout
 
 | Sheet | Rows | Holds |
