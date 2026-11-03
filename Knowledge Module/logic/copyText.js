@@ -1,16 +1,17 @@
 // Builds the plain text staff copy to email or WhatsApp. Never includes basis, confidence, payee, status or Internal lines.
 export const VAT_SENTENCE = "Prices exclude VAT unless stated otherwise.";
+export const BANKING_VAT_INCLUDED = "AB Capital service fee includes VAT.";
 
 export const canCopy = (item) => item.visibility === "Shareable";
 export const needsConfirm = (item) => item.status === "Draft";
 
 // Postgres numeric can arrive as a string. Null, empty and non-numeric values give null so callers can leave the line out.
-const toAmount = (v) => {
+export const toAmount = (v) => {
   if (v === null || v === undefined || (typeof v === "string" && !v.trim())) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
-const aed = (n) => "AED " + n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: Number.isInteger(n) ? 0 : 2 });
+export const aed = (n) => "AED " + n.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: Number.isInteger(n) ? 0 : 2 });
 
 const ENTITIES = { "&nbsp;": " ", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&amp;": "&" };
 
@@ -42,6 +43,7 @@ export function priceLinesToText(lines, title) {
 }
 
 // Banking rows have no status or visibility column; the spec counts them as Approved and Shareable.
+// The closing sentence follows the Banking VAT setting, as Banking quotes do.
 export function bankingPriceToText(row) {
   const fields = [
     ["Account opening fee", row.account_opening_fee],
@@ -51,7 +53,7 @@ export function bankingPriceToText(row) {
     ["Service fee", row.service_fee],
   ].map(([label, v]) => [label, toAmount(v)]).filter(([, v]) => v !== null);
   const heading = row.scheme_name ? `${row.bank_name} - ${row.scheme_name}` : row.bank_name;
-  return [heading, ...fields.map(([label, v]) => `${label}: ${aed(v)}`), "", VAT_SENTENCE].join("\n");
+  return [heading, ...fields.map(([label, v]) => `${label}: ${aed(v)}`), "", row.vat_mode === "exclusive" ? VAT_SENTENCE : BANKING_VAT_INCLUDED].join("\n");
 }
 
 export const entryToText = (entry) => `${entry.title}\n\n${htmlToText(entry.body)}`;

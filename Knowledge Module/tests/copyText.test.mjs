@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canCopy, needsConfirm, htmlToText, priceLinesToText, bankingPriceToText, entryToText } from "../logic/copyText.js";
+import { aed, canCopy, needsConfirm, htmlToText, priceLinesToText, bankingPriceToText, entryToText, toAmount } from "../logic/copyText.js";
 
 const line = (o = {}) => ({
   template: "Mainland", line_group: "Visa", item: "Visa stamp", amount_aed: 1250, status: "Approved", visibility: "Shareable",
@@ -37,7 +37,7 @@ test("a group with only Internal lines gives empty text", () => {
   assert.equal(priceLinesToText([], "Visa costs"), "");
 });
 test("bankingPriceToText lists the customer-facing amounts and the VAT sentence", () => {
-  const text = bankingPriceToText({ bank_name: "Test Bank", scheme_name: "Gold", account_opening_fee: 500, initial_deposit: 10000, minimum_balance: null, other_bank_charges: 0, service_fee: 75.5 });
+  const text = bankingPriceToText({ bank_name: "Test Bank", scheme_name: "Gold", account_opening_fee: 500, initial_deposit: 10000, minimum_balance: null, other_bank_charges: 0, service_fee: 75.5, vat_mode: "exclusive" });
   assert.ok(text.startsWith("Test Bank - Gold"));
   assert.match(text, /Account opening fee: AED 500/);
   assert.match(text, /Initial deposit: AED 10,000/);
@@ -82,6 +82,30 @@ test("priceLinesToText prints a real 0 and a numeric string", () => {
   assert.match(priceLinesToText([line({ amount_aed: "1250" })], "T"), /Visa stamp: AED 1,250\n/);
 });
 test("bankingPriceToText leaves out null and non-numeric fields but keeps 0 and numeric strings", () => {
-  const text = bankingPriceToText({ bank_name: "B", scheme_name: null, account_opening_fee: null, initial_deposit: "abc", minimum_balance: 0, other_bank_charges: "250", service_fee: undefined });
+  const text = bankingPriceToText({ bank_name: "B", scheme_name: null, account_opening_fee: null, initial_deposit: "abc", minimum_balance: 0, other_bank_charges: "250", service_fee: undefined, vat_mode: "exclusive" });
   assert.equal(text, "B\nMinimum balance: AED 0\nOther bank charges: AED 250\n\nPrices exclude VAT unless stated otherwise.");
+});
+test("bankingPriceToText says the service fee includes VAT unless the mode is exclusive", () => {
+  const row = { bank_name: "B", scheme_name: null, account_opening_fee: 5 };
+  for (const vat_mode of ["inclusive", "none", null, undefined]) {
+    const text = bankingPriceToText({ ...row, vat_mode });
+    assert.ok(text.endsWith("AB Capital service fee includes VAT."), String(vat_mode));
+    assert.ok(!text.includes("Prices exclude VAT"), String(vat_mode));
+  }
+  const exclusive = bankingPriceToText({ ...row, vat_mode: "exclusive" });
+  assert.ok(exclusive.endsWith("Prices exclude VAT unless stated otherwise."));
+  assert.ok(!exclusive.includes("includes VAT"));
+});
+test("Business Setup price text keeps the exclude sentence whatever a row says about VAT", () => {
+  assert.ok(priceLinesToText([line({ vat_mode: "inclusive" })], "T").endsWith("Prices exclude VAT unless stated otherwise."));
+});
+test("aed shows two decimals on a fraction and none on a whole amount", () => {
+  assert.equal(aed(1250.5), "AED 1,250.50");
+  assert.equal(aed(1250), "AED 1,250");
+  assert.equal(aed(0), "AED 0");
+});
+test("toAmount keeps numbers and numeric strings and gives null otherwise", () => {
+  assert.equal(toAmount("1250.5"), 1250.5);
+  assert.equal(toAmount(0), 0);
+  for (const v of [null, undefined, "", "  ", "abc"]) assert.equal(toAmount(v), null);
 });

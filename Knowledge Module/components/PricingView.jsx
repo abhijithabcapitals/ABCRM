@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, Empty, ErrorNote, Panel, Spinner, fmtDate } from "@banking/components/shared";
-import { bankingPriceToText, priceLinesToText } from "../logic/copyText.js";
+import { aed, bankingPriceToText, priceLinesToText, toAmount } from "../logic/copyText.js";
 import { groupPriceLines } from "../logic/search.js";
 import { groupCopyItem, groupDisplayStatus, isExpired } from "../logic/status.js";
 import ResultCard from "./ResultCard";
 import CopyButton from "./CopyButton";
 
-const fmtAed = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? "–" : "AED " + Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 }));
+const fmtAed = (v) => { const n = toAmount(v); return n === null ? "–" : aed(n); };
 const latest = (rows, key) => rows.map((r) => r[key]).filter(Boolean).sort().at(-1);
 const deptOf = (l) => l.knowledge_categories?.name || "General";
 
@@ -109,7 +109,7 @@ export default function PricingView({ lines, banking, today, isAdmin, onEdit }) 
             {t.groups.map((g) => <PriceGroupCard key={g.line_group} title={`${t.template} - ${g.line_group}`} lines={g.lines} today={today} isAdmin={isAdmin} onEdit={onEdit} />)}
           </div>
         </Panel>
-      )) : (
+      )) : inBanking ? null : (
         <Empty>{rows.length ? "No Business Setup prices match this filter." : "No Business Setup prices are in the Knowledge Base yet. They may not have been imported, or may be awaiting admin review."}</Empty>
       )}
 
