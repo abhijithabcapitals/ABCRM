@@ -58,3 +58,30 @@ test("htmlToText drops script and style content", () => {
 test("htmlToText turns list items and line breaks into lines", () => {
   assert.equal(htmlToText("<ul><li>One</li><li>Two<br>three</li></ul>"), "- One\n- Two\nthree");
 });
+
+test("htmlToText keeps rows on one line when cells hold paragraphs", () => {
+  assert.equal(htmlToText("<table><tr><td><p>Visa</p></td><td><p>1250</p></td></tr></table>"), "Visa | 1250");
+  assert.equal(htmlToText("<table><tr><td><p>Two</p><p>parts</p></td><td>x</td></tr></table>"), "Two parts | x");
+});
+test("htmlToText keeps empty middle cells, drops trailing ones and all-empty rows", () => {
+  const html = "<table><tr><td>A</td><td></td><td>C</td><td> </td></tr><tr><td><p></p></td><td>&nbsp;</td></tr><tr><td>D</td><td>E</td></tr></table>";
+  assert.equal(htmlToText(html), "A | | C\nD | E");
+});
+test("htmlToText decodes entities once", () => {
+  assert.equal(htmlToText("<table><tr><td>&amp;lt;</td></tr></table>"), "&lt;");
+});
+test("priceLinesToText leaves out lines with a missing or non-numeric amount", () => {
+  const text = priceLinesToText([line({ item: "A", amount_aed: null }), line({ item: "B", amount_aed: "abc" }), line({ item: "C", amount_aed: undefined }), line({ item: "D", amount_aed: "" }), line({ item: "E", amount_aed: 5 })], "T");
+  assert.ok(!/A:|B:|C:|D:/.test(text));
+  assert.ok(!text.includes("NaN"));
+  assert.match(text, /E: AED 5\n/);
+  assert.equal(priceLinesToText([line({ amount_aed: null })], "T"), "");
+});
+test("priceLinesToText prints a real 0 and a numeric string", () => {
+  assert.match(priceLinesToText([line({ item: "Free", amount_aed: 0 })], "T"), /Free: AED 0\n/);
+  assert.match(priceLinesToText([line({ amount_aed: "1250" })], "T"), /Visa stamp: AED 1,250\n/);
+});
+test("bankingPriceToText leaves out null and non-numeric fields but keeps 0 and numeric strings", () => {
+  const text = bankingPriceToText({ bank_name: "B", scheme_name: null, account_opening_fee: null, initial_deposit: "abc", minimum_balance: 0, other_bank_charges: "250", service_fee: undefined });
+  assert.equal(text, "B\nMinimum balance: AED 0\nOther bank charges: AED 250\n\nPrices exclude VAT unless stated otherwise.");
+});
