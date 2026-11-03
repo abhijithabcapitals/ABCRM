@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { IconClose } from "./icons";
 import IntegrationsPanel, { EmailAccountsPanel } from "@integrations";
 import ClientPortalAdmin from "@client-module/crm/ClientPortalAdmin";
-import { AiUsagePanel, AuditPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
+import { AiUsagePanel, AuditPanel, AuditTrailPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
 
 const DEFAULT_COL_WIDTHS = { member: 220, email: 240, role: 130, joined: 140, actions: 60 };
 
@@ -246,7 +246,8 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             { key: "email-accounts", label: "📧 Email Accounts" },
             { key: "integrations", label: "🔌 Integrations" },
             { key: "client-portal", label: "🔑 Client Portal" },
-            { key: "audit", label: "📜 Audit Log" },
+            { key: "audit-trail", label: "🕵 Audit Trail" },
+            { key: "audit", label: "📜 Admin Actions" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -271,6 +272,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             {activeTab === "ai" && <AiUsagePanel />}
             {activeTab === "storage" && <StoragePanel />}
             {activeTab === "jobs" && <JobsPanel />}
+            {activeTab === "audit-trail" && <AuditTrailPanel />}
             {activeTab === "audit" && <AuditPanel />}
           </div>
         )}

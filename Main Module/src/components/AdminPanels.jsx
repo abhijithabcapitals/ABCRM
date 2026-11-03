@@ -4,10 +4,11 @@ import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { flagMissing } from "@banking/components/Attention";
 import { supabase } from "../supabase";
-import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE } from "../tabs";
+import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE, toggleAllTabs } from "../tabs";
 import { TriggersPanel } from "./AdminTriggers";
 import { cronText } from "./triggerSchedule";
 import { EMP_FIELDS } from "../empFields";
+import { ACTION_LABEL, auditFields, auditWho, cleanSearch, dayEnd, dayStart } from "./auditTrail";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
@@ -157,6 +158,49 @@ export function AuditPanel() {
   );
 }
 
+export function AuditTrailPanel() {
+  const blank = { who: "", table: "", action: "", from: "", to: "" };
+  const [draft, setDraft] = useState(blank);
+  const [filter, setFilter] = useState(blank);
+  const [limit, setLimit] = useState(200);
+  const [open, setOpen] = useState(null);
+  const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  const list = useLoad(async () => {
+    let q = supabase.from("audit_trail").select("*").order("id", { ascending: false }).limit(limit);
+    const who = cleanSearch(filter.who);
+    const table = cleanSearch(filter.table);
+    if (who) q = q.or(`actor_name.ilike.*${who}*,actor_email.ilike.*${who}*`);
+    if (table) q = q.ilike("table_name", `%${table}%`);
+    if (filter.action) q = q.eq("action", filter.action);
+    if (filter.from) q = q.gte("at", dayStart(filter.from));
+    if (filter.to) q = q.lte("at", dayEnd(filter.to));
+    return check(await q);
+  }, [filter, limit]);
+  const rows = list.data || [];
+  return (
+    <div>
+      <ErrorNote message={list.error} />
+      <p className="bk-note">Every add, change and delete, with who made it. Entries cannot be edited or removed. Passwords, tokens and keys show as [hidden]; private mail tables show the fields changed, without values.</p>
+      <div className="bk-grid bk-mb">
+        <div className="bk-field"><label htmlFor="at-who">User</label><input id="at-who" autoComplete="off" placeholder="Name or email" value={draft.who} onChange={set("who")} /></div>
+        <div className="bk-field"><label htmlFor="at-table">Table</label><input id="at-table" autoComplete="off" placeholder="For example banking_cases" value={draft.table} onChange={set("table")} /></div>
+        <div className="bk-field"><label htmlFor="at-action">Action</label><select id="at-action" value={draft.action} onChange={set("action")}><option value="">All</option>{Object.entries(ACTION_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+        <div className="bk-field"><label htmlFor="at-from">From</label><input id="at-from" type="date" value={draft.from} onChange={set("from")} /></div>
+        <div className="bk-field"><label htmlFor="at-to">To</label><input id="at-to" type="date" value={draft.to} onChange={set("to")} /></div>
+      </div>
+      <div className="bk-actions bk-mb"><Button variant="primary" onClick={() => { setLimit(200); setFilter(draft); }}>Apply filters</Button><Button onClick={() => { setDraft(blank); setLimit(200); setFilter(blank); }}>Clear</Button></div>
+      {list.loading && !list.data ? <Spinner /> : <DataTable search="Search the loaded entries…" rows={rows} onRow={setOpen} empty="No entries match." columns={[{ key: "at", label: "When", render: (r) => when(r.at) }, { key: "who", label: "User", render: auditWho }, { key: "action", label: "Action", render: (r) => <Badge tone={r.action === "DELETE" ? "warn" : "good"}>{ACTION_LABEL[r.action]}</Badge> }, { key: "table_name", label: "Table" }, { key: "row_id", label: "Record", render: (r) => r.row_id || "–" }, { key: "changed", label: "Fields changed", render: (r) => r.changed?.join(", ") || "–" }]} />}
+      {rows.length === limit && <div className="bk-actions bk-mt"><Button onClick={() => setLimit((n) => n + 200)}>Load 200 older entries</Button></div>}
+      {open && (
+        <Modal wide title={`${ACTION_LABEL[open.action]} in ${open.table_name}`} onClose={() => setOpen(null)}>
+          <p className="bk-note">{auditWho(open)}{open.actor_email && open.actor_name ? ` (${open.actor_email})` : ""}, {when(open.at)}. Record {open.row_id || "–"}. Source: {open.source}.</p>
+          <DataTable rows={auditFields(open)} empty="No field values recorded." columns={[{ key: "field", label: "Field" }, { key: "before", label: "Before" }, { key: "after", label: "After" }]} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 const HEADINGS = { "employee code": "employee_code", "emp code": "employee_code", code: "employee_code", "full name": "full_name", name: "full_name", email: "work_email", "work email": "work_email", phone: "phone", mobile: "phone", department: "department", designation: "designation", "join date": "join_date", status: "status" };
 
 export function EmployeesPanel() {
@@ -193,7 +237,9 @@ export function EmployeesPanel() {
 
 function TabPicker({ value, onChange }) {
   const toggle = (k) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k]);
-  return <div className="bk-admin-tabs">{GRANTABLE_TABS.map((t) => <label className="bk-check" key={t.key}><input type="checkbox" checked={value.includes(t.key)} onChange={() => toggle(t.key)} /> {t.label}</label>)}</div>;
+  const all = GRANTABLE_TABS.every((t) => value.includes(t.key));
+  const some = !all && GRANTABLE_TABS.some((t) => value.includes(t.key));
+  return <div className="bk-admin-tabs"><label className="bk-check" style={{ gridColumn: "1 / -1" }}><input type="checkbox" checked={all} ref={(el) => { if (el) el.indeterminate = some; }} onChange={() => onChange(toggleAllTabs(value))} /> <strong>All</strong></label>{GRANTABLE_TABS.map((t) => <label className="bk-check" key={t.key}><input type="checkbox" checked={value.includes(t.key)} onChange={() => toggle(t.key)} /> {t.label}</label>)}</div>;
 }
 const needsRole = (tabs) => tabs.some((t) => NEEDS_DATA_ROLE.has(t));
 
