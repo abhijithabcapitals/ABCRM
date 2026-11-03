@@ -8,7 +8,7 @@ import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE, toggleAllTabs } from "../t
 import { TriggersPanel } from "./AdminTriggers";
 import { cronText } from "./triggerSchedule";
 import { EMP_FIELDS } from "../empFields";
-import { ACTION_LABEL, auditFields, auditWho, cleanSearch, dayEnd, dayStart } from "./auditTrail";
+import { ACTION_LABEL, auditDetail, auditFields, auditPeople, auditPersonFilter, auditWho, cleanSearch, dayEnd, dayStart } from "./auditTrail";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
@@ -159,37 +159,44 @@ export function AuditPanel() {
 }
 
 export function AuditTrailPanel() {
-  const blank = { who: "", table: "", action: "", from: "", to: "" };
+  const blank = { person: "", who: "", table: "", action: "", from: "", to: "" };
   const [draft, setDraft] = useState(blank);
   const [filter, setFilter] = useState(blank);
   const [limit, setLimit] = useState(200);
   const [open, setOpen] = useState(null);
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  const staff = useLoad(async () => auditPeople(
+    check(await supabase.from("hr_employees").select("id, full_name, profile_id")),
+    check(await supabase.from("profiles").select("id, full_name, email")),
+  ), []);
   const list = useLoad(async () => {
     let q = supabase.from("audit_trail").select("*").order("id", { ascending: false }).limit(limit);
     const who = cleanSearch(filter.who);
     const table = cleanSearch(filter.table);
+    const person = (staff.data || []).find((p) => p.key === filter.person);
+    if (person) q = q.or(auditPersonFilter(person));
     if (who) q = q.or(`actor_name.ilike.*${who}*,actor_email.ilike.*${who}*`);
     if (table) q = q.ilike("table_name", `%${table}%`);
     if (filter.action) q = q.eq("action", filter.action);
     if (filter.from) q = q.gte("at", dayStart(filter.from));
     if (filter.to) q = q.lte("at", dayEnd(filter.to));
     return check(await q);
-  }, [filter, limit]);
+  }, [filter, limit, staff.data]);
   const rows = list.data || [];
   return (
     <div>
-      <ErrorNote message={list.error} />
-      <p className="bk-note">Every add, change and delete, with who made it. Entries cannot be edited or removed. Passwords, tokens and keys show as [hidden]; private mail tables show the fields changed, without values.</p>
+      <ErrorNote message={list.error || staff.error} />
+      <p className="bk-note">Every add, change, delete, login, logout, page opened and click, with who did it. Entries cannot be edited. Clicks and page opens go after 12 months; the rest is kept forever. Passwords, tokens and keys show as [hidden]; private mail tables show the fields changed, without values.</p>
       <div className="bk-grid bk-mb">
-        <div className="bk-field"><label htmlFor="at-who">User</label><input id="at-who" autoComplete="off" placeholder="Name or email" value={draft.who} onChange={set("who")} /></div>
-        <div className="bk-field"><label htmlFor="at-table">Table</label><input id="at-table" autoComplete="off" placeholder="For example banking_cases" value={draft.table} onChange={set("table")} /></div>
+        <div className="bk-field"><label htmlFor="at-person">Employee</label><select id="at-person" value={draft.person} onChange={set("person")}><option value="">All</option>{(staff.data || []).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}</select></div>
+        <div className="bk-field"><label htmlFor="at-who">User search</label><input id="at-who" autoComplete="off" placeholder="Name or email" value={draft.who} onChange={set("who")} /></div>
+        <div className="bk-field"><label htmlFor="at-table">Table or page</label><input id="at-table" autoComplete="off" placeholder="For example banking_cases" value={draft.table} onChange={set("table")} /></div>
         <div className="bk-field"><label htmlFor="at-action">Action</label><select id="at-action" value={draft.action} onChange={set("action")}><option value="">All</option>{Object.entries(ACTION_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
         <div className="bk-field"><label htmlFor="at-from">From</label><input id="at-from" type="date" value={draft.from} onChange={set("from")} /></div>
         <div className="bk-field"><label htmlFor="at-to">To</label><input id="at-to" type="date" value={draft.to} onChange={set("to")} /></div>
       </div>
       <div className="bk-actions bk-mb"><Button variant="primary" onClick={() => { setLimit(200); setFilter(draft); }}>Apply filters</Button><Button onClick={() => { setDraft(blank); setLimit(200); setFilter(blank); }}>Clear</Button></div>
-      {list.loading && !list.data ? <Spinner /> : <DataTable search="Search the loaded entries…" rows={rows} onRow={setOpen} empty="No entries match." columns={[{ key: "at", label: "When", render: (r) => when(r.at) }, { key: "who", label: "User", render: auditWho }, { key: "action", label: "Action", render: (r) => <Badge tone={r.action === "DELETE" ? "warn" : "good"}>{ACTION_LABEL[r.action]}</Badge> }, { key: "table_name", label: "Table" }, { key: "row_id", label: "Record", render: (r) => r.row_id || "–" }, { key: "changed", label: "Fields changed", render: (r) => r.changed?.join(", ") || "–" }]} />}
+      {list.loading && !list.data ? <Spinner /> : <DataTable search="Search the loaded entries…" rows={rows} onRow={setOpen} empty="No entries match." columns={[{ key: "at", label: "When", render: (r) => when(r.at) }, { key: "who", label: "User", render: auditWho }, { key: "action", label: "Action", render: (r) => <Badge tone={r.action === "DELETE" ? "warn" : r.action === "PAGE" || r.action === "CLICK" ? undefined : "good"}>{ACTION_LABEL[r.action]}</Badge> }, { key: "table_name", label: "Where" }, { key: "row_id", label: "Record", render: (r) => r.row_id || "–" }, { key: "changed", label: "Detail", render: auditDetail }]} />}
       {rows.length === limit && <div className="bk-actions bk-mt"><Button onClick={() => setLimit((n) => n + 200)}>Load 200 older entries</Button></div>}
       {open && (
         <Modal wide title={`${ACTION_LABEL[open.action]} in ${open.table_name}`} onClose={() => setOpen(null)}>

@@ -5,11 +5,12 @@ do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role; end if;
 end $$;
 create schema auth; create schema cron; create schema net; create schema vault;
+create table auth.sessions (id uuid primary key, user_id uuid, created_at timestamptz default now(), ip inet, user_agent text);
 grant usage on schema public, auth to anon, authenticated;
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
 grant execute on function auth.uid() to anon, authenticated;
 
-create table public.profiles (id uuid primary key, role text);
+create table public.profiles (id uuid primary key, role text, full_name text, email text);
 create function public.admin_is() returns boolean language sql stable security definer set search_path = public, pg_temp as $$
   select exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin') $$;
 create table public.notifications (id serial primary key, read boolean, created_at timestamptz);
