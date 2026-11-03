@@ -15,8 +15,11 @@
 -- fields, and every field of a client with only a Client Master row, go to client_master.data with a version bump and a
 -- client_master_history row, as client_master_save does. Dates are stored as ISO in requests, as date in KYC and as
 -- DD/MM/YYYY in the Client Master (what fmtUae writes and parseUaeDate reads).
--- Run after Client Base 003, Admin Base and 001. Idempotent.
+-- Run after Client Base 003, Admin Base and 001. Idempotent. One transaction: if a run stopped partway, the definer function
+-- client_change_apply would stay executable by anon until the rights block at the end ran.
 -- =====================================================================
+
+begin;
 
 -- ---- the field list: keeps in step with Client Login Module/logic/fields.js (a Node test compares the two) ------
 -- (key, kind, banking_kyc_profiles column or null for masterOnly, Client Master key, masterOnly)
@@ -267,3 +270,5 @@ begin
     execute format('grant execute on function public.%s to authenticated', f);
   end loop;
 end $$;
+
+commit;

@@ -5,8 +5,10 @@
 -- and the admin client list. Only the client-portal Edge Function (service role) calls the client functions; the
 -- admin list is for signed-in admins. Named fields only: risk, source of funds, turnover, remarks, received_by,
 -- reference_note, import_row_id, approval fields, commission, staff names and storage paths never leave here.
--- Run after Client Base 003 and Banking Base. Idempotent.
+-- Run after Client Base 003 and Banking Base. Idempotent. One transaction, so a stopped run leaves nothing half done.
 -- =====================================================================
+
+begin;
 
 -- A client's request to change one field of their record. Created here because the SQL below reads it; the
 -- functions that write to it come in 002. Staff see it through functions, never directly.
@@ -238,3 +240,5 @@ begin
   end loop;
   grant execute on function public.client_portal_admin_clients() to authenticated;
 end $$;
+
+commit;

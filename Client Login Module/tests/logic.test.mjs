@@ -32,6 +32,15 @@ test("bankingProgress: an open historical case says In progress with no percent;
   assert.equal(bankingProgress({ current_stage: 8, outcome: null, is_historical: false }).percent, Math.round((8 / 15) * 100));
 });
 
+test("both migrations run in one transaction", () => {
+  const dir = fileURLToPath(new URL("../../Database Module/Client Login Base/migrations/", import.meta.url));
+  for (const f of ["001_portal_views.sql", "002_change_requests.sql"]) {
+    const statements = readFileSync(join(dir, f), "utf8").split(/\r?\n/).filter((l) => l.trim() && !l.startsWith("--"));
+    assert.equal(statements[0], "begin;", f);
+    assert.equal(statements.at(-1), "commit;", f);
+  }
+});
+
 test("hidesBalance: only a Cancelled or Returned case hides what would read as owed", () => {
   assert.equal(hidesBalance("Cancelled"), true);
   assert.equal(hidesBalance("Returned"), true);
