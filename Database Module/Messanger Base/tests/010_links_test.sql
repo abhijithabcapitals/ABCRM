@@ -27,12 +27,13 @@ insert into profiles values ('00000000-0000-0000-0000-00000000000a', 'admin'), (
 insert into client_master values ('C1', 'Test Client One', '00000000-0000-0000-0000-00000000000b');
 insert into client_master values ('C2', 'Test Client Two', '00000000-0000-0000-0000-00000000000d');
 insert into crm_communication_links (record_type, record_id, link_type, reference, label, created_by)
-  values ('client', 'C1', 'chat', 'ref-1', 'Seed', '00000000-0000-0000-0000-00000000000b');
+  values ('client', 'C1', 'chat', 'ref-1', 'Seed', '00000000-0000-0000-0000-00000000000b'),
+         ('client', 'C1', 'channel', 'ref-5', 'Made by c', '00000000-0000-0000-0000-00000000000c');
 
 -- Person with access
 select set_config('test.uid', '00000000-0000-0000-0000-00000000000b', false);
 set role authenticated;
-select t.ok('person with access sees the client link', t.n('select 1 from crm_communication_links where record_id = ''C1''') = 1);
+select t.ok('person with access sees the client link', t.n('select 1 from crm_communication_links where reference = ''ref-1''') = 1);
 insert into crm_communication_links (record_type, record_id, link_type, reference) values ('client', 'C1', 'meeting', 'ref-2');
 select t.ok('person with access can add a link, created_by defaults to them', t.n('select 1 from crm_communication_links where reference = ''ref-2'' and created_by = auth.uid()') = 1);
 select t.fails('repeat of the same reference is refused', 'insert into crm_communication_links (record_type, record_id, link_type, reference) values (''client'', ''C1'', ''meeting'', ''ref-2'')', 'duplicate key');
@@ -46,7 +47,15 @@ set role authenticated;
 select t.ok('person without access sees none', t.n('select 1 from crm_communication_links') = 0);
 select t.fails('person without access cannot insert', 'insert into crm_communication_links (record_type, record_id, link_type, reference) values (''client'', ''C1'', ''chat'', ''ref-4'')', 'row-level security');
 
--- d cannot see C1, so cannot delete b's link
+-- b sees C1 but did not create ref-5 (c did): the delete policy alone must refuse
+reset role;
+select set_config('test.uid', '00000000-0000-0000-0000-00000000000b', false);
+set role authenticated;
+with d as (delete from crm_communication_links where reference = 'ref-5' returning 1)
+  select t.ok('person who sees the parent cannot delete a row they did not create', (select count(*) from d) = 0);
+select t.ok('that row is still there', t.n('select 1 from crm_communication_links where reference = ''ref-5''') = 1);
+
+-- d cannot see C1 at all (hidden parent)
 reset role;
 select set_config('test.uid', '00000000-0000-0000-0000-00000000000d', false);
 set role authenticated;
