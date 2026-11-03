@@ -6,8 +6,8 @@ import { attendanceEditsPending, myAccess } from "../services/hrApi";
 import { firstTab, tabsFor } from "../logic/tabs";
 import Dashboard from "./Dashboard";
 import Employees from "./Employees";
-import Documents from "./Documents";
 import Leave from "./Leave";
+import Requests from "./Requests";
 import Attendance from "./Attendance";
 import SalaryMaster from "./SalaryMaster";
 import Payroll from "./Payroll";
@@ -15,7 +15,7 @@ import Approvals from "./Approvals";
 import Settings from "./Settings";
 
 // Tabs that exist so far.
-const SCREENS = { dashboard: Dashboard, employees: Employees, attendance: Attendance, salary: SalaryMaster, documents: Documents, leave: Leave, payroll: Payroll, approvals: Approvals, settings: Settings };
+const SCREENS = { dashboard: Dashboard, employees: Employees, attendance: Attendance, salary: SalaryMaster, leave: Leave, requests: Requests, payroll: Payroll, approvals: Approvals, settings: Settings };
 const BUILT = new Set(Object.keys(SCREENS));
 
 export default function HRModule({ profile, onOpenTask }) {

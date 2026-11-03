@@ -3,7 +3,8 @@ import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Pane
 import { EMP_FIELDS } from "@app/empFields";
 import { check, employeeLink, loginProfiles, run, table } from "../services/hrApi";
 import { VISA_STATUSES } from "../logic/profile";
-import { IdPanel, PayPanel, ProfilePhoto } from "./employees/ProfilePanels";
+import Documents from "./Documents";
+import { AssetsPanel, IdPanel, InsurancePanel, MobilePanel, PayPanel, ProfilePhoto } from "./employees/ProfilePanels";
 
 const PERSONAL_FIELDS = [
   { name: "date_of_birth", label: "Date of birth", type: "date" },
@@ -26,6 +27,7 @@ export default function Employees({ role, employeeId, profile, intent }) {
   const list = useLoad(async () => run(table("hr_employees").select("*").order("employee_code")), []);
   const [openId, setOpenId] = useState(role === "employee" ? employeeId : null);
   const [edit, setEdit] = useState(isHr && intent?.add ? { status: "Active", on_payroll: true } : null);
+  const [listView, setListView] = useState("people");
   const rows = list.data || [];
   const byId = Object.fromEntries(rows.map((e) => [e.id, e]));
   const opened = openId ? byId[openId] : null;
@@ -43,7 +45,7 @@ export default function Employees({ role, employeeId, profile, intent }) {
     return (
       <div>
         {role !== "employee" && <div className="hr-back"><Button onClick={() => setOpenId(null)}>Back to employees</Button></div>}
-        <EmployeeDetail employee={opened} manager={byId[opened.manager_id]} isHr={isHr} isAdmin={isAdmin} isSelf={opened.id === employeeId} employees={rows} onChanged={list.reload} onEdit={() => setEdit(opened)} />
+        <EmployeeDetail employee={opened} manager={byId[opened.manager_id]} role={role} myId={employeeId} isHr={isHr} isAdmin={isAdmin} isSelf={opened.id === employeeId} employees={rows} onChanged={list.reload} onEdit={() => setEdit(opened)} />
         {edit && <FormModal wide title={`Edit ${edit.employee_code}`} fields={fields} initial={edit} onClose={() => setEdit(null)} onSubmit={save} />}
       </div>
     );
@@ -57,18 +59,27 @@ export default function Employees({ role, employeeId, profile, intent }) {
         {isHr && <Button variant="primary" onClick={() => setEdit({ status: "Active", on_payroll: true })}>+ Add employee</Button>}
       </PageHead>
       <ErrorNote message={list.error} />
+      {isHr && (
+        <div className="hr-view-bar">
+          <div className="hr-switch" role="group" aria-label="View">
+            {[["people", "People"], ["documents", "Documents"]].map(([k, label]) => <button type="button" key={k} aria-pressed={listView === k} className={listView === k ? "active" : ""} onClick={() => setListView(k)}>{label}</button>)}
+          </div>
+        </div>
+      )}
+      {isHr && listView === "documents" ? <Documents role={role} employeeId={employeeId} /> : (
       <DataTable search="Search code, name or department…" rows={rows} onRow={(e) => setOpenId(e.id)} empty="No employees yet."
         columns={[
           { key: "employee_code", label: "Code" }, { key: "full_name", label: "Name" }, { key: "department", label: "Department" }, { key: "designation", label: "Designation" },
           { key: "manager_id", label: "Manager", render: (e) => byId[e.manager_id]?.full_name || "–" },
           { key: "status", label: "Status", render: (e) => <Badge tone={statusTone(e.status)}>{e.status}</Badge> },
         ]} />
+      )}
       {edit && <FormModal wide title={edit.id ? `Edit ${edit.employee_code}` : "Add employee"} fields={fields} initial={edit} onClose={() => setEdit(null)} onSubmit={save} />}
     </div>
   );
 }
 
-function EmployeeDetail({ employee: e, manager, isHr, isAdmin, isSelf, employees, onChanged, onEdit }) {
+function EmployeeDetail({ employee: e, manager, role, myId, isHr, isAdmin, isSelf, employees, onChanged, onEdit }) {
   const canSeePersonal = isHr || isSelf; // the database enforces this too: managers get no rows
   const personal = useLoad(async () => (canSeePersonal ? run(table("hr_employee_personal").select("*").eq("employee_id", e.id).maybeSingle()) : null), [e.id, canSeePersonal]);
   const [editPersonal, setEditPersonal] = useState(false);
@@ -98,6 +109,10 @@ function EmployeeDetail({ employee: e, manager, isHr, isAdmin, isSelf, employees
         {canSeePersonal && <IdPanel employeeId={e.id} isHr={isHr} />}
         {isHr && <PayPanel employee={e} />}
       </div>
+      {canSeePersonal && <Documents role={role} employeeId={myId} forEmployee={e.id} />}
+      {canSeePersonal && <InsurancePanel employeeId={e.id} isHr={isHr} />}
+      {canSeePersonal && <MobilePanel employeeId={e.id} isHr={isHr} />}
+      {canSeePersonal && <AssetsPanel employee={e} isHr={isHr} />}
       {isAdmin && <LinkLogin employee={e} employees={employees} onChanged={onChanged} />}
       {editPersonal && <FormModal title={`Personal details · ${e.employee_code}`} fields={PERSONAL_FIELDS} initial={personal.data || {}} onClose={() => setEditPersonal(false)} onSubmit={savePersonal} />}
     </>

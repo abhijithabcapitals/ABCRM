@@ -10,6 +10,7 @@ export default function Settings({ profile }) {
   const isAdmin = profile?.role === "admin"; // display only: the database still enforces who may change the HR list
   const access = useLoad(async () => (isAdmin ? run(table("hr_access").select("profile_id, granted_at")) : []), [isAdmin]);
   const profiles = useLoad(async () => (isAdmin ? run(table("profiles").select("id, full_name").order("full_name")) : []), [isAdmin]);
+  const finance = useLoad(async () => (isAdmin ? run(table("hr_finance_managers").select("profile_id, granted_at")) : []), [isAdmin]);
   const types = useLoad(async () => run(table("hr_leave_types").select("*").order("name")), []);
   const holidays = useLoad(async () => run(table("hr_holidays").select("*").order("holiday_date")), []);
   const marks = useLoad(async () => run(table("hr_calendar_marks").select("*").order("mark_date")), []);
@@ -47,6 +48,17 @@ export default function Settings({ profile }) {
       </Panel>
       ) : (
         <Panel title="HR access list"><p className="bk-note hr-quiet">An administrator manages the HR access list.</p></Panel>
+      )}
+
+      {isAdmin && (
+      <Panel title="Finance Managers" sub="They approve expense claims, which then go to Accounts. Administrators can approve too. Someone here needs a linked employee record to open the HR tab." actions={<Button onClick={() => setModal("finance")}>+ Add person</Button>}>
+        <ErrorNote message={finance.error} />
+        <DataTable rows={(finance.data || []).map((a) => ({ ...a, id: a.profile_id }))} empty="No one on the list." columns={[
+          { key: "name", label: "Person", render: (a) => nameOf[a.profile_id] || a.profile_id },
+          { key: "granted_at", label: "Added", render: (a) => fmtDate(a.granted_at) },
+          { key: "x", label: "", render: (a) => <Button onClick={() => { if (window.confirm(`Remove ${nameOf[a.profile_id] || "this person"} from the Finance Managers?`)) guard(async () => check(await table("hr_finance_managers").delete().eq("profile_id", a.profile_id)), finance.reload); }}>Remove</Button> },
+        ]} />
+      </Panel>
       )}
 
       <Panel title="Leave types" sub="Start empty. Enter the entitlements your policy sets; leave annual days blank for no limit." actions={<Button variant="primary" onClick={() => setModal({ kind: "type", row: { paid: true } })}>+ Add leave type</Button>}>
@@ -107,6 +119,9 @@ export default function Settings({ profile }) {
         {settings.data && <PaySettings key={settings.data.updated_at} value={settings.data} onSave={(v) => guard(async () => check(await table("hr_settings").update(v).eq("id", 1)), settings.reload)} />}
       </Panel>
 
+      {isAdmin && modal === "finance" && <FormModal title="Add a Finance Manager" submitLabel="Add" initial={{}} onClose={() => setModal(null)}
+        fields={[{ name: "profile_id", label: "Person", type: "select", required: true, options: (profiles.data || []).filter((p) => !(finance.data || []).some((f) => f.profile_id === p.id)).map((p) => ({ value: p.id, label: p.full_name })) }]}
+        onSubmit={async (v) => { check(await table("hr_finance_managers").insert({ profile_id: v.profile_id })); await finance.reload(); }} />}
       {isAdmin && modal === "access" && <FormModal title="Add to HR access list" submitLabel="Add" initial={{}} onClose={() => setModal(null)}
         fields={[{ name: "profile_id", label: "Person", type: "select", required: true, options: (profiles.data || []).filter((p) => !hrIds.has(p.id)).map((p) => ({ value: p.id, label: p.full_name })) }]}
         onSubmit={async (v) => { check(await table("hr_access").insert({ profile_id: v.profile_id })); await access.reload(); }} />}

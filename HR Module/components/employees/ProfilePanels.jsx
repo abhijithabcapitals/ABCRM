@@ -1,9 +1,88 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { documentUrl, gratuity, insertRow, openDocument, run, table, updateRow, uploadDocument } from "../../services/hrApi";
+import { check, documentUrl, gratuity, insertRow, openDocument, run, table, updateRow, uploadDocument } from "../../services/hrApi";
 import { BAND_TONE, bandLabel, dubaiToday, expiryBand } from "../../logic/expiry";
 import { money } from "../../logic/payroll";
 import { PROFILE_DOCS, currentPay, isPhoto, latestDoc, payLines } from "../../logic/profile";
+import { insuranceEnd, unreturnedAssets } from "../../logic/requests";
+
+const day = (d) => (d ? fmtDate(d) : "–");
+const expiry = (d) => {
+  const band = d && expiryBand(d, dubaiToday());
+  return <>{day(d)}{band && <> <Badge tone={BAND_TONE[band]}>{bandLabel(band)}</Badge></>}</>;
+};
+
+// A table of one kind of record on a profile, kept with its history. HR changes it; the employee reads their own.
+function RecordsPanel({ title, sub, tableName, employeeId, isHr, fields, columns, label, tidy, warn }) {
+  const rows = useLoad(async () => run(table(tableName).select("*").eq("employee_id", employeeId).order("created_at", { ascending: false })), [tableName, employeeId]);
+  const [editing, setEditing] = useState(null);
+  const [error, setError] = useState(null);
+  const remove = async (id) => {
+    if (!window.confirm("Remove this entry?")) return;
+    setError(null);
+    try { check(await table(tableName).delete().eq("id", id)); await rows.reload(); } catch (e) { setError(e.message); }
+  };
+  return (
+    <Panel title={title} sub={sub} actions={isHr && <Button onClick={() => setEditing({})}>+ Add</Button>}>
+      <ErrorNote message={error || rows.error} onClose={() => setError(null)} />
+      {warn?.(rows.data) && <div className="hr-warning" role="alert">{warn(rows.data)}</div>}
+      {rows.loading && !rows.data ? <Spinner /> : (
+        <DataTable rows={rows.data || []} empty={`No ${label} yet.`} columns={[
+          ...columns,
+          ...(isHr ? [{ key: "x", label: "", render: (r) => <><Button onClick={() => setEditing(r)}>Edit</Button> <Button onClick={() => remove(r.id)}>Remove</Button></> }] : []),
+        ]} />
+      )}
+      {editing && <FormModal wide title={`${editing.id ? "Edit" : "Add"}: ${title}`} initial={editing} fields={fields} onClose={() => setEditing(null)}
+        onSubmit={async (v) => {
+          const values = tidy ? tidy(v) : v;
+          await (editing.id ? updateRow(tableName, editing.id, values) : insertRow(tableName, { employee_id: employeeId, ...values }));
+          await rows.reload();
+        }} />}
+    </Panel>
+  );
+}
+
+export const InsurancePanel = ({ employeeId, isHr }) => (
+  <RecordsPanel title="Insurance" label="insurance" tableName="hr_insurance" employeeId={employeeId} isHr={isHr}
+    fields={[
+      { name: "company", label: "Company", required: true }, { name: "plan_name", label: "Plan name" }, { name: "covered", label: "Covered", help: "Who or what the plan covers" },
+      { name: "start_date", label: "Start date", type: "date" }, { name: "tenure_months", label: "Tenure (months)", type: "number" },
+      { name: "end_date", label: "End date", type: "date", help: "Blank works it out from the start date and tenure" },
+    ]}
+    tidy={(v) => ({ ...v, end_date: v.end_date || insuranceEnd(v.start_date, v.tenure_months) || null })}
+    columns={[
+      { key: "company", label: "Company" }, { key: "plan_name", label: "Plan", render: (r) => r.plan_name || "–" }, { key: "covered", label: "Covered", render: (r) => r.covered || "–" },
+      { key: "start_date", label: "Start", render: (r) => day(r.start_date) }, { key: "tenure_months", label: "Tenure", render: (r) => (r.tenure_months ? `${r.tenure_months} months` : "–") },
+      { key: "end_date", label: "End", render: (r) => expiry(r.end_date) },
+    ]} />
+);
+
+export const MobilePanel = ({ employeeId, isHr }) => (
+  <RecordsPanel title="Mobile plan" label="mobile plans" tableName="hr_mobile_plans" employeeId={employeeId} isHr={isHr}
+    fields={[
+      { name: "phone_number", label: "Office number", required: true }, { name: "provider", label: "Provider" }, { name: "plan_name", label: "Plan" },
+      { name: "recharge_date", label: "Recharge date", type: "date" }, { name: "next_recharge_date", label: "Next recharge", type: "date" }, { name: "amount", label: "Amount (AED)", type: "number" },
+    ]}
+    columns={[
+      { key: "phone_number", label: "Office number" }, { key: "provider", label: "Provider", render: (r) => r.provider || "–" }, { key: "plan_name", label: "Plan", render: (r) => r.plan_name || "–" },
+      { key: "recharge_date", label: "Recharged", render: (r) => day(r.recharge_date) }, { key: "next_recharge_date", label: "Next", render: (r) => expiry(r.next_recharge_date) },
+      { key: "amount", label: "Amount", render: (r) => (r.amount === null ? "–" : money(r.amount)) },
+    ]} />
+);
+
+export const AssetsPanel = ({ employee, isHr }) => (
+  <RecordsPanel title="Assets issued" label="assets" tableName="hr_assets" employeeId={employee.id} isHr={isHr}
+    warn={(rows) => { const out = employee.status === "Left" ? unreturnedAssets(rows) : []; return out.length ? `This person has left and still holds: ${out.map((a) => a.asset_type).join(", ")}.` : null; }}
+    fields={[
+      { name: "asset_type", label: "Type", required: true, help: "Laptop, Mobile, SIM and so on" }, { name: "make_model", label: "Make and model" }, { name: "serial_number", label: "Serial number" },
+      { name: "issued_on", label: "Issued on", type: "date" }, { name: "returned_on", label: "Returned on", type: "date" }, { name: "note", label: "Note", type: "textarea", full: true },
+    ]}
+    columns={[
+      { key: "asset_type", label: "Type" }, { key: "make_model", label: "Make and model", render: (r) => r.make_model || "–" }, { key: "serial_number", label: "Serial", render: (r) => r.serial_number || "–" },
+      { key: "issued_on", label: "Issued", render: (r) => day(r.issued_on) }, { key: "returned_on", label: "Returned", render: (r) => (r.returned_on ? fmtDate(r.returned_on) : <Badge tone="warn">With employee</Badge>) },
+      { key: "note", label: "Note", render: (r) => r.note || "–" },
+    ]} />
+);
 
 // The round photo at the top of a profile. HR changes it. A new photo is a new file: stored files are never replaced.
 export function ProfilePhoto({ employeeId, path, isHr, onSaved }) {

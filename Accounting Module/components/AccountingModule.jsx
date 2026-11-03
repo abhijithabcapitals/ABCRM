@@ -5,10 +5,11 @@ import { ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import ServiceDesk from "@template-hub/components/ServiceDesk";
 import SalariesPanel from "@hr/components/SalariesPanel";
+import ExpensesPanel from "@hr/components/ExpensesPanel";
 import "@hr/components/hr.css";
 import BankingValidation from "./BankingValidation";
 
-const TABS = [["banking", "Business Banking"], ["setup", "Business Setup"], ["accounting", "Accounting"], ["salaries", "Salaries"]];
+const TABS = [["banking", "Business Banking"], ["setup", "Business Setup"], ["accounting", "Accounting"], ["salaries", "Salaries"], ["expenses", "Expenses"]];
 
 export default function AccountingModule({ profile }) {
   const access = useLoad(() => rpc("banking_my_access"), []);
@@ -27,6 +28,7 @@ export default function AccountingModule({ profile }) {
       {tab === "setup" && <p className="bk-note">Nothing here yet. Business Setup cases will appear once that module is built.</p>}
       {tab === "accounting" && <ServiceDesk department="Accounting" profile={profile} />}
       {tab === "salaries" && <SalariesPanel />}
+      {tab === "expenses" && <ExpensesPanel />}
     </div>
   );
 }

@@ -60,6 +60,16 @@ export async function calendarMarks(from, to) {
 }
 export const calendarMarkConfirm = (mark, date) => rpc("hr_calendar_mark_confirm", { p_mark: mark, p_date: date });
 
+// Staff requests other than leave, and expense claims in Accounts. A payment is a record only.
+export const requestsList = () => rpc("hr_requests_list");
+export const requestCreate = (employee, kind, date, hours, amount, note, path) => rpc("hr_request_create", { p_employee: employee, p_kind: kind, p_date: date ?? null, p_hours: hours ?? null, p_amount: amount ?? null, p_note: note || null, p_path: path || null });
+export const requestDecide = (request, approve, note, amount) => rpc("hr_request_decide", { p_request: request, p_approve: approve, p_note: note || null, p_amount: amount ?? null });
+export const requestOvertimeAmount = (request, amount) => rpc("hr_request_overtime_amount", { p_request: request, p_amount: amount });
+export const requestCancel = (request) => rpc("hr_request_cancel", { p_request: request });
+export const expensesList = () => rpc("hr_expenses_list");
+export const expensePay = (request, paidOn, reference) => rpc("hr_expense_pay", { p_request: request, p_paid_on: paidOn, p_reference: reference || null });
+export const expenseUnpay = (request) => rpc("hr_expense_unpay", { p_request: request });
+
 // Salary Payable and Paid. HR, admin and the Accounts team. A payment is a record only: nothing here moves money.
 export const salariesOverview = (year) => rpc("hr_salaries_overview", { p_year: year });
 export const salariesMonth = (run) => rpc("hr_salaries_month", { p_run: run });

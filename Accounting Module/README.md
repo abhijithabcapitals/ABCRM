@@ -12,6 +12,7 @@ When the business team finishes an approved banking case and sends it to Account
 | `components/AccountingModule.jsx` | Page, access check and tabs |
 | `components/BankingValidation.jsx` | Business Banking queue and review |
 | `HR Module/components/SalariesPanel.jsx` | Salaries tab: Payable, Paid and Outstanding from approved pay runs |
+| `HR Module/components/ExpensesPanel.jsx` | Expenses tab: claims a Finance Manager approved, and their payment |
 | `Database Module/Accounting Base` | Review records, ACCOUNTS role, handover functions |
 | `Database Module/Banking Base/migrations/011_banking_handover_accounts.sql` | Case lock and access rules |
 

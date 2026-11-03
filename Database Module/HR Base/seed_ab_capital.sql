@@ -24,10 +24,14 @@ insert into public.hr_leave_types (name, paid, annual_days, carry_forward) value
   ('Unpaid', false, null, false)
 on conflict (name) do update set paid = excluded.paid, annual_days = excluded.annual_days, carry_forward = excluded.carry_forward;
 
--- Run after migration 013. Annual leave accrues 2.5 days a month after 6 months of service. The opening balances were counted to the end of October 2026, so the rules start the next day.
+-- Run after migration 013. Annual leave accrues 2.5 days a month after 6 months of service. The opening balances are as on 1 November 2026, so a monthly anniversary on that day is already in them and accrual starts the next day.
 update public.hr_leave_types set accrual_per_month = 2.5, accrual_after_months = 6 where name = 'Annual';
-update public.hr_settings set leave_rules_from = '2026-11-01' where id = 1;
+update public.hr_settings set leave_rules_from = '2026-11-02' where id = 1;
 
 insert into public.hr_pay_details (employee_id, effective_from, basic)
 select e.id, '2026-01-01', 1000 from public.hr_employees e
 where not exists (select 1 from public.hr_pay_details p where p.employee_id = e.id);
+
+-- Run after migration 014. Fifteen paid sick days a year is an assumption to confirm with the adviser; half pay is not calculated, so such a line gets a review note.
+insert into public.hr_leave_types (name, paid, annual_days, carry_forward, half_pay_note) values ('Sick', true, 15, false, true)
+on conflict (name) do nothing;

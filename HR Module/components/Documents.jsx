@@ -1,19 +1,20 @@
 import { useMemo, useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FilePick, FormGrid, Modal, PageHead, Panel, Spinner, cleanValues, fmtDate, useLoad } from "@banking/components/shared";
+import { Badge, Button, DataTable, ErrorNote, FilePick, FormGrid, Modal, Panel, Spinner, cleanValues, fmtDate, useLoad } from "@banking/components/shared";
 import { insertRow, openDocument, readDocument, run, table, uploadDocument } from "../services/hrApi";
 import { BAND_TONE, bandLabel, daysUntil, dubaiToday, expiryBand } from "../logic/expiry";
 import { fieldsFromRead } from "../logic/documentFields";
 
 export const DOC_TYPES = ["Passport", "Residence visa", "Emirates ID", "Labour card", "Medical insurance", "Driving licence", "Other"];
 
-// HR sees every employee's documents and adds for anyone. An employee or a manager sees and adds only their own (the database enforces it; the filter keeps the screen to the same rows).
-export default function Documents({ role, employeeId }) {
+// Lives inside All Employees: with forEmployee, one person's section on their profile; without it, HR's list of everyone, soonest expiry first.
+// HR adds for anyone. An employee or a manager sees and adds only their own (the database enforces it; the filter keeps the screen to the same rows).
+export default function Documents({ role, employeeId, forEmployee }) {
   const isHr = role === "hr";
   const docs = useLoad(async () => {
     const query = table("hr_documents").select("*, hr_employees(employee_code, full_name, status)");
-    return run((isHr ? query : query.eq("employee_id", employeeId)).order("expiry_date", { ascending: true, nullsFirst: false }));
-  }, [isHr, employeeId]);
-  const people = useLoad(async () => (isHr ? run(table("hr_employees").select("id, employee_code, full_name, status").order("employee_code")) : []), [isHr]);
+    return run((forEmployee ? query.eq("employee_id", forEmployee) : isHr ? query : query.eq("employee_id", employeeId)).order("expiry_date", { ascending: true, nullsFirst: false }));
+  }, [isHr, employeeId, forEmployee]);
+  const people = useLoad(async () => (isHr && !forEmployee ? run(table("hr_employees").select("id, employee_code, full_name, status").order("employee_code")) : []), [isHr, forEmployee]);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState(null);
   const today = dubaiToday();
@@ -25,7 +26,7 @@ export default function Documents({ role, employeeId }) {
 
   const open = async (path) => { setError(null); try { await openDocument(path); } catch (e) { setError(e.message); } };
   const columns = [
-    ...(isHr ? [{ key: "employee", label: "Employee", render: (d) => (d.hr_employees ? `${d.hr_employees.employee_code} · ${d.hr_employees.full_name}` : "–") }] : []),
+    ...(isHr && !forEmployee ? [{ key: "employee", label: "Employee", render: (d) => (d.hr_employees ? `${d.hr_employees.employee_code} · ${d.hr_employees.full_name}` : "–") }] : []),
     { key: "doc_type", label: "Type" },
     { key: "doc_number", label: "Number" },
     { key: "issue_date", label: "Issued", render: (d) => fmtDate(d.issue_date) },
@@ -35,16 +36,12 @@ export default function Documents({ role, employeeId }) {
   ];
 
   return (
-    <div>
-      <PageHead title="Documents" sub={isHr ? "Visas, passports, Emirates IDs, labour cards and other papers, soonest expiry first." : "Your documents, soonest expiry first."}>
-        {(isHr || employeeId) && <Button variant="primary" onClick={() => setAdding(true)}>+ Add document</Button>}
-      </PageHead>
+    <Panel title="Documents" sub={forEmployee ? "Soonest expiry first." : "Visas, passports, Emirates IDs, labour cards and other papers, soonest expiry first."}
+      actions={(isHr || employeeId) && <Button variant="primary" onClick={() => setAdding(true)}>+ Add document</Button>}>
       <ErrorNote message={docs.error || people.error || error} onClose={() => setError(null)} />
-      <Panel>
-        {docs.loading && !docs.data ? <Spinner /> : <DataTable search="Search employee, type or number…" rows={rows} pageSize={50} empty="No documents yet." columns={columns} />}
-      </Panel>
-      {adding && <AddDocument isHr={isHr} employeeId={employeeId} people={(people.data || []).filter((p) => p.status !== "Left")} onClose={() => setAdding(false)} onSaved={() => docs.reload()} />}
-    </div>
+      {docs.loading && !docs.data ? <Spinner /> : <DataTable search={forEmployee ? undefined : "Search employee, type or number…"} rows={rows} pageSize={50} empty="No documents yet." columns={columns} />}
+      {adding && <AddDocument isHr={isHr && !forEmployee} employeeId={forEmployee || employeeId} people={(people.data || []).filter((p) => p.status !== "Left")} onClose={() => setAdding(false)} onSaved={() => docs.reload()} />}
+    </Panel>
   );
 }
 

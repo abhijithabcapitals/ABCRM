@@ -4,16 +4,16 @@ Open **HR** in the CRM sidebar. An administrator must give you the HR tab in Set
 
 | If you are | You see tabs |
 |---|---|
-| Administrator or on the HR list | Dashboard, Employees, Documents, Leave, Attendance, Payroll, Settings |
-| A manager (someone has you as their manager) | Dashboard, Employees, Documents (your own only), Leave, Attendance, Payroll |
-| An employee | Dashboard, Employees, Documents, Leave, Attendance, Payroll |
+| Administrator or on the HR list | Dashboard, Employees, Leave, Requests, Attendance, Payroll, Settings |
+| A manager (someone has you as their manager) | Dashboard, Employees, Leave, Requests, Attendance, Payroll |
+| An employee | Dashboard, Employees, Leave, Requests, Attendance, Payroll |
 | A member with no employee record | A message asking you to get your login linked. Ask HR or an administrator |
 
 If the page shows an error about a missing function, the HR database set-up has not been applied yet. Tell an administrator.
 
 ## Employee profile
 
-HR and the employee see the photo, personal details, visa and IDs. Only HR sees salary, bank account and gratuity, and only HR changes them. Managers see job details only. The visa, Emirates ID and licence rows are the same records as Documents. Gratuity needs the four gratuity settings filled in.
+HR and the employee see the photo, personal details, visa and IDs, documents, insurance, mobile plan and assets issued. Only HR sees salary, bank account and gratuity, and only HR changes them. Managers see job details only. The visa, Emirates ID and licence rows are the same records as Documents. Gratuity needs the four gratuity settings filled in.
 
 ## Dashboard
 
@@ -39,7 +39,7 @@ The list shows code, name, department, designation, manager and status. Open a r
 
 ## Documents
 
-For HR: every employee's documents. For an employee or a manager: their own only. A manager does not see their reports' documents.
+Documents sit inside Employees. Each profile has a Documents section, and HR also has a People / Documents switch for everyone at once. An employee or a manager sees their own only. A manager does not see their reports' documents.
 
 1. Press **+ Add document**, choose the employee (HR only) and the type: Passport, Residence visa, Emirates ID, Labour card, Medical insurance, Driving licence or Other.
 2. Choose the file (PDF, image, Word, Excel, CSV or text, up to 25 MB). If the Client Module is running on your PC, the fields are filled from the file; check them. If it is not, type them. The upload works either way.
@@ -86,6 +86,19 @@ Punches from e-timeoffice arrive every 15 minutes and show below the grid as **B
 - **Sync now** fetches the last 3 days. **Catch up dates** fetches up to 92 days.
 - **Device codes that match no employee** are listed. Click **Link** and choose the employee. Their earlier punches are then applied. Use **Link a code** with a blank code to unlink.
 - Check the last success time. A failed sync shows its error here.
+
+## Requests
+
+Press **+ New request** and choose the type. Leave and most requests go to your manager or HR, Other goes to HR, and expense claims go to a Finance Manager. Nobody decides their own.
+
+- **Half day:** the day is not late and takes 0.5 from Annual leave if you worked it. With no punches the day stays Absent.
+- **Work from home:** the day shows WFH, unless it was edited by hand.
+- **Late concession:** that day no longer counts as late.
+- **Sick leave:** 15 paid days a year. Beyond that HR gets a warning. Half pay is not calculated.
+- **Overtime payment:** give the date and hours. HR enters the amount, with no automatic rate, and it goes into that month's draft pay run. An approved run does not change.
+- **Expense reimbursement:** give the date and amount, and attach the document. After a Finance Manager approves it, Accounts sees it under Accounting > Expenses and records the payment. This does not send money.
+
+You can cancel your own request while it is pending. HR can also cancel an approved one, unless it has been paid, and its effect goes away.
 
 ## Payroll
 n**Salaries** (here and on the Accounting page) shows what is Payable, Paid and Outstanding for each approved run. HR, administrators and the Accounts team can record a payment, in part or for everyone at once. Recording a payment does not send money. A payment entered by mistake can be removed, and the removal is logged.
