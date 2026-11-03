@@ -63,6 +63,7 @@ function AccessModal({ client, onClose, onDone }) {
 }
 
 // Give / new password / revoke / restore for one client. Used on the list here and in All Clients.
+// An unlinked account has no client record to save against, so it can only be revoked or restored.
 export function AccessActions({ client, onChange }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -77,7 +78,7 @@ export function AccessActions({ client, onChange }) {
     <span className="bk-actions">
       <ErrorNote message={error} />
       {!client.account_id && <Button variant="primary" onClick={() => setEditing(true)}>Give access</Button>}
-      {client.account_id && <Button onClick={() => setEditing(true)}>New password</Button>}
+      {client.account_id && !client.unlinked && <Button onClick={() => setEditing(true)}>New password</Button>}
       {client.status === "active" && <Button busy={busy} onClick={() => setActive(false)}>Revoke</Button>}
       {client.status === "revoked" && <Button busy={busy} onClick={() => setActive(true)}>Restore</Button>}
       {editing && <AccessModal client={client} onClose={() => setEditing(false)} onDone={onChange} />}
@@ -129,14 +130,14 @@ export default function ClientPortalAdmin() {
       <ErrorNote message={list.error} />
       {list.loading && !list.data ? <Spinner /> : (
         <DataTable search="Search client, licence, username, email, phone…" rows={shown} empty={rows.length ? "No client matches these filters." : "No clients yet."} columns={[
-          { key: "display_name", label: "Client" },
+          { key: "display_name", label: "Client", render: (c) => (c.unlinked ? <>{c.display_name} <Badge tone="bad">Unlinked</Badge></> : c.display_name) },
           { key: "lines", label: "Business lines", render: (c) => (c.lines || []).join(", ") || "–" },
           { key: "license_number", label: "Licence" },
           { key: "kyc_percent", label: "KYC %", render: (c) => (c.kyc_percent == null ? "–" : `${c.kyc_percent}%`) },
           { key: "status", label: "Access", render: (c) => <Badge tone={c.status === "active" ? "good" : c.status === "revoked" ? "bad" : undefined}>{c.status === "active" ? "On" : c.status === "revoked" ? "Revoked" : "None"}</Badge> },
           { key: "pending_edits", label: "Pending edits", render: (c) => (c.pending_edits > 0 ? <Badge tone="warn">{c.pending_edits}</Badge> : "–") },
           { key: "last_login_at", label: "Last sign-in", render: (c) => fmtDate(c.last_login_at) },
-          { key: "actions", label: "", render: (c) => <span className="bk-actions"><AccessActions client={c} onChange={list.reload} />{c.account_id && <Button onClick={() => setPreview(c)}>View as client</Button>}</span> },
+          { key: "actions", label: "", render: (c) => <span className="bk-actions"><AccessActions client={c} onChange={list.reload} />{c.account_id && !c.unlinked && <Button onClick={() => setPreview(c)}>View as client</Button>}</span> },
         ]} />
       )}
     </div>

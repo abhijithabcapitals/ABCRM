@@ -250,9 +250,9 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000099', false) as _ \gset
 select public.must_fail('non-admin refused', $$select public.client_portal_admin_clients()$$, 'Admins only');
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false) as _ \gset
-select public.ok('admin list: three clients, existing and new columns on every row',
-  (select jsonb_array_length(l) = 3 and (select bool_and(r ?& array['banking_client_id', 'client_master_id', 'display_name', 'license_number', 'account_id', 'username', 'status', 'last_login_at',
-        'lines', 'kyc_percent', 'email', 'phone', 'pending_edits']) from jsonb_array_elements(l) r)
+select public.ok('admin list: three clients and one unlinked account, existing and new columns on every row',
+  (select jsonb_array_length(l) = 4 and (select bool_and(r ?& array['banking_client_id', 'client_master_id', 'display_name', 'license_number', 'account_id', 'username', 'status', 'last_login_at',
+        'lines', 'kyc_percent', 'email', 'phone', 'pending_edits', 'unlinked']) from jsonb_array_elements(l) r)
    from (select public.client_portal_admin_clients() l) x),
   (select public.client_portal_admin_clients()::text));
 select public.ok('admin list: every client appears, with or without an account',
@@ -266,6 +266,27 @@ select public.ok('admin list: lines, kyc percent, contact and pending edits',
 select public.ok('admin list: master-only row has no lines and takes the master percent and email',
   (select r -> 'lines' = '[]'::jsonb and (r ->> 'kyc_percent')::int = 40 and r ->> 'email' = 'g@gamma.test' and (r ->> 'pending_edits')::int = 0
    from jsonb_array_elements(public.client_portal_admin_clients()) r where r ->> 'display_name' = 'Gamma Master Only'));
+select public.ok('admin list: an account with neither link shows as unlinked, every other row does not',
+  (select count(*) filter (where (r ->> 'unlinked')::boolean) = 1
+      and count(*) filter (where (r ->> 'unlinked')::boolean and r ->> 'username' = 'empty.user' and r ->> 'status' = 'active' and r ->> 'account_id' = 'cc000000-0000-0000-0000-0000000000cc'
+                             and r -> 'banking_client_id' = 'null'::jsonb and r -> 'client_master_id' = 'null'::jsonb and r -> 'lines' = '[]'::jsonb and r -> 'kyc_percent' = 'null'::jsonb) = 1
+   from jsonb_array_elements(public.client_portal_admin_clients()) r),
+  (select public.client_portal_admin_clients()::text));
+select public.client_portal_admin_set_status('cc000000-0000-0000-0000-0000000000cc', false);
+select public.ok('admin list: an unlinked account can be revoked and stays listed',
+  (select r ->> 'status' = 'revoked' and (r ->> 'unlinked')::boolean from jsonb_array_elements(public.client_portal_admin_clients()) r where r ->> 'username' = 'empty.user'));
+select public.client_portal_admin_set_status('cc000000-0000-0000-0000-0000000000cc', true);
+select public.ok('admin list: ... and restored', (select r ->> 'status' = 'active' from jsonb_array_elements(public.client_portal_admin_clients()) r where r ->> 'username' = 'empty.user'));
+reset role;
+-- the real way an account loses its links: its banking client is deleted and the foreign key nulls the link
+insert into public.banking_clients (id, display_name, license_number) values ('e0000000-0000-0000-0000-00000000000e', 'Orphan Co', 'LIC-O');
+insert into public.client_portal_accounts (id, banking_client_id, display_name, username, password_hash) values
+  ('ee000000-0000-0000-0000-0000000000ee', 'e0000000-0000-0000-0000-00000000000e', 'Orphan Co', 'orphan.user', 'x');
+delete from public.banking_clients where id = 'e0000000-0000-0000-0000-00000000000e';
+set role authenticated;
+select public.ok('admin list: an account orphaned by a deleted client still appears, unlinked',
+  (select count(*) = 1 and bool_and((r ->> 'unlinked')::boolean and r ->> 'display_name' = 'Orphan Co' and r ->> 'status' = 'active')
+   from jsonb_array_elements(public.client_portal_admin_clients()) r where r ->> 'username' = 'orphan.user'));
 reset role;
 
 \echo === FAILURES ===

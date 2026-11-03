@@ -172,6 +172,8 @@ $$;
 -- ---- admin: the client list with access, lines, KYC, contact and pending edits ---------------------------
 
 -- Every client (banking clients plus Client Master rows not linked to one) with their access state. Existing columns kept.
+-- A third arm lists accounts whose links were both nulled by the foreign keys: they can still sign in, so an admin must see
+-- them. They have no client to save against, so unlinked = true tells the screen to offer revoke and restore only.
 create or replace function public.client_portal_admin_clients() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 begin
@@ -183,7 +185,8 @@ begin
            coalesce(k.completion_percent, round((substring(mm.data->>'Onboarding Completion %' from '^\s*([0-9]+(?:\.[0-9]+)?)'))::numeric)::int, 0) as kyc_percent,
            coalesce(k.company_email, mm.data->>'General Email') as email,
            coalesce(k.company_phone, mm.data->>'General Phone') as phone,
-           (select count(*) from client_portal_change_requests r where r.account_id = a.id and r.status in ('pending', 'in_review'))::int as pending_edits
+           (select count(*) from client_portal_change_requests r where r.account_id = a.id and r.status in ('pending', 'in_review'))::int as pending_edits,
+           false as unlinked
       from banking_clients c
       left join client_portal_accounts a on a.banking_client_id = c.id
              or (a.banking_client_id is null and a.client_master_id = c.client_master_id)
@@ -195,10 +198,19 @@ begin
            '{}'::text[],
            coalesce(round((substring(m.data->>'Onboarding Completion %' from '^\s*([0-9]+(?:\.[0-9]+)?)'))::numeric)::int, 0),
            m.data->>'General Email', m.data->>'General Phone',
-           (select count(*) from client_portal_change_requests r where r.account_id = a.id and r.status in ('pending', 'in_review'))::int
+           (select count(*) from client_portal_change_requests r where r.account_id = a.id and r.status in ('pending', 'in_review'))::int,
+           false
       from client_master m
       left join client_portal_accounts a on a.client_master_id = m.client_id
      where not exists (select 1 from banking_clients c where c.client_master_id = m.client_id)
+    union all
+    select null, null, a.display_name, null,
+           a.id, a.username, a.status, a.last_login_at,
+           '{}'::text[], null, null, null,
+           (select count(*) from client_portal_change_requests r where r.account_id = a.id and r.status in ('pending', 'in_review'))::int,
+           true
+      from client_portal_accounts a
+     where a.banking_client_id is null and a.client_master_id is null
   ) t);
 end $$;
 
