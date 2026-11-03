@@ -133,7 +133,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
           || coalesce((select jsonb_object_agg(e.key, e.value) from jsonb_each(mm.data) e
                         where e.key = any(array['Client Legal Name', 'Trade Name', 'VAT Registered', 'TRN', 'VAT Return Due Date', 'VAT Filing Frequency',
                           'VAT Tax Period', 'VAT Effective Date', 'VAT Registration Date', 'Corporate Tax Registered', 'CT Registration Number',
-                          'CT Return Status', 'CT Return Due Date', 'Financial Year End', 'Financial Year', 'License Expiry Date', 'Renewal Date',
+                          'CT Return Status', 'CT Return Due Date', 'CT Tax Period', 'Financial Year End', 'Financial Year', 'License Expiry Date', 'Renewal Date',
                           'Trade License Number'])), '{}'::jsonb)
          from m mm),
     'gallery', (select coalesce(jsonb_agg(jsonb_build_object(

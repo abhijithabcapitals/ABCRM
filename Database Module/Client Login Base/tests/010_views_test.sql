@@ -45,7 +45,7 @@ insert into public.banking_clients (id, display_name, license_number, client_mas
 insert into public.client_master (client_id, legal_name, data) values
   ('CL000901', 'Alpha Trading LLC', jsonb_build_object('Client Legal Name', 'Alpha Trading LLC', 'Trade Name', 'Alpha', 'VAT Registered', 'Yes', 'TRN', '100000000000003',
      'VAT Filing Frequency', 'Quarterly', 'VAT Tax Period', 'Jan-Mar', 'Corporate Tax Registered', 'Yes', 'CT Registration Number', '200000000000003',
-     'Financial Year End', '31/12/2026', 'Risk Level', 'High', 'Risk Reason', 'internal reason', 'Tax Specialist', 'Some Staff', 'Account Manager', 'Other Staff',
+     'Financial Year End', '31/12/2026', 'CT Tax Period', '01/07/2025 - 30/06/2026', 'Risk Level', 'High', 'Risk Reason', 'internal reason', 'Tax Specialist', 'Some Staff', 'Account Manager', 'Other Staff',
      'Services Provided', 'Business Banking', 'Office Address', 'Office 1', 'General Email', 'master@alpha.test', 'Onboarding Completion %', '60%')),
   ('CL000902', 'Gamma Master Only', jsonb_build_object('Client Legal Name', 'Gamma Master Only', 'Trade License Number', 'LIC-G', 'General Email', 'g@gamma.test', 'Onboarding Completion %', '40%'));
 insert into public.banking_kyc_profiles (client_id, legal_name, trade_name, license_number, license_issue_date, license_expiry_date, office_address, company_email, company_phone,
@@ -177,7 +177,7 @@ select public.ok('open case has no account', (select e -> 'account' = 'null'::js
 -- ── filing record ──
 select public.ok('filing_record: tax keys, Client ID, legal name; no staff names or risk',
   (select f ->> 'TRN' = '100000000000003' and f ->> 'Client ID' = 'CL000901' and f ->> 'client_id' = 'CL000901' and f ->> 'Client Legal Name' = 'Alpha Trading LLC'
-      and f ->> 'CT Registration Number' = '200000000000003' and f ->> 'Financial Year End' = '31/12/2026' and not (f ? 'Risk Level') and not (f ? 'Tax Specialist') and not (f ? 'Account Manager')
+      and f ->> 'CT Registration Number' = '200000000000003' and f ->> 'Financial Year End' = '31/12/2026' and f ->> 'CT Tax Period' = '01/07/2025 - 30/06/2026' and not (f ? 'Risk Level') and not (f ? 'Tax Specialist') and not (f ? 'Account Manager')
    from (select public.client_portal_me('aa000000-0000-0000-0000-0000000000aa') -> 'filing_record' f) x));
 select public.ok('filing_record null without a Client Master row', (select public.client_portal_me('bb000000-0000-0000-0000-0000000000bb') -> 'filing_record' = 'null'::jsonb));
 
