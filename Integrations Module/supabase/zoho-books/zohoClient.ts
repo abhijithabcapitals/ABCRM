@@ -19,6 +19,14 @@ export class ZohoHttpError extends Error {
   }
 }
 
+// The token endpoint refused the refresh. The reason is scrubbed and is for the server log only.
+export class ZohoAccessError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "ZohoAccessError";
+  }
+}
+
 const GET_PATHS: RegExp[] = [
   /^\/organizations$/,
   /^\/contacts(\/\d+)?$/,
@@ -47,7 +55,12 @@ export function hostsFor(dc: string): { accounts: string; api: string } {
 
 export function scrub(text: string, secrets: string[]): string {
   let out = text;
-  for (const s of secrets) if (s) out = out.split(s).join("[hidden]");
+  for (const s of secrets) {
+    if (!s) continue;
+    // Also hide the encoded forms a URL or form body would carry.
+    const forms = new Set([s, encodeURIComponent(s), new URLSearchParams({ k: s }).toString().slice(2)]);
+    for (const f of forms) out = out.split(f).join("[hidden]");
+  }
   return out;
 }
 
@@ -76,23 +89,35 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
     return new ZohoHttpError(res.status, scrub(message, secrets()), code);
   }
 
-  async function accessToken(): Promise<string> {
-    if (token && token.expires > Date.now() + 60_000) return token.value;
+  let inflight: Promise<string> | undefined;
+
+  async function refresh(): Promise<string> {
     const body = new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: cfg.refreshToken,
       client_id: cfg.clientId,
       client_secret: cfg.clientSecret,
     });
-    const res = await fetchFn(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body });
-    if (!res.ok) throw await readError(res);
+    // A redirect could carry the secrets to another host, so it is an error.
+    const res = await fetchFn(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body, redirect: "error" });
+    if (!res.ok) throw new ZohoAccessError((await readError(res)).message);
     const json = await res.json().catch(() => ({}));
-    if (typeof json?.access_token !== "string") {
-      throw new ZohoHttpError(res.status, "Zoho token refresh returned no access token.");
+    if (typeof json?.error === "string" || typeof json?.access_token !== "string") {
+      const reason = typeof json?.error === "string" ? json.error : "Zoho token refresh returned no access token.";
+      throw new ZohoAccessError(scrub(reason, secrets()));
     }
     const secs = typeof json.expires_in === "number" ? json.expires_in : 3600;
     token = { value: json.access_token, expires: Date.now() + secs * 1000 };
     return token.value;
+  }
+
+  // Parallel calls share one refresh. A failure is not kept, so the next call retries.
+  function accessToken(): Promise<string> {
+    if (token && token.expires > Date.now() + 60_000) return Promise.resolve(token.value);
+    inflight ??= refresh().finally(() => {
+      inflight = undefined;
+    });
+    return inflight;
   }
 
   async function call(
@@ -108,7 +133,7 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
     for (const [k, v] of Object.entries(q)) url.searchParams.set(k, v);
     url.searchParams.set("organization_id", cfg.orgId);
     const headers: Record<string, string> = { Authorization: `Zoho-oauthtoken ${await accessToken()}` };
-    const init: RequestInit = { method, headers };
+    const init: RequestInit = { method, headers, redirect: "error" };
     if (method === "POST") {
       headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(body ?? {});

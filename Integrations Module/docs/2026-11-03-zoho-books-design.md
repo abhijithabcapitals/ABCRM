@@ -84,7 +84,7 @@ The browser never chooses the path. It sends a named action, and the function bu
 
 ## 6. Data
 
-Both tables have row level security. Only the Edge Function writes to them. Both get the audit trail trigger from `Admin Base/migrations/003_audit_trail.sql` if that table is live.
+Both tables have row level security. Only the Edge Function reads and writes them in this version; browser read policies by department come with the draft work. Both get the audit trail trigger from `Admin Base/migrations/003_audit_trail.sql` if that table is live.
 
 **`zoho_contact_links`**
 

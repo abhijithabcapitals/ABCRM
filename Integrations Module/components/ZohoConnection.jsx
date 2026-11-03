@@ -25,11 +25,12 @@ export default function ZohoConnection({ supabase, onSaved }) {
     try {
       const out = await invoke(supabase, "zoho-books", { action: "connection_test" });
       if (out?.connected === false) { setResult({ ok: false, text: out.message || "Zoho did not accept the connection." }); return; }
-      setResult({ ok: true, text: "Connected to Zoho Books." });
+      const label = out?.organisation ? `Connected to Zoho Books: ${out.organisation}.` : "Connected to Zoho Books.";
+      setResult({ ok: true, text: label });
       try {
         const list = await invoke(supabase, "zoho-books", { action: "taxes_list" });
         setTaxes(list?.taxes || []);
-      } catch (e) { setResult({ ok: true, text: "Connected to Zoho Books.", extra: `Could not load the tax list: ${e.message}` }); }
+      } catch (e) { setResult({ ok: true, text: label, extra: `Could not load the tax list: ${e.message}` }); }
     } catch (e) { setResult({ ok: false, text: e.message }); } finally { setBusy(""); }
   }
 

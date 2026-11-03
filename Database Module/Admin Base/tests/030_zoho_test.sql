@@ -34,9 +34,19 @@ insert into public.zoho_documents (department, source_table, source_id, kind, re
 select t3.fails('a link needs a real client', $$insert into public.zoho_contact_links (client_id, zoho_contact_id, zoho_contact_name) values ('nope', 'z', 'n')$$);
 select t3.fails('a state cannot be null', $$insert into public.zoho_documents (department, source_table, source_id, kind, reference) values ('Banking', 'hub_documents', gen_random_uuid(), 'estimate', 'r')$$);
 
+select t3.ok('authenticated and anon hold no privilege on the Zoho tables', not exists (
+  select 1 from unnest(array['authenticated', 'anon']) r, unnest(array['public.zoho_documents', 'public.zoho_contact_links']) t,
+    unnest(array['select', 'insert', 'update', 'delete']) p
+  where has_table_privilege(r, t, p)));
+select t3.ok('the service role holds all four privileges', not exists (
+  select 1 from unnest(array['public.zoho_documents', 'public.zoho_contact_links']) t, unnest(array['select', 'insert', 'update', 'delete']) p
+  where not has_table_privilege('service_role', t, p)));
+select t3.ok('no read policy exists on the Zoho tables', not exists (
+  select 1 from pg_policies where schemaname = 'public' and tablename in ('zoho_documents', 'zoho_contact_links')));
+
 set role authenticated;
-select t3.ok('authenticated can read documents', (select count(*) = 2 from public.zoho_documents));
-select t3.ok('authenticated can read links', (select count(*) = 1 from public.zoho_contact_links));
+select t3.fails('authenticated cannot read documents', $$select count(*) from public.zoho_documents$$);
+select t3.fails('authenticated cannot read links', $$select count(*) from public.zoho_contact_links$$);
 select t3.fails('authenticated cannot insert a document', $$insert into public.zoho_documents (department, source_table, source_id, kind, reference, state) values ('Banking', 'hub_documents', gen_random_uuid(), 'estimate', 'r', 'creating')$$);
 select t3.fails('authenticated cannot update a document', $$update public.zoho_documents set state = 'gone'$$);
 select t3.fails('authenticated cannot delete a document', $$delete from public.zoho_documents$$);

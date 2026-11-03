@@ -50,10 +50,12 @@ or delete request to Zoho.
 Actions today are `connection_test`, `taxes_list`, `contacts_search`, `contact_link` and `contact_get`. Creating draft
 estimates and invoices is allowed by the Zoho client but not built yet.
 
-Deploy from the folder where `supabase/functions/zoho-books` is laid out. `secrets.ts` already sits next to
-`index.ts`, so nothing else needs copying:
+This repo folder has no `supabase/functions/` layout. Copy `supabase/zoho-books` into a `supabase/functions/`
+folder to deploy. `secrets.ts` already sits next to `index.ts`, so nothing else needs copying:
 
 `supabase functions deploy zoho-books --project-ref pnnakrhfzyxudjaghoxx --use-api`
+
+Deploy this function before the front end ships. Without it the card shows "In use" and its Test fails.
 
 ## Deploying crm-connections
 

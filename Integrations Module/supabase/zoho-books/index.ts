@@ -13,9 +13,9 @@
 //   supabase functions deploy zoho-books --project-ref pnnakrhfzyxudjaghoxx --use-api
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { handle, permissionCheck, UserError } from "./handlers.ts";
+import { browserMessage, handle, permissionCheck, UserError } from "./handlers.ts";
 import { requireSecret } from "./secrets.ts";
-import { createZohoClient, scrub } from "./zohoClient.ts";
+import { createZohoClient, scrub, type ZohoConfig } from "./zohoClient.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -24,6 +24,14 @@ const cors = {
 };
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { ...cors, "Content-Type": "application/json" } });
+
+// One client per warm instance, so the access token is reused. Rebuilt when any setting changes.
+let cached: { key: string; client: ReturnType<typeof createZohoClient> } | undefined;
+function zohoFor(cfg: ZohoConfig) {
+  const key = JSON.stringify([cfg.clientId, cfg.refreshToken, cfg.orgId, cfg.dc]);
+  if (cached?.key !== key) cached = { key, client: createZohoClient(cfg) };
+  return cached.client;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -61,7 +69,7 @@ Deno.serve(async (req) => {
     zoho: async () => {
       const [clientId, clientSecret, refreshToken, orgId, dc] = await Promise.all(names.map((n) => requireSecret(admin, n)));
       secretValues = [clientId, clientSecret, refreshToken, orgId];
-      return { ...createZohoClient({ clientId, clientSecret, refreshToken, orgId, dc }), orgId };
+      return { ...zohoFor({ clientId, clientSecret, refreshToken, orgId, dc }), orgId };
     },
     userId,
     now: () => new Date(),
@@ -71,8 +79,8 @@ Deno.serve(async (req) => {
     return json(await handle(String(body?.action ?? ""), body, deps));
   } catch (e) {
     if (e instanceof UserError) return json({ error: e.message }, 400);
-    const message = scrub((e as Error)?.message ?? "Unexpected error", secretValues);
-    console.error("zoho-books:", message);
-    return json({ error: `Zoho Books request failed: ${message}`.slice(0, 300) }, 500);
+    const detail = scrub((e as Error)?.message ?? "Unexpected error", secretValues);
+    console.error("zoho-books:", (e as Error)?.name, detail);
+    return json({ error: browserMessage(e) }, 500);
   }
 });

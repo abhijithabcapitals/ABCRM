@@ -5,6 +5,7 @@ import {
   hostsFor,
   NotAllowedError,
   scrub,
+  ZohoAccessError,
   ZohoHttpError,
 } from "./zohoClient.ts";
 
@@ -140,4 +141,54 @@ Deno.test("an API error becomes ZohoHttpError with code and scrubbed message", a
   assertEquals(err.status, 404);
   assertEquals(err.code, 1002);
   assert(!err.message.includes("fake-client-secret"));
+});
+
+Deno.test("scrub also hides URL-encoded secrets", () => {
+  const secret = "a/b+c=d";
+  const form = new URLSearchParams({ k: secret }).toString().slice(2);
+  const out = scrub(`x ${encodeURIComponent(secret)} y ${form} z ${secret}`, [secret]);
+  assertEquals(out, "x [hidden] y [hidden] z [hidden]");
+});
+
+Deno.test("both fetches refuse redirects", async () => {
+  const calls: Call[] = [];
+  const z = createZohoClient(cfg, fakeFetch(calls, () => Response.json({ code: 0 })));
+  await z.get("/items");
+  assertEquals(calls.length, 2);
+  for (const c of calls) assertEquals(c.init?.redirect, "error");
+});
+
+Deno.test("parallel calls refresh the token once", async () => {
+  const calls: Call[] = [];
+  const z = createZohoClient(cfg, fakeFetch(calls, () => Response.json({ code: 0 })));
+  await Promise.all([z.get("/items"), z.get("/contacts")]);
+  assertEquals(calls.filter((c) => c.url.includes("/oauth/v2/token")).length, 1);
+});
+
+Deno.test("a failed refresh can be retried", async () => {
+  let tokenCalls = 0;
+  const f = ((input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/oauth/v2/token")) {
+      tokenCalls++;
+      return Promise.resolve(
+        tokenCalls === 1
+          ? Response.json({ error: "invalid_code" }, { status: 400 })
+          : Response.json({ access_token: "T", expires_in: 3600 }),
+      );
+    }
+    return Promise.resolve(Response.json({ code: 0 }));
+  }) as typeof fetch;
+  const z = createZohoClient(cfg, f);
+  await assertRejects(() => z.get("/items"), ZohoAccessError);
+  await z.get("/items");
+  assertEquals(tokenCalls, 2);
+});
+
+Deno.test("a token reply with an error or no token is a ZohoAccessError", async () => {
+  for (const reply of [{ error: "invalid_client fake-client-secret" }, { expires_in: 3600 }]) {
+    const f = (() => Promise.resolve(Response.json(reply))) as typeof fetch;
+    const err = await assertRejects(() => createZohoClient(cfg, f).get("/items"), ZohoAccessError);
+    assert(!err.message.includes("fake-client-secret"));
+  }
 });

@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { handle, permissionCheck, UserError } from "./handlers.ts";
+import { browserMessage, handle, permissionCheck, UserError } from "./handlers.ts";
+import { ZohoAccessError, ZohoHttpError } from "./zohoClient.ts";
 import { MissingSecretError } from "./secrets.ts";
 
 type Call = { path: string; query?: Record<string, string> };
@@ -11,7 +12,7 @@ function makeDeps(over: Record<string, unknown> = {}) {
   const tables: string[] = [];
   const conflicts: unknown[] = [];
   const replies: Record<string, unknown> = {
-    "/organizations": { organizations: [{ organization_id: "ORG1" }] },
+    "/organizations": { organizations: [{ organization_id: "ORG1", name: "Acme Trading LLC" }] },
     "/settings/taxes": { taxes: [{ tax_id: "1", tax_name: "VAT", tax_percentage: 5 }] },
     "/contacts": { contacts: [{ contact_id: "11", contact_name: "Acme", tax_reg_no: "100", currency_code: "AED", extra: "x" }] },
     "/contacts/11": { contact: { contact_id: "11", contact_name: "Acme LLC", currency_code: "AED" } },
@@ -65,7 +66,7 @@ Deno.test("connection_test and taxes_list are admin only", async () => {
 
 Deno.test("connection_test succeeds when the org is returned", async () => {
   const { deps } = makeDeps();
-  assertEquals(await handle("connection_test", {}, deps), { connected: true });
+  assertEquals(await handle("connection_test", {}, deps), { connected: true, organisation: "Acme Trading LLC" });
 });
 
 Deno.test("connection_test fails when the org is not returned", async () => {
@@ -267,4 +268,18 @@ Deno.test("permissionCheck fails closed", async () => {
   const throws = () => Promise.reject(new Error("boom"));
   assertEquals(await permissionCheck(throws, "banking", "cases.view"), false);
   assertEquals(await permissionCheck(ok, "sales", "x"), false);
+});
+
+Deno.test("browserMessage gives fixed text and never raw detail", () => {
+  const raw = "fake-client-secret raw zoho text";
+  assertEquals(browserMessage(new ZohoAccessError(raw)), "Zoho access has stopped. An admin must reconnect.");
+  assertEquals(browserMessage(new ZohoHttpError(429, raw)), "Zoho is busy, try again shortly.");
+  assertEquals(browserMessage(new ZohoHttpError(500, raw)), "Zoho refused the request.");
+  assertEquals(browserMessage(new ZohoHttpError(404, raw, 1002)), "Zoho refused the request.");
+  assertEquals(browserMessage(new Error(raw)), "Something went wrong talking to Zoho.");
+  assertEquals(browserMessage("odd"), "Something went wrong talking to Zoho.");
+  for (const e of [new ZohoAccessError(raw), new ZohoHttpError(500, raw), new Error(raw)]) {
+    const m = browserMessage(e);
+    assertEquals(m.includes("secret") || m.includes("raw"), false);
+  }
 });

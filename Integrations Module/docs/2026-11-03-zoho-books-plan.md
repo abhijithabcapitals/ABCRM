@@ -134,10 +134,10 @@ Deno.test("an unknown action is refused");
 Needs the user. Stop if any answer is no.
 
 - [ ] **Step 1: Ask the user to approve** applying `004_zoho.sql` and deploying `zoho-books` to live. State both in full.
-- [ ] **Step 2: The user creates the token** with the scopes above and saves the six values in Settings. Never ask for the values in chat.
+- [ ] **Step 2: The user creates the token** with the scopes above and saves five values in Settings (`ZOHO_VAT_TAX_ID` is picked in Step 3). Never ask for the values in chat.
 - [ ] **Step 3: Press Test.** Expected: the right organisation name. Then load the tax list and pick the 5% code.
-- [ ] **Step 4: Prove Lock 1.** With the user's approval and a draft the user names, send one `PUT` from a throwaway local script outside the function. Expected: Zoho refuses it with a scope error. If Zoho accepts it, stop, tell the user, and revoke the token.
-- [ ] **Step 5: Search one known client.** Expected: match returned, nothing changed in Zoho.
+- [ ] **Step 4: Prove Lock 1.** The user runs this check themselves, with their own copy of the refresh token, because Vault cannot be read back. With the user's approval and a draft the user names, the user sends one `PUT` with a no-op body from a throwaway local script outside the function. Expected: Zoho refuses it with a scope error. If Zoho accepts it, stop, tell the user, and revoke the token.
+- [ ] **Step 5: Search one known client.** Expected: match returned, nothing changed in Zoho. Also read `/items` once, to confirm `settings.READ` covers items.
 - [ ] **Step 6: Record results** in `Integrations Module/README.md` and commit `Record Zoho live check`.
 
 ---
@@ -205,7 +205,7 @@ Deno.test("429 says Zoho is busy and leaves the row retryable");
 ```
 
 - [ ] **Step 2: Run** the handler tests. Expected: FAIL.
-- [ ] **Step 3: Implement.** Load the source server-side only, never from the browser: `hub_documents` for `doc_type='quote'`, or `banking_quotations` joined through `banking_cases` to `banking_clients.client_master_id`. Build the Open in Zoho link from the data centre domain and `zoho_id`. For `earlier_draft`, follow `revises_id` or `supersedes_id`.
+- [ ] **Step 3: Implement.** Before any POST: give the Zoho request a timeout, and add tests that `post` overrides a caller-supplied `send` and `organization_id`. `contact_link` must check that the department owns the client, and warn before overwriting an existing link. Load the source server-side only, never from the browser: `hub_documents` for `doc_type='quote'`, or `banking_quotations` joined through `banking_cases` to `banking_clients.client_master_id`. Build the Open in Zoho link from the data centre domain and `zoho_id`. For `earlier_draft`, follow `revises_id` or `supersedes_id`.
 - [ ] **Step 4: Run the tests.** Expected: PASS.
 - [ ] **Step 5: Commit** `Create draft estimates and invoices in Zoho`.
 
@@ -222,7 +222,7 @@ Deno.test("429 says Zoho is busy and leaves the row retryable");
 
 - [ ] **Step 1: Write failing tests:** `panelMode` for each state; `ZohoPanel.jsx` source has no `disabled` tied to the Accounts action; `Quotes.jsx` and `BankProcess.jsx` import `ZohoPanel` and keep `Send to Accounts` and `bk-complete`; the old panel file is gone. Update the existing static test in `Business Setup Module/tests/static.test.mjs` that expects `ZohoInvoicePanel`.
 - [ ] **Step 2: Run** `node --test "Integrations Module/tests/zohoPanel.test.mjs" "Business Setup Module/tests/static.test.mjs"`. Expected: FAIL.
-- [ ] **Step 3: Build the panel** with the `bk-` classes and shared `Button` and `ErrorNote`. Keep the current notice when not connected. The contact picker shows name, TRN and currency. After a press, block the button while busy. Show the total warning and earlier draft warning as `bk-alert-warn`. Business Setup shows both kinds; `kinds` is `["estimate","invoice"]` in both departments.
+- [ ] **Step 3: Build the panel.** A `{connected:false}` reply from `connection_test` carries no `contacts`, so the panel must not read that field. Use the `bk-` classes and shared `Button` and `ErrorNote`. Keep the current notice when not connected. The contact picker shows name, TRN and currency. After a press, block the button while busy. Show the total warning and earlier draft warning as `bk-alert-warn`. Business Setup shows both kinds; `kinds` is `["estimate","invoice"]` in both departments.
 - [ ] **Step 4: Run the tests and** `npm run build` in `Main Module`. Expected: PASS.
 - [ ] **Step 5: Start the dev server with `preview_start`** and open a quote as a staff user. Expected: not connected notice with Send to Accounts usable. Screenshot it. If no test login exists, say this was not browser-tested.
 - [ ] **Step 6: Commit** `Replace Zoho placeholder with working panel`.

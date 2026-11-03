@@ -7,6 +7,8 @@ export class UserError extends Error {
   }
 }
 
+import { ZohoAccessError, ZohoHttpError } from "./zohoClient.ts";
+
 // deno-lint-ignore no-explicit-any
 type Json = any;
 
@@ -25,6 +27,15 @@ export type Deps = {
   userId: string;
   now(): Date;
 };
+
+// The only error text the browser sees for a Zoho or unexpected failure. Raw detail stays in the server log.
+export function browserMessage(e: unknown): string {
+  if (e instanceof ZohoAccessError) return "Zoho access has stopped. An admin must reconnect.";
+  if (e instanceof ZohoHttpError) {
+    return e.status === 429 ? "Zoho is busy, try again shortly." : "Zoho refused the request.";
+  }
+  return "Something went wrong talking to Zoho.";
+}
 
 type Department = "business_setup" | "banking";
 const RPC: Record<Department, string> = { business_setup: "business_setup_can", banking: "banking_can" };
@@ -78,14 +89,14 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
     await requireAdmin(deps);
     const zoho = await deps.zoho();
     const res = await zoho.get("/organizations");
-    const found = (res?.organizations ?? []).some((o: Json) => String(o?.organization_id) === zoho.orgId);
-    if (!found) {
+    const match = (res?.organizations ?? []).find((o: Json) => String(o?.organization_id) === zoho.orgId);
+    if (!match) {
       return {
         connected: false,
         message: "Zoho answered, but the organisation in ZOHO_BOOKS_ORG_ID is not one this login can see. Check that setting.",
       };
     }
-    return { connected: true };
+    return { connected: true, organisation: String(match.name ?? "") };
   }
 
   if (action === "taxes_list") {
