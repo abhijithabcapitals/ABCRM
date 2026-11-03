@@ -11,6 +11,10 @@ Open **HR** in the CRM sidebar. An administrator must give you the HR tab in Set
 
 If the page shows an error about a missing function, the HR database set-up has not been applied yet. Tell an administrator.
 
+## Employee profile
+
+HR and the employee see the photo, personal details, visa and IDs. Only HR sees salary, bank account and gratuity, and only HR changes them. Managers see job details only. The visa, Emirates ID and licence rows are the same records as Documents. Gratuity needs the four gratuity settings filled in.
+
 ## Dashboard
 
 Cards at the top: today's date, Present, Absent, On Leave (with Annual and Unpaid shown separately), Late, Overtime, Work From Home and Active. Click a card to see who is in it. Below them, each person's Annual leave this year (credit, used, pending, balance), then pending leave, documents expiring (expired or within 90 days) and each person's open tasks from the CRM, overdue first. Click a task to open it.
@@ -44,6 +48,7 @@ For HR: every employee's documents. For an employee or a manager: their own only
 Expiry shows as expired, within 30, 60 or 90 days. A leaver's document shows "Left: not tracked" and is not counted on the dashboard. **View** opens the file through a link that works for five minutes. Stored files are never replaced; add a new document instead.
 
 ## Leave
+nAnnual leave builds up by 2.5 days a month after 6 months of service, from 1 November 2026. Unused days carry forward. Approved Annual leave, Absent days and every 4th late day all use the balance. Anything beyond the balance is unpaid: (total salary / days in the month) x unpaid days. Approved Unpaid leave is always unpaid.
 
 - **Employees** press **+ Request leave**, choose the type and dates. Weekends and holidays are not counted. A request across a year end is saved as one row per year. You can cancel your own pending leave any time, and your own approved leave only before its first day (Dubai date). After that, ask HR.
 - **Managers** approve or reject their reports' pending requests. **Nobody can decide their own leave.** If you have no manager, HR decides.
@@ -57,11 +62,12 @@ Expiry shows as expired, within 30, 60 or 90 days. A leaver's document shows "Le
 
 ## Attendance Sheet
 
-Choose a view: **Month grid**, **Calendar** (one person), **Week**, **Year** (one person) or **Daily list**. Use the arrows to change the period.
+In **Month grid**, scroll sideways for any earlier or later month. The title follows the scroll, and P, A, Late and OT count that month. Choose a view: **Month grid**, **Calendar** (one person), **Week**, **Year** (one person) or **Daily list**. Use the arrows to change the period.
 
 - P = Present, A = Absent, WH = Work From Home, L = Leave, H = Holiday, W = Weekly Off. A blank cell is not counted, for example before someone started or a future day.
-- Hours are 09:30 to 18:30, and 09:30 to 14:00 on Saturday. Late means the first punch is after 09:30. Overtime means the last punch is after the day's end. Neither changes pay.
+- Hours are 09:30 to 18:30, and 09:30 to 14:00 on Saturday. Late means the first punch is after 09:30 and under the day's full hours between first and last punch (9 hours, or 4.5 on Saturday). A day with no last punch counts as late until it arrives. Every 4th late day in a month counts as 1 day of leave. Overtime means the last punch is after the day's end, and it does not change pay.
 - A late day's colour runs from yellow just after 09:30 to full orange at 10:30 and later. Extra time worked after the day's end is taken off the lateness first, so a day fully made up stays green. The Late card still counts that arrival.
+- A blue dot marks a UAE public holiday and a purple dot an India festival. Hover for the name. "(estimated)" means the date is not announced, and the day still counts as a working day.
 - Each day is worked out in this order: a day edited by hand, approved leave, a holiday, punches, a Work From Home Saturday, the weekly off. **A working day with none of these is Absent, and Absent is deducted from pay.**
 - Someone who has stopped coming shows Absent every day until HR records their exit date.
 - Until a join date is entered, Absent counts only from the person's first punch.
@@ -81,6 +87,7 @@ Punches from e-timeoffice arrive every 15 minutes and show below the grid as **B
 - Check the last success time. A failed sync shows its error here.
 
 ## Payroll
+n**Salaries** (here and on the Accounting page) shows what is Payable, Paid and Outstanding for each approved run. HR, administrators and the Accounts team can record a payment, in part or for everyone at once. Recording a payment does not send money. A payment entered by mistake can be removed, and the removal is logged.
 
 **Employees and managers** see their own approved months, with **Details** (how the figure was worked out) and **Print payslip**. Nothing shows until HR approves the month.
 
@@ -106,6 +113,7 @@ The module never sends money or files anything with a bank.
 - **HR access list.** Administrators only. People listed see and change all HR data, unless their linked employee is marked Left. Removing someone asks you to confirm. Additions and removals are logged.
 - **Leave types.** Empty at the start. Add each type, whether it is paid, the annual days (blank for no limit) and, for half-pay types, a note.
 - **Holidays.** Add each public holiday by date.
+- **Calendar marks.** Estimated UAE Islamic holidays and India festivals. When the UAE date is announced, press **Confirm** and enter it. Until you do, that day still counts as a working day, and a blank day shows Absent. Rows marked "Confirm the date" are within 30 days or past.
 - **Working week.** Tick the weekend days.
 - **Payroll basis.** The settings above.
 

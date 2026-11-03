@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Button, DataTable, ErrorNote, FormGrid, FormModal, PageHead, Panel, Spinner, cleanValues, fmtDate, useLoad } from "@banking/components/shared";
-import { check, run, saveWfhRule, table, wfhRules } from "../services/hrApi";
-import { parseTime } from "../logic/attendance";
+import { Badge, Button, DataTable, ErrorNote, FormGrid, FormModal, PageHead, Panel, Spinner, cleanValues, fmtDate, useLoad } from "@banking/components/shared";
+import { calendarMarkConfirm, check, run, saveWfhRule, table, wfhRules } from "../services/hrApi";
+import { confirmSoon, dubaiToday, parseTime } from "../logic/attendance";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]; // extract(dow) 0..6
 
@@ -12,6 +12,7 @@ export default function Settings({ profile }) {
   const profiles = useLoad(async () => (isAdmin ? run(table("profiles").select("id, full_name").order("full_name")) : []), [isAdmin]);
   const types = useLoad(async () => run(table("hr_leave_types").select("*").order("name")), []);
   const holidays = useLoad(async () => run(table("hr_holidays").select("*").order("holiday_date")), []);
+  const marks = useLoad(async () => run(table("hr_calendar_marks").select("*").order("mark_date")), []);
   const settings = useLoad(async () => run(table("hr_settings").select("*").eq("id", 1).single()), []);
   const rules = useLoad(wfhRules, []);
   const [modal, setModal] = useState(null);
@@ -67,6 +68,20 @@ export default function Settings({ profile }) {
         ]} />
       </Panel>
 
+      <Panel title="Calendar marks" sub="Estimated UAE Islamic holidays and India festivals. A mark only shows on the calendar: the day still counts as a working day. When the UAE date is announced, press Confirm to make it a holiday." actions={<Button variant="primary" onClick={() => setModal({ kind: "mark", row: { region: "India" } })}>+ Add mark</Button>}>
+        <ErrorNote message={marks.error} />
+        <DataTable search="Search name or region…" rows={marks.data || []} pageSize={25} empty="No marks yet." columns={[
+          { key: "mark_date", label: "Date", render: (m) => fmtDate(m.mark_date) },
+          { key: "name", label: "Name" },
+          { key: "region", label: "Region", render: (m) => <>{m.region}{confirmSoon(m, dubaiToday()) && <> <Badge tone="warn">Confirm the date</Badge></>}</> },
+          { key: "source", label: "Source", render: (m) => m.source || "–" },
+          { key: "x", label: "", render: (m) => <>
+            {m.region === "UAE" && <><Button onClick={() => setModal({ kind: "confirm", row: m })}>Confirm</Button> </>}
+            <Button onClick={() => setModal({ kind: "mark", row: m })}>Edit</Button> <Button onClick={() => remove("hr_calendar_marks", m.id, marks.reload)}>Remove</Button>
+          </> },
+        ]} />
+      </Panel>
+
       <Panel title="Working week" sub="Tick the days that are weekend. They are not counted as leave days. Working weeks vary by company.">
         <div className="hr-days-row">
           {DAYS.map((n, d) => (
@@ -106,6 +121,21 @@ export default function Settings({ profile }) {
         fields={[{ name: "effective_from", label: "From", type: "date" }, { name: "effective_to", label: "To", type: "date" },
           { name: "pattern", label: "Saturdays", type: "select", required: true, options: Object.entries(WFH_LABEL).map(([value, label]) => ({ value, label })) }]}
         onSubmit={async (v) => { await saveWfhRule(modal.row.id, { effective_from: v.effective_from || null, effective_to: v.effective_to || null, pattern: v.pattern }); await rules.reload(); }} />}
+      {modal?.kind === "mark" && <FormModal title={modal.row.id ? "Edit mark" : "Add mark"} initial={modal.row} onClose={() => setModal(null)}
+        fields={[{ name: "mark_date", label: "Date", type: "date", required: true }, { name: "name", label: "Name", required: true },
+          { name: "region", label: "Region", type: "select", required: true, options: ["UAE", "India"] }, { name: "source", label: "Source" }]}
+        onSubmit={async (v) => {
+          const values = { mark_date: v.mark_date, name: v.name, region: v.region, source: v.source || null };
+          check(modal.row.id ? await table("hr_calendar_marks").update(values).eq("id", modal.row.id) : await table("hr_calendar_marks").insert(values));
+          await marks.reload();
+        }} />}
+      {modal?.kind === "confirm" && <FormModal title={`Confirm ${modal.row.name}`} submitLabel="Make it a holiday" initial={{ date: modal.row.mark_date }} onClose={() => setModal(null)}
+        note="Use the date the government announced, which may differ from this estimate. The day then counts as a holiday in attendance, leave and pay."
+        fields={[{ name: "date", label: "Announced date", type: "date", required: true }]}
+        onSubmit={async (v) => {
+          await calendarMarkConfirm(modal.row.id, v.date);
+          await Promise.all([marks.reload(), holidays.reload()]);
+        }} />}
       {modal?.kind === "holiday" && <FormModal title={modal.row.id ? "Edit holiday" : "Add holiday"} initial={modal.row} onClose={() => setModal(null)}
         fields={[{ name: "holiday_date", label: "Date", type: "date", required: true }, { name: "name", label: "Name", required: true }]}
         onSubmit={async (v) => {

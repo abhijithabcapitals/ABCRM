@@ -38,12 +38,34 @@ export async function uploadDocument(employeeId, file) {
   return path;
 }
 
-// Opens a stored file through a short-lived signed link.
-export async function openDocument(path) {
+// A short-lived signed link to a stored file.
+export async function documentUrl(path) {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
   if (error) throw new Error(error.message);
-  window.open(data.signedUrl, "_blank", "noopener");
+  return data.signedUrl;
 }
+
+// Opens a stored file through a short-lived signed link.
+export async function openDocument(path) {
+  window.open(await documentUrl(path), "_blank", "noopener");
+}
+
+// Everything named on the calendar in a date range.
+export async function calendarMarks(from, to) {
+  const [holidays, marks] = await Promise.all([
+    run(table("hr_holidays").select("holiday_date, name").gte("holiday_date", from).lte("holiday_date", to)),
+    run(table("hr_calendar_marks").select("mark_date, name, region").gte("mark_date", from).lte("mark_date", to)),
+  ]);
+  return { holidays, marks };
+}
+export const calendarMarkConfirm = (mark, date) => rpc("hr_calendar_mark_confirm", { p_mark: mark, p_date: date });
+
+// Salary Payable and Paid. HR, admin and the Accounts team. A payment is a record only: nothing here moves money.
+export const salariesOverview = (year) => rpc("hr_salaries_overview", { p_year: year });
+export const salariesMonth = (run) => rpc("hr_salaries_month", { p_run: run });
+export const salaryPay = (line, amount, paidOn, reference) => rpc("hr_salary_pay", { p_line: line, p_amount: amount, p_paid_on: paidOn, p_reference: reference || null });
+export const salaryPayAll = (run, paidOn, reference) => rpc("hr_salary_pay_all", { p_run: run, p_paid_on: paidOn, p_reference: reference || null });
+export const salaryPaymentRemove = (payment) => rpc("hr_salary_payment_remove", { p_payment: payment });
 
 // Reads one file through the local Document Module (the Client Module on this PC), then clears it from its staging area.
 // Throws when the service is not running: callers treat that as "fill the form by hand".

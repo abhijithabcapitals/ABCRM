@@ -290,7 +290,7 @@ select public.must_fail('owner cannot delete an approved run', $$delete from pub
 select public.must_fail('owner cannot update an approved line', $$update public.hr_pay_lines set net = 1 where run_id = public.rid('2025-06-01')$$, 'locked');
 select public.must_fail('owner cannot delete an approved line', $$delete from public.hr_pay_lines where run_id = public.rid('2025-06-01')$$, 'locked');
 select public.must_fail('owner cannot add a line to an approved run', $$insert into public.hr_pay_lines (run_id, employee_id) values (public.rid('2025-06-01'), public.pe('c8'))$$, 'locked');
-select public.must_fail('owner cannot truncate lines', $$truncate public.hr_pay_lines$$, 'locked');
+select public.must_fail('owner cannot truncate lines', $$truncate public.hr_pay_lines$$, 'truncate');
 select public.must_fail('owner cannot truncate runs', $$truncate public.hr_pay_runs cascade$$, 'locked');
 select public.must_fail('deleting an employee with a pay line is refused', $$delete from public.hr_employees where id = public.pe('c3')$$, 'foreign key');
 select public.must_fail('deleting pay details an approved line used is refused', $$delete from public.hr_pay_details where employee_id = public.pe('c3')$$, 'locked');

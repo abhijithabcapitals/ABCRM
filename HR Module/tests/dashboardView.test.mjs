@@ -37,6 +37,10 @@ test("annualRows adds carried days and approved days, and a positive adjustment 
   const [row] = annualRows([{ id: "a", full_name: "A" }], [annual({ entitlement: 30, adjustment: 2, carried: 5, used: 3, pending: 1, remaining: 34 })]);
   assert.deepEqual(row, { id: "a", full_name: "A", credit: 37, used: 3, pending: 1, balance: 34 });
 });
+test("annualRows counts accrued days as credit", () => {
+  const [row] = annualRows([{ id: "a", full_name: "A" }], [annual({ entitlement: 27, adjustment: -25, accrued: 5, remaining: 7 })]);
+  assert.deepEqual(row, { id: "a", full_name: "A", credit: 32, used: 25, pending: 0, balance: 7 });
+});
 test("annualRows gives dashes when there is no Annual type, and tolerates text numbers", () => {
   const rows = annualRows([{ id: "a", full_name: "A" }, { id: "b", full_name: "B" }], [[], annual({ entitlement: "21.5", adjustment: "-0.5", remaining: "21" })]);
   assert.deepEqual(rows[0], { id: "a", full_name: "A", credit: null, used: null, pending: null, balance: null });

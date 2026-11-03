@@ -7,7 +7,7 @@ const BEFORE_LEAVE = [
   { key: "absent", label: "Absent" },
 ];
 const AFTER_LEAVE = [
-  { key: "late", label: "Late", note: "After 09:30" },
+  { key: "late", label: "Late", note: "After 09:30, under 9 hours" },
   { key: "overtime", label: "Overtime", note: "After the day's end" },
   { key: "wfh", label: "Work From Home" },
 ];

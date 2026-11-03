@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { payDetailFull, payDetailsList, payrollEmployees, savePayDetail } from "../services/hrApi";
 import { formatAllowances, money, parseAllowances } from "../logic/payroll";
+import { splitHra, withHra } from "../logic/profile";
 
 const total = (d) => Number(d.basic) + Object.values(d.allowances || {}).reduce((s, v) => s + Number(v), 0);
 
@@ -26,7 +27,8 @@ export default function SalaryMaster() {
     setError(null);
     try {
       const { id: rowId, created_at, created_by, updated_at, updated_by, ...d } = await payDetailFull(id);
-      const values = { ...d, allowances_text: formatAllowances(d.allowances) };
+      const { hra, rest } = splitHra(d.allowances);
+      const values = { ...d, hra, allowances_text: formatAllowances(rest) };
       setEditing(asNew ? { ...values, effective_from: "", isNew: true } : { ...values, id: rowId });
     } catch (e) { setError(e.message); }
   };
@@ -35,7 +37,8 @@ export default function SalaryMaster() {
     { name: "employee_id", label: "Employee", type: "select", required: true, options: (employees.data || []).filter((e) => !editing?.employee_id || e.id === editing.employee_id).map((e) => ({ value: e.id, label: `${e.employee_code} · ${e.full_name}` })) },
     { name: "effective_from", label: "Effective from", type: "date", required: true },
     { name: "basic", label: "Basic salary (monthly, AED)", type: "number", required: true },
-    { name: "allowances_text", label: "Allowances", type: "textarea", full: true, help: "One per line, like Housing: 3000" },
+    { name: "hra", label: "HRA (monthly, AED)", type: "number" },
+    { name: "allowances_text", label: "Other allowances", type: "textarea", full: true, help: "One per line, like Transport: 500" },
     { name: "iban", label: "IBAN", help: "AE and 23 characters. Without it the employee blocks approval" },
     { name: "bank_routing", label: "Bank routing code" },
     { name: "wps_labour_card", label: "WPS labour card" },
@@ -74,8 +77,8 @@ export default function SalaryMaster() {
       {editing && <FormModal wide title={editing.isNew ? "Change salary" : "Correct this row"} initial={editing} onClose={() => setEditing(null)} fields={fields}
         note={editing.isNew ? "This adds a new row from the date you enter." : "This changes the row itself. To change pay going forward, use Change instead."}
         onSubmit={async (v) => {
-          const { allowances_text, ...values } = v;
-          await savePayDetail(editing.id, { ...values, allowances: parseAllowances(allowances_text) });
+          const { allowances_text, hra, ...values } = v;
+          await savePayDetail(editing.id, { ...values, allowances: withHra(hra, parseAllowances(allowances_text)) });
           await rows.reload();
         }} />}
     </div>

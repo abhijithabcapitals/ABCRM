@@ -60,6 +60,44 @@ export function shiftMonth(year, month, by) {
 // The Asia/Dubai calendar date, the same one the database uses for "today".
 export const dubaiToday = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 
+// Rows from hr_holidays and hr_calendar_marks -> { date: [{ name, region, holiday }] }, real holidays first. Only a real holiday changes a day's status.
+export function marksByDate(holidays, marks) {
+  const by = {};
+  const add = (date, item) => { (by[date] ??= []).push(item); };
+  for (const h of holidays || []) add(h.holiday_date, { name: h.name, region: "UAE", holiday: true });
+  for (const m of marks || []) add(m.mark_date, { name: m.name, region: m.region, holiday: false });
+  return by;
+}
+
+export const markText = (list) => (list || []).map((m) => (m.holiday ? m.name : `${m.name} (estimated)`)).join(", ");
+
+export const markClasses = (list) => ["UAE", "India"].filter((r) => (list || []).some((m) => m.region === r)).map((r) => `hr-cell-mark-${r.toLowerCase()}`).join(" ");
+
+// A UAE mark HR should look at: its date is within 30 days or has passed, and until confirmed that day still counts as a working day.
+export const confirmSoon = (mark, today) => mark.region === "UAE" && mark.mark_date <= addDays(today, 30);
+
+// Months as YYYY-MM, for the endless grid.
+export const monthKey = (date) => date.slice(0, 7);
+export function addMonth(key, by) {
+  const s = shiftMonth(Number(key.slice(0, 4)), Number(key.slice(5, 7)), by);
+  return `${s.year}-${pad(s.month)}`;
+}
+export const monthsAround = (key) => [addMonth(key, -1), key, addMonth(key, 1)];
+
+// The unbroken list, grown as far as the target month.
+export function extendMonths(months, target) {
+  const out = [...months];
+  while (target < out[0]) out.unshift(addMonth(out[0], -1));
+  while (target > out.at(-1)) out.push(addMonth(out.at(-1), 1));
+  return out;
+}
+
+// Which day column sits in the middle of the part of the grid that scrolls.
+export function visibleDayIndex({ scrollLeft, clientWidth, frozen, col, days }) {
+  const i = Math.floor((scrollLeft + (clientWidth - frozen) / 2) / col);
+  return Math.min(Math.max(i, 0), days - 1);
+}
+
 // A date as "Tue, 3 Nov 2026". Read as UTC, so the machine's zone cannot move it to another day.
 export const todayLabel = (date) => {
   const p = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" }).formatToParts(utc(date));
@@ -96,7 +134,7 @@ export function annualRows(people, balances) {
     return {
       id: p.id,
       full_name: p.full_name,
-      credit: Number(b.entitlement || 0) + Number(b.carried || 0) + Math.max(adjustment, 0),
+      credit: Number(b.entitlement || 0) + Number(b.carried || 0) + Number(b.accrued || 0) + Math.max(adjustment, 0),
       used: Number(b.used || 0) + Math.max(-adjustment, 0),
       pending: Number(b.pending || 0),
       balance: b.remaining === null || b.remaining === undefined ? null : Number(b.remaining),
@@ -128,6 +166,13 @@ export function groupRange(rows) {
     if (r.overtime_minutes > 0) e.counts.Overtime += 1;
   }
   return [...by.values()].sort((a, b) => String(a.employee_code).localeCompare(String(b.employee_code)));
+}
+
+// A period with no rows yet, such as next month, still lists today's people, so its holidays can show. Nobody's days are copied across.
+export function withEveryone(groups, today) {
+  const have = new Set(groups.map((g) => g.employee_id));
+  const blank = today.filter((g) => !have.has(g.employee_id)).map((g) => ({ ...g, days: {}, counts: Object.fromEntries(Object.keys(g.counts).map((k) => [k, 0])) }));
+  return [...groups, ...blank].sort((a, b) => String(a.employee_code).localeCompare(String(b.employee_code)));
 }
 
 export function canEditDay({ role, myId, employeeId, date, today, employeeStatus, exitDate }) {

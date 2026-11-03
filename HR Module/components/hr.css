@@ -90,6 +90,26 @@
   .hr-calendar-status { font-size: 9px; }
   .hr-calendar-day small { display: none; }
 }
+.hr-grid-wrap:has(.hr-grid-endless) { overflow-anchor: none; }
+.hr-grid-endless { min-width: 0; }
+.hr-grid-endless .hr-grid-month-head { padding: 4px 0; text-align: left; background: #f6f8f9; border-left: 2px solid #dfe6e8; font-size: 12px; color: #13363d; }
+.hr-grid-month-label { position: sticky; left: 322px; padding: 0 8px; white-space: nowrap; }
+.hr-grid-day-marked { background: #e4eefb; color: #2b5a99; }
+.hr-cell-mark-uae, .hr-cell-mark-india { position: relative; }
+.hr-cell-mark-uae::after, .hr-cell-mark-india::before { content: ""; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; }
+.hr-cell-mark-uae::after { background: #2b5a99; }
+.hr-cell-mark-india::before { background: #a3268f; }
+.hr-cell-mark-uae.hr-cell-mark-india::before { right: 10px; }
+.hr-calendar-mark { display: block; margin-top: 2px; font-size: 10px; font-weight: 600; line-height: 1.2; }
+.hr-legend .hr-legend-mark { width: 8px; height: 8px; border-radius: 50%; }
+.hr-legend-mark-uae { background: #2b5a99; }
+.hr-legend-mark-india { background: #a3268f; }
+.hr-profile-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.hr-photo { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; background: #e8edef; flex: none; }
+.hr-photo-empty { display: flex; align-items: center; justify-content: center; color: #667780; font-size: 11px; }
+.hr-pay-total { font-weight: 700; }
+.hr-subhead { margin: 14px 0 6px; font-size: 13px; color: #13363d; }
+@media (max-width: 720px) { .hr-grid-month-label { left: 128px; } }
 .hr-cell { display: block; box-sizing: border-box; width: 100%; min-height: 30px; line-height: 30px; padding: 0; border: 0; background: transparent; font: inherit; font-weight: 700; text-align: center; color: inherit; cursor: default; }
 .hr-cell-WFH { background: #e6e3f7; color: #4a3d99; }
 .hr-cell-pending { outline: 2px dashed #b77a10; outline-offset: -2px; }

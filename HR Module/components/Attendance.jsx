@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { Button, ErrorNote, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { attendanceRange } from "../services/hrApi";
+import { attendanceRange, calendarMarks } from "../services/hrApi";
 import BiometricPanel from "./BiometricPanel";
 import CalendarView from "./attendance/CalendarView";
 import DailyList from "./attendance/DailyList";
 import EditDayModal from "./attendance/EditDayModal";
-import MonthGrid from "./attendance/MonthGrid";
+import EndlessGrid from "./attendance/EndlessGrid";
 import WeekView from "./attendance/WeekView";
 import YearHeatmap from "./attendance/YearHeatmap";
-import { SHORT, STATUSES, canEditDay, dubaiToday, groupRange, monthDays, periodRange, shiftPeriod, statusLabel, weekDays } from "../logic/attendance";
+import { SHORT, STATUSES, canEditDay, dubaiToday, groupRange, markText, marksByDate, monthDays, periodRange, shiftPeriod, statusLabel, weekDays, withEveryone } from "../logic/attendance";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const VIEWS = [
@@ -38,8 +38,15 @@ export default function Attendance({ role, employeeId, profile }) {
   const [notice, setNotice] = useState(null);
   const view = VIEWS.find((v) => v.key === viewKey);
   const range = periodRange(view.period, date);
-  const rows = useLoad(() => attendanceRange(range.from, range.to), [range.from, range.to]);
-  const people = useMemo(() => groupRange(rows.data), [rows.data]);
+  // The month grid loads its own months as it scrolls, so nothing is fetched for it here.
+  const endless = viewKey === "month";
+  const rows = useLoad(async () => (endless ? [] : attendanceRange(range.from, range.to)), [endless, range.from, range.to]);
+  const named = useLoad(async () => (endless ? null : calendarMarks(range.from, range.to)), [endless, range.from, range.to]);
+  const [refresh, setRefresh] = useState(0);
+  const reload = async () => { setRefresh((n) => n + 1); await rows.reload(); };
+  const marks = useMemo(() => marksByDate(named.data?.holidays, named.data?.marks), [named.data]);
+  const everyone = useLoad(async () => (endless ? [] : attendanceRange(today, today)), [endless, today]);
+  const people = useMemo(() => withEveryone(groupRange(rows.data), groupRange(everyone.data)), [rows.data, everyone.data]);
   const person = people.find((p) => p.employee_id === personId) || people.find((p) => p.employee_id === employeeId) || people[0];
   const year = Number(date.slice(0, 4));
   const month = Number(date.slice(5, 7));
@@ -72,19 +79,22 @@ export default function Attendance({ role, employeeId, profile }) {
         <div className="hr-legend" aria-label="Legend">
           {STATUSES.map((s) => <span key={s}><i className={`hr-cell-${s}`} />{SHORT[s]} {statusLabel({ status: s })}</span>)}
           <span>Blank: not counted</span>
+          <span><i className="hr-legend-mark hr-legend-mark-uae" />UAE public holiday</span>
+          <span><i className="hr-legend-mark hr-legend-mark-india" />India festival</span>
         </div>
-        {rows.loading && !rows.data ? <Spinner label="Loading attendance" /> : !people.length ? (
+        {viewKey === "daily" && marks[date] && <p className="bk-note hr-quiet">{markText(marks[date])}</p>}
+        {endless ? <EndlessGrid date={date} onMonth={(key) => setDate(`${key}-01`)} refresh={refresh} today={today} canEdit={canEdit} onEdit={onEdit} />
+          : rows.loading && !rows.data ? <Spinner label="Loading attendance" /> : !people.length ? (
           <p className="bk-note hr-quiet">No employees to show for this period.</p>
-        ) : viewKey === "month" ? <MonthGrid days={monthDays(year, month)} people={people} today={today} canEdit={canEdit} onEdit={onEdit} />
-          : viewKey === "calendar" ? <CalendarView person={person} days={monthDays(year, month)} today={today} canEdit={canEdit} onEdit={onEdit} />
-          : viewKey === "week" ? <WeekView days={weekDays(date)} people={people} today={today} canEdit={canEdit} onEdit={onEdit} />
-          : viewKey === "year" ? <YearHeatmap person={person} year={year} today={today} canEdit={canEdit} onEdit={onEdit} />
+        ) : viewKey === "calendar" ? <CalendarView person={person} days={monthDays(year, month)} today={today} canEdit={canEdit} onEdit={onEdit} marks={marks} />
+          : viewKey === "week" ? <WeekView days={weekDays(date)} people={people} today={today} canEdit={canEdit} onEdit={onEdit} marks={marks} />
+          : viewKey === "year" ? <YearHeatmap person={person} year={year} today={today} canEdit={canEdit} onEdit={onEdit} marks={marks} />
           : <DailyList date={date} people={people} canEdit={canEdit} onEdit={onEdit} />}
       </Panel>
-      {role === "hr" && <BiometricPanel onChanged={rows.reload} />}
+      {role === "hr" && <BiometricPanel onChanged={reload} />}
       {editing && (
         <EditDayModal person={editing.person} date={editing.date} isAdmin={isAdmin} onClose={() => setEditing(null)}
-          onSaved={async (message) => { setNotice(message); await rows.reload(); }} />
+          onSaved={async (message) => { setNotice(message); await reload(); }} />
       )}
     </div>
   );

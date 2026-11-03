@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
 import { gratuity, myEmployee, myPayLines, payrunAckPayChange, payrunAdjust, payrunApprove, payrunChangesAfter, payrunCreate, payrunDelete, payrunLines, payrunRecalc, payruns, payrollEmployees, payrollSettings } from "../services/hrApi";
+import SalariesPanel from "./SalariesPanel";
 import { payslipHtml } from "../logic/payslip";
 import { gratuitySteps, hasPayChangeBlocker, maskIban, missingData, missingSettings, money, monthLabel, monthStart, runTotals } from "../logic/payroll";
 
@@ -118,6 +119,7 @@ function HrPayroll({ profile }) {
         ]} />
       </Panel>
       {run && <RunPanel key={run.id} run={run} nameOf={nameOf} codeOf={codeOf} profile={profile} onChanged={runs.reload} onGone={() => setRunId(null)} />}
+      <SalariesPanel />
       <GratuityPanel employees={employees.data || []} />
     </div>
   );
