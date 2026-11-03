@@ -17,7 +17,7 @@ HR and the employee see the photo, personal details, visa and IDs, documents, in
 
 ## Dashboard
 
-Cards at the top: today's date, Present, Absent, On Leave (with Annual and Unpaid shown separately), Late, Overtime, Work From Home and Active. Click a card to see who is in it: Present and Late show the login time, and Overtime the logoff time, day by day for a longer period. Below them, each person's Annual leave this year (credit, used, pending, balance), then pending leave, documents expiring (expired or within 90 days) and each person's open tasks from the CRM, overdue first. Click a task to open it.
+Cards at the top: today's date, Present, Absent, On Leave (with Annual and Unpaid shown separately), Late, Overtime, Work From Home and Active. Click a card to see who is in it. Present, Late, Overtime and Work From Home show the login time, logoff time and overtime hours, day by day for a longer period. Below them, each person's Annual leave this year (credit, used, pending, balance), then pending leave, documents expiring (expired or within 90 days) and each person's open tasks from the CRM, overdue first. Click a task to open it.
 
 - Administrators and HR see everyone. A manager sees their direct reports and themselves. An employee sees only themselves.
 - **Managers see the titles of their reports' open tasks.** Those titles can name clients or work the manager does not otherwise have access to.
