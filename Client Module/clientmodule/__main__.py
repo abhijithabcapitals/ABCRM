@@ -19,10 +19,14 @@ def main() -> None:
     settings = Settings.load(Path(cfg) if cfg else None)
     app = create_app(settings)
     url = f"http://{settings.host}:{settings.port}/"
-    print(f"Client Module running at {url}  (close this window to stop)")
-    print(f"Master file: {app.state.master.csv_path}")
-    print(f"Document storage: {settings.storage_root}")
-    if "--no-browser" not in sys.argv:
+    if settings.remote_mode:
+        print(f"Remote Document Module listening on {settings.host}:{settings.port}")
+        print("Remote mode exposes only authenticated document-processing endpoints.")
+    else:
+        print(f"Client Module running at {url}  (close this window to stop)")
+        print(f"Master file: {app.state.master.csv_path}")
+        print(f"Document storage: {settings.storage_root}")
+    if not settings.remote_mode and "--no-browser" not in sys.argv:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
 

@@ -62,9 +62,41 @@ textarea:focus {
   background: #f7f8fa;
 }
 
+/* Main content plus the copyright bar. Full-height views subtract --brand-footer-h. */
+:root {
+  --brand-footer-h: 28px;
+}
+.app-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.brand-footer {
+  flex-shrink: 0;
+  min-height: var(--brand-footer-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  font-size: 11px;
+  color: #6b7f82;
+  text-align: center;
+  background: #fff;
+  border-top: 1px solid #e3e9eb;
+}
+.brand-plate {
+  display: inline-block;
+  max-width: 100%;
+  padding: 6px 10px;
+  background: #fff;
+  border-radius: 8px;
+}
+
 .app-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   background: #f7f8fa;
   scrollbar-width: thin;
@@ -926,7 +958,7 @@ textarea:focus {
 /* ─── Wiki ─── */
 .wiki-layout {
   display: flex;
-  height: 100vh;
+  height: calc(100vh - var(--brand-footer-h));
   overflow: hidden;
   background: #f7f8fa;
 }

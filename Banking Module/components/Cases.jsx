@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Badge, Button, ClosedSection, DataTable, ErrorNote, FormModal, PageHead, Spinner, useBanking, useLoad } from "./shared";
 import { listAll, rpc } from "../services/bankingApi";
 import { money } from "../logic/pricing";
-import { STAGES, stageLabel, uiStep } from "../logic/constants";
+import { BOARD_STATUSES, STAGES, stageLabel, uiStep } from "../logic/constants";
 
 export default function Cases({ initialStep }) {
   const { can, openCase, personOptions } = useBanking();
@@ -11,13 +11,16 @@ export default function Cases({ initialStep }) {
   const [term, setTerm] = useState("");
   const [newCase, setNewCase] = useState(false);
   const [step, setStep] = useState(initialStep ? String(initialStep) : "");
-  const list = useLoad(() => rpc("banking_case_list", { p_search: term || null, p_limit: 1000, p_offset: 0, p_include_historical: historical }), [term, historical]);
+  const [board, setBoard] = useState("");
+  const list = useLoad(() => rpc("banking_case_list", { p_search: term || null, p_limit: 5000, p_offset: 0, p_include_historical: historical }), [term, historical]);
   const clients = useLoad(() => listAll("banking_clients", "id, display_name, client_master_id", "display_name", true), []);
   useEffect(() => { const t = setTimeout(() => setTerm(q.trim()), 300); return () => clearTimeout(t); }, [q]);
 
-  const matching = (list.data?.rows || []).filter((r) => !step || uiStep(r.current_stage) === Number(step));
+  const matching = (list.data?.rows || []).filter((r) => !step || uiStep(r.current_stage) === Number(step)).filter((r) => !board || r.legacy_board_status === board);
   const rows = matching.filter((r) => r.accounts_status !== "Closed");
   const closed = matching.filter((r) => r.accounts_status === "Closed");
+  const boardCounts = list.data?.board_counts || {};
+  const boardHeld = list.data?.board_held || {};
   const columns = [
     { key: "case_ref", label: "Case" },
     { key: "client", label: "Client" },
@@ -25,6 +28,7 @@ export default function Cases({ initialStep }) {
     { key: "bank", label: "Bank" },
     { key: "current_stage", label: "Stage", render: (r) => stageLabel(r.current_stage) },
     { key: "app_status", label: "Application", render: (r) => <>{r.app_status ? <Badge>{r.app_status}</Badge> : "–"}{r.accounts_status === "Reverted" && <> <Badge tone="bad">Reverted by Accounts</Badge></>}</> },
+    { key: "legacy_board_status", label: "Old CRM", render: (r) => r.legacy_board_status || "–" },
     { key: "employee", label: "Employee" },
     { key: "total", label: "Quotation", right: true, render: (r) => money(r.total) },
     { key: "received", label: "Received", right: true, render: (r) => money(r.received) },
@@ -34,12 +38,21 @@ export default function Cases({ initialStep }) {
       <PageHead title="All Banking Cases" sub={`${rows.length} banking cases${step ? ` at step ${step}` : ""}. One client can have several.`}>
         <select aria-label="Step" value={step} onChange={(e) => setStep(e.target.value)}><option value="">All steps</option>{STAGES.map((name, i) => <option key={name} value={i + 1}>{i + 1}. {name}</option>)}</select>
         <input type="search" placeholder="Search client or case" aria-label="Search" value={q} onChange={(e) => setQ(e.target.value)} />
-        <label className="bk-check"><input type="checkbox" checked={historical} onChange={(e) => setHistorical(e.target.checked)} /> Include Excel history</label>
+        <label className="bk-check"><input type="checkbox" checked={historical} onChange={(e) => { setHistorical(e.target.checked); setBoard(""); }} /> Include Excel history</label>
         {can("cases.manage") && <Button variant="primary" onClick={() => setNewCase(true)}>New case for existing client</Button>}
       </PageHead>
       <ErrorNote message={list.error} />
+      {historical && Object.keys(boardCounts).length > 0 && (
+        <div className="bk-filter" role="group" aria-label="Old CRM board status">
+          {BOARD_STATUSES.map((name) => (
+            <button type="button" key={name} aria-pressed={board === name} className={`bk-chip ${board === name ? "active" : ""}`} onClick={() => setBoard(board === name ? "" : name)}>
+              {name} {boardCounts[name] || 0}{boardHeld[name] ? ` + ${boardHeld[name]} held` : ""}
+            </button>
+          ))}
+        </div>
+      )}
       {list.loading && !list.data ? <Spinner /> : (
-        <DataTable rows={rows} empty="No cases at this step." onRow={(r) => openCase(r.id)} columns={columns} />
+        <DataTable rows={rows} empty={board ? `No cases with old CRM status ${board}.` : "No cases at this step."} onRow={(r) => openCase(r.id)} columns={columns} />
       )}
       <ClosedSection count={closed.length} label="Closed cases"><DataTable rows={closed} onRow={(r) => openCase(r.id)} columns={columns} /></ClosedSection>
       {newCase && (

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
+import { BrandFooter } from "./components/Brand";
 import { setUsageUser } from "./jsx/selectUsage";
 import { resolveView } from "./tabs";
 import { GlobalAttention } from "@banking/components/Attention";
@@ -464,6 +465,7 @@ export default function App() {
         onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
         title="Drag to resize sidebar"
       />
+      <div className="app-body">
       <main className="app-main">
         <Suspense fallback={<div style={{ padding: 24, fontSize: 13, color: "#9ca3af" }}>Loading…</div>}>
         {view === "dashboard" && (
@@ -528,6 +530,8 @@ export default function App() {
         )}
         </Suspense>
       </main>
+      <BrandFooter />
+      </div>
     </div>
   );
 }

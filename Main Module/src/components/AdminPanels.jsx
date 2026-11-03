@@ -5,6 +5,8 @@ import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, Panel, Spinner, 
 import { flagMissing } from "@banking/components/Attention";
 import { supabase } from "../supabase";
 import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE } from "../tabs";
+import { TriggersPanel } from "./AdminTriggers";
+import { cronText } from "./triggerSchedule";
 import { EMP_FIELDS } from "../empFields";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
@@ -132,9 +134,11 @@ export function JobsPanel() {
   return (
     <div>
       <ErrorNote message={jobs.error || error} onClose={() => setError(null)} />
-      <p className="bk-note">Background work on a schedule. Pausing email-base-sync or email-agent-run also stops the OpenRouter spending they cause, and stops new mail arriving or being checked until resumed.</p>
+      <TriggersPanel onChanged={jobs.reload} />
+      <h4 className="bk-subhead">System jobs</h4>
+      <p className="bk-note">Background work on a schedule. Pausing email-base-sync or email-agent-run also stops the OpenRouter spending they cause, and stops new mail arriving or being checked until resumed. Pausing admin-trigger-dispatcher stops every trigger above. Times are Dubai time; the raw schedule beneath each is in UTC.</p>
       {jobs.loading && !jobs.data ? <Spinner /> : <DataTable rows={(jobs.data || []).map((j) => ({ ...j, id: j.jobid }))} empty="No scheduled jobs." columns={[
-        { key: "jobname", label: "Job" }, { key: "schedule", label: "Schedule" }, { key: "last_run", label: "Last run", render: (j) => when(j.last_run) },
+        { key: "jobname", label: "Job" }, { key: "schedule", label: "Schedule", render: (j) => <span>{cronText(j.schedule) || j.schedule}{cronText(j.schedule) && <small className="bk-admin-detail">{j.schedule} UTC</small>}</span> }, { key: "last_run", label: "Last run", render: (j) => when(j.last_run) },
         { key: "last_status", label: "Last result", render: (j) => (j.last_status ? <Badge tone={j.last_status === "succeeded" ? "good" : j.last_status === "failed" ? "bad" : undefined}>{j.last_status}</Badge> : "–") },
         { key: "failed_24h", label: "Failed, 24 hours", right: true }, { key: "active", label: "State", render: (j) => <Badge tone={j.active ? "good" : "warn"}>{j.active ? "Running" : "Paused"}</Badge> },
         { key: "a", label: "", render: (j) => <Button busy={busy === j.jobid} onClick={() => toggle(j)}>{j.active ? "Pause" : "Resume"}</Button> },

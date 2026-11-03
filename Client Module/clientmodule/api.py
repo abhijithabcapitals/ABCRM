@@ -1,4 +1,4 @@
-"""Client Module API (FastAPI) for staff on this PC. Listens on 127.0.0.1 only.
+"""Client Module API (FastAPI) for local staff, with an authenticated remote OCR mode.
 
     GET  /api/health                     {"app": "client-module"} (CORS for config embedOrigins, used by the CRM)
     GET  /api/schema                     field definitions (stages, options, conditions) + document types
@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import httpx
 import re
 import subprocess
 from pathlib import Path
@@ -42,6 +43,33 @@ log = logging.getLogger("clientmodule")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "testserver"}
 
 
+async def verify_remote_document_access(settings: Settings, token: str) -> str:
+    headers = {"apikey": settings.supabase_anon_key, "Authorization": f"Bearer {token}"}
+    timeout = httpx.Timeout(8.0, connect=3.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        user = await client.get(f"{settings.supabase_url}/auth/v1/user", headers=headers)
+        if user.status_code in (401, 403):
+            return "unauthorized"
+        try:
+            user_data = user.json() if user.is_success else {}
+        except ValueError:
+            return "unavailable"
+        if not isinstance(user_data, dict) or not user_data.get("id"):
+            return "unavailable"
+
+        access = await client.post(f"{settings.supabase_url}/rest/v1/rpc/banking_my_access", headers=headers, json={})
+        if not access.is_success:
+            return "unavailable"
+        try:
+            access_data = access.json()
+        except ValueError:
+            return "unavailable"
+        if not isinstance(access_data, dict) or not isinstance(access_data.get("permissions", []), list):
+            return "unavailable"
+        permissions = access_data.get("permissions", [])
+        return "allowed" if {"docs.manage", "kyc.manage", "leads.manage"}.intersection(permissions) else "forbidden"
+
+
 CLIENT_FILE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".eml", ".msg"}
 MAX_CLIENT_FILE = 25 * 1024 * 1024
 CLIENT_SUBFOLDERS = {"Trade Licence": "Company Documents", "MOA / AOA": "Company Documents", "VAT Document": "Company Documents",
@@ -57,16 +85,65 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.middleware("http")
     async def local_only(request: Request, call_next):
+        origin = (request.headers.get("origin") or "").rstrip("/")
+        path = request.url.path
+
+        if settings.remote_mode:
+            host = (request.url.hostname or "").lower()
+            if host not in settings.allowed_hosts:
+                return JSONResponse({"error": "This host is not allowed."}, status_code=403)
+            if path == "/api/health":
+                return await call_next(request)
+            batch_path = path == "/api/batches"
+            upload_path = bool(re.fullmatch(r"/api/batches/[a-f0-9]{16}/files", path))
+            delete_path = bool(re.fullmatch(r"/api/batches/[a-f0-9]{16}/files/[a-f0-9]{12}", path))
+            allowed_preflight = request.method == "OPTIONS" and (batch_path or upload_path or delete_path)
+            allowed_request = (
+                batch_path and request.method == "POST"
+                or upload_path and request.method == "POST"
+                or delete_path and request.method == "DELETE"
+            )
+            if not (allowed_request or allowed_preflight):
+                return JSONResponse({"error": "Not found."}, status_code=404)
+            if origin not in settings.embed_origins:
+                return JSONResponse({"error": "This CRM origin is not allowed."}, status_code=403)
+            if request.method == "OPTIONS":
+                response = Response(status_code=204)
+                response.headers["Access-Control-Allow-Methods"] = "POST, DELETE"
+                response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+                response.headers["Access-Control-Allow-Private-Network"] = "true"
+            else:
+                token = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+                if not token:
+                    return JSONResponse({"error": "Sign in to the CRM before using document processing."}, status_code=401)
+                try:
+                    access = await verify_remote_document_access(settings, token)
+                except httpx.RequestError:
+                    log.exception("Could not verify CRM access for remote document request")
+                    return JSONResponse({"error": "Could not verify access with the CRM. Try again shortly."}, status_code=503)
+                if access == "unauthorized":
+                    return JSONResponse({"error": "Your CRM session has expired. Sign in again."}, status_code=401)
+                if access == "forbidden":
+                    return JSONResponse({"error": "Your Business Banking role does not allow document processing."}, status_code=403)
+                if access != "allowed":
+                    return JSONResponse({"error": "Could not verify access with the CRM. Try again shortly."}, status_code=503)
+                response = await call_next(request)
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["Content-Security-Policy"] = "frame-ancestors 'self' " + " ".join(settings.embed_origins)
+            return response
+
         host = (request.headers.get("host") or "").split(":")[0]
         if host not in LOCAL_HOSTS:  # blocks DNS-rebinding pages from reaching the API
             return JSONResponse({"error": "Local access only."}, status_code=403)
         # The CRM's Business Banking page reads documents and looks up clients here; only listed origins may.
-        origin = (request.headers.get("origin") or "").rstrip("/")
-        shared = origin in settings.embed_origins and request.url.path.startswith(("/api/batches", "/api/clients", "/api/generated"))
+        shared = origin in settings.embed_origins and path.startswith(("/api/batches", "/api/clients", "/api/generated"))
         if request.method == "OPTIONS" and shared:
             response = Response(status_code=204)
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
             response.headers["Access-Control-Allow-Private-Network"] = "true"
         else:
             response = await call_next(request)
@@ -100,6 +177,10 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/tax", include_in_schema=False)
     def tax_page():
         return FileResponse(PACKAGE_DIR / "static" / "tax.html", media_type="text/html")
+
+    @app.get("/brand/logo.webp", include_in_schema=False)
+    def brand_logo():
+        return FileResponse(PACKAGE_DIR / "static" / "ab-capital-logo.webp", media_type="image/webp")
 
     @app.get("/api/tax-compliance")
     def tax_compliance():

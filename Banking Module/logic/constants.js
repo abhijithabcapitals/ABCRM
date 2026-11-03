@@ -59,3 +59,6 @@ export const REPORTS = [
   { group: "Financial", finance: true, items: [["quotation_value", "Total Quotation Value"], ["bank_fees", "Bank Fees"], ["ab_revenue", "AB Capital Revenue"], ["supplementary_revenue", "Supplementary Service Revenue"], ["payments_received", "Payments Received"], ["outstanding", "Outstanding Payments"], ["refunds", "Refunds"]] },
   { group: "Operational", items: [["pending_documents", "Pending Documents"], ["overdue_followups", "Overdue Follow-ups"], ["pending_agreements", "Pending Agreements"], ["pending_appointments", "Pending Bank Appointments"], ["awaiting_bank", "Awaiting Bank Response"], ["cases_by_employee", "Cases Pending by Employee"]] },
 ];
+
+// The old CRM dashboard's board columns, in its order.
+export const BOARD_STATUSES = ["In Progress", "Pending", "Done", "Hold", "Payment Pending", "Rejected"];

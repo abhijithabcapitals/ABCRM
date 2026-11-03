@@ -12,6 +12,19 @@ Double-click `Start-ClientModule.cmd`. It opens <http://127.0.0.1:8792>, which i
 
 The launcher uses the shared CRM environment `D:\Abhijith Projects\CRM\.venv` (Python 3.12, packages pinned in `requirements.txt`). A `.venv` inside this folder takes precedence if you create one.
 
+### Centralized OCR server (Business Banking)
+
+The Client Module can run in a restricted remote mode for Business Banking document processing. Keep the existing per-PC setup for the Client Master UI; remote mode exposes `/api/health` and only the authenticated batch-create, file-upload and staged-file-delete endpoints needed by Business Banking.
+
+1. Use a Windows server on the company network with the Document Module's Windows OCR language pack and Windows Defender available. Run it as a dedicated service account with access only to its configured `dataDir` and staging storage.
+2. In Cloudflare Zero Trust, create a named Tunnel on the server and add a public hostname such as `ocr.<your-domain>` routed to `http://127.0.0.1:8792`. This provides HTTPS without opening an inbound firewall port. The hostname is reachable through Cloudflare, but the API requires a valid Supabase session and a Banking permission for every operation; do not add a Cloudflare Access interactive login in front of this API. If policy requires network-level VPN-only access, configure Cloudflare WARP private-network routing instead and make the hostname available only to managed WARP devices.
+3. In `config.json`, set `remoteMode` to `true`, `host` to `127.0.0.1` when using a reverse proxy on the same server (or a VPN-only interface when proxying elsewhere), and `allowedHosts` to the exact proxy hostname. Keep `embedOrigins` restricted to the CRM origins that actually serve the app.
+4. Provide `SUPABASE_URL` and `SUPABASE_ANON_KEY` as process environment variables on the server. These are used only to validate each CRM session and check its `banking_my_access` permissions; do not use a Supabase service-role key.
+5. In GitHub repository Settings > Secrets and variables > Actions, add the optional secret `VITE_DOCUMENT_MODULE_URL` with the HTTPS hostname. The deployment workflow passes it into the Pages build. Keep `VITE_CLIENT_MODULE_URL` unchanged; it still points to the local Client Module UI.
+6. Test signed-in users with and without `docs.manage`, `kyc.manage` or `leads.manage`, plus expired sessions. Remote mode rejects other Client Module APIs and routes.
+
+The actual host name, VPN access, HTTPS certificate and Windows OCR/Defender availability must be configured and tested on the server before staff use it. Keep the existing local mode (`remoteMode: false`) for PC-based OCR.
+
 ## Workflow
 
 1. **Documents** (stage 1). Drop in the trade licence, VAT and Corporate Tax certificates, MOA, passports, Emirates IDs, bank statements and financials.

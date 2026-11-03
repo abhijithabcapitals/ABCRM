@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +25,10 @@ class Settings:
     service_folders: dict[str, str] = field(default_factory=dict)
     embed_origins: list[str] = field(default_factory=list)  # CRM pages allowed to show this module in a frame
     generated_folders: dict[str, Path] = field(default_factory=dict)  # kind -> folder for CRM-generated documents
+    remote_mode: bool = False
+    allowed_hosts: list[str] = field(default_factory=list)
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
 
     @classmethod
     def load(cls, path: Path | None = None, **overrides) -> "Settings":
@@ -49,8 +54,23 @@ class Settings:
             service_folders=dict(raw.get("serviceFolders", {})),
             embed_origins=[str(o).rstrip("/") for o in raw.get("embedOrigins", [])],
             generated_folders={k: resolve(v) for k, v in raw.get("generatedFolders", {}).items()},
+            remote_mode=bool(raw.get("remoteMode", False)),
+            allowed_hosts=[str(h).strip().lower() for h in raw.get("allowedHosts", []) if str(h).strip()],
+            supabase_url=os.environ.get("SUPABASE_URL", "").rstrip("/"),
+            supabase_anon_key=os.environ.get("SUPABASE_ANON_KEY", ""),
         )
         for k, v in overrides.items():
             setattr(s, k, v)
+        if s.remote_mode:
+            missing = [
+                name for name, value in (
+                    ("allowedHosts", s.allowed_hosts),
+                    ("embedOrigins", s.embed_origins),
+                    ("SUPABASE_URL", s.supabase_url),
+                    ("SUPABASE_ANON_KEY", s.supabase_anon_key),
+                ) if not value
+            ]
+            if missing:
+                raise ValueError(f"Remote mode requires configuration for: {', '.join(missing)}")
         s.data_dir.mkdir(parents=True, exist_ok=True)
         return s
