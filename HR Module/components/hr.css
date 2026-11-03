@@ -33,7 +33,87 @@
 .hr-grid .hr-grid-name { position: sticky; left: 0; z-index: 1; min-width: 150px; max-width: 190px; padding: 6px 8px; text-align: left; background: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hr-grid thead .hr-grid-name { background: #f6f8f9; z-index: 2; }
 .hr-grid .hr-grid-sum { min-width: 90px; padding: 6px 8px; color: #5f7077; white-space: nowrap; }
-.hr-cell { display: block; width: 100%; min-height: 30px; line-height: 30px; padding: 0; border: 0; background: transparent; font: inherit; font-weight: 700; color: inherit; cursor: default; }
+/* Dashboard */
+.hr-quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.hr-period-cards { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.hr-card-today strong { font-size: 16px; }
+.hr-period-cards button.bk-card { font: inherit; text-align: left; cursor: pointer; }
+.hr-chart-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.hr-share { display: block; width: 100%; height: 22px; border-radius: 6px; overflow: hidden; }
+.hr-bars { display: block; width: 100%; height: 140px; }
+.hr-chart-key { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; color: #5f7077; }
+.hr-chart-key span { display: inline-flex; align-items: center; gap: 5px; }
+.hr-chart-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.hr-chart-axis { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 11px; color: #667780; }
+.hr-people-list { margin: 0; padding: 0; list-style: none; }
+.hr-people-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #eef2f3; }
+.hr-grid td { vertical-align: middle; }
+/* Month grid: name and totals stay put, days shrink to fit a normal screen and scroll below that */
+.hr-grid-month { width: 100%; min-width: 1020px; table-layout: fixed; }
+.hr-grid-month th, .hr-grid-month td { min-width: 0; }
+.hr-grid-month thead th:not(.hr-grid-name):not(.hr-grid-total) { width: 24px; }
+.hr-grid-month .hr-grid-name { width: 170px; min-width: 0; max-width: none; }
+.hr-grid .hr-grid-total { position: sticky; z-index: 1; width: 36px; padding: 6px 0; background: #fff; color: #41535b; font-weight: 700; }
+.hr-grid thead .hr-grid-total { background: #f6f8f9; z-index: 2; }
+.hr-grid-total-1 { left: 170px; }
+.hr-grid-total-2 { left: 206px; }
+.hr-grid-total-3 { left: 242px; }
+.hr-grid-total-4 { left: 278px; box-shadow: 1px 0 0 #dfe6e8; }
+.hr-grid-week { width: 100%; min-width: 760px; table-layout: fixed; }
+.hr-grid-week .hr-grid-name { width: 170px; min-width: 0; max-width: none; }
+.hr-grid-week .hr-cell { min-height: 44px; line-height: 1.3; padding: 5px 2px; }
+.hr-week-day small, .hr-calendar-day small { display: block; font-size: 10px; font-weight: 500; white-space: nowrap; }
+.hr-grid-year { width: 100%; min-width: 860px; table-layout: fixed; }
+.hr-grid-year th, .hr-grid-year td { min-width: 0; }
+.hr-grid .hr-grid-month-name { width: 54px; padding: 0 6px; text-align: left; background: #f6f8f9; color: #667780; }
+.hr-grid-year .hr-cell { min-height: 24px; line-height: 24px; font-size: 10px; }
+.hr-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.hr-calendar-head { padding: 4px 0; text-align: center; font-size: 12px; font-weight: 700; color: #667780; }
+.hr-calendar .hr-cell { min-height: 84px; line-height: 1.3; padding: 6px; border: 1px solid #e8edef; border-radius: 6px; text-align: left; }
+.hr-calendar-day { display: block; }
+.hr-calendar-day strong { display: block; font-size: 13px; }
+.hr-calendar-status { display: block; font-size: 11px; font-weight: 600; }
+.hr-daily { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hr-daily th, .hr-daily td { padding: 8px 10px; border-bottom: 1px solid #eef2f3; text-align: left; white-space: nowrap; }
+.hr-daily thead th { background: #f6f8f9; color: #667780; font-size: 12px; }
+.hr-daily-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.hr-view-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 10px; }
+.hr-switch { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 8px; background: #eef2f3; }
+.hr-switch button { padding: 5px 12px; border: 0; border-radius: 6px; background: transparent; color: #41535b; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.hr-switch button.active { background: #137f83; color: #fff; }
+.hr-switch button:focus-visible { outline: 2px solid #1d7f84; outline-offset: 1px; }
+.hr-person-pick { max-width: 100%; padding: 6px 8px; border: 1px solid #d5dee1; border-radius: 6px; background: #fff; font: inherit; font-size: 13px; }
+@media (max-width: 700px) {
+  .hr-grid .hr-grid-total { position: static; }
+  .hr-grid-month .hr-grid-name, .hr-grid-week .hr-grid-name { width: 120px; }
+  .hr-calendar .hr-cell { min-height: 58px; padding: 3px; }
+  .hr-calendar-status { font-size: 9px; }
+  .hr-calendar-day small { display: none; }
+}
+.hr-grid-wrap:has(.hr-grid-endless) { overflow-anchor: none; }
+.hr-grid-endless { min-width: 0; }
+.hr-grid-endless .hr-grid-month-head { padding: 4px 0; text-align: left; background: #f6f8f9; border-left: 2px solid #dfe6e8; font-size: 12px; color: #13363d; }
+.hr-grid-month-label { position: sticky; left: 322px; padding: 0 8px; white-space: nowrap; }
+.hr-grid-day-marked { background: #e4eefb; color: #2b5a99; }
+.hr-cell-mark-uae, .hr-cell-mark-india { position: relative; }
+.hr-cell-mark-uae::after, .hr-cell-mark-india::before { content: ""; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; }
+.hr-cell-mark-uae::after { background: #2b5a99; }
+.hr-cell-mark-india::before { background: #a3268f; }
+.hr-cell-mark-uae.hr-cell-mark-india::before { right: 10px; }
+.hr-calendar-mark { display: block; margin-top: 2px; font-size: 10px; font-weight: 600; line-height: 1.2; }
+.hr-legend .hr-legend-mark { width: 8px; height: 8px; border-radius: 50%; }
+.hr-legend-mark-uae { background: #2b5a99; }
+.hr-legend-mark-india { background: #a3268f; }
+.hr-profile-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.hr-photo { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; background: #e8edef; flex: none; }
+.hr-photo-empty { display: flex; align-items: center; justify-content: center; color: #667780; font-size: 11px; }
+.hr-pay-total { font-weight: 700; }
+.hr-subhead { margin: 14px 0 6px; font-size: 13px; color: #13363d; }
+@media (max-width: 720px) { .hr-grid-month-label { left: 128px; } }
+.hr-cell { display: block; box-sizing: border-box; width: 100%; min-height: 30px; line-height: 30px; padding: 0; border: 0; background: transparent; font: inherit; font-weight: 700; text-align: center; color: inherit; cursor: default; }
+.hr-cell-WFH { background: #e6e3f7; color: #4a3d99; }
+.hr-cell-pending { outline: 2px dashed #b77a10; outline-offset: -2px; }
+.hr-cell-late { box-shadow: inset 3px 0 0 #e08a2e; }
 button.hr-cell { cursor: pointer; }
 button.hr-cell:hover, button.hr-cell:focus-visible { outline: 2px solid #1d7f84; outline-offset: -2px; }
 .hr-cell-Present { background: #e3f4e8; color: #1c6b3a; }

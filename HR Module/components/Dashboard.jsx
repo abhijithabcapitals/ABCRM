@@ -1,15 +1,53 @@
-import { useMemo } from "react";
-import { Badge, ErrorNote, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { dashboardNumbers, employeeTasks, run, table } from "../services/hrApi";
+import { useMemo, useState } from "react";
+import { Badge, Button, ErrorNote, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { dashboardNumbers, dashboardPeriod, employeeTasks, run, table } from "../services/hrApi";
 import { groupTasks, openTaskArgs } from "../logic/taskView";
+import { dubaiToday, periodRange, shiftPeriod } from "../logic/attendance";
+import AnnualLeaveTable from "./dashboard/AnnualLeaveTable";
+import PeriodCards from "./dashboard/PeriodCards";
+import { DailyShare, PresentBars } from "./dashboard/Charts";
+
+const PERIODS = [{ key: "day", label: "Daily" }, { key: "week", label: "Weekly" }, { key: "month", label: "Monthly" }, { key: "year", label: "Yearly" }];
 
 const DUPLICATE_WARNING = "Another employee has the same name. Tasks are matched by name, so these may include that person's tasks. Ask an administrator to make the names different.";
 
-// Counts from hr_dashboard(). Present today is counted on the Asia/Dubai date.
+// Attendance cards and charts for a chosen period, from hr_dashboard_period.
+function PeriodPanel({ role, onGo }) {
+  const [period, setPeriod] = useState("day");
+  const [date, setDate] = useState(dubaiToday());
+  const data = useLoad(() => dashboardPeriod(period, date), [period, date]);
+  const range = periodRange(period, date);
+  const quick = [["employees", "Add New Employee", { add: true }], ["employees", "All Employee List"], ["salary", "Salary Master"], ["attendance", "Attendance Sheet"]];
+  return (
+    <>
+      {role === "hr" && <div className="hr-quick">{quick.map(([tab, label, intent]) => <Button key={label} onClick={() => onGo?.(tab, intent)}>{label}</Button>)}</div>}
+      <div className="hr-view-bar">
+        <div className="hr-switch" role="group" aria-label="Period">
+          {PERIODS.map((p) => <button type="button" key={p.key} aria-pressed={period === p.key} className={period === p.key ? "active" : ""} onClick={() => setPeriod(p.key)}>{p.label}</button>)}
+        </div>
+        <span className="hr-month-nav">
+          <Button onClick={() => setDate(shiftPeriod(period, date, -1))} aria-label="Previous">‹</Button>
+          <strong>{range.from === range.to ? fmtDate(range.from) : `${fmtDate(range.from)} to ${fmtDate(range.to)}`}</strong>
+          <Button onClick={() => setDate(shiftPeriod(period, date, 1))} aria-label="Next">›</Button>
+        </span>
+      </div>
+      <ErrorNote message={data.error} />
+      {data.loading && !data.data ? <Spinner label="Loading attendance" /> : data.data && (
+        <>
+          <PeriodCards data={data.data} longPeriod={period !== "day"} />
+          <div className="hr-chart-row">
+            <Panel title="Share of status"><DailyShare counts={data.data.counts} /></Panel>
+            <Panel title="Present per day"><PresentBars series={data.data.series} /></Panel>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+// Counts from hr_dashboard().
 function Cards({ numbers }) {
   const cards = [
-    { label: "Headcount", value: numbers.headcount },
-    { label: "Present today", value: numbers.present_today, note: "Marked Present today" },
     { label: "Pending leave", value: numbers.pending_leave, note: "Waiting for a decision" },
     { label: "Documents expiring", value: numbers.expiring_documents, note: "Expired or within 90 days" },
   ];
@@ -56,7 +94,7 @@ function EmployeeBlock({ group, onOpen }) {
 
 // Admin and HR see every employee, a manager sees direct reports, an employee sees themselves. The database applies that;
 // this screen shows whatever it returns. Clicking a task opens it in the CRM through onOpenTask.
-export default function Dashboard({ onOpenTask }) {
+export default function Dashboard({ onOpenTask, onGo, role }) {
   const numbers = useLoad(dashboardNumbers, []);
   const employees = useLoad(async () => run(table("hr_employees").select("id, employee_code, full_name, profile_id, status").order("employee_code")), []);
   const tasks = useLoad(employeeTasks, []);
@@ -66,7 +104,9 @@ export default function Dashboard({ onOpenTask }) {
 
   return (
     <div>
-      <PageHead title="Dashboard" sub="Headcount, documents that need attention, and each person's open tasks. Overdue tasks come first." />
+      <PageHead title="Dashboard" sub="Attendance for any day, week, month or year, Annual leave balances, then documents that need attention and each person's open tasks." />
+      <PeriodPanel role={role} onGo={onGo} />
+      {employees.data && <AnnualLeaveTable employees={employees.data} />}
       <ErrorNote message={numbers.error || employees.error || tasks.error} />
       {numbers.data && <Cards numbers={numbers.data} />}
       {loading ? <Spinner label="Loading tasks" /> : !groups.length ? (

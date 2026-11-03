@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Button, DataTable, ErrorNote, FormGrid, FormModal, PageHead, Panel, Spinner, cleanValues, fmtDate, useLoad } from "@banking/components/shared";
-import { check, run, table } from "../services/hrApi";
+import { Badge, Button, DataTable, ErrorNote, FormGrid, FormModal, PageHead, Panel, Spinner, cleanValues, fmtDate, useLoad } from "@banking/components/shared";
+import { calendarMarkConfirm, check, run, saveWfhRule, table, wfhRules } from "../services/hrApi";
+import { confirmSoon, dubaiToday, parseTime } from "../logic/attendance";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]; // extract(dow) 0..6
 
@@ -11,7 +12,9 @@ export default function Settings({ profile }) {
   const profiles = useLoad(async () => (isAdmin ? run(table("profiles").select("id, full_name").order("full_name")) : []), [isAdmin]);
   const types = useLoad(async () => run(table("hr_leave_types").select("*").order("name")), []);
   const holidays = useLoad(async () => run(table("hr_holidays").select("*").order("holiday_date")), []);
+  const marks = useLoad(async () => run(table("hr_calendar_marks").select("*").order("mark_date")), []);
   const settings = useLoad(async () => run(table("hr_settings").select("*").eq("id", 1).single()), []);
+  const rules = useLoad(wfhRules, []);
   const [modal, setModal] = useState(null);
   const [error, setError] = useState(null);
 
@@ -51,6 +54,7 @@ export default function Settings({ profile }) {
           { key: "name", label: "Name" },
           { key: "paid", label: "Paid", render: (t) => (t.paid ? "Paid" : "Unpaid") },
           { key: "annual_days", label: "Annual days", render: (t) => t.annual_days ?? "No limit" },
+          { key: "carry_forward", label: "Carries forward", render: (t) => (t.carry_forward ? "Yes" : "No") },
           { key: "half_pay_note", label: "Payroll", render: (t) => (t.half_pay_note ? "Review note" : "") },
           { key: "x", label: "", render: (t) => <><Button onClick={() => setModal({ kind: "type", row: t })}>Edit</Button> <Button onClick={() => remove("hr_leave_types", t.id, types.reload)}>Remove</Button></> },
         ]} />
@@ -64,12 +68,39 @@ export default function Settings({ profile }) {
         ]} />
       </Panel>
 
+      <Panel title="Calendar marks" sub="Estimated UAE Islamic holidays and India festivals. A mark only shows on the calendar: the day still counts as a working day. When the UAE date is announced, press Confirm to make it a holiday." actions={<Button variant="primary" onClick={() => setModal({ kind: "mark", row: { region: "India" } })}>+ Add mark</Button>}>
+        <ErrorNote message={marks.error} />
+        <DataTable search="Search name or region…" rows={marks.data || []} pageSize={25} empty="No marks yet." columns={[
+          { key: "mark_date", label: "Date", render: (m) => fmtDate(m.mark_date) },
+          { key: "name", label: "Name" },
+          { key: "region", label: "Region", render: (m) => <>{m.region}{confirmSoon(m, dubaiToday()) && <> <Badge tone="warn">Confirm the date</Badge></>}</> },
+          { key: "source", label: "Source", render: (m) => m.source || "–" },
+          { key: "x", label: "", render: (m) => <>
+            {m.region === "UAE" && <><Button onClick={() => setModal({ kind: "confirm", row: m })}>Confirm</Button> </>}
+            <Button onClick={() => setModal({ kind: "mark", row: m })}>Edit</Button> <Button onClick={() => remove("hr_calendar_marks", m.id, marks.reload)}>Remove</Button>
+          </> },
+        ]} />
+      </Panel>
+
       <Panel title="Working week" sub="Tick the days that are weekend. They are not counted as leave days. Working weeks vary by company.">
         <div className="hr-days-row">
           {DAYS.map((n, d) => (
             <label key={n} className="hr-day-check"><input type="checkbox" checked={weekend.includes(d)} onChange={() => toggleDay(d)} /> {n}</label>
           ))}
         </div>
+      </Panel>
+
+      <Panel title="Working hours" sub="Late counts from the start time. Overtime counts from the end time, or the Saturday end time on Saturdays.">
+        {settings.data && <ShiftSettings key={settings.data.updated_at} value={settings.data} onSave={(v) => guard(async () => check(await table("hr_settings").update(v).eq("id", 1)), settings.reload)} />}
+      </Panel>
+
+      <Panel title="Work from home Saturdays" sub="Everyone is marked Work From Home on these Saturdays, with no punch needed. Leave a date blank for no limit." actions={<Button variant="primary" onClick={() => setModal({ kind: "rule", row: {} })}>+ Add rule</Button>}>
+        <DataTable rows={rules.data || []} empty="No rules yet." columns={[
+          { key: "effective_from", label: "From", render: (r) => (r.effective_from ? fmtDate(r.effective_from) : "No limit") },
+          { key: "effective_to", label: "To", render: (r) => (r.effective_to ? fmtDate(r.effective_to) : "No limit") },
+          { key: "pattern", label: "Saturdays", render: (r) => WFH_LABEL[r.pattern] },
+          { key: "x", label: "", render: (r) => <><Button onClick={() => setModal({ kind: "rule", row: r })}>Edit</Button> <Button onClick={() => remove("hr_wfh_saturday_rules", r.id, rules.reload)}>Remove</Button></> },
+        ]} />
       </Panel>
 
       <Panel title="Payroll" sub="Every setting here needs confirmation. The law does not fix these, so they stay empty until HR confirms them, and a payroll run or gratuity calculation stops and names what is missing.">
@@ -80,11 +111,30 @@ export default function Settings({ profile }) {
         fields={[{ name: "profile_id", label: "Person", type: "select", required: true, options: (profiles.data || []).filter((p) => !hrIds.has(p.id)).map((p) => ({ value: p.id, label: p.full_name })) }]}
         onSubmit={async (v) => { check(await table("hr_access").insert({ profile_id: v.profile_id })); await access.reload(); }} />}
       {modal?.kind === "type" && <FormModal title={modal.row.id ? "Edit leave type" : "Add leave type"} initial={modal.row} onClose={() => setModal(null)}
-        fields={[{ name: "name", label: "Name", required: true }, { name: "paid", label: "Paid", type: "select", required: true, options: [{ value: true, label: "Paid" }, { value: false, label: "Unpaid" }] }, { name: "annual_days", label: "Annual days", type: "number", help: "Blank means no limit" }, { name: "half_pay_note", label: "May have half-pay tiers", type: "select", help: "Half pay is not calculated. Yes puts a review note on the pay line", options: [{ value: false, label: "No" }, { value: true, label: "Yes" }] }]}
+        fields={[{ name: "name", label: "Name", required: true }, { name: "carry_forward", label: "Unused days carry forward", type: "select", options: [{ value: true, label: "Yes" }, { value: false, label: "No" }] }, { name: "paid", label: "Paid", type: "select", required: true, options: [{ value: true, label: "Paid" }, { value: false, label: "Unpaid" }] }, { name: "annual_days", label: "Annual days", type: "number", help: "Blank means no limit" }, { name: "half_pay_note", label: "May have half-pay tiers", type: "select", help: "Half pay is not calculated. Yes puts a review note on the pay line", options: [{ value: false, label: "No" }, { value: true, label: "Yes" }] }]}
         onSubmit={async (v) => {
-          const values = { name: v.name, paid: v.paid === true || v.paid === "true", annual_days: v.annual_days, half_pay_note: v.half_pay_note === true || v.half_pay_note === "true" };
+          const values = { name: v.name, paid: v.paid === true || v.paid === "true", annual_days: v.annual_days, half_pay_note: v.half_pay_note === true || v.half_pay_note === "true", carry_forward: v.carry_forward === true || v.carry_forward === "true" };
           check(modal.row.id ? await table("hr_leave_types").update(values).eq("id", modal.row.id) : await table("hr_leave_types").insert(values));
           await types.reload();
+        }} />}
+      {modal?.kind === "rule" && <FormModal title={modal.row.id ? "Edit rule" : "Add rule"} initial={modal.row} onClose={() => setModal(null)}
+        fields={[{ name: "effective_from", label: "From", type: "date" }, { name: "effective_to", label: "To", type: "date" },
+          { name: "pattern", label: "Saturdays", type: "select", required: true, options: Object.entries(WFH_LABEL).map(([value, label]) => ({ value, label })) }]}
+        onSubmit={async (v) => { await saveWfhRule(modal.row.id, { effective_from: v.effective_from || null, effective_to: v.effective_to || null, pattern: v.pattern }); await rules.reload(); }} />}
+      {modal?.kind === "mark" && <FormModal title={modal.row.id ? "Edit mark" : "Add mark"} initial={modal.row} onClose={() => setModal(null)}
+        fields={[{ name: "mark_date", label: "Date", type: "date", required: true }, { name: "name", label: "Name", required: true },
+          { name: "region", label: "Region", type: "select", required: true, options: ["UAE", "India"] }, { name: "source", label: "Source" }]}
+        onSubmit={async (v) => {
+          const values = { mark_date: v.mark_date, name: v.name, region: v.region, source: v.source || null };
+          check(modal.row.id ? await table("hr_calendar_marks").update(values).eq("id", modal.row.id) : await table("hr_calendar_marks").insert(values));
+          await marks.reload();
+        }} />}
+      {modal?.kind === "confirm" && <FormModal title={`Confirm ${modal.row.name}`} submitLabel="Make it a holiday" initial={{ date: modal.row.mark_date }} onClose={() => setModal(null)}
+        note="Use the date the government announced, which may differ from this estimate. The day then counts as a holiday in attendance, leave and pay."
+        fields={[{ name: "date", label: "Announced date", type: "date", required: true }]}
+        onSubmit={async (v) => {
+          await calendarMarkConfirm(modal.row.id, v.date);
+          await Promise.all([marks.reload(), holidays.reload()]);
         }} />}
       {modal?.kind === "holiday" && <FormModal title={modal.row.id ? "Edit holiday" : "Add holiday"} initial={modal.row} onClose={() => setModal(null)}
         fields={[{ name: "holiday_date", label: "Date", type: "date", required: true }, { name: "name", label: "Name", required: true }]}
@@ -105,6 +155,23 @@ const PAY_FIELDS = [
   { name: "gratuity_cap_base", label: "Gratuity cap base (needs confirmation)", type: "select", help: "Two years of this wage", options: [{ value: "basic", label: "Basic wage" }, { value: "total", label: "Total wage" }] },
   { name: "gratuity_service_end_inclusive", label: "Gratuity service end date rule (needs confirmation)", type: "tri", help: "Yes: the exit date counts as a day of service" },
 ];
+
+const WFH_LABEL = { last: "Last Saturday of the month", second_and_last: "2nd and last Saturday of the month" };
+const SHIFT_FIELDS = [
+  { name: "shift_start", label: "Start", help: "HH:MM" },
+  { name: "shift_end", label: "End", help: "HH:MM" },
+  { name: "saturday_end", label: "Saturday end", help: "HH:MM" },
+];
+
+function ShiftSettings({ value, onSave }) {
+  const [values, setValues] = useState({ shift_start: String(value.shift_start).slice(0, 5), shift_end: String(value.shift_end).slice(0, 5), saturday_end: String(value.saturday_end).slice(0, 5) });
+  return (
+    <div>
+      <FormGrid fields={SHIFT_FIELDS} values={values} setValues={setValues} />
+      <Button variant="primary" onClick={() => onSave({ shift_start: parseTime(values.shift_start), shift_end: parseTime(values.shift_end), saturday_end: parseTime(values.saturday_end) })}>Save working hours</Button>
+    </div>
+  );
+}
 
 function PaySettings({ value, onSave }) {
   const [values, setValues] = useState(value);

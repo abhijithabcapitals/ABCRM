@@ -61,8 +61,8 @@ select public.ok('no absence is invented for a day with no punches', (public.day
 -- ── a manual day wins ──
 set role authenticated;
 select public.as_user('0b');
-select public.hr_attendance_set(public.bio('d1'), '2025-03-06', 'Absent', null, null, 'sick');
-select public.hr_attendance_set(public.bio('d1'), '2025-03-03', 'Present', '09:00', '18:00', 'corrected');
+select public.t_set(public.bio('d1'), '2025-03-06', 'Absent', null, null, 'sick');
+select public.t_set(public.bio('d1'), '2025-03-03', 'Present', '09:00', '18:00', 'corrected');
 select public.ok('HR edit of a biometric day makes it manual', (select source = 'manual' and time_in = '09:00' from public.day('d1', '2025-03-03')));
 reset role;
 select public.ok('the sync reports a manual day and leaves it', (select (r #>> '{days,manual}')::int = 1 from (select public.hr_biometric_ingest('[{"emp_code":"BIO-1","punch_at":"2025-03-06T09:00:00"}]') r) x));

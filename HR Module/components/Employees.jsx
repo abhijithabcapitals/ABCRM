@@ -2,29 +2,36 @@ import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { EMP_FIELDS } from "@app/empFields";
 import { check, employeeLink, loginProfiles, run, table } from "../services/hrApi";
+import { VISA_STATUSES } from "../logic/profile";
+import { IdPanel, PayPanel, ProfilePhoto } from "./employees/ProfilePanels";
 
 const PERSONAL_FIELDS = [
   { name: "date_of_birth", label: "Date of birth", type: "date" },
   { name: "nationality", label: "Nationality" },
-  { name: "address", label: "Address", type: "textarea", full: true },
+  { name: "visa_status", label: "Visa status", type: "select", options: VISA_STATUSES },
+  { name: "address", label: "UAE address", type: "textarea", full: true },
+  { name: "permanent_country", label: "Home country" },
+  { name: "permanent_address", label: "Permanent address", type: "textarea", full: true },
   { name: "emergency_contact", label: "Emergency contact", full: true },
 ];
+
+const JOB_LABELS = { work_email: "Office mail", phone: "Office phone" };
 
 const statusTone = (s) => (s === "Active" ? "good" : "warn");
 
 // HR works on every employee. A manager sees themselves and direct reports (read only). An employee sees their own record.
-export default function Employees({ role, employeeId, profile }) {
+export default function Employees({ role, employeeId, profile, intent }) {
   const isHr = role === "hr";
   const isAdmin = profile?.role === "admin"; // display only: the database refuses anyone else
   const list = useLoad(async () => run(table("hr_employees").select("*").order("employee_code")), []);
   const [openId, setOpenId] = useState(role === "employee" ? employeeId : null);
-  const [edit, setEdit] = useState(null);
+  const [edit, setEdit] = useState(isHr && intent?.add ? { status: "Active", on_payroll: true } : null);
   const rows = list.data || [];
   const byId = Object.fromEntries(rows.map((e) => [e.id, e]));
   const opened = openId ? byId[openId] : null;
 
   const managerField = { name: "manager_id", label: "Manager", type: "select", options: rows.filter((e) => e.status !== "Left" && e.id !== edit?.id).map((e) => ({ value: e.id, label: `${e.employee_code} · ${e.full_name}` })) };
-  const fields = [...EMP_FIELDS, managerField, { name: "on_payroll", label: "On payroll", type: "bool", checkLabel: "Include in payroll runs", help: "Untick for someone who should not get a pay line" }];
+  const fields = [...EMP_FIELDS.map((f) => (JOB_LABELS[f.name] ? { ...f, label: JOB_LABELS[f.name] } : f)), managerField, { name: "on_payroll", label: "On payroll", type: "bool", checkLabel: "Include in payroll runs", help: "Untick for someone who should not get a pay line" }];
   const save = async (v) => {
     const values = { ...v, updated_at: new Date().toISOString() };
     check(edit.id ? await table("hr_employees").update(values).eq("id", edit.id) : await table("hr_employees").insert(values));
@@ -75,18 +82,21 @@ function EmployeeDetail({ employee: e, manager, isHr, isAdmin, isSelf, employees
         <Badge tone={statusTone(e.status)}>{e.status}</Badge>
         {isHr && <Button onClick={onEdit}>Edit job details</Button>}
       </PageHead>
+      {canSeePersonal && <ProfilePhoto employeeId={e.id} path={personal.data?.photo_path} isHr={isHr} onSaved={(photo_path) => savePersonal({ photo_path })} />}
       <div className="hr-split">
         <Panel title="Job details">
-          <KeyVals items={[["Department", e.department], ["Designation", e.designation], ["Manager", manager?.full_name], ["Work email", e.work_email], ["Phone", e.phone], ["Joined", e.join_date && fmtDate(e.join_date)], ["Exit date", e.exit_date && fmtDate(e.exit_date)], ...(isHr ? [["On payroll", e.on_payroll === false ? "No" : "Yes"]] : [])]} />
+          <KeyVals items={[["Department", e.department], ["Designation", e.designation], ["Manager", manager?.full_name], ["Office mail", e.work_email], ["Office phone", e.phone], ["Joined", e.join_date && fmtDate(e.join_date)], ["Exit date", e.exit_date && fmtDate(e.exit_date)], ...(isHr ? [["On payroll", e.on_payroll === false ? "No" : "Yes"]] : [])]} />
         </Panel>
         {canSeePersonal && (
           <Panel title="Personal details" actions={isHr && <Button onClick={() => setEditPersonal(true)}>Edit</Button>}>
             <ErrorNote message={personal.error} />
             {personal.loading && !personal.data ? <Spinner /> : (
-              <KeyVals items={[["Date of birth", personal.data?.date_of_birth && fmtDate(personal.data.date_of_birth)], ["Nationality", personal.data?.nationality], ["Address", personal.data?.address], ["Emergency contact", personal.data?.emergency_contact]]} />
+              <KeyVals items={[["Date of birth", personal.data?.date_of_birth && fmtDate(personal.data.date_of_birth)], ["Nationality", personal.data?.nationality], ["Visa status", personal.data?.visa_status], ["UAE address", personal.data?.address], ["Home country", personal.data?.permanent_country], ["Permanent address", personal.data?.permanent_address], ["Emergency contact", personal.data?.emergency_contact]]} />
             )}
           </Panel>
         )}
+        {canSeePersonal && <IdPanel employeeId={e.id} isHr={isHr} />}
+        {isHr && <PayPanel employee={e} />}
       </div>
       {isAdmin && <LinkLogin employee={e} employees={employees} onChanged={onChanged} />}
       {editPersonal && <FormModal title={`Personal details · ${e.employee_code}`} fields={PERSONAL_FIELDS} initial={personal.data || {}} onClose={() => setEditPersonal(false)} onSubmit={savePersonal} />}

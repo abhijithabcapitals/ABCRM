@@ -136,6 +136,7 @@ grant select, insert, update, delete on storage.objects to authenticated;
 grant execute on function storage.foldername(text) to authenticated;
 \ir ../migrations/003_hr_documents.sql
 \ir ../migrations/008_hr_review_fixes.sql
+\ir ../migrations/010_hr_day_status.sql
 
 select public.ok('bucket is private with a 25 MB limit', (select not public and file_size_limit = 26214400 from storage.buckets where id = 'hr-documents'));
 

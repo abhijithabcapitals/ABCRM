@@ -20,7 +20,7 @@ Brings punches from the e-timeoffice biometric service into HR > Attendance. It 
 ## Rules
 
 - A day edited by hand is `manual` and the sync never changes it.
-- The sync never marks Absent. A day with no punches stays blank for HR to decide.
+- The sync writes only Present. A working day with no punches is worked out as Absent when read (`hr_attendance_days`, migration 010), and pay deducts it.
 - Days outside employment dates, and future days, are not written.
 - A punch inside approved leave writes Present. Payroll's review note flags it for unpaid leave.
 - Every written day is audited, so a change to an approved month appears in the run's changes after approval. Approved pay does not change.

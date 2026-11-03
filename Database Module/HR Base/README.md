@@ -18,6 +18,13 @@ Apply in this order, after the CRM base schema. Each can run more than once safe
 | `migrations/008_hr_review_fixes.sql` | Final review fixes: `hr_employee_link` and the `profile_id` guard, no hard delete of employees or pay details through the API, audit of employee fields and of the HR access list, Left removes HR and manager power, Absent inside paid leave costs nothing, cancel rule, locked-month warnings (`{warning}` return) and `hr_payrun_changes_after`, no run for a future month, `hr_payrun_ack_pay_change`, `on_payroll`, Asia/Dubai expiry date |
 
 | `migrations/009_hr_biometric.sql` | Biometric punches, sync status, `hr_employees.biometric_code`, `hr_attendance.source`, roll-up into attendance. See `Biometric Base/README.md` |
+| `migrations/010_hr_day_status.sql` | `hr_attendance_days` (every day's status, worked out when read), `hr_attendance_range`, `hr_dashboard_period`, WFH Saturday rules, admin approval of attendance edits (`hr_attendance_edits`), Absent in pay, carry-forward and the over-balance split of leave |
+| `migrations/011_hr_calendar_marks.sql` | `hr_calendar_marks` (names on the calendar with no effect on attendance, pay or leave) and `hr_calendar_mark_confirm`, which turns a UAE mark into a holiday on the announced date |
+| `migrations/012_hr_profile_fields.sql` | Photo path, visa status and permanent address on `hr_employee_personal` |
+| `migrations/013_hr_pay_rules.sql` | 9-hour late rule, Annual leave accrual and ledger, pay deduction from the ledger, gratuity from unpaid days only, `hr_salary_payments` and its functions |
+| `seed_ab_capital.sql` | Company values, run once on live after 013: hours, Sunday off, WFH Saturdays, Absent from blank days, deduction settings, Annual and Unpaid leave, 1,000 AED salaries. Not numbered, so test fixtures stay their own |
+| `seed_holidays.sql` | Holidays and marks for 2026 to 2036, run once on live after 011. Its header says where each date comes from |
+| `seed_leave_balances_2026.sql` | Opening Annual leave balances and join dates, run once on live after `seed_ab_capital.sql` |
 
 Admins add or import employees in Settings > Employees, then onboard a member from one of those rows.
 
@@ -25,7 +32,7 @@ Admins add or import employees in Settings > Employees, then onboard a member fr
 
 ## Tests
 
-Run `bash "Database Module/HR Base/tests/run-local.sh"`. It starts a throwaway Postgres, applies 001 to 009 twice (idempotence), then runs the six test files (`010_hr_test.sql` access and employees, `020_hr_leave_test.sql`, `030_hr_attendance_test.sql`, `040_hr_payroll_test.sql`, `050_hr_review_fixes_test.sql`, `060_hr_biometric_test.sql`) and prints a passed/failed count for each. Nothing touches Supabase. It needs PostgreSQL 18 under `C:\Program Files\PostgreSQL\18\bin` (or `PG_BIN`), and it reuses `Banking Base/tests/000_stub.sql`.
+Run `bash "Database Module/HR Base/tests/run-local.sh"`. It starts a throwaway Postgres, applies 001 to 013 twice (idempotence), then runs the nine test files (`010_hr_test.sql` access and employees, `020_hr_leave_test.sql`, `030_hr_attendance_test.sql`, `040_hr_payroll_test.sql`, `050_hr_review_fixes_test.sql`, `060_hr_biometric_test.sql`, `070_hr_day_status_test.sql`, `080_hr_calendar_profile_test.sql`, `090_hr_pay_rules_test.sql`) and prints a passed/failed count for each. Nothing touches Supabase. It needs PostgreSQL 18 under `C:\Program Files\PostgreSQL\18\bin` (or `PG_BIN`), and it reuses `Banking Base/tests/000_stub.sql`.
 
 The server sometimes fails to start with `pg_ctl: could not start server`. Run the script again.
 

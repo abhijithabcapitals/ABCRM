@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Panel, Spinner, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
-import { gratuity, myEmployee, myPayLines, payDetailFull, payDetailsList, payrunAckPayChange, payrunAdjust, payrunApprove, payrunChangesAfter, payrunCreate, payrunDelete, payrunLines, payrunRecalc, payruns, savePayDetail, payrollEmployees, payrollSettings } from "../services/hrApi";
+import { gratuity, myEmployee, myPayLines, payrunAckPayChange, payrunAdjust, payrunApprove, payrunChangesAfter, payrunCreate, payrunDelete, payrunLines, payrunRecalc, payruns, payrollEmployees, payrollSettings } from "../services/hrApi";
+import SalariesPanel from "./SalariesPanel";
 import { payslipHtml } from "../logic/payslip";
-import { formatAllowances, gratuitySteps, hasPayChangeBlocker, maskIban, missingData, missingSettings, money, monthLabel, monthStart, parseAllowances, runTotals } from "../logic/payroll";
+import { gratuitySteps, hasPayChangeBlocker, maskIban, missingData, missingSettings, money, monthLabel, monthStart, runTotals } from "../logic/payroll";
 
 // HR sees runs and pay details; anyone else sees only their own lines from approved runs. The database enforces it: this screen only follows.
 export default function Payroll({ role, profile, employeeId }) {
@@ -118,7 +119,7 @@ function HrPayroll({ profile }) {
         ]} />
       </Panel>
       {run && <RunPanel key={run.id} run={run} nameOf={nameOf} codeOf={codeOf} profile={profile} onChanged={runs.reload} onGone={() => setRunId(null)} />}
-      <PayDetails employees={employees.data || []} />
+      <SalariesPanel />
       <GratuityPanel employees={employees.data || []} />
     </div>
   );
@@ -239,46 +240,6 @@ function GratuityPanel({ employees }) {
           <p className="bk-note">Estimate only: confirm it before relying on it. {result.note}</p>
         </>
       )}
-    </Panel>
-  );
-}
-
-// The list only ever receives a masked IBAN. The full value is fetched when the edit form opens.
-function PayDetails({ employees }) {
-  const rows = useLoad(payDetailsList, []);
-  const [editing, setEditing] = useState(null);
-  const [error, setError] = useState(null);
-  const openEdit = async (id) => {
-    setError(null);
-    try { const d = await payDetailFull(id); setEditing({ ...d, allowances_text: formatAllowances(d.allowances) }); } catch (e) { setError(e.message); }
-  };
-  // An existing row stays with its employee: the database refuses a move too.
-  const fields = [
-    { name: "employee_id", label: "Employee", type: "select", required: true, help: editing?.id ? "Fixed on an existing row" : undefined, options: employees.filter((e) => !editing?.id || e.id === editing.employee_id).map((e) => ({ value: e.id, label: `${e.employee_code} ${e.full_name}` })) },
-    { name: "effective_from", label: "Effective from", type: "date", required: true },
-    { name: "basic", label: "Basic wage (monthly)", type: "number", required: true },
-    { name: "allowances_text", label: "Allowances", type: "textarea", full: true, help: "One per line, like Housing: 3000" },
-    { name: "iban", label: "IBAN", help: "AE and 23 characters. Without it the employee blocks approval" },
-    { name: "bank_routing", label: "Bank routing code" },
-    { name: "wps_labour_card", label: "WPS labour card" },
-  ];
-  return (
-    <Panel title="Pay details" sub="HR only. A change takes effect from its date. To change pay, add a new row with a later date." actions={<Button variant="primary" onClick={() => setEditing({})}>+ Add pay details</Button>}>
-      <ErrorNote message={error || rows.error} onClose={() => setError(null)} />
-      <DataTable rows={rows.data || []} empty="No pay details yet." columns={[
-        { key: "full_name", label: "Employee" },
-        { key: "effective_from", label: "From", render: (d) => fmtDate(d.effective_from) },
-        { key: "basic", label: "Basic", render: (d) => money(d.basic) },
-        { key: "allowances", label: "Allowances", render: (d) => Object.entries(d.allowances || {}).map(([k, v]) => `${k} ${money(v)}`).join(", ") || "–" },
-        { key: "iban_masked", label: "IBAN", render: (d) => d.iban_masked || <Badge tone="bad">Missing</Badge> },
-        { key: "x", label: "", render: (d) => <Button onClick={() => openEdit(d.id)}>Edit</Button> },
-      ]} />
-      {editing && <FormModal title={editing.id ? "Edit pay details" : "Add pay details"} initial={editing} wide onClose={() => setEditing(null)} fields={fields}
-        onSubmit={async (v) => {
-          const { allowances_text, ...values } = v;
-          await savePayDetail(editing.id, { ...values, allowances: parseAllowances(allowances_text) });
-          await rows.reload();
-        }} />}
     </Panel>
   );
 }

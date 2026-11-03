@@ -127,9 +127,9 @@ select public.must_fail('employee cannot create a run', $$select public.hr_payru
 select public.as_user('c1');
 select public.must_fail('manager cannot create a run', $$select public.hr_payrun_create('2025-06-01')$$, 'not allowed');
 select public.as_user('0b');
-select public.hr_attendance_set(public.pe('c2'), '2025-06-03', 'Absent', null, null, null);
-select public.hr_attendance_set(public.pe('c2'), '2025-06-04', 'Present', '09:00', '18:00', null);
-select public.hr_attendance_set(public.pe('c2'), '2025-06-10', 'Absent', null, null, 'also on unpaid leave: counted once');
+select public.t_set(public.pe('c2'), '2025-06-03', 'Absent', null, null, null);
+select public.t_set(public.pe('c2'), '2025-06-04', 'Present', '09:00', '18:00', null);
+select public.t_set(public.pe('c2'), '2025-06-10', 'Absent', null, null, 'also on unpaid leave: counted once');
 select public.ok('create returns the run id', public.hr_payrun_create('2025-06-15') = public.rid('2025-06-01'));
 select public.ok('run is a draft, prepared by the creator', (select status = 'draft' and prepared_by = '00000000-0000-0000-0000-00000000000b' from public.hr_pay_runs where id = public.rid('2025-06-01')));
 select public.must_fail('second run for a month fails', $$select public.hr_payrun_create('2025-06-20')$$, 'already');
@@ -200,14 +200,14 @@ select public.hr_payrun_adjust((public.ln('2025-06-01', 'c3')).id, 'Correction',
 
 -- ── input_hash: anything an input changes after review fails approval, listing the employee ──
 select public.as_user('0b');
-select public.hr_attendance_set(public.pe('c3'), '2025-06-05', 'Absent', null, null, null);
+select public.t_set(public.pe('c3'), '2025-06-05', 'Absent', null, null, null);
 select public.as_user('0a');
 select public.must_fail('attendance changed after review fails and names the employee', $$select public.hr_payrun_approve(public.rid('2025-06-01'))$$, 'Pay Other');
 select public.must_fail('the message says to recalculate and re-review', $$select public.hr_payrun_approve(public.rid('2025-06-01'))$$, 'recalculate');
 select public.as_user('0b');
 select public.must_fail('only the changed person is listed', $q$do $x$ begin perform public.hr_payrun_approve(public.rid('2025-06-01'));
   exception when others then if sqlerrm ilike '%Pay Report%' then raise exception 'listed too many'; else raise exception 'only other'; end if; end $x$$q$, 'only other');
-select public.hr_attendance_set(public.pe('c3'), '2025-06-05', 'Present', null, null, null);
+select public.t_set(public.pe('c3'), '2025-06-05', 'Present', null, null, null);
 select public.hr_payrun_recalc(public.rid('2025-06-01'));
 update public.hr_pay_details set basic = 6001 where employee_id = public.pe('c3');
 select public.as_user('0a');
@@ -290,7 +290,7 @@ select public.must_fail('owner cannot delete an approved run', $$delete from pub
 select public.must_fail('owner cannot update an approved line', $$update public.hr_pay_lines set net = 1 where run_id = public.rid('2025-06-01')$$, 'locked');
 select public.must_fail('owner cannot delete an approved line', $$delete from public.hr_pay_lines where run_id = public.rid('2025-06-01')$$, 'locked');
 select public.must_fail('owner cannot add a line to an approved run', $$insert into public.hr_pay_lines (run_id, employee_id) values (public.rid('2025-06-01'), public.pe('c8'))$$, 'locked');
-select public.must_fail('owner cannot truncate lines', $$truncate public.hr_pay_lines$$, 'locked');
+select public.must_fail('owner cannot truncate lines', $$truncate public.hr_pay_lines$$, 'truncate');
 select public.must_fail('owner cannot truncate runs', $$truncate public.hr_pay_runs cascade$$, 'locked');
 select public.must_fail('deleting an employee with a pay line is refused', $$delete from public.hr_employees where id = public.pe('c3')$$, 'foreign key');
 select public.must_fail('deleting pay details an approved line used is refused', $$delete from public.hr_pay_details where employee_id = public.pe('c3')$$, 'locked');
@@ -311,7 +311,7 @@ select public.ok('outsider still reads nothing', (select count(*) = 0 from publi
 -- ── divisor modes on a draft July 2025: 31 days, 23 weekdays, one holiday on Mon 14 July = 22 working days ──
 select public.as_user('0b');
 insert into public.hr_holidays (holiday_date, name) values ('2025-07-14', 'Fixture holiday');
-select public.hr_attendance_set(public.pe('c2'), '2025-07-07', 'Absent', null, null, null);
+select public.t_set(public.pe('c2'), '2025-07-07', 'Absent', null, null, null);
 select public.hr_payrun_create('2025-07-01');
 -- Each component rounds on its own: working mode 1500x9/22 = 613.64, 500x9/22 = 204.55, net 818.19. fixed 30, total: joiner 20 days out, 1500x10/30 + 500x10/30 = 666.67; absent 13000/30
 select public.ok('fixed: joiner', (public.ln('2025-07-01', 'c8')).net = 666.67, (public.ln('2025-07-01', 'c8')).earnings::text);

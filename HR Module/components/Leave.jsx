@@ -97,6 +97,8 @@ export default function Leave({ role, employeeId }) {
             { key: "leave_type", label: "Type" },
             { key: "paid", label: "Paid", render: (b) => (b.paid ? "Paid" : "Unpaid") },
             { key: "entitlement", label: "Entitlement", render: (b) => b.entitlement ?? "–" },
+            { key: "carried", label: "Carried in" },
+            { key: "accrued", label: "Accrued" },
             { key: "adjustment", label: "Adjustment" },
             { key: "used", label: "Used" },
             { key: "pending", label: "Pending" },
@@ -109,7 +111,7 @@ export default function Leave({ role, employeeId }) {
         {loading ? <Spinner /> : <DataTable search="Search employee or type…" rows={requests.data || []} pageSize={50} empty="No leave requests yet." columns={columns} />}
       </Panel>
       {entitling && <FormModal title={`${entitling.leave_type} ${year}`} submitLabel="Save" initial={{ entitlement: entitling.entitlement, adjustment: entitling.adjustment }} onClose={() => setEntitling(null)}
-        note="Applies to this employee, leave type and year only. Remaining is entitlement plus adjustment minus approved days."
+        note="Applies to this employee, leave type and year only. Remaining is entitlement plus adjustment plus days carried and accrued, minus leave taken. For Annual leave, Absent days and every 4th late day count as leave taken."
         fields={[{ name: "entitlement", label: "Entitlement (days)", type: "number", required: true }, { name: "adjustment", label: "Adjustment (days)", type: "number", help: "Negative to reduce" }]}
         onSubmit={async (v) => { await saveLeaveBalance(balanceFor, entitling.leave_type_id, year, v.entitlement, v.adjustment); await balances.reload(); }} />}
       {adding && <FormModal title="Request leave" fields={fields} initial={{}} onClose={() => setAdding(false)} onSubmit={submit}

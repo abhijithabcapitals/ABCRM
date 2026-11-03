@@ -30,9 +30,12 @@ Same pattern as the Banking Module. The Main Module imports this folder directly
 |---|---|
 | `components/HRModule.jsx` | Shell, role lookup, tab list |
 | `components/{Dashboard,Employees,Documents,Leave,Attendance,Payroll,Settings}.jsx` | One component per tab |
+| `components/attendance/EndlessGrid.jsx` | Month grid with no end: loads a month as the scroll nears an edge |
+| `components/employees/ProfilePanels.jsx` | Photo, visa and IDs, salary and gratuity on the profile |
+| `components/SalariesPanel.jsx` | Salary Payable and Paid, on Payroll and on the Accounting page |
 | `components/hr.css` | HR-only styles on top of the Banking styles |
 | `logic/tabs.js` | Which tabs each role sees |
-| `logic/{expiry,documentFields,taskView,attendance,payroll,payslip}.js` | Pure rules with tests: expiry bands, autofill field mapping, task grouping, attendance grid, payroll screen helpers, payslip HTML |
+| `logic/{expiry,documentFields,taskView,attendance,payroll,payslip,profile}.js` | Pure rules with tests: expiry bands, autofill field mapping, task grouping, attendance grid, payroll screen helpers, payslip HTML |
 | `services/hrApi.js` | The only file that talks to Supabase and storage, plus the local Document Module call |
 | `components/BiometricPanel.jsx`, `supabase/hr-biometric-sync/` | e-timeoffice biometric sync: see `Database Module/HR Base/Biometric Base/README.md` |
 | `tests/` | `node --test "HR Module/tests/"` |
@@ -55,7 +58,7 @@ Same pattern as the Banking Module. The Main Module imports this folder directly
 | WPS file | Not built. The button is hidden | No bank sample or official specification was available |
 | PDF payslip | Browser print dialog (Save as PDF) from an approved run; not stored | No new dependency |
 | Document reading | Autofill goes through the local Document Module; if it is not running, type the fields | Uploads always work without it |
-| Attendance | Entered by hand; no biometric import | Out of scope |
+| Attendance | Punches from e-timeoffice, with status worked out when read by `hr_attendance_days`. Only an admin changes a day directly; others send it for approval | One answer for every screen and for pay. Design: `docs/specs/2026-11-02-hr-attendance-dashboard-design.md` |
 
 ## Tests
 

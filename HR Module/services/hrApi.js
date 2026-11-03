@@ -38,12 +38,34 @@ export async function uploadDocument(employeeId, file) {
   return path;
 }
 
-// Opens a stored file through a short-lived signed link.
-export async function openDocument(path) {
+// A short-lived signed link to a stored file.
+export async function documentUrl(path) {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
   if (error) throw new Error(error.message);
-  window.open(data.signedUrl, "_blank", "noopener");
+  return data.signedUrl;
 }
+
+// Opens a stored file through a short-lived signed link.
+export async function openDocument(path) {
+  window.open(await documentUrl(path), "_blank", "noopener");
+}
+
+// Everything named on the calendar in a date range.
+export async function calendarMarks(from, to) {
+  const [holidays, marks] = await Promise.all([
+    run(table("hr_holidays").select("holiday_date, name").gte("holiday_date", from).lte("holiday_date", to)),
+    run(table("hr_calendar_marks").select("mark_date, name, region").gte("mark_date", from).lte("mark_date", to)),
+  ]);
+  return { holidays, marks };
+}
+export const calendarMarkConfirm = (mark, date) => rpc("hr_calendar_mark_confirm", { p_mark: mark, p_date: date });
+
+// Salary Payable and Paid. HR, admin and the Accounts team. A payment is a record only: nothing here moves money.
+export const salariesOverview = (year) => rpc("hr_salaries_overview", { p_year: year });
+export const salariesMonth = (run) => rpc("hr_salaries_month", { p_run: run });
+export const salaryPay = (line, amount, paidOn, reference) => rpc("hr_salary_pay", { p_line: line, p_amount: amount, p_paid_on: paidOn, p_reference: reference || null });
+export const salaryPayAll = (run, paidOn, reference) => rpc("hr_salary_pay_all", { p_run: run, p_paid_on: paidOn, p_reference: reference || null });
+export const salaryPaymentRemove = (payment) => rpc("hr_salary_payment_remove", { p_payment: payment });
 
 // Reads one file through the local Document Module (the Client Module on this PC), then clears it from its staging area.
 // Throws when the service is not running: callers treat that as "fill the form by hand".
@@ -69,10 +91,26 @@ export const leaveCancel = (request) => rpc("hr_leave_cancel", { p_request: requ
 export const leaveBalance = (employee, year) => rpc("hr_leave_balance", { p_employee: employee, p_year: year });
 export const saveLeaveBalance = async (employee, type, year, entitlement, adjustment) => { check(await table("hr_leave_balances").upsert({ employee_id: employee, leave_type_id: type, year, entitlement, adjustment: adjustment ?? 0 }, { onConflict: "employee_id,leave_type_id,year" })); };
 
-// Attendance. hr_attendance_month returns one row per in-scope employee per day (status null = nothing recorded and not leave, holiday or weekend).
-// hr_attendance_set returns { warning: text | null }: a locked month.
-export const attendanceMonth = (year, month) => rpc("hr_attendance_month", { p_year: year, p_month: month });
+// Attendance. hr_attendance_range returns one row per in-scope employee per day, with the worked-out status, late and overtime minutes.
+// hr_attendance_set is admin only. Others call hr_attendance_request, and an admin decides. Set and decide return { warning: text | null }: a locked month.
+// A year for everyone is more rows than one response carries, so this reads page by page.
+export async function attendanceRange(from, to) {
+  const PAGE = 1000;
+  const all = [];
+  for (let at = 0; ; at += PAGE) {
+    const rows = check(await supabase.rpc("hr_attendance_range", { p_from: from, p_to: to }).range(at, at + PAGE - 1));
+    all.push(...rows);
+    if (rows.length < PAGE) return all;
+  }
+}
 export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => rpc("hr_attendance_set", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null });
+export const attendanceRequest = (employee, date, status, timeIn, timeOut, note, reason) => rpc("hr_attendance_request", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null, p_reason: reason || null });
+export const attendanceDecide = (edit, approve, note) => rpc("hr_attendance_decide", { p_edit: edit, p_approve: approve, p_note: note || null });
+export const attendanceEdits = (state) => run(table("hr_attendance_edits").select("*, hr_employees(employee_code, full_name)").eq("state", state).order("requested_at", { ascending: false }).limit(50));
+export const attendanceEditsPending = () => rpc("hr_attendance_edits_pending");
+export const dashboardPeriod = (period, date) => rpc("hr_dashboard_period", { p_period: period, p_date: date });
+export const wfhRules = () => run(table("hr_wfh_saturday_rules").select("*").order("effective_from", { nullsFirst: true }));
+export const saveWfhRule = async (id, values) => { check(id ? await table("hr_wfh_saturday_rules").update(values).eq("id", id) : await table("hr_wfh_saturday_rules").insert(values)); };
 
 // Biometric (e-timeoffice). The sync itself runs in the hr-biometric-sync Edge Function; range is { from, to } as YYYY-MM-DD, or nothing for recent days.
 export const biometricStatus = () => rpc("hr_biometric_status");
