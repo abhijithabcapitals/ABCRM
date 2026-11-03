@@ -73,6 +73,7 @@ begin execute p_sql; get diagnostics n = row_count; return n; end $$;
 select public.bs_check('API roles cannot call the internal payment and gate helpers', not has_function_privilege('authenticated', 'public.business_setup_net_paid(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.business_setup_start_gate(uuid, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_net_paid(uuid)', 'execute'));
 select public.bs_check('only signed-in users can call the tracker functions', has_function_privilege('authenticated', 'public.business_setup_service_update(uuid, text, jsonb, text)', 'execute') and has_function_privilege('authenticated', 'public.business_setup_service_complete(uuid, jsonb, text)', 'execute') and has_function_privilege('authenticated', 'public.business_setup_quote_template_save(jsonb)', 'execute')
   and not has_function_privilege('anon', 'public.business_setup_service_update(uuid, text, jsonb, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_service_complete(uuid, jsonb, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_quote_template_save(jsonb)', 'execute'));
+select public.bs_check('API roles cannot call the quote lock helper', not has_function_privilege('authenticated', 'public.business_setup_quote_locked(uuid)', 'execute') and not has_function_privilege('anon', 'public.business_setup_quote_locked(uuid)', 'execute'));
 grant execute on all functions in schema public to authenticated;
 
 select public.t_anon_refused('anon cannot select settings', 'select * from public.business_setup_settings');
@@ -731,6 +732,137 @@ select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$
 select public.bs_as('00000000-0000-0000-0000-00000000000d');
 select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('q_no_kyc')), 'permission');
 select public.business_setup_service_update(pg_temp.fx('svc')::uuid, null, '{"notes":"Docs may update the tracker"}');
+select public.bs_as(null);
+
+-- ── Payments and receipts ──
+select public.bs_as(null);
+select public.bs_check('only signed-in users can call the payment functions', has_function_privilege('authenticated', 'public.business_setup_payment_add(jsonb)', 'execute') and has_function_privilege('authenticated', 'public.business_setup_payment_reverse(uuid, text)', 'execute')
+  and has_function_privilege('authenticated', 'public.business_setup_receipt_attach(uuid, text)', 'execute') and has_function_privilege('authenticated', 'public.business_setup_quote_balance(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.business_setup_payment_add(jsonb)', 'execute') and not has_function_privilege('anon', 'public.business_setup_payment_reverse(uuid, text)', 'execute')
+  and not has_function_privilege('anon', 'public.business_setup_receipt_attach(uuid, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_quote_balance(uuid)', 'execute'));
+-- an earlier check edited the receipt format: put the shipped one back
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.hub_numbering_save('Business Setup','receipt','ABC/{YYYY}/{MM}/BSR{SERIAL}',3,'never',1);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into bs_fx values ('q_pay', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(
+    jsonb_build_object('service_name','Pay one','amount',500), jsonb_build_object('service_name','Pay two','amount',500))))::text);
+select public.business_setup_quote_accept(pg_temp.fx('q_pay')::uuid) as ignored \gset
+insert into bs_fx values ('pay1', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_pay')::uuid and name = 'Pay one')),
+  ('pay2', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_pay')::uuid and name = 'Pay two')),
+  ('part', jsonb_build_object('quote_id', pg_temp.fx('q_pay'), 'paid_on', current_date, 'amount', 400, 'method', 'Bank transfer', 'reference', 'TT-1')::text),
+  ('over', jsonb_build_object('quote_id', pg_temp.fx('q_pay'), 'paid_on', current_date, 'amount', 700)::text);
+-- who may record
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, pg_temp.fx('part')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, pg_temp.fx('part')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, pg_temp.fx('part')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+-- refused input
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q2'), 'amount', 10)), 'accepted');
+select public.bs_expect_error($$select business_setup_payment_add('{"quote_id":"00000000-0000-0000-0000-0000000000ff","amount":10}')$$, 'quote');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_pay'), 'amount', 0)), 'amount');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_pay'), 'amount', -5)), 'amount');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_pay'), 'amount', 'abc')), 'amount');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_pay'), 'amount', 10.555)), 'amount');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_pay'), 'amount', 10, 'paid_on', current_date + 3)), 'future');
+select public.bs_check('refused payments left no ledger row', (select count(*) from public.business_setup_payments where quote_id = pg_temp.fx('q_pay')::uuid) = 0);
+-- a part payment
+insert into bs_fx select 'part_res', public.business_setup_payment_add(pg_temp.fx('part')::jsonb)::text;
+select public.bs_check('receipt number format', (select v::jsonb ->> 'receipt_number' from bs_fx where k = 'part_res') ~ '^ABC/\d{4}/\d{2}/BSR\d{3}', (select v::jsonb ->> 'receipt_number' from bs_fx where k = 'part_res'));
+select public.bs_check('add returns the payment, receipt and number', (select v::jsonb ->> 'payment_id' is not null and v::jsonb ->> 'receipt_id' is not null from bs_fx where k = 'part_res'));
+select public.bs_check('the receipt belongs to the payment', (select count(*) from public.business_setup_receipts r join public.business_setup_payments p on p.id = r.payment_id
+  where r.id = (select (v::jsonb ->> 'receipt_id')::uuid from bs_fx where k = 'part_res') and p.id = (select (v::jsonb ->> 'payment_id')::uuid from bs_fx where k = 'part_res')
+    and r.receipt_number = (select v::jsonb ->> 'receipt_number' from bs_fx where k = 'part_res') and p.type = 'Payment' and p.amount = 400 and p.client_id = 'CL900002' and p.method = 'Bank transfer' and p.reference = 'TT-1') = 1);
+select public.bs_check('part payment balance', (business_setup_quote_balance(pg_temp.fx('q_pay')::uuid) ->> 'outstanding')::numeric = 600);
+select public.bs_check('balance shows total and net paid', (business_setup_quote_balance(pg_temp.fx('q_pay')::uuid) ->> 'total')::numeric = 1000 and (business_setup_quote_balance(pg_temp.fx('q_pay')::uuid) ->> 'net_paid')::numeric = 400);
+select public.bs_check('the receipt is in the voucher register', exists (select 1 from public.voucher_register where source = 'business_setup' and voucher_type = 'Receipt'
+  and source_id = (select (v::jsonb ->> 'payment_id')::uuid from bs_fx where k = 'part_res') and voucher_number = (select v::jsonb ->> 'receipt_number' from bs_fx where k = 'part_res')
+  and amount = 400 and status = 'Valid' and department = 'Business Setup' and client_name is not null and issued_on = current_date));
+select public.bs_check('payment add is in the audit log', public.bs_audit_count('payment_add', (select v::jsonb ->> 'payment_id' from bs_fx where k = 'part_res'), '{"client_id":"CL900002","overpayment":false}') = 1);
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, pg_temp.fx('over')), 'balance');
+select public.bs_check('the refused overpayment left the balance alone', (business_setup_quote_balance(pg_temp.fx('q_pay')::uuid) ->> 'outstanding')::numeric = 600);
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_pay'), 'amount', 700, 'override_reason', 'Client insists')), 'balance');
+-- work starts after the part payment
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_service_update(pg_temp.fx('pay1')::uuid, 'In progress');
+select public.bs_check('the line starts once a payment exists', (select status = 'In progress' from public.business_setup_services where id = pg_temp.fx('pay1')::uuid));
+-- reversal
+select public.bs_expect_error(format($$select business_setup_payment_reverse('%s','Wrong quote')$$, (select v::jsonb ->> 'payment_id' from bs_fx where k = 'part_res')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_payment_reverse('%s',null)$$, (select v::jsonb ->> 'payment_id' from bs_fx where k = 'part_res')), 'reason');
+select public.bs_expect_error(format($$select business_setup_payment_reverse('%s','   ')$$, (select v::jsonb ->> 'payment_id' from bs_fx where k = 'part_res')), 'reason');
+select public.bs_expect_error($$select business_setup_payment_reverse('00000000-0000-0000-0000-0000000000ff','x')$$, 'not found');
+insert into bs_fx select 'rev_res', public.business_setup_payment_reverse((select (v::jsonb ->> 'payment_id')::uuid from bs_fx where k = 'part_res'), 'Cheque bounced')::text;
+insert into bs_fx select 'rev_id', (select v::jsonb ->> 'reversal_id' from bs_fx where k = 'rev_res');
+select public.bs_check('the reversal entry points at the payment and carries the reason', (select type = 'Reversal' and amount = 400 and quote_id = pg_temp.fx('q_pay')::uuid and client_id = 'CL900002'
+  and reverses_id = (select (v::jsonb ->> 'payment_id')::uuid from bs_fx where k = 'part_res') and note = 'Cheque bounced' from public.business_setup_payments where id = pg_temp.fx('rev_id')::uuid));
+select public.bs_check('the receipt shows as Reversed', (select status = 'Reversed' from public.voucher_register where source = 'business_setup' and source_id = (select (v::jsonb ->> 'payment_id')::uuid from bs_fx where k = 'part_res')));
+select public.bs_check('a reversal has no receipt of its own', not exists (select 1 from public.business_setup_receipts where payment_id = pg_temp.fx('rev_id')::uuid));
+select public.bs_check('the reversal is in the audit log', public.bs_audit_count('payment_reverse', pg_temp.fx('rev_id'), '{"reason":"Cheque bounced"}') = 1);
+select public.bs_expect_error(format($$select business_setup_payment_reverse('%s','again')$$, (select v::jsonb ->> 'payment_id' from bs_fx where k = 'part_res')), 'reversal');
+select public.bs_expect_error(format($$select business_setup_payment_reverse('%s','again')$$, pg_temp.fx('rev_id')), 'reversal');
+select public.bs_check('balance returns', (business_setup_quote_balance(pg_temp.fx('q_pay')::uuid) ->> 'net_paid')::numeric = 0 and (business_setup_quote_balance(pg_temp.fx('q_pay')::uuid) ->> 'outstanding')::numeric = 1000);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('started service stays in progress after reversal', (select status = 'In progress' from public.business_setup_services where id = pg_temp.fx('pay1')::uuid));
+select public.bs_expect_error(format($$select business_setup_service_update('%s','In progress')$$, pg_temp.fx('pay2')), 'payment');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(pg_temp.fx('part')::jsonb) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_service_update(pg_temp.fx('pay2')::uuid, 'In progress');
+select public.bs_check('a net payment lets the next line start again', (select status = 'In progress' from public.business_setup_services where id = pg_temp.fx('pay2')::uuid));
+-- a refund cannot be reversed
+select public.bs_as(null);
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type) values ('CL900002', pg_temp.fx('q_pay')::uuid, current_date, 50, 'Refund');
+insert into bs_fx select 'refund_id', id::text from public.business_setup_payments where type = 'Refund' and quote_id = pg_temp.fx('q_pay')::uuid;
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_payment_reverse('%s','Mistake')$$, pg_temp.fx('refund_id')), 'reversal');
+select public.bs_check('the refused reversals wrote nothing', (select count(*) from public.business_setup_payments where type = 'Reversal' and quote_id = pg_temp.fx('q_pay')::uuid) = 1);
+-- a locked quote takes no payment and no reversal
+select public.bs_as(null);
+update public.business_setup_services set locked = true where id = pg_temp.fx('pay1')::uuid;
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, pg_temp.fx('part')), 'locked');
+select public.bs_expect_error(format($$select business_setup_payment_reverse('%s','Late fix')$$, (select id::text from public.business_setup_payments where quote_id = pg_temp.fx('q_pay')::uuid and type = 'Payment' and reference = 'TT-1' and id not in (select reverses_id from public.business_setup_payments where reverses_id is not null))), 'locked');
+select public.bs_as(null);
+update public.business_setup_services set locked = false where id = pg_temp.fx('pay1')::uuid;
+-- overpayment: the override right and a reason
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into bs_fx values ('q_pay3', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(jsonb_build_object('service_name','Small job','amount',100))))::text);
+select public.business_setup_quote_accept(pg_temp.fx('q_pay3')::uuid) as ignored \gset
+insert into bs_fx values ('too_much', jsonb_build_object('quote_id', pg_temp.fx('q_pay3'), 'amount', 130)::text),
+  ('too_much_why', jsonb_build_object('quote_id', pg_temp.fx('q_pay3'), 'amount', 130, 'override_reason', 'Client prepaid the renewal')::text),
+  ('one_more', jsonb_build_object('quote_id', pg_temp.fx('q_pay3'), 'amount', 1)::text);
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, pg_temp.fx('too_much')), 'balance');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('q_pay3'), 'amount', 130, 'override_reason', '  ')), 'balance');
+select public.bs_check('refused overpayments left no row', (select count(*) from public.business_setup_payments where quote_id = pg_temp.fx('q_pay3')::uuid) = 0);
+insert into bs_fx select 'over_res', public.business_setup_payment_add(pg_temp.fx('too_much_why')::jsonb)::text;
+select public.bs_check('an override accepts the overpayment', (business_setup_quote_balance(pg_temp.fx('q_pay3')::uuid) ->> 'outstanding')::numeric = -30);
+select public.bs_check('the overpayment and its reason are in the audit log', public.bs_audit_count('payment_add', (select v::jsonb ->> 'payment_id' from bs_fx where k = 'over_res'), '{"overpayment":true,"reason":"Client prepaid the renewal"}') = 1);
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, pg_temp.fx('one_more')), 'balance');
+-- an exact payment needs no override
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into bs_fx values ('q_pay4', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(jsonb_build_object('service_name','Exact job','amount',100))))::text);
+select public.business_setup_quote_accept(pg_temp.fx('q_pay4')::uuid) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.fx('q_pay4'), 'amount', 100)) as ignored \gset
+select public.bs_check('paying the exact balance clears it', (business_setup_quote_balance(pg_temp.fx('q_pay4')::uuid) ->> 'outstanding')::numeric = 0);
+-- receipt files
+select public.bs_expect_error(format($$select business_setup_receipt_attach('%s','  ')$$, (select v::jsonb ->> 'receipt_id' from bs_fx where k = 'part_res')), 'path');
+select public.bs_expect_error($$select business_setup_receipt_attach('00000000-0000-0000-0000-0000000000ff','a/b.pdf')$$, 'not found');
+select public.business_setup_receipt_attach((select (v::jsonb ->> 'receipt_id')::uuid from bs_fx where k = 'part_res'), 'receipts/CL900002/r1.pdf');
+select public.bs_check('attach records the file location on the receipt and the register', (select storage_path = 'receipts/CL900002/r1.pdf' from public.business_setup_receipts where id = (select (v::jsonb ->> 'receipt_id')::uuid from bs_fx where k = 'part_res'))
+  and exists (select 1 from public.voucher_register where source = 'business_setup' and source_id = (select (v::jsonb ->> 'payment_id')::uuid from bs_fx where k = 'part_res') and storage_path = 'receipts/CL900002/r1.pdf'));
+select public.voucher_set_local((select id from public.voucher_register where source = 'business_setup' and source_id = (select (v::jsonb ->> 'payment_id')::uuid from bs_fx where k = 'part_res')), 'D:\x\r1.docx');
+select public.bs_check('the PC location reaches the receipt', (select local_path = 'D:\x\r1.docx' from public.business_setup_receipts where id = (select (v::jsonb ->> 'receipt_id')::uuid from bs_fx where k = 'part_res')));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_receipt_attach('%s','a/b.pdf')$$, (select v::jsonb ->> 'receipt_id' from bs_fx where k = 'part_res')), 'permission');
+-- reading
+select public.bs_check('sales can read the balance', (business_setup_quote_balance(pg_temp.fx('q_pay3')::uuid) ->> 'total')::numeric = 100);
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_expect_error(format($$select business_setup_quote_balance('%s')$$, pg_temp.fx('q_pay3')), 'permission');
 select public.bs_as(null);
 
 -- ── Summary: raise when anything failed so psql exits non-zero ──
