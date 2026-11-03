@@ -36,7 +36,7 @@ create table if not exists public.knowledge_price_lines (
   amount_aed numeric(12,2) not null check (amount_aed >= 0),
   payee text,
   confidence text check (confidence in ('High', 'Medium', 'Low')),
-  basis text,                                                     -- admin only on screen, never copied
+  basis text,                                                     -- admin only, refused to members by the database, never copied
   valid_until date,
   status text not null default 'Draft' check (status in ('Draft', 'Approved')),
   visibility text not null default 'Internal' check (visibility in ('Shareable', 'Internal')),
@@ -88,7 +88,10 @@ begin
   foreach t in array array['knowledge_categories', 'knowledge_entries', 'knowledge_price_lines'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from anon, authenticated', t);
-    execute format('grant select, insert, update, delete on public.%I to authenticated', t);
+    execute format('grant insert, update, delete on public.%I to authenticated', t);
+    if t <> 'knowledge_price_lines' then
+      execute format('grant select on public.%I to authenticated', t);
+    end if;
     execute format('drop policy if exists %I on public.%I', t || '_read', t);
     execute format('drop policy if exists %I on public.%I', t || '_insert', t);
     execute format('drop policy if exists %I on public.%I', t || '_update', t);
@@ -104,6 +107,20 @@ create policy knowledge_entries_read on public.knowledge_entries for select to a
   using (public.admin_is() or ('knowledge' = any(public.my_tabs()) and visibility = 'Shareable' and deleted_at is null));
 create policy knowledge_price_lines_read on public.knowledge_price_lines for select to authenticated
   using (public.admin_is() or ('knowledge' = any(public.my_tabs()) and visibility = 'Shareable' and deleted_at is null));
+
+-- Read on price lines is per column, so basis, payee and confidence never reach a member. The revoke above clears any earlier grant on each run.
+-- Nobody selects those three from the table, admins included: admins read them through knowledge_price_line_review().
+grant select (id, category_id, template, line_group, item, amount_aed, valid_until, status, visibility, source_ref,
+  approved_by, approved_at, created_at, created_by, updated_at, updated_by, deleted_at)
+  on public.knowledge_price_lines to authenticated;
+
+create or replace function public.knowledge_price_line_review()
+returns table (id uuid, basis text, payee text, confidence text)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select l.id, l.basis, l.payee, l.confidence from knowledge_price_lines l where public.admin_is()
+$$;
+revoke all on function public.knowledge_price_line_review() from public, anon;
+grant execute on function public.knowledge_price_line_review() to authenticated;
 
 -- banking_pricing is open to Banking users only, so this gives Knowledge users the customer-facing columns.
 -- The service fee range, source, remarks and the collected-by flag stay out.

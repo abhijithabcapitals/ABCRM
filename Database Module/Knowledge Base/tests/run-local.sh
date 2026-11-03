@@ -15,9 +15,15 @@ for pass in 1 2; do
   "${PSQL[@]}" -f "$HERE/../migrations/001_knowledge.sql" >/dev/null 2>"$DATA/err" || { echo "FAILED pass $pass: 001_knowledge.sql"; cat "$DATA/err"; exit 1; }
   echo "migration pass $pass ok"
 done
+# A database that already holds the earlier table-wide read must lose it when the migration runs again.
+"${PSQL[@]}" -c "grant select on public.knowledge_price_lines to authenticated; grant select (basis) on public.knowledge_price_lines to authenticated" >/dev/null || exit 1
+"${PSQL[@]}" -f "$HERE/../migrations/001_knowledge.sql" >/dev/null 2>"$DATA/err" || { echo "FAILED re-run over an old grant"; cat "$DATA/err"; exit 1; }
+echo "migration re-run over an old grant ok"
 "${PSQL[@]}" -t -f "$HERE/010_knowledge_test.sql" 2>&1 | grep -E 'ok |FAILED|ERROR|passed' | sed 's/.*NOTICE:  //'
 status=${PIPESTATUS[0]}
 "${PSQL[@]}" -f "$HERE/../migrations/rollback/001_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAILED rollback"; cat "$DATA/err"; exit 1; }
 left=$("${PSQL[@]}" -t -A -c "select count(*) from pg_class where relname like 'knowledge\_%' or relname = 'v_knowledge_search'")
+funcs=$("${PSQL[@]}" -t -A -c "select count(*) from pg_proc where proname like 'knowledge\_%'")
+[ "$funcs" = "0" ] || { echo "FAILED rollback left $funcs functions"; exit 1; }
 [ "$left" = "0" ] && echo "rollback ok" || { echo "FAILED rollback left $left objects"; exit 1; }
 exit $status

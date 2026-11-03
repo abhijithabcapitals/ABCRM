@@ -175,4 +175,44 @@ reset role;
 
 select t.ok('knowledge_touch fixes its search_path', (select array_to_string(proconfig, ',') = 'search_path=public, pg_temp' from pg_proc where oid = 'public.knowledge_touch'::regproc));
 
+-- basis, payee and confidence: refused to members by column-level read, admins use the review function
+select t.ok('authenticated has no table-level read on price lines', not has_table_privilege('authenticated', 'public.knowledge_price_lines', 'select'));
+select t.ok('authenticated keeps insert and update', has_table_privilege('authenticated', 'public.knowledge_price_lines', 'insert') and has_table_privilege('authenticated', 'public.knowledge_price_lines', 'update'));
+select t.ok('basis, payee and confidence carry no read grant', not has_column_privilege('authenticated', 'public.knowledge_price_lines', 'basis', 'select')
+  and not has_column_privilege('authenticated', 'public.knowledge_price_lines', 'payee', 'select')
+  and not has_column_privilege('authenticated', 'public.knowledge_price_lines', 'confidence', 'select'));
+select t.ok('anon cannot run the review function', not has_function_privilege('anon', 'public.knowledge_price_line_review()', 'execute'));
+select t.ok('the review function fixes its search_path', (select array_to_string(proconfig, ',') = 'search_path=public, pg_temp' from pg_proc where oid = 'public.knowledge_price_line_review'::regproc));
+
+select set_config('test.uid', '00000000-0000-0000-0000-00000000000b', false);
+set role authenticated;
+select t.fails('member cannot select basis', 'select basis from knowledge_price_lines', 'permission denied');
+select t.fails('member cannot select payee', 'select payee from knowledge_price_lines', 'permission denied');
+select t.fails('member cannot select confidence', 'select confidence from knowledge_price_lines', 'permission denied');
+select t.fails('member cannot select every column', 'select * from knowledge_price_lines', 'permission denied');
+select t.ok('member selects the allowed columns', t.n('select id, category_id, template, line_group, item, amount_aed, valid_until, status, visibility, source_ref, approved_by, approved_at, created_at, created_by, updated_at, updated_by, deleted_at from knowledge_price_lines') = 1);
+select t.ok('member search still returns price rows', t.n('select 1 from v_knowledge_search where kind = ''price''') = 1);
+select t.ok('member gets nothing from the review function', t.n('select 1 from knowledge_price_line_review()') = 0);
+with u as (update knowledge_price_lines set basis = 'member edit' where source_ref = 'p1' returning 1)
+  select t.ok('member update of basis affects no rows', (select count(*) from u) = 0);
+reset role;
+
+select set_config('test.uid', '00000000-0000-0000-0000-00000000000c', false);
+set role authenticated;
+select t.ok('no-tab member gets nothing from the review function', t.n('select 1 from knowledge_price_line_review()') = 0);
+reset role;
+
+select set_config('test.uid', '00000000-0000-0000-0000-00000000000a', false);
+set role authenticated;
+select t.fails('admin also cannot select basis from the table', 'select basis from knowledge_price_lines', 'permission denied');
+select t.ok('admin gets basis and payee from the review function', (select r.basis = 'internal note' and r.payee = 'Authority' from knowledge_price_line_review() r join knowledge_price_lines l on l.id = r.id where l.source_ref = 'p1'));
+select t.ok('admin sees Internal lines in the review function', t.n('select 1 from knowledge_price_line_review() r join knowledge_price_lines l on l.id = r.id where l.visibility = ''Internal''') > 0);
+select t.ok('the review function returns only id, basis, payee and confidence', (select array_agg(k order by k) = array['basis', 'confidence', 'id', 'payee'] from jsonb_object_keys(to_jsonb((select r from knowledge_price_line_review() r limit 1))) k));
+update knowledge_price_lines set basis = 'admin basis', payee = 'Admin payee', confidence = 'Low' where source_ref = 'p1';
+select t.ok('admin can update basis, payee and confidence', (select r.basis = 'admin basis' and r.payee = 'Admin payee' and r.confidence = 'Low' from knowledge_price_line_review() r join knowledge_price_lines l on l.id = r.id where l.source_ref = 'p1'));
+insert into knowledge_price_lines (category_id, template, line_group, item, amount_aed, basis, source_ref) values ((select id from knowledge_categories where name = 'Business Setup'), 'TestZone', 'Licence', 'Admin line two', 1, 'set on insert', 'a3');
+select t.ok('admin can insert basis', (select r.basis = 'set on insert' from knowledge_price_line_review() r join knowledge_price_lines l on l.id = r.id where l.source_ref = 'a3'));
+reset role;
+select t.ok('the member attempt left basis as the admin set it', (select basis = 'admin basis' from knowledge_price_lines where source_ref = 'p1'));
+
 select t.ok('all checks passed', true);
