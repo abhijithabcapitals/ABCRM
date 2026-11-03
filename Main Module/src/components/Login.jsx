@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../supabase";
 import { BrandLogo, COPYRIGHT } from "./Brand";
-import { portalLogin } from "@client-module/portal/portalApi";
+import { portalLogin } from "@client-login/portal/portalApi";
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");

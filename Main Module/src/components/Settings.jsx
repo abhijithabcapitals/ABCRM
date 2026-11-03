@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { IconClose } from "./icons";
 import IntegrationsPanel, { EmailAccountsPanel } from "@integrations";
-import ClientPortalAdmin from "@client-module/crm/ClientPortalAdmin";
+import ClientPortalAdmin from "@client-login/admin/ClientPortalAdmin";
 import { AiUsagePanel, AuditPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
 
 const DEFAULT_COL_WIDTHS = { member: 220, email: 240, role: 130, joined: 140, actions: 60 };

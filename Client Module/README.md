@@ -75,11 +75,11 @@ Clients > All Clients (open a row), Clients > Client Portal, or Settings > Clien
 
 | Path | Purpose |
 |---|---|
-| `portal/ClientPortal.jsx` | The client's only screen: their record, uploads and each document's status. Admins see it read-only |
-| `portal/portalApi.js` | Calls the Edge Function. The session token stays in the browser tab |
-| `crm/ClientPortalAdmin.jsx` | Admin screen: give access, new password, revoke, restore, view as client |
+| `../Client Login Module/portal/ClientPortal.jsx` | The client's only screen: their record, uploads and each document's status. Admins see it read-only |
+| `../Client Login Module/portal/portalApi.js` | Calls the Edge Function. The session token stays in the browser tab |
+| `../Client Login Module/admin/ClientPortalAdmin.jsx` | Admin screen: give access, new password, revoke, restore, view as client |
 | `crm/ClientInputs.jsx` | Staff review: assign to me, open, validate or reject, save to PC |
-| `supabase/client-portal/index.ts` | Edge Function, deployed with `--no-verify-jwt` because it checks its own sessions |
+| `../Client Login Module/supabase/client-portal/index.ts` | Edge Function, deployed with `--no-verify-jwt` because it checks its own sessions |
 | `../Database Module/Client Base/migrations/003_client_portal.sql` | Tables, private bucket and permissions |
 
 Clients are not Supabase Auth users, because many staff tables allow any `authenticated` user. Only the Edge

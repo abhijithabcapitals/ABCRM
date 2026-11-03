@@ -4,8 +4,8 @@ import { useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
-import { staffCall } from "./ClientPortalAdmin";
-import { fmtSize } from "../portal/ClientPortal";
+import { staffCall } from "@client-login/admin/ClientPortalAdmin";
+import { fmtSize } from "@client-login/portal/ClientPortal";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
 const VIEWS = [["pending", "Waiting"], ["in_review", "In review"], ["validated", "Validated"], ["rejected", "Rejected"]];
