@@ -89,6 +89,7 @@ begin
   if not found then raise exception 'That field cannot be changed.'; end if;
   select a.banking_client_id, coalesce(a.client_master_id, c.client_master_id) into b, m
     from client_portal_accounts a left join banking_clients c on c.id = a.banking_client_id where a.id = p_account;
+  if regexp_replace(p_value, '\s', '', 'g') ~* 'AE[0-9]{21}' then raise exception 'Store only the last 4 digits of an IBAN'; end if;
   if f.kyc_col is not null and b is not null then
     insert into banking_kyc_profiles (client_id) values (b) on conflict (client_id) do nothing;
     if f.kind = 'date' then execute format('update banking_kyc_profiles set %I = $1::date where client_id = $2', f.kyc_col) using p_value, b;
@@ -124,6 +125,8 @@ begin
   if f.master_only and not exists (select 1 from client_master where client_id = m) then raise exception 'This detail is not on file for you, so it cannot be changed here.'; end if;
   if v = '' then raise exception 'The new value cannot be empty.'; end if;
   if length(v) > 500 then raise exception 'The new value is too long (500 characters at most).'; end if;
+  -- same rule as client_master_save: never store a full IBAN (spaces ignored)
+  if regexp_replace(v, '\s', '', 'g') ~* 'AE[0-9]{21}' then raise exception 'Please do not enter a full IBAN. Give the last 4 digits only.'; end if;
   if f.kind = 'date' then
     v := client_change_iso(v);
     if v is null then raise exception 'Enter a valid date, for example 31/12/2026.'; end if;

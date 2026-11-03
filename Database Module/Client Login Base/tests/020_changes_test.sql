@@ -83,6 +83,9 @@ select public.must_fail('submit: 31/02/2026 refused', $$select public.client_cha
 select public.must_fail('submit: 2026-02-31 refused', $$select public.client_change_submit(current_setting('t.a')::uuid, 'license_expiry_date', '2026-02-31')$$, 'valid date');
 select public.must_fail('submit: text in a date field refused', $$select public.client_change_submit(current_setting('t.a')::uuid, 'license_expiry_date', 'soon')$$, 'valid date');
 select public.must_fail('submit: date equal to official in the other format refused', $$select public.client_change_submit(current_setting('t.a')::uuid, 'license_expiry_date', '01/01/2027')$$, 'current value');
+select public.must_fail('submit: full IBAN in a text field refused', $$select public.client_change_submit(current_setting('t.a')::uuid, 'office_address', 'Pay to AE070331234567890123456 please')$$, 'IBAN');
+select public.must_fail('submit: IBAN with spaces and lower case refused', $$select public.client_change_submit(current_setting('t.a')::uuid, 'website', 'ae07 0331 2345 6789 0123 456')$$, 'IBAN');
+select public.must_fail('submit: IBAN refused on a masterOnly field too', $$select public.client_change_submit(current_setting('t.a')::uuid, 'ct_registration_number', 'AE070331234567890123456')$$, 'IBAN');
 select public.must_fail('submit: bad email refused', $$select public.client_change_submit(current_setting('t.a')::uuid, 'company_email', 'not-an-email')$$, 'email');
 select public.must_fail('submit: masterOnly field, client has no master row', $$select public.client_change_submit(current_setting('t.b')::uuid, 'ct_registration_number', '123')$$, 'not on file');
 select public.must_fail('submit: masterOnly date field, client has no master row', $$select public.client_change_submit(current_setting('t.b')::uuid, 'financial_year_end', '2026-12-31')$$, 'not on file');
@@ -490,6 +493,20 @@ select public.ok('isolation: the official value is read for the account asked ab
   (select public.client_change_official(current_setting('t.a')::uuid, 'legal_name') = 'Alpha Trading LLC' and public.client_change_official(current_setting('t.b')::uuid, 'legal_name') = 'Beta Services LLC'
       and public.client_change_official(current_setting('t.e')::uuid, 'legal_name') is null));
 select public.ok('isolation: submit never writes the record, only a request', (select count(*) = 0 from public.client_master_history where new_value in ('alpha-two.test', 'beta-only.test')));
+
+-- ═══ IBAN backstop: a request that got past submit (seeded directly) is refused at decide, in KYC and master ═══
+insert into public.client_portal_change_requests (account_id, field_key, old_value, new_value, status, assigned_to, assigned_at) values
+  (current_setting('t.b')::uuid, 'registered_address', null, 'AE070331234567890123456', 'in_review', '00000000-0000-0000-0000-000000000001', now()),
+  (current_setting('t.g')::uuid, 'office_address', null, 'AE070331234567890123456', 'in_review', '00000000-0000-0000-0000-000000000001', now());
+set role authenticated;
+select public.who('00000000-0000-0000-0000-000000000001');
+select public.must_fail('IBAN backstop: KYC value refused at decide', format($$select public.client_changes_decide(%L, 'validated', null)$$, public.rq(current_setting('t.b')::uuid, 'registered_address')), 'IBAN');
+select public.must_fail('IBAN backstop: master value refused at decide', format($$select public.client_changes_decide(%L, 'validated', null)$$, public.rq(current_setting('t.g')::uuid, 'office_address')), 'IBAN');
+reset role;
+select public.ok('IBAN backstop: nothing written, requests still in_review',
+  (select registered_address is null from public.banking_kyc_profiles where client_id = 'b0000000-0000-0000-0000-00000000000b')
+  and (select not (data::text ~* 'AE[0-9]{21}') from public.client_master where client_id = 'CL000902')
+  and (select count(*) = 2 from public.client_portal_change_requests where status = 'in_review' and new_value like 'AE07%'));
 
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;
