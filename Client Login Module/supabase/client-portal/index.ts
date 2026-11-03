@@ -1,7 +1,9 @@
 // Supabase Edge Function "client-portal": the only way into the Client Portal.
-// Deployed with --no-verify-jwt because clients are not Supabase Auth users; every action checks
-// its own session. Client uploads are untrusted: they stay in a private bucket and leave only as
-// short-lived download links.
+// Deploy (not before migrations 001 and 002 are applied), from a temporary workdir holding
+// supabase/functions/client-portal/index.ts (a copy of this file):
+//   supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
+// --no-verify-jwt because clients are not Supabase Auth users; every action checks its own session.
+// Client uploads are untrusted: they stay in a private bucket and leave only as short-lived download links.
 //
 // Client actions (POST JSON { action, token, ... }):
 //   login { username, password }, logout, me, change_password { current, next }

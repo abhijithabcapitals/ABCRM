@@ -6,6 +6,7 @@ What a client sees in the client portal, and the admin list of clients with thei
 |---|---|
 | `migrations/001_portal_views.sql` | `client_portal_me` (services, accounts, documents, filing record, requested changes), `client_portal_gallery_path`, `client_portal_admin_clients`, and the `client_portal_change_requests` table |
 | `migrations/002_change_requests.sql` | `client_change_submit` (service role) and the staff functions `client_changes_list/assignees/take/assign/release/decide`; a client's edit reaches the record only when staff validate it |
+| `rollback/001_002_rollback.sql` | Undoes 001 and 002. **Deletes `client_portal_change_requests`, so clients' pending edits are lost.** Restores `client_portal_me` and `client_portal_admin_clients` from Client Base 003 |
 | `tests/run-local.sh` | Builds a throwaway local database, runs the migrations twice, then each test in its own copy of it, and the concurrency script. Exits non-zero on any failed check, aborted test file or failed concurrency script. Nothing touches Supabase |
 
 Run the tests: `bash "Database Module/Client Login Base/tests/run-local.sh"`. It reads the private Banking seed from `PRIVATE_ROOT` (default `/d/Abhijith Projects/CRM/Database Module`).
@@ -21,3 +22,26 @@ Rules the functions keep:
 `client_portal_change_requests` holds a client's request to change one field. Only one request per field can be open. The functions that write to it are in migration 002. Staff with the Clients tab take, hand over, release, validate or reject a request; a value that changed in the CRM after the client asked needs an explicit force to overwrite.
 
 Run after Banking Base and Client Base 001 to 003. Safe to run again.
+
+## Rollback
+
+`rollback/001_002_rollback.sql` drops the new functions and `client_portal_change_requests`, and puts `client_portal_me` and `client_portal_admin_clients` back exactly as Client Base 003 defines them, with 003's rights. `client_portal_documents` and the other 003 objects are untouched.
+
+**Warning: dropping `client_portal_change_requests` deletes every change a client has asked for and not yet had validated, and the log of decided ones.** Export it first (`select * from public.client_portal_change_requests;`). Edits already applied to the client record stay. `tests/040_rollback.sh` runs the rollback on a database copy and checks that `client_portal_me` returns the old keys only, no new function remains and 003's functions still work.
+
+## Deploy (Task 9 order)
+
+Nothing here has been run against the live project. Do these in order:
+
+1. Apply `migrations/001_portal_views.sql`.
+2. Apply `migrations/002_change_requests.sql`.
+3. Deploy the Edge Function, then
+4. deploy the site.
+
+The function source lives at `Client Login Module/supabase/client-portal/index.ts`, but the Supabase CLI wants `supabase/functions/client-portal/index.ts`. Copy it into a temporary working folder with that layout and deploy from there:
+
+```bash
+supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
+```
+
+Deploy the function only after 001 and 002 are live (it calls the new functions), and the site only after the function.

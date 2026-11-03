@@ -13,4 +13,18 @@ What a client sees after signing in with their portal username: their record, do
 | `tests/logic.test.mjs` | Rule tests: `node --test "Client Login Module/tests/logic.test.mjs"` |
 | `docs/` | Design and build plan |
 
+The portal code used to live in the Client Module as `@client-module/portal` and `crm/ClientPortalAdmin`; it has moved here, and those old paths no longer exist.
+
+## Release
+
+Database first, then function, then site:
+
+1. Apply `Database Module/Client Login Base/migrations/001_portal_views.sql`, then `002_change_requests.sql`.
+2. Deploy the Edge Function from a temporary working folder holding `supabase/functions/client-portal/index.ts` (copied from `supabase/client-portal/index.ts` here): `supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api`.
+3. Deploy the site.
+
+To undo the database part, run `Database Module/Client Login Base/rollback/001_002_rollback.sql`. **It deletes clients' pending edits** (`client_portal_change_requests`). Redeploy the earlier function version with it.
+
+Checks before release: `bash "Database Module/Client Login Base/tests/run-local.sh"`, `node --test "Client Login Module/tests/logic.test.mjs"`, and `npm run build` in `Main Module`.
+
 The app reaches this folder through the `@client-login` alias. Staff screens that use it (`ClientsHub.jsx`, `ClientInputs.jsx`) stay in the Client Module.
