@@ -1,7 +1,7 @@
 // Issue, reset or revoke this client's login, and see what they see. The password shows once here; the CRM never sends it.
 import { useState } from "react";
 import { Badge, Button, ErrorNote, FormModal, KeyVals, Modal, Panel, fmtDateTime, useAction, useLoad } from "@banking/components/shared";
-import { staffCall } from "@client-module/crm/ClientPortalAdmin";
+import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { loginSave, loginState, loginStatus } from "../../services/businessSetupApi";
 
 const ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { REQUEST_KINDS, insuranceEnd, mergeRequests, requestChoices, requestFields, requestSummary, unreturnedAssets } from "../logic/requests.js";
+import { REQUEST_KINDS, correctionValues, historyLine, insuranceEnd, mergeRequests, requestChoices, requestFields, requestSummary, unreturnedAssets } from "../logic/requests.js";
 
 test("each request type asks for what the database needs", () => {
   const names = (c) => requestFields(c).map((f) => f.name);
@@ -54,4 +54,22 @@ test("insuranceEnd is the day before the tenure runs out", () => {
   assert.equal(insuranceEnd("2026-08-31", 6), "2027-02-27");
   assert.equal(insuranceEnd("", 12), "");
   assert.equal(insuranceEnd("2026-01-01", ""), "");
+});
+
+test("correctionValues turns each choice into what the database needs", () => {
+  assert.deepEqual(correctionValues({ choice: "annual", reason: "Unwell" }), { status: "Leave", timeIn: null, timeOut: null, useAnnual: true });
+  assert.deepEqual(correctionValues({ choice: "wfh", reason: "x" }), { status: "WFH", timeIn: null, timeOut: null, useAnnual: false });
+  assert.deepEqual(correctionValues({ choice: "timing", time_in: "9:30", time_out: "18:30" }), { status: "Present", timeIn: "09:30", timeOut: "18:30", useAnnual: false });
+  assert.throws(() => correctionValues({ choice: "timing", time_in: "9:30" }), /login and logoff/);
+  assert.throws(() => correctionValues({ choice: "timing", time_in: "9:30", time_out: "soon" }), /not a time/);
+  assert.throws(() => correctionValues({}), /Choose/);
+});
+test("historyLine says what happened in plain words", () => {
+  const e = (action, n, o) => ({ action, new_values: n, old_values: o });
+  assert.equal(historyLine(e("attendance.edit_requested", { status: "WFH" }, { status: "Absent" })), "Asked: Absent to Work From Home");
+  assert.equal(historyLine(e("attendance.edit_requested", { status: "Leave", use_annual: true }, { status: "Absent" })), "Asked: Absent to Annual leave");
+  assert.equal(historyLine(e("attendance.edit_approved", { status: "Present", time_in: "09:30:00", time_out: "18:30:00" }, { status: "Absent" })), "Validated: Absent to Present 09:30-18:30");
+  assert.equal(historyLine(e("attendance.edit_rejected", { status: "WFH" }, { status: "Absent" })), "Rejected: Absent to Work From Home");
+  assert.equal(historyLine(e("attendance.updated", { status: "Present", time_in: "09:30:00", time_out: null }, { status: "Absent" })), "Changed: Absent to Present 09:30-?");
+  assert.equal(historyLine(e("attendance.created", { status: "Absent" }, null)), "Changed: Nothing recorded to Absent");
 });

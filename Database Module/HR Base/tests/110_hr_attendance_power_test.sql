@@ -45,7 +45,7 @@ select public.hr_attendance_decide(public.ap_edit(1, '2026-10-07'), true, null);
 select public.ok('HR approves it', public.ap_status(1, '2026-10-07') = 'Absent');
 
 -- HR's own request waits for someone else
-select public.hr_attendance_request(public.rq(9), '2026-10-08', 'Absent', null, null, null, 'Own day');
+select public.hr_attendance_request(public.rq(9), '2026-10-08', 'WFH', null, null, null, 'Own day');
 select public.must_fail('HR cannot approve their own day', $$select public.hr_attendance_decide(public.ap_edit(9, '2026-10-08'), true, null)$$, 'your own');
 select public.must_fail('HR cannot reject their own day', $$select public.hr_attendance_decide(public.ap_edit(9, '2026-10-08'), false, 'no')$$, 'your own');
 select public.ok('their own request is not in their count', public.hr_attendance_edits_pending() = 0, public.hr_attendance_edits_pending()::text);

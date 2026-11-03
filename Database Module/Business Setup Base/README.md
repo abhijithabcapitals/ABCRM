@@ -20,7 +20,7 @@ Database for the `Business Setup Module`, in the CRM Supabase project. Tables ar
 | `012_legacy_import.sql` | Staging and loading of old records |
 | `private/007_fee_seed.sql` | Fee list. Git-ignored. Run after `005` |
 
-Run in number order, after Client Base, Services Base, Template Hub Base, Voucher Base, Accounting Base and Admin Base.
+Run in number order, after Client Base, Client Login Base, Services Base, Template Hub Base, Voucher Base, Accounting Base and Admin Base.
 
 **Run these again if you re-run an earlier base:**
 
@@ -28,7 +28,7 @@ Run in number order, after Client Base, Services Base, Template Hub Base, Vouche
 |---|---|
 | Client Base `001` | `008` |
 | Client Base `002` | `002` |
-| Client Base `003` | `009`, `010` |
+| Client Base `003` | Client Login Base `001`, then `009` |
 | Voucher Base `002` | `007` |
 
 **Tests:** `bash "Database Module/Business Setup Base/tests/run-local.sh"` runs every migration twice and all checks on a throwaway Postgres. Python: `pytest tests/test_legacy_load.py`.

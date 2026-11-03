@@ -75,12 +75,13 @@ Clients > All Clients (open a row), Clients > Client Portal, or Settings > Clien
 
 | Path | Purpose |
 |---|---|
-| `portal/ClientPortal.jsx` | The client's only screen: their record, uploads and each document's status. Admins see it read-only |
-| `portal/portalApi.js` | Calls the Edge Function. The session token stays in the browser tab |
-| `crm/ClientPortalAdmin.jsx` | Admin screen: give access, new password, revoke, restore, view as client |
+| `../Client Login Module/portal/ClientPortal.jsx` | The client's only screen: their record, uploads and each document's status. Admins see it read-only |
+| `../Client Login Module/portal/portalApi.js` | Calls the Edge Function. The session token stays in the browser tab |
+| `../Client Login Module/admin/ClientPortalAdmin.jsx` | Admin screen: give access, new password, revoke, restore, view as client |
 | `crm/ClientInputs.jsx` | Staff review: assign to me, open, validate or reject, save to PC |
-| `supabase/client-portal/index.ts` | Edge Function, deployed with `--no-verify-jwt` because it checks its own sessions |
+| `../Client Login Module/supabase/client-portal/index.ts` | Edge Function, deployed with `--no-verify-jwt` because it checks its own sessions |
 | `../Database Module/Client Base/migrations/003_client_portal.sql` | Tables, private bucket and permissions |
+| `../Database Module/Client Login Base/` | Portal views (`client_portal_me`, admin client list), change requests, tests and rollback; runs after 003 |
 
 Clients are not Supabase Auth users, because many staff tables allow any `authenticated` user. Only the Edge
 Function (service role) reads their data, and `client_portal_me` returns named fields only: add a field there
@@ -90,6 +91,8 @@ A validated file is copied to `filed/<client>/<type>/` in the `client-portal` bu
 the reviewer's PC, a copy also goes to the client's folder under `storageRoot`: the existing
 `<Legal Name> - <Client ID>` folder when the client has a Client Master ID, otherwise
 `5. Others/Client Portal/<client>`. Uploads are not virus scanned.
+
+The portal screens moved out of this module to `Client Login Module/` (formerly `@client-module/portal` and `crm/ClientPortalAdmin`). `ClientsHub.jsx` and `ClientInputs.jsx` stay here.
 
 ## Relation to the earlier projects
 

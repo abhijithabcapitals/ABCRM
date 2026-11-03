@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, useAction, useLoad } from "@banking/components/shared";
 import { readDocuments, rpc } from "@banking/services/bankingApi";
-import { staffCall } from "@client-module/crm/ClientPortalAdmin";
+import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { formDetail, listForms, returnForm, takeForm, validateForm } from "../services/businessSetupApi";
 import { contactChoice } from "../logic/contact";
 

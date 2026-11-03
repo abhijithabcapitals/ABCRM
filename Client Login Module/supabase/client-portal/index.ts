@@ -1,7 +1,9 @@
 // Supabase Edge Function "client-portal": the only way into the Client Portal.
-// Deployed with --no-verify-jwt because clients are not Supabase Auth users; every action checks
-// its own session. Client uploads are untrusted: they stay in a private bucket and leave only as
-// short-lived download links.
+// Deploy (not before migrations 001 and 002 are applied), from a temporary workdir holding
+// supabase/functions/client-portal/index.ts (a copy of this file):
+//   supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
+// --no-verify-jwt because clients are not Supabase Auth users; every action checks its own session.
+// Client uploads are untrusted: they stay in a private bucket and leave only as short-lived download links.
 //
 // Client actions (POST JSON { action, token, ... }):
 //   login { username, password }, logout, me, change_password { current, next }
@@ -9,6 +11,8 @@
 //   upload_start { for_form: true, ... } files the upload under this login's own Business Setup form
 //   upload_done { id }, doc_url { id }
 //   setup_view, form_get, form_save { answers }, form_submit, setup_file { kind, id }
+//   submit_change { field, value } -> { id }       asks staff to change one company detail
+//   gallery_url { source, id } -> { url }          source is kyc or generated; link lasts 120 seconds
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
 //   admin_preview { account_id }   admins and setup.portal.manage, read-only copy of what the client sees
 //   staff_url { id, filed? }, staff_review { id, status, note? }
@@ -28,6 +32,8 @@ const json = (o: unknown, status = 200) =>
 class InputError extends Error {}
 
 const BUCKET = "client-portal";
+const GALLERY_BUCKET = "banking-documents";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOADS_PER_DAY = 100;
 const DOC_TYPES = ["Trade Licence", "MOA / AOA", "Passport / ID", "Bank Statement", "Invoice", "VAT Document", "Corporate Tax Document", "Other"];
@@ -47,8 +53,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only." }, 405);
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-  const signed = async (path: string, name: string) => {
-    const { data, error } = await admin.storage.from(BUCKET).createSignedUrl(path, 120, { download: name });
+  const signed = async (path: string, name: string, bucket = BUCKET) => {
+    const { data, error } = await admin.storage.from(bucket).createSignedUrl(path, 120, { download: name });
     if (error) throw new Error(error.message);
     return data.signedUrl;
   };
@@ -203,6 +209,24 @@ Deno.serve(async (req) => {
         const { data: link, error: linkErr } = await admin.storage.from(data.bucket).createSignedUrl(data.path, 300, { download: data.file_name });
         if (linkErr) throw new Error(linkErr.message);
         return json({ url: link.signedUrl });
+      }
+      case "submit_change": {
+        const { data, error } = await admin.rpc("client_change_submit", { p_account: accountId, p_field: String(body.field || "").slice(0, 60), p_value: String(body.value ?? "").slice(0, 600) });
+        // Only the SQL's own refusals (raise exception, P0001) are written for clients; anything else is a fault.
+        if (error) {
+          if (error.code === "P0001") throw new InputError(error.message);
+          throw new Error(error.message);
+        }
+        return json({ id: data });
+      }
+      case "gallery_url": {
+        const source = String(body.source || "");
+        const id = String(body.id || "");
+        if ((source !== "kyc" && source !== "generated") || !UUID.test(id)) throw new InputError("Document not found.");
+        const { data, error } = await admin.rpc("client_portal_gallery_path", { p_account: accountId, p_source: source, p_id: id });
+        if (error) throw new Error(error.message);
+        if (!data?.storage_path) throw new InputError("Document not found.");
+        return json({ url: await signed(data.storage_path, data.file_name || "document", GALLERY_BUCKET) });
       }
       default:
         return json({ error: "Unknown action." }, 400);

@@ -14,7 +14,7 @@ The CRM's **Business Setup** tab: from a client's form to a finished service han
 | `scripts/fix_templates.py` | Makes corrected copies of the quote templates |
 | `Resources/` | Git-ignored. Client data, prices and templates. Never commit it |
 
-The client's screens are in `Client Module/portal` (`SetupForm.jsx`, `SetupView.jsx`), reached through the `client-portal` Edge Function. The Accounts review is `Accounting Module/components/SetupValidation.jsx`.
+The client's screens are in `Client Login Module/portal` (`SetupForm.jsx`, `SetupView.jsx`), reached through the `client-portal` Edge Function. The Accounts review is `Accounting Module/components/SetupValidation.jsx`.
 
 The five zone quote templates hold prices, so they are not in the repository. Upload the corrected copies under Settings, Master templates, before quoting.
 

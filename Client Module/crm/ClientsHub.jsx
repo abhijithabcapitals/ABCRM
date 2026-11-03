@@ -6,7 +6,7 @@ import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate
 import { rpc } from "@banking/services/bankingApi";
 import ClientMaster from "./ClientMaster";
 import ClientInputs from "./ClientInputs";
-import ClientPortalAdmin, { ClientAccess } from "./ClientPortalAdmin";
+import ClientPortalAdmin, { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
 
 const LINES = ["Business Banking", "Business Setup", "Accounting"];
 

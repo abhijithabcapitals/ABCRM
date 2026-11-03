@@ -1,10 +1,9 @@
 -- =====================================================================
 -- Business Setup Base - the client's view in the portal                010
 -- =====================================================================
--- Re-runnable. Runs after 001 to 009 and Client Base 003. Clients are not Supabase users: only the client-portal
+-- Re-runnable. Runs after 001 to 009, Client Base 003 and Client Login Base 001. Clients are not Supabase users: only the client-portal
 -- Edge Function, with the service role, calls these functions, and it passes the account of the live session.
 -- The client ID is worked out here from that account and is never taken from the browser. Named fields only.
--- Re-running Client Base 003 resets client_portal_me, so re-running it means re-running this file.
 -- =====================================================================
 
 -- Invoices. Nothing writes here until Zoho is connected, and the client's Invoices section stays empty.
@@ -86,51 +85,9 @@ begin
   return jsonb_build_object('bucket', v_bucket, 'path', v_path, 'file_name', replace(coalesce(v_name, 'file'), '/', '-'));
 end $$;
 
--- Same as Client Base 003, with email and phone from Client Master first. What a client sees of their own record:
--- KYC risk, internal notes, Banking fees and staff data never leave here. Their own Business Setup quotes and payments
--- come from business_setup_portal_view above.
-create or replace function public.client_portal_me(p_account uuid) returns jsonb
-language sql stable security definer set search_path = public, pg_temp as $$
-  with a as (select * from client_portal_accounts where id = p_account),
-  c as (select b.* from banking_clients b join a on a.banking_client_id = b.id),
-  k as (select p.* from banking_kyc_profiles p join c on p.client_id = c.id limit 1),
-  m as (select x.data, x.legal_name from client_master x
-         where x.client_id = coalesce((select client_master_id from a), (select client_master_id from c)))
-  select jsonb_build_object(
-    'username', (select username from a),
-    'display_name', (select display_name from a),
-    'record', jsonb_build_object(
-      'legal_name', coalesce((select legal_name from k), (select legal_name from m)),
-      'trade_name', coalesce((select trade_name from k), (select data->>'Trade Name' from m)),
-      'license_number', coalesce((select license_number from k), (select license_number from c), (select data->>'Trade License Number' from m)),
-      'license_expiry_date', coalesce((select license_expiry_date::text from k), (select data->>'License Expiry Date' from m)),
-      'issuing_authority', coalesce((select issuing_authority from k), (select data->>'Jurisdiction' from m)),
-      'legal_structure', (select legal_structure from k),
-      'business_activity', coalesce((select business_activity from k), (select data->>'Business Activities' from m)),
-      'registered_address', coalesce((select registered_address from k), (select data->>'Registered Address' from m)),
-      'vat_trn', coalesce((select vat_trn from k), (select data->>'TRN' from m)),
-      'ct_registration_number', (select data->>'CT Registration Number' from m),
-      'financial_year_end', (select data->>'Financial Year End' from m),
-      'website', coalesce((select website from k), (select data->>'Website' from m)),
-      'email', coalesce((select client_master_plain(data ->> 'General Email') from m), (select company_email from k)),
-      'phone', coalesce((select client_master_plain(data ->> 'General Phone') from m), (select company_phone from k))),
-    'services', (select coalesce(jsonb_agg(distinct jsonb_build_object('line', 'Business Banking', 'detail', r.bank_name)), '[]'::jsonb)
-       from c join banking_cases cs on cs.client_id = c.id
-       join banking_bank_recommendations br on br.case_id = cs.id and br.is_selected
-       join banking_partners r on r.id = br.bank_id
-      where cs.is_historical or (select coalesce(sum(p.signed_amount), 0) from banking_payments p where p.case_id = cs.id) > 0),
-    'master_services', (select data->>'Services Provided' from m),
-    'documents', (select coalesce(jsonb_agg(jsonb_build_object(
-        'id', d.id, 'doc_type', d.doc_type, 'note', d.note, 'file_name', d.file_name, 'size_bytes', d.size_bytes,
-        'status', d.status, 'uploaded_at', d.uploaded_at, 'reviewed_at', d.reviewed_at,
-        'review_note', case when d.status = 'rejected' then d.review_note end) order by d.uploaded_at desc), '[]'::jsonb)
-       from client_portal_documents d where d.account_id = p_account and d.upload_complete))
-$$;
 
-revoke all on function public.business_setup_portal_client(uuid), public.business_setup_portal_view(uuid), public.business_setup_portal_file(uuid, text, uuid),
-  public.client_portal_me(uuid) from public, anon, authenticated;
-grant execute on function public.business_setup_portal_client(uuid), public.business_setup_portal_view(uuid), public.business_setup_portal_file(uuid, text, uuid),
-  public.client_portal_me(uuid) to service_role;
+revoke all on function public.business_setup_portal_client(uuid), public.business_setup_portal_view(uuid), public.business_setup_portal_file(uuid, text, uuid) from public, anon, authenticated;
+grant execute on function public.business_setup_portal_client(uuid), public.business_setup_portal_view(uuid), public.business_setup_portal_file(uuid, text, uuid) to service_role;
 
 -- ── Client login, for staff with setup.portal.manage ─────────────────
 -- Same rules as client_portal_admin_save in Client Base 003, for this module's clients. The password is hashed here and never stored in the clear.

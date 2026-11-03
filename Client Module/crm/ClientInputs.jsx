@@ -4,8 +4,9 @@ import { useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
-import { staffCall } from "./ClientPortalAdmin";
-import { fmtSize } from "../portal/ClientPortal";
+import { staffCall } from "@client-login/admin/ClientPortalAdmin";
+import { fmtSize } from "@client-login/portal/ClientPortal";
+import InformationChanges from "@client-login/admin/InformationChanges";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
 const VIEWS = [["pending", "Waiting"], ["in_review", "In review"], ["validated", "Validated"], ["rejected", "Rejected"]];
@@ -33,7 +34,7 @@ async function saveToPc(d) {
   }
 }
 
-export default function ClientInputs() {
+function Documents() {
   const list = useLoad(() => rpc("client_inputs_list"), []);
   const [view, setView] = useState("pending");
   const [deciding, setDeciding] = useState(null);
@@ -96,6 +97,24 @@ export default function ClientInputs() {
       {deciding && (
         <FormModal title={`${deciding.status === "validated" ? "Validate" : "Reject"} ${deciding.doc.file_name}`} submitLabel={deciding.status === "validated" ? "Validate and file" : "Reject"} onClose={() => setDeciding(null)} onSubmit={decide}
           fields={[{ name: "note", label: deciding.status === "validated" ? "Note" : "Reason. The client sees this.", type: "textarea", required: deciding.status === "rejected", full: true }]} />
+      )}
+    </div>
+  );
+}
+
+// Two views: the documents clients upload (default) and the details they ask to change.
+export default function ClientInputs() {
+  const [tab, setTab] = useState("documents");
+  return (
+    <div className="bk-root">
+      <div className="bk-tabs" role="tablist" aria-label="Client Inputs">
+        {[["documents", "Documents"], ["changes", "Information Changes"]].map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
+      </div>
+      {tab === "documents" ? <Documents /> : (
+        <>
+          <PageHead title="Information Changes" sub="Changes clients ask to make to their own details." />
+          <InformationChanges />
+        </>
       )}
     </div>
   );

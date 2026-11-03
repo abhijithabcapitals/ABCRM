@@ -85,13 +85,13 @@ select public.bs_check('payment fields and receipt', (select e ->> 'reference' =
 select public.bs_check('balance per quote', (select (e ->> 'net_paid')::numeric = 400 and (e ->> 'outstanding')::numeric = 600 from jsonb_array_elements(pg_temp.v() -> 'quotes') e where e ->> 'number' = 'BSQ-A'));
 select public.bs_check('a quote says if it has a file', (select (e ->> 'has_file')::boolean = false from jsonb_array_elements(pg_temp.v() -> 'quotes') e where e ->> 'number' = 'BSQ-NOFILE'));
 select public.bs_check('the view includes the form', pg_temp.v() -> 'form' ->> 'status' = 'Draft');
-select public.bs_check('details come from Client Master', pg_temp.v() -> 'details' ->> 'email' = 'master@a.test');
+select public.bs_check('details come from Client Master', pg_temp.v() -> 'details' ->> 'company_email' = 'master@a.test');
 
 -- ── Older and unlinked accounts ──
 select public.bs_check('banking-linked account resolves', public.business_setup_portal_client(pg_temp.fx('acc_banking')::uuid) = 'CL900082');
 select public.bs_check('unlinked account gets empty view', public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'services' = '[]'::jsonb and public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'quotes' = '[]'::jsonb);
 select public.bs_check('unlinked account has no form', public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'form' = 'null'::jsonb or public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'form' is null);
-select public.bs_check('contact from client master', public.client_portal_me(pg_temp.fx('acc_a')::uuid) -> 'record' ->> 'email' = 'master@a.test' and public.client_portal_me(pg_temp.fx('acc_a')::uuid) -> 'record' ->> 'phone' = '+971501');
+select public.bs_check('contact from client master', public.client_portal_me(pg_temp.fx('acc_a')::uuid) -> 'record' ->> 'company_email' = 'master@a.test' and public.client_portal_me(pg_temp.fx('acc_a')::uuid) -> 'record' ->> 'company_phone' = '+971501');
 select public.bs_check('a Banking client gets no form', public.business_setup_portal_view(pg_temp.fx('acc_banking')::uuid) -> 'form' = 'null'::jsonb and not exists (select 1 from public.business_setup_kyc_profiles where client_id = 'CL900082'));
 select public.bs_check('a Banking-only client keeps the old portal', public.client_portal_me(pg_temp.fx('acc_none')::uuid) ? 'documents');
 

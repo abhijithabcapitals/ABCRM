@@ -22,6 +22,7 @@ export default defineConfig({
       '@banking': fileURLToPath(new URL('../Banking Module', import.meta.url)),
       '@hr': fileURLToPath(new URL('../HR Module', import.meta.url)),
       '@client-module': fileURLToPath(new URL('../Client Module', import.meta.url)),
+      '@client-login': fileURLToPath(new URL('../Client Login Module', import.meta.url)),
       '@accounting': fileURLToPath(new URL('../Accounting Module', import.meta.url)),
       '@business-setup': fileURLToPath(new URL('../Business Setup Module', import.meta.url)),
       // The Template Hub lives outside this app folder, so resolve its
