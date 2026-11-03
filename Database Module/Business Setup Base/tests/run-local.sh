@@ -37,6 +37,21 @@ SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 run_sql() {
   "${PSQL[@]}" -f "$1" >/dev/null 2>"$DATA/err" || { echo "FAILED pass $pass: $1"; cat "$DATA/err"; exit 1; }
 }
+# With ROLLBACK_TEST=1: snapshot, apply, add a row of data, roll back, check, and apply again. Used before a live apply.
+if [ -n "${ROLLBACK_TEST:-}" ]; then
+  pass=base; for f in "${BASE[@]}"; do run_sql "$f"; done
+  "${PSQL[@]}" -c "insert into public.hub_documents (doc_type, department, client_name, document_number, document_serial) values ('quote', 'Accounting', 'Keep me', 'KEEP-1', 1)" >/dev/null || exit 1
+  "${PSQL[@]}" -f "$HERE/../rollback/000_snapshot.sql" >/dev/null || exit 1
+  "${PSQL[@]}" -c "select proname, md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and proname in ('client_base_list','client_inputs_assign','client_inputs_file','client_inputs_release','client_lookup','client_master_save','hub_document_create','hub_next_number','hub_numbering_save','hub_numbering_status','voucher_set_local') order by 1" -At || exit 1
+  for f in "${MINE[@]}" "${SEED7[@]}"; do pass=mine; run_sql "$f"; done
+  "${PSQL[@]}" -c "insert into public.client_master (client_id, legal_name, data) values ('CL990001', 'R', '{}'); insert into public.business_setup_services (client_id, name) values ('CL990001', 'x')" >/dev/null || exit 1
+  "${PSQL[@]}" -f "$HERE/../rollback/001_012_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK FAILED"; cat "$DATA/err"; exit 1; }
+  "${PSQL[@]}" -f "$HERE/rollback-check.sql" 2>&1 | grep -E "ok|ERROR" ; [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
+  for f in "${MINE[@]}" "${SEED7[@]}"; do pass=again; run_sql "$f"; done
+  echo "applied again after rollback ok"
+  exit 0
+fi
+
 for pass in 1 2; do
   for f in "${BASE[@]}"; do run_sql "$f"; done
   for f in "${MINE[@]}"; do
