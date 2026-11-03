@@ -24,11 +24,15 @@ FILES=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.
   "$DB/Template Hub Base"/migrations/001_*.sql "$DB/Template Hub Base"/migrations/002_*.sql "$DB/Voucher Base"/migrations/001_*.sql
   "$DB/Voucher Base"/migrations/002_*.sql "$DB/Client Base"/migrations/002_*.sql "$DB/HR Base"/migrations/001_*.sql
   "$DB/AI Base"/migrations/001_*.sql "$DB/Admin Base"/migrations/001_*.sql "$DB/Client Base"/migrations/003_*.sql
+  "$DB/Admin Base"/migrations/003_*.sql
   "$HERE"/../migrations/*.sql)
 for pass in 1 2; do
   for f in "${FILES[@]}"; do
     "${PSQL[@]}" -f "$f" >/dev/null 2>"$DATA/err" || { echo "FAILED pass $pass: $f"; cat "$DATA/err"; exit 1; }
   done
+  # as in the release order: the new table gets its audit trigger straight after the migrations
+  BAD=$("${PSQL[@]}" -At -c "select coalesce(array_length(failed, 1), 0) from public.audit_trail_attach_all()" | tr -d '\r')
+  [ "$BAD" = "0" ] || { echo "FAILED pass $pass: audit_trail_attach_all ($BAD tables)"; exit 1; }
   echo "migrations pass $pass ok"
 done
 # Each test file and the concurrency script get their own copy of the migrated database, so they cannot disturb each other.

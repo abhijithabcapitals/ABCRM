@@ -542,6 +542,15 @@ select public.ok('licence conflict: a decided request is not flagged, even thoug
     where r ->> 'field_key' = 'license_number' and r ->> 'client' = 'Alpha Trading LLC' and r ->> 'status' = 'rejected'));
 reset role;
 
+-- ═══ audit trail: Admin Base 003 records what validation changes, with who did it ═══
+select public.ok('audit trail: the change requests table has the audit trigger',
+  (select exists (select 1 from pg_trigger where tgrelid = 'public.client_portal_change_requests'::regclass and tgname = 'audit_trail_row')));
+select public.ok('audit trail: a validation is logged on the request and on the record, with the staff member',
+  (select exists (select 1 from public.audit_trail where table_name = 'client_portal_change_requests' and action = 'UPDATE' and actor = '00000000-0000-0000-0000-000000000001' and new_values ->> 'status' = 'validated'))
+  and (select exists (select 1 from public.audit_trail where table_name = 'banking_clients' and action = 'UPDATE' and actor = '00000000-0000-0000-0000-000000000001' and new_values ->> 'license_number' = 'lic-a-new')));
+select public.ok('audit trail: a refused validation left no entry for the refused value',
+  (select not exists (select 1 from public.audit_trail where table_name = 'banking_clients' and new_values ->> 'license_number' = 'lic-b')));
+
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;
 \echo === SUMMARY ===

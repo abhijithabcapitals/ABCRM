@@ -20,8 +20,9 @@ The portal code used to live in the Client Module as `@client-module/portal` and
 Database first, then function, then site:
 
 1. Apply `Database Module/Client Login Base/migrations/001_portal_views.sql`, then `002_change_requests.sql`.
-2. Deploy the Edge Function from a temporary working folder holding `supabase/functions/client-portal/index.ts` (copied from `supabase/client-portal/index.ts` here): `supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api`.
-3. Deploy the site.
+2. Run `select public.audit_trail_attach_all();` so the new table goes straight into the audit trail.
+3. Deploy the Edge Function from a temporary working folder holding `supabase/functions/client-portal/index.ts` (copied from `supabase/client-portal/index.ts` here): `supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api`.
+4. Deploy the site.
 
 To undo the database part, run `Database Module/Client Login Base/rollback/001_002_rollback.sql`. **It deletes clients' pending edits** (`client_portal_change_requests`). Straight after it, redeploy the earlier function version and revert the site. Until then `submit_change`, `gallery_url` and Information Changes fail, because the functions they call are gone.
 

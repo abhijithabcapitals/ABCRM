@@ -7,7 +7,7 @@ What a client sees in the client portal, and the admin list of clients with thei
 | `migrations/001_portal_views.sql` | `client_portal_me` (services, accounts, documents, filing record, requested changes), `client_portal_gallery_path`, `client_portal_admin_clients`, and the `client_portal_change_requests` table |
 | `migrations/002_change_requests.sql` | `client_change_submit` (service role) and the staff functions `client_changes_list/assignees/take/assign/release/decide`; a client's edit reaches the record only when staff validate it |
 | `rollback/001_002_rollback.sql` | Undoes 001 and 002. **Deletes `client_portal_change_requests`, so clients' pending edits are lost.** Restores `client_portal_me` and `client_portal_admin_clients` from Client Base 003 |
-| `tests/run-local.sh` | Builds a throwaway local database, runs the migrations twice, then each test in its own copy of it, and the concurrency script. Exits non-zero on any failed check, aborted test file or failed concurrency script. Nothing touches Supabase |
+| `tests/run-local.sh` | Builds a throwaway local database (with Admin Base 003, so the audit trail is exercised), runs the migrations twice, then each test in its own copy of it, and the concurrency script. Exits non-zero on any failed check, aborted test file or failed concurrency script. Nothing touches Supabase |
 
 Run the tests: `bash "Database Module/Client Login Base/tests/run-local.sh"`. It reads the private Banking seed from `PRIVATE_ROOT` (default `/d/Abhijith Projects/CRM/Database Module`).
 
@@ -17,7 +17,10 @@ Rules the functions keep:
 - Clients never get risk fields, source of funds, turnover, remarks, who received a payment, payment notes, import ids, approvals, commission, staff names or storage paths.
 - An IBAN is cut to its last four characters. No account number is returned.
 - A case that was imported or is historical and has no payment rows returns no amounts at all, so the client never sees a fee as owed when the payment was simply never recorded here.
-- Documents marked sensitive show as held by AB Capital and cannot be opened. Deleted documents never appear.
+- Documents marked sensitive show as held by AB Capital and cannot be opened; their title and file name are never returned. Deleted documents never appear.
+- A generated document stays hidden while its quotation is Draft or Approval Required or its letter is Draft or Cancelled.
+- A licence number another banking client holds cannot be validated onto a client's record.
+- An account that lost both client links still appears in the admin list, marked `unlinked`.
 
 `client_portal_change_requests` holds a client's request to change one field. Only one request per field can be open. The functions that write to it are in migration 002. Staff with the Clients tab take, hand over, release, validate or reject a request; a value that changed in the CRM after the client asked needs an explicit force to overwrite.
 
@@ -35,8 +38,9 @@ Nothing here has been run against the live project. Do these in order:
 
 1. Apply `migrations/001_portal_views.sql`.
 2. Apply `migrations/002_change_requests.sql`.
-3. Deploy the Edge Function, then
-4. deploy the site.
+3. Run `select public.audit_trail_attach_all();` so the new table goes straight into the audit trail.
+4. Deploy the Edge Function, then
+5. deploy the site.
 
 The function source lives at `Client Login Module/supabase/client-portal/index.ts`, but the Supabase CLI wants `supabase/functions/client-portal/index.ts`. Copy it into a temporary working folder with that layout and deploy from there:
 

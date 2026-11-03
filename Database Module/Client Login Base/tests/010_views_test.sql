@@ -218,6 +218,12 @@ select public.ok('Beta doc: path null for Alpha, set for Beta',
   (select public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'kyc', 'd2000000-0000-0000-0000-000000000001') is null
       and public.client_portal_gallery_path('bb000000-0000-0000-0000-0000000000bb', 'kyc', 'd2000000-0000-0000-0000-000000000001') ->> 'storage_path' = 'beta/lic.pdf'));
 select public.ok('Beta doc absent from Alpha gallery', (select public.card('aa000000-0000-0000-0000-0000000000aa', 'd2000000-0000-0000-0000-000000000001') is null));
+select public.ok('Alpha''s accounts and generated documents are absent from Beta''s output',
+  (select jsonb_array_length(m -> 'accounts') = 1 and m -> 'accounts' -> 0 ->> 'case_ref' = 'T-BETA'
+      and not exists (select 1 from jsonb_array_elements(m -> 'gallery') g where g ->> 'source' = 'generated')
+      and m::text !~ 'T-OWN|T-OPEN|RC-TEST-1|QT-|EL-|quote|letter'
+   from (select public.client_portal_me('bb000000-0000-0000-0000-0000000000bb') m) x),
+  (select public.client_portal_me('bb000000-0000-0000-0000-0000000000bb')::text));
 select public.ok('generated doc with a path opens',
   (select g ->> 'source' = 'generated' and g ->> 'can_open' = 'true' from (select public.card('aa000000-0000-0000-0000-0000000000aa', '9e000000-0000-0000-0000-000000000001') g) x));
 select public.ok('generated doc path function works, and refuses another client',
