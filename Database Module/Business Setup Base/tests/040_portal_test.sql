@@ -67,6 +67,10 @@ select public.bs_check('own files resolve', public.business_setup_portal_file(pg
   and public.business_setup_portal_file(pg_temp.fx('acc_a')::uuid, 'receipt', pg_temp.fx('rcp_a')::uuid) ->> 'path' = 'r/a.docx'
   and public.business_setup_portal_file(pg_temp.fx('acc_a')::uuid, 'output', pg_temp.fx('out_a')::uuid) ->> 'bucket' = 'business-setup-documents');
 
+-- Old CRM tasks stay internal: their names were written for staff.
+insert into public.business_setup_services (client_id, name, status, historical) values ('CL900080', 'Old board task', 'Completed', true);
+select public.bs_check('old CRM tasks are not shown', pg_temp.v()::text !~ 'Old board task');
+
 -- ── Only named fields ──
 -- The form definition legitimately says "beneficial owner", so it is checked separately.
 select public.bs_check('the form holds no staff fields', (pg_temp.v() -> 'form') - 'definition' ?| array['taken_by', 'reviewed_by', 'client_id', 'account_id'] = false);
