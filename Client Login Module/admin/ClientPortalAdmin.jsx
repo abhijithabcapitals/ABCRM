@@ -1,6 +1,6 @@
 // Admin only: give, reset and revoke client portal logins, and preview what a client sees.
 // The SQL refuses anyone else; hiding the tab is only a courtesy.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, Modal, PageHead, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
@@ -29,13 +29,23 @@ function AccessModal({ client, onClose, onDone }) {
   const [password, setPassword] = useState(generatePassword);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [saved, setSaved] = useState(false);
+  const [email, setEmail] = useState("");
+  const [saved, setSaved] = useState(null); // the function's reply: { email, emailed, email_error }
   const [copied, setCopied] = useState(false);
+  // Suggests the email on file, without overwriting anything already typed.
+  useEffect(() => {
+    let live = true;
+    rpc("client_portal_admin_access_email", { p_banking_client_id: client.banking_client_id, p_client_master_id: client.client_master_id })
+      .then((found) => { if (live && found) setEmail((typed) => typed || found); })
+      .catch(() => { /* the admin can still type it */ });
+    return () => { live = false; };
+  }, [client.banking_client_id, client.client_master_id]);
   const save = async () => {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError("Enter the client's email address. The login is sent there.");
     setBusy(true); setError(null);
     try {
-      await rpc("client_portal_admin_save", { p_banking_client_id: client.banking_client_id, p_client_master_id: client.client_master_id, p_username: username, p_password: password });
-      setSaved(true);
+      const reply = await staffCall("admin_grant_access", { banking_client_id: client.banking_client_id, client_master_id: client.client_master_id, username, password, email: email.trim(), reset: !!client.account_id });
+      setSaved(reply);
       onDone();
     } catch (e) { setError(e.message); }
     setBusy(false);
@@ -47,16 +57,21 @@ function AccessModal({ client, onClose, onDone }) {
   return (
     <Modal title={`${client.account_id ? "New password for" : "Give access to"} ${client.display_name}`} onClose={onClose}>
       <ErrorNote message={error} />
-      {saved ? <>
-        <p>Access is on. Share these with the client securely. The password cannot be shown again.</p>
+      {saved?.emailed ? <>
+        <p>Access is on. The login was emailed to <strong>{saved.email}</strong>. The client sets their own password at first sign-in.</p>
+        <div className="bk-actions"><Button variant="primary" onClick={onClose}>Done</Button></div>
+      </> : saved ? <>
+        <ErrorNote message={`Access is on, but the email to ${saved.email} did not send: ${saved.email_error || "unknown error"}`} />
+        <p>Share these with the client securely. The password cannot be shown again.</p>
         <p><strong>Username:</strong> {username.trim().toLowerCase()}<br /><strong>Password:</strong> <code>{password}</code></p>
         <div className="bk-actions"><Button variant="primary" onClick={copy}>{copied ? "Copied" : "Copy"}</Button><Button onClick={onClose}>Done</Button></div>
       </> : <>
         <div className="bk-grid">
+          <div className="bk-field bk-full"><label htmlFor="cp-email">Client email <em>*</em></label><input id="cp-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} /><small>The username and password are sent here.</small></div>
           <div className="bk-field bk-full"><label htmlFor="cp-user">Username <em>*</em></label><input id="cp-user" autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} /><small>4 to 60 letters, numbers, dots, dashes or underscores. No @.</small></div>
           <div className="bk-field bk-full"><label htmlFor="cp-pass">Password <em>*</em></label><input id="cp-pass" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /><small>Generated for you. At least 10 characters.{client.account_id ? " Saving signs the client out." : ""}</small></div>
         </div>
-        <div className="bk-actions bk-mt"><Button variant="primary" busy={busy} onClick={save}>Save</Button><Button onClick={() => setPassword(generatePassword())}>Generate again</Button></div>
+        <div className="bk-actions bk-mt"><Button variant="primary" busy={busy} onClick={save}>Save and email</Button><Button onClick={() => setPassword(generatePassword())}>Generate again</Button></div>
       </>}
     </Modal>
   );

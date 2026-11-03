@@ -4,7 +4,7 @@
 // that caller is an admin, then performs the privileged operation with the
 // service key (available only here, in Deno env).
 //
-// Deploy:  supabase functions deploy admin-users
+// Deploy:  supabase functions deploy admin-users, with _shared and ceo-mail-reply/smtp.ts beside it (see Client Login Module/README.md)
 // Secrets: SUPABASE_URL is injected automatically. Set SERVICE_SECRET_KEY to a
 //          new secret API key (sb_secret_…) once you migrate off legacy JWT
 //          keys; until then it falls back to the injected SUPABASE_SERVICE_ROLE_KEY.
@@ -20,6 +20,7 @@
 //   { action: "openrouter_status" }   -> usage and limit of the key, never the key
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { emailCredentials } from "../_shared/credentialMail.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -101,7 +102,7 @@ Deno.serve(async (req: Request) => {
         employee = found;
       }
       const { data: made, error: makeErr } = await admin.auth.admin.createUser({
-        email, password, email_confirm: true, user_metadata: { full_name: employee.full_name, ...(employee.employee_code ? { employee_code: employee.employee_code } : {}) },
+        email, password, email_confirm: true, user_metadata: { must_change_password: true, full_name: employee.full_name, ...(employee.employee_code ? { employee_code: employee.employee_code } : {}) },
       });
       if (makeErr) return json({ error: makeErr.message }, 400);
       const id = made.user.id;
@@ -131,7 +132,8 @@ Deno.serve(async (req: Request) => {
         return json({ error: (e as Error).message }, 400);
       }
       await audit("onboard_member", email, { employee_code: employee.employee_code, new_employee: !!fresh, tabs, data_role: body.data_role || null });
-      return json({ ok: true, user_id: id });
+      const sent = await emailCredentials(admin, caller.id, email, { audience: "staff", reset: false, name: employee.full_name, username: email, password });
+      return json({ ok: true, user_id: id, email, ...sent });
     }
 
     if (action === "set_access") {
@@ -147,10 +149,15 @@ Deno.serve(async (req: Request) => {
       const user_id = String(body.user_id || "");
       const password = String(body.password || "");
       if (!user_id || password.length < 8) return json({ error: "A password needs at least 8 characters." }, 400);
-      const { error } = await admin.auth.admin.updateUserById(user_id, { password });
+      // Someone resetting their own password has chosen it, so nothing is mailed or forced.
+      const self = user_id === caller.id;
+      const { data: updated, error } = await admin.auth.admin.updateUserById(user_id, { password, ...(self ? {} : { user_metadata: { must_change_password: true } }) });
       if (error) return json({ error: error.message }, 400);
       await audit("reset_password", user_id);
-      return json({ ok: true });
+      const email = updated.user?.email;
+      if (self || !email) return json({ ok: true, emailed: false, self });
+      const sent = await emailCredentials(admin, caller.id, email, { audience: "staff", reset: true, name: String(updated.user?.user_metadata?.full_name || ""), username: email, password });
+      return json({ ok: true, email, ...sent });
     }
 
     if (action === "set_suspended") {
@@ -179,12 +186,13 @@ Deno.serve(async (req: Request) => {
       const password = String(body.password || "");
       if (!email || !full_name || password.length < 8) return json({ error: "Email, name, and an 8+ char password are required." }, 400);
       const { data, error } = await admin.auth.admin.createUser({
-        email, password, email_confirm: true, user_metadata: { full_name },
+        email, password, email_confirm: true, user_metadata: { full_name, must_change_password: true },
       });
       if (error) return json({ error: error.message }, 400);
       const { error: pErr } = await admin.from("profiles").upsert({ id: data.user.id, email, full_name, role });
       if (pErr) return json({ error: pErr.message }, 400);
-      return json({ ok: true, user_id: data.user.id });
+      const sent = await emailCredentials(admin, caller.id, email, { audience: "staff", reset: false, name: full_name, username: email, password });
+      return json({ ok: true, user_id: data.user.id, email, ...sent });
     }
 
     if (action === "delete_user") {

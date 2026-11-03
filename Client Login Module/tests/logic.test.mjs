@@ -256,3 +256,50 @@ test("Client Inputs shows Information Changes, which calls every client_changes_
   assert.match(src, /changed since/);
   assert.doesNotMatch(src, /dangerouslySetInnerHTML|<a /);
 });
+
+test("login email carries the sign-in details and asks for a new password", async () => {
+  const { credentialEmail, SIGN_IN_URL } = await import("../supabase/_shared/credentialText.ts");
+  const client = credentialEmail({ audience: "client", reset: false, name: "Alpha\r\nBcc: x", username: "alpha.user", password: "Secret123456" });
+  assert.match(client.subject, /client portal login/);
+  assert.match(client.text, /Username: alpha\.user/);
+  assert.match(client.text, /Temporary password: Secret123456/);
+  assert.ok(client.text.includes(SIGN_IN_URL));
+  assert.match(client.text, /set your own password/);
+  assert.match(client.text, /^Dear Alpha Bcc: x,/);
+  assert.doesNotMatch(client.subject, /Secret/);
+  const staff = credentialEmail({ audience: "staff", reset: true, name: "", username: "a@b.test", password: "p" });
+  assert.match(staff.subject, /Workspace password has been reset/);
+  assert.match(staff.text, /^Dear Sir or Madam,/);
+});
+
+test("login email: no copy to Sent, and no password in the audit row", () => {
+  const src = readFileSync(fileURLToPath(new URL("../supabase/_shared/credentialMail.ts", import.meta.url)), "utf8").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(src, /append|ImapClient|Sent/i);
+  for (const m of src.matchAll(/detail: \{([^}]*)\}/g)) assert.doesNotMatch(m[1], /password/);
+  assert.match(src, /split\(mail\.password\)\.join\("\[hidden\]"\)/);
+});
+
+test("client-portal: a must-change client can only load, sign out or change the password", () => {
+  const src = readFileSync(fileURLToPath(new URL("../supabase/client-portal/index.ts", import.meta.url)), "utf8").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(src, /mustChange && !\["me", "logout", "change_password"\]\.includes\(action\)/);
+  assert.ok(src.indexOf("mustChange && !") < src.indexOf("switch (action)"));
+  assert.match(src, /\.\.\.data, must_change_password: mustChange/);
+  const grant = src.slice(src.indexOf('if (action === "admin_grant_access")'), src.indexOf('if (action === "admin_preview")'));
+  assert.match(grant, /error\.code === "P0001"\) throw new InputError\(error\.message\)/);
+  assert.ok(grant.indexOf('isAdmin !== true') < grant.indexOf("client_portal_admin_grant"));
+  assert.doesNotMatch(grant, /json\(\{[^}"]*\bpassword\b/);
+});
+
+test("admin-users: every generated password is mailed and must be replaced", () => {
+  const src = readFileSync(fileURLToPath(new URL("../../Main Module/db/edge-function-admin-users.ts", import.meta.url)), "utf8").replace(/^\s*\/\/.*$/gm, "");
+  assert.equal((src.match(/emailCredentials\(admin/g) || []).length, 3);
+  assert.equal((src.match(/must_change_password: true/g) || []).length, 3);
+  assert.doesNotMatch(src, /json\(\{[^}"]*\bpassword\b/);
+});
+
+test("forced change: the portal and the workspace both stop at it", () => {
+  const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8");
+  assert.match(read("../portal/ClientPortal.jsx"), /must_change_password && !readOnly/);
+  assert.match(read("../../Main Module/src/App.jsx"), /user_metadata\?\.must_change_password/);
+  assert.match(read("../admin/ClientPortalAdmin.jsx"), /admin_grant_access/);
+});

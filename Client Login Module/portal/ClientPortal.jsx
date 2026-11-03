@@ -4,6 +4,7 @@ import "@banking/components/banking.css";
 import "./portal.css";
 import { Button, ErrorNote, FormModal, PageHead, Spinner, useLoad } from "@banking/components/shared";
 import { portalApi } from "./portalApi";
+import FirstPassword from "./FirstPassword";
 import ServicesTab from "./ServicesTab";
 import AccountsTab from "./AccountsTab";
 import DocumentsTab from "./DocumentsTab";
@@ -19,12 +20,13 @@ export default function ClientPortal({ api = portalApi, readOnly }) {
   const [tab, setTab] = useState("services");
   const [changing, setChanging] = useState(false);
   const props = { me: me.data, api, readOnly, reload: me.reload };
+  const mustChange = me.data?.must_change_password && !readOnly;
   return (
     <div className="bk-root">
       <PageHead title={me.data?.display_name || "Client Portal"} sub={readOnly ? "Preview of what this client sees. Nothing can be changed here." : "Your record with AB Capital, and a safe place to send us documents."} />
-      {!readOnly && <div className="bk-actions bk-mb"><Button onClick={() => setChanging(true)}>Change password</Button><Button onClick={() => api.logout()}>Sign out</Button></div>}
+      {!readOnly && <div className="bk-actions bk-mb">{!mustChange && <Button onClick={() => setChanging(true)}>Change password</Button>}<Button onClick={() => api.logout()}>Sign out</Button></div>}
       <ErrorNote message={me.error} />
-      {me.loading && !me.data ? <Spinner /> : me.data && <>
+      {me.loading && !me.data ? <Spinner /> : mustChange ? <FirstPassword api={api} onDone={me.reload} /> : me.data && <>
         <div className="bk-tabs" role="tablist" aria-label="Your portal">
           {TABS.map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
         </div>

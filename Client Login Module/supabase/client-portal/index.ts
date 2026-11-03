@@ -13,11 +13,13 @@
 //   gallery_url { source, id } -> { url }          source is kyc or generated; link lasts 120 seconds
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
 //   admin_preview { account_id }   admins only, read-only copy of what the client sees
+//   admin_grant_access { banking_client_id, client_master_id, username, password, email, reset }   admins only: saves the login, mails the password
 //   staff_url { id, filed? }, staff_review { id, status, note? }
 //
 // Deploy: supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { emailCredentials } from "../_shared/credentialMail.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -65,11 +67,26 @@ Deno.serve(async (req) => {
       return json({ token: data.token });
     }
 
-    if (action === "admin_preview" || action === "staff_url" || action === "staff_review") {
+    if (action === "admin_preview" || action === "admin_grant_access" || action === "staff_url" || action === "staff_review") {
       // Runs as the signed-in staff member, so the SQL's auth.uid() checks apply.
       const staff = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
         auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
       });
+      if (action === "admin_grant_access") {
+        const { data: isAdmin } = await staff.rpc("client_portal_is_admin");
+        if (isAdmin !== true) return json({ error: "Admins only." }, 403);
+        const password = String(body.password || "").slice(0, 200);
+        const { data: granted, error } = await staff.rpc("client_portal_admin_grant", {
+          p_banking_client_id: body.banking_client_id || null, p_client_master_id: body.client_master_id || null,
+          p_username: String(body.username || "").slice(0, 100), p_password: password, p_email: String(body.email || "").slice(0, 300),
+        });
+        if (error) {
+          if (error.code === "P0001") throw new InputError(error.message);
+          throw new Error(error.message);
+        }
+        const sent = await emailCredentials(admin, granted.actor, granted.email, { audience: "client", reset: !!body.reset, name: granted.display_name, username: granted.username, password });
+        return json({ ok: true, email: granted.email, ...sent });
+      }
       if (action === "admin_preview") {
         const { data: ok } = await staff.rpc("client_portal_is_admin");
         if (ok !== true) return json({ error: "Admins only." }, 403);
@@ -106,6 +123,13 @@ Deno.serve(async (req) => {
     const { data: accountId } = await admin.rpc("client_portal_session", { p_token: token });
     if (!accountId) return json({ error: "Please sign in again.", signed_out: true }, 401);
 
+    // A mailed password must be replaced before anything else opens. Enforced here, not just on screen.
+    const { data: account } = await admin.from("client_portal_accounts").select("must_change_password").eq("id", accountId).maybeSingle();
+    const mustChange = !!account?.must_change_password;
+    if (mustChange && !["me", "logout", "change_password"].includes(action)) {
+      return json({ error: "Please set your own password first.", must_change_password: true }, 403);
+    }
+
     const ownDoc = async () => {
       const { data } = await admin.from("client_portal_documents").select("*").eq("id", String(body.id || "")).eq("account_id", accountId).maybeSingle();
       if (!data) throw new InputError("Document not found.");
@@ -116,13 +140,14 @@ Deno.serve(async (req) => {
       case "me": {
         const { data, error } = await admin.rpc("client_portal_me", { p_account: accountId });
         if (error) throw new Error(error.message);
-        return json(data);
+        return json({ ...data, must_change_password: mustChange });
       }
       case "logout":
         await admin.rpc("client_portal_logout", { p_token: token });
         return json({ ok: true });
       case "change_password": {
         if (String(body.next || "").length < 10) throw new InputError("The new password needs at least 10 characters.");
+        if (String(body.next) === String(body.current || "")) throw new InputError("Choose a password different from your current one.");
         const { data } = await admin.rpc("client_portal_change_password", { p_token: token, p_current: String(body.current || "").slice(0, 200), p_new: String(body.next).slice(0, 200) });
         if (data !== true) throw new InputError("Your current password is not correct.");
         return json({ ok: true });

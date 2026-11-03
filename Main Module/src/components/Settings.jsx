@@ -127,7 +127,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
         body: { action: "create_user", email: invite.email.trim(), password: invite.password, full_name: invite.full_name.trim(), role: invite.role },
       });
       if (error || data?.error) { showMsg(data?.error || error.message, "error"); setInviting(false); return; }
-      showMsg(`${invite.full_name} added. Share their email and password with them.`);
+      showMsg(data?.emailed ? `${invite.full_name} added. Their login was emailed to ${data.email}.` : `${invite.full_name} added, but the email did not send. Share the password with them directly.`, data?.emailed ? "success" : "error");
       setInvite({ full_name: "", email: "", password: "", role: "member" });
       setShowInvite(false);
       fetchMembers();

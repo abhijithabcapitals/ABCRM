@@ -15,6 +15,14 @@ What a client sees after signing in with their portal username: their record, do
 
 The portal code used to live in the Client Module as `@client-module/portal` and `crm/ClientPortalAdmin`; it has moved here, and those old paths no longer exist.
 
+## Login emails
+
+Give access, New password, and the staff forms in Settings (Add member, Onboard member, Reset password) email the username and password from `info@abcapital.ae`, using the mailbox's own mail server. `supabase/_shared/credentialText.ts` holds the wording and `credentialMail.ts` sends it. No copy goes to the Sent folder, because the CRM syncs that mailbox and the password would be readable there. A failed email never removes the login: the admin sees the reason and shares the password another way. Each send is logged in `admin_audit` without the password.
+
+Someone with an emailed password must set their own at first sign-in. For clients the `client-portal` function enforces this through `must_change_password`. For staff the workspace stops at `ForcePasswordChange.jsx` through their `must_change_password` user metadata.
+
+Deploying `client-portal` or `admin-users` needs a temporary working folder holding, under `supabase/functions/`: `_shared/` (from `supabase/_shared` here), `ceo-mail-reply/smtp.ts`, and the function as `<name>/index.ts` (`admin-users` comes from `Main Module/db/edge-function-admin-users.ts`). Deploy `client-portal` with `--no-verify-jwt`. Migration `Database Module/Client Login Base/migrations/003_password_email.sql` goes first, and its undo is `rollback/003_rollback.sql`.
+
 ## Release
 
 Database first, then function, then site:

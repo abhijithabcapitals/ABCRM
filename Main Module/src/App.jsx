@@ -15,6 +15,7 @@ const Dashboard = lazy(() => import("./components/Dashboard"));
 const Tasks = lazy(() => import("./components/Tasks"));
 const Wiki = lazy(() => import("./components/Wiki"));
 const WhiteboardView = lazy(() => import("./components/Whiteboard"));
+import ForcePasswordChange from "./components/ForcePasswordChange";
 const Settings = lazy(() => import("./components/Settings"));
 const MyTasks = lazy(() => import("./components/MyTasks"));
 const TemplateHub = lazy(() => import("@template-hub/components/TemplateHub"));
@@ -421,6 +422,10 @@ export default function App() {
 
   if (!user) {
     return <Login onLogin={setUser} />;
+  }
+
+  if (user.user_metadata?.must_change_password) {
+    return <ForcePasswordChange onDone={setUser} onSignOut={() => supabase.auth.signOut()} />;
   }
 
   setUsageUser(profile?.id);

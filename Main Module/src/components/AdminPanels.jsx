@@ -247,6 +247,7 @@ function Onboard({ onClose, onDone }) {
   const staff = useLoad(async () => check(await supabase.from("hr_employees").select("*").is("profile_id", null).neq("status", "Left").order("employee_code")), []);
   const [v, setV] = useState({ employee_id: "", full_name: "", department: "", designation: "", email: "", password: "", confirm: "", data_role: "" });
   const [isNew, setIsNew] = useState(false); // new person: their HR Base record is created with the login
+  const [made, setMade] = useState(null); // the reply once the login exists: did the email go?
   const [tabs, setTabs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -263,8 +264,16 @@ function Onboard({ onClose, onDone }) {
     if (needsRole(tabs) && !v.data_role) bad.push(["ob-role", "a data role for the chosen tabs"]);
     if (bad.length) { setError(`Please provide ${bad.map((b) => b[1]).join(", ")}.`); flagMissing(bad.map((b) => b[0])); return; }
     setBusy(true); setError(null);
-    try { await adminUsers({ action: "onboard_member", ...(isNew ? { new_employee: { full_name: v.full_name.trim(), department: v.department.trim() || null, designation: v.designation.trim() || null } } : { employee_id: v.employee_id }), email: v.email.trim(), password: v.password, tabs, data_role: needsRole(tabs) ? v.data_role : null }); await onDone(); onClose(); } catch (e) { setError(e.message); setBusy(false); }
+    try { const r = await adminUsers({ action: "onboard_member", ...(isNew ? { new_employee: { full_name: v.full_name.trim(), department: v.department.trim() || null, designation: v.designation.trim() || null } } : { employee_id: v.employee_id }), email: v.email.trim(), password: v.password, tabs, data_role: needsRole(tabs) ? v.data_role : null }); await onDone(); setMade(r); setBusy(false); } catch (e) { setError(e.message); setBusy(false); }
   };
+  if (made) return (
+    <Modal title="Onboard member" onClose={onClose}>
+      {made.emailed
+        ? <div className="bk-alert bk-alert-ok">Login created. The details were emailed to {made.email}, and they set their own password at first sign-in.</div>
+        : <ErrorNote message={`Login created, but the email to ${made.email} did not send: ${made.email_error || "unknown error"}. Share the password with them directly.`} />}
+      <div className="bk-modal-actions"><Button variant="primary" onClick={onClose}>Done</Button></div>
+    </Modal>
+  );
   return (
     <Modal wide title="Onboard member" onClose={onClose}>
       <ErrorNote message={error || staff.error} onClose={() => setError(null)} />
@@ -299,7 +308,7 @@ function EditMember({ member, currentUser, onClose, onDone }) {
   const self = member.id === currentUser?.id;
   const act = async (key, fn, done) => {
     setBusy(key); setError(null); setNote(null);
-    try { await fn(); await onDone(); if (done) setNote(done); else onClose(); } catch (e) { setError(e.message); }
+    try { const r = await fn(); await onDone(); if (done) setNote(typeof done === "function" ? done(r) : done); else onClose(); } catch (e) { setError(e.message); }
     setBusy(null);
   };
   const saveAccess = () => {
@@ -319,7 +328,7 @@ function EditMember({ member, currentUser, onClose, onDone }) {
         </>
       )}
       <h4 className="bk-subhead bk-mt">Reset password</h4>
-      <div className="bk-add-line"><div className="bk-field"><label htmlFor="me-pass">New password</label><input id="me-pass" type="password" autoComplete="new-password" value={pass} onChange={(e) => setPass(e.target.value)} /></div><Button busy={busy === "pass"} onClick={() => { if (pass.length < 8) { setError("A password needs at least 8 characters."); flagMissing(["me-pass"]); return; } act("pass", async () => { await adminUsers({ action: "reset_password", user_id: member.id, password: pass }); setPass(""); }, "Password changed. Share it with the member directly."); }}>Set password</Button></div>
+      <div className="bk-add-line"><div className="bk-field"><label htmlFor="me-pass">New password</label><input id="me-pass" type="password" autoComplete="new-password" value={pass} onChange={(e) => setPass(e.target.value)} /></div><Button busy={busy === "pass"} onClick={() => { if (pass.length < 8) { setError("A password needs at least 8 characters."); flagMissing(["me-pass"]); return; } act("pass", async () => { const r = await adminUsers({ action: "reset_password", user_id: member.id, password: pass }); setPass(""); return r; }, (r) => (r.emailed ? `Password changed and emailed to ${r.email}. They set their own at next sign-in.` : r.self ? "Your password is changed." : `Password changed, but the email did not send${r.email_error ? `: ${r.email_error}` : ""}. Share it with the member directly.`)); }}>Set password</Button></div>
       {!self && (
         <div className="bk-actions bk-mt">
           <Button busy={busy === "susp"} onClick={() => act("susp", () => adminUsers({ action: "set_suspended", user_id: member.id, suspended: !member.suspended }))}>{member.suspended ? "Reactivate login" : "Suspend login"}</Button>
