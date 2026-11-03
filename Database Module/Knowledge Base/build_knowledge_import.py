@@ -125,6 +125,7 @@ def build_sql(lines, entries):
     out = [
         "-- Knowledge import. Holds prices: keep it out of Git. Re-running adds new rows only.",
         f"-- {len(lines)} price lines, {len(entries)} entries",
+        "set client_encoding to 'UTF8';",
         "begin;",
     ]
     for l in lines:

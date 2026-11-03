@@ -124,6 +124,11 @@ class SqlTests(unittest.TestCase):
         entries, _, _ = b.parse_articles([art("1", "It's a title", "<p>don't</p>")], CATS)
         return b.build_sql(lines, entries)
 
+    def test_sql_sets_client_encoding_before_begin(self):
+        sql = self.build()
+        self.assertIn("set client_encoding to 'UTF8';", sql)
+        self.assertLess(sql.index("set client_encoding to 'UTF8';"), sql.index("begin;"))
+
     def test_sql_escapes_quotes(self):
         sql = self.build()
         self.assertIn("'Owner''s fee'", sql)
