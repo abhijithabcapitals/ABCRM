@@ -528,8 +528,8 @@
         {
           "id": "zoho-books",
           "name": "Zoho Books",
-          "status": "planned",
-          "usedBy": "",
+          "status": "in_use",
+          "usedBy": "zoho-books function",
           "secrets": [
             {
               "name": "ZOHO_CLIENT_ID",
@@ -550,6 +550,17 @@
               "name": "ZOHO_BOOKS_ORG_ID",
               "use": "Which Zoho Books organisation",
               "source": "Zoho Books -> Settings -> Organisation Profile"
+            },
+            {
+              "name": "ZOHO_DC",
+              "use": "Zoho data centre domain, such as ae or com",
+              "source": "The address you log in on, such as books.zoho.ae",
+              "secret": false
+            },
+            {
+              "name": "ZOHO_VAT_TAX_ID",
+              "use": "Zoho's 5% VAT code",
+              "source": "Picked under Zoho connection on this card"
             }
           ]
         },

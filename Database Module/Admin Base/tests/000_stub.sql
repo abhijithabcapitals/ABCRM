@@ -32,3 +32,6 @@ create table net.requests (id bigint primary key, url text, headers jsonb, body 
 create table net._http_response (id bigint, status_code int, timed_out boolean, error_msg text, content text);
 create function net.http_post(url text, body jsonb, params jsonb default '{}', headers jsonb default '{}', timeout_milliseconds int default 1000) returns bigint language sql as $$
   insert into net.requests values (nextval('net.seq'), url, headers, body) returning id $$;
+
+create table public.client_master (client_id text primary key);
+alter role service_role bypassrls; -- as on Supabase
