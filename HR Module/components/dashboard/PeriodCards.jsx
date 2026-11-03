@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ErrorNote, Modal, fmtDate } from "@banking/components/shared";
 import { attendanceRange } from "../../services/hrApi";
-import { CARD_TIME, cardTimes, dubaiToday, leaveCard, todayLabel } from "../../logic/attendance";
+import { CARD_TIME, cardTimes, dubaiToday, leaveCard, minutesText, todayLabel } from "../../logic/attendance";
 
 const BEFORE_LEAVE = [
   { key: "present", label: "Present" },
@@ -13,17 +13,21 @@ const AFTER_LEAVE = [
   { key: "wfh", label: "Work From Home" },
 ];
 
-// One person in an opened card. Present, Late and Overtime show the punch time: one day beside the name, a longer period day by day.
-function PersonRow({ person, timeLabel, times, longPeriod }) {
+// One person in an opened card. Cards with punches show login, logoff and overtime for each day the card counts, with the dates over a longer period.
+function PersonRow({ person, times, longPeriod }) {
   const dayCount = `${person.days} day${person.days === 1 ? "" : "s"}`;
   const name = `${person.full_name}${person.kind ? ` (${person.kind})` : ""}`;
-  if (!timeLabel || !times) return <li><span>{name}</span><strong>{dayCount}</strong></li>;
+  if (!times) return <li><span>{name}</span><strong>{dayCount}</strong></li>;
   const list = times[person.employee_id] || [];
-  if (!longPeriod) return <li><span>{name}</span><strong>{timeLabel} {list[0]?.time || "–"}</strong></li>;
+  const totalOvertime = list.reduce((s, d) => s + d.overtimeMinutes, 0);
   return (
-    <li>
-      <span>{name}<small className="hr-people-times">{list.map((d) => `${fmtDate(d.date)} ${d.time || "–"}`).join(" · ")}</small></span>
-      <strong>{dayCount}</strong>
+    <li className="hr-people-days">
+      <div className="hr-people-head"><span>{name}</span><strong>{dayCount}{totalOvertime > 0 ? ` · ${minutesText(totalOvertime)} overtime` : ""}</strong></div>
+      {list.map((d) => (
+        <small key={d.date} className="hr-people-times">
+          {longPeriod ? `${fmtDate(d.date)} · ` : ""}Login {d.login || "–"} · Logoff {d.logoff || "–"} · Overtime {d.overtime}
+        </small>
+      ))}
     </li>
   );
 }
@@ -67,7 +71,7 @@ export default function PeriodCards({ data, longPeriod }) {
           <ErrorNote message={error} />
           {!open.people.length ? <p className="bk-note hr-quiet">No one in this period.</p> : (
             <ul className="hr-people-list">
-              {open.people.map((p) => <PersonRow key={`${p.employee_id}-${p.kind || ""}`} person={p} timeLabel={timeCard?.label} times={times} longPeriod={longPeriod} />)}
+              {open.people.map((p) => <PersonRow key={`${p.employee_id}-${p.kind || ""}`} person={p} times={times} longPeriod={longPeriod} />)}
             </ul>
           )}
         </Modal>

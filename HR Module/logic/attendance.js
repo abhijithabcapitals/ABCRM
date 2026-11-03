@@ -74,22 +74,29 @@ const clockMinutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 // Time between first and last punch as "9h 05m". Blank until both punches exist.
 export function workedText(row) {
   if (!row?.time_in || !row?.time_out) return "";
-  const m = clockMinutes(row.time_out) - clockMinutes(row.time_in);
-  return `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
+  return minutesText(clockMinutes(row.time_out) - clockMinutes(row.time_in));
 }
 
-// Which time a dashboard card shows beside a name, and which days count for it, as the database counts them.
+export const minutesText = (m) => `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
+
+// The dashboard cards that list punches, and which days count for each, as the database counts them.
 export const CARD_TIME = {
-  present: { label: "In", field: "time_in", counts: (r) => r.status === "Present" },
-  late: { label: "In", field: "time_in", counts: (r) => r.late_minutes > 0 },
-  overtime: { label: "Out", field: "time_out", counts: (r) => r.overtime_minutes > 0 },
+  present: { counts: (r) => r.status === "Present" },
+  late: { counts: (r) => r.late_minutes > 0 },
+  overtime: { counts: (r) => r.overtime_minutes > 0 },
+  wfh: { counts: (r) => r.status === "WFH" },
 };
 
-// Rows from hr_attendance_range -> { employee_id: [{ date, time }] } for a card, earliest day first.
+// Rows from hr_attendance_range -> { employee_id: [{ date, login, logoff, overtime, overtimeMinutes }] } for a card, earliest day first.
 export function cardTimes(rows, key) {
-  const { field, counts } = CARD_TIME[key];
+  const { counts } = CARD_TIME[key];
   const by = {};
-  for (const r of (rows || []).filter(counts)) (by[r.employee_id] ??= []).push({ date: r.work_date, time: String(r[field] ?? "").slice(0, 5) });
+  for (const r of (rows || []).filter(counts)) {
+    (by[r.employee_id] ??= []).push({
+      date: r.work_date, login: String(r.time_in ?? "").slice(0, 5), logoff: String(r.time_out ?? "").slice(0, 5),
+      overtime: minutesText(r.overtime_minutes || 0), overtimeMinutes: r.overtime_minutes || 0,
+    });
+  }
   for (const list of Object.values(by)) list.sort((a, b) => a.date.localeCompare(b.date));
   return by;
 }
