@@ -264,7 +264,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
           ))}
         </div>
 
-        {["health", "team", "employees", "ai", "storage", "jobs", "audit"].includes(activeTab) && (
+        {["health", "team", "employees", "ai", "storage", "jobs", "audit-trail", "audit"].includes(activeTab) && (
           <div className="bk-root">
             {activeTab === "health" && <HealthPanel />}
             {activeTab === "team" && <MembersPanel currentUser={currentUser} />}
