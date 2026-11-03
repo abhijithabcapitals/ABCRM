@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Empty, ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import { dubaiToday } from "@hr/logic/attendance.js";
 import "./knowledge.css";
-import { listBankingPrices, listCategories, listEntries, listPriceLines, listServices, search as searchKnowledge } from "../services/knowledgeApi";
-import { needsReview } from "../logic/status.js";
+import { listBankingPrices, listCategories, listEntries, listPriceLineReview, listPriceLines, listServices, search as searchKnowledge } from "../services/knowledgeApi";
+import { searchLimitNote } from "../logic/search.js";
+import { mergeReview, needsReview } from "../logic/status.js";
 import PricingView, { BankingCard, PriceGroupCard } from "./PricingView";
 import ServicesView, { ServiceCard } from "./ServicesView";
 import EntriesView, { EntryCard } from "./EntriesView";
@@ -40,6 +41,9 @@ export default function KnowledgeModule({ profile }) {
   const entries = useLoad(listEntries, []);
   const services = useLoad(listServices, []);
   const categories = useLoad(async () => (isAdmin ? listCategories() : []), [isAdmin]);
+  const review = useLoad(async () => (isAdmin ? listPriceLineReview() : []), [isAdmin]);
+  const reviewRows = review.error ? null : review.data; // a failed reload keeps old data, which must not be trusted
+  const reviewLines = useMemo(() => mergeReview(lines.data || [], reviewRows), [lines.data, reviewRows]);
   const [tab, setTab] = useState("pricing");
   const [query, setQuery] = useState("");
   const [found, setFound] = useState({ hits: null, error: null, loading: false });
@@ -64,10 +68,10 @@ export default function KnowledgeModule({ profile }) {
   }, [query]);
 
   const data = { lines, banking, entries, services };
-  const reviewCount = isAdmin ? [...(lines.data || []), ...(entries.data || [])].filter(needsReview).length : 0;
+  const reviewCount = isAdmin ? [...reviewLines, ...(entries.data || [])].filter(needsReview).length : 0;
   const tabs = isAdmin ? [...TABS, ["review", `Needs review${reviewCount ? ` (${reviewCount})` : ""}`]] : TABS;
   const onEdit = (kind, row, defaultType) => setEditing({ kind, row, defaultType });
-  const reloadAll = () => { lines.reload(); entries.reload(); };
+  const reloadAll = () => { lines.reload(); entries.reload(); review.reload(); };
   const shared = { isAdmin, onEdit };
 
   const searching = query.trim() !== "";
@@ -75,7 +79,8 @@ export default function KnowledgeModule({ profile }) {
     if (found.error) return <><ErrorNote message={found.error} /><p className="kn-error" role="alert">Search failed: {found.error}</p></>;
     if (found.loading || !found.hits) return <Spinner label="Searching" />;
     if (!found.hits.length) return <Empty>No results for "{query.trim()}". Items may be awaiting admin review.</Empty>;
-    return <div className="kn-stack">{found.hits.map((h) => <Hit key={`${h.kind}:${h.source_id}`} hit={h} data={data} today={today} {...shared} />)}</div>;
+    const note = searchLimitNote(found.hits.length);
+    return <div className="kn-stack">{note && <p className="bk-note" role="status">{note}</p>}{found.hits.map((h) => <Hit key={`${h.kind}:${h.source_id}`} hit={h} data={data} today={today} {...shared} />)}</div>;
   };
 
   return (
@@ -95,14 +100,15 @@ export default function KnowledgeModule({ profile }) {
           {tab === "answers" && <EntriesView types={["client_answer"]} entries={entries} empty="No client answers have been added yet." {...shared} />}
           {tab === "review" && isAdmin && (
             lines.data && entries.data
-              ? <NeedsReview lines={lines.data} entries={entries.data} reload={async () => { await Promise.all([lines.reload(), entries.reload()]); }} {...shared} />
+              ? <NeedsReview lines={reviewLines} entries={entries.data} reviewLoaded={Boolean(reviewRows)} reviewError={review.error} reload={async () => { await Promise.all([lines.reload(), entries.reload()]); }} {...shared} />
               : lines.error || entries.error ? <ErrorNote message={lines.error || entries.error} /> : <Spinner label="Loading" />
           )}
         </>
       )}
       {editing && categories.error && <ErrorNote message={`Could not load departments: ${categories.error}`} />}
-      {editing && categories.data && (
-        <EditForm kind={editing.kind} row={editing.row} defaultType={editing.defaultType} categories={categories.data} isAdmin={isAdmin}
+      {editing && editing.kind === "price" && review.loading && <Spinner label="Loading" />}
+      {editing && categories.data && !(editing.kind === "price" && review.loading) && (
+        <EditForm kind={editing.kind} row={editing.row} defaultType={editing.defaultType} categories={categories.data} reviewRows={reviewRows} reviewError={review.error} isAdmin={isAdmin}
           onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadAll(); }} />
       )}
     </div>

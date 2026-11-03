@@ -25,3 +25,28 @@ export function groupCopyItem(lines) {
 // Status shown on a group card: Draft if any line in the group is Draft, whatever its visibility.
 // The copy tick follows groupCopyItem instead.
 export const groupDisplayStatus = (lines) => (lines.some((l) => l.status === "Draft") ? "Draft" : "Approved");
+
+// basis, payee and confidence come from knowledge_price_line_review(), not from the price line rows. Lines with no values stay as they are.
+export function mergeReview(lines, review) {
+  const byId = new Map((review || []).map((r) => [r.id, r]));
+  return lines.map((l) => ({ ...l, ...byId.get(l.id) }));
+}
+
+export const blank = (v) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
+
+// A new line has nothing to overwrite. An existing line whose values did not load gives null, which keeps them out of a save.
+export function loadedPrivateValues(row, reviewRows) {
+  if (!row) return { basis: null, payee: null, confidence: null };
+  return reviewRows?.find((r) => r.id === row.id) ?? null;
+}
+
+// Only the fields that were loaded and then changed, so a failed load can never save blanks over real values.
+export function privateChanges(values, loaded) {
+  if (!loaded) return {};
+  const changes = {};
+  for (const field of ["basis", "payee", "confidence"]) {
+    const next = blank(values[field]);
+    if (next !== blank(loaded[field])) changes[field] = next;
+  }
+  return changes;
+}

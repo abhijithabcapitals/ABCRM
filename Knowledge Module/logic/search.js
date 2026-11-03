@@ -1,3 +1,8 @@
+export const SEARCH_LIMIT = 50;
+
+// A search that returns the full limit may have more rows than it shows.
+export const searchLimitNote = (count) => (count >= SEARCH_LIMIT ? `Showing the first ${SEARCH_LIMIT} results.` : null);
+
 // Escapes the characters that LIKE and ILIKE treat as wildcards. Commas stay as they are.
 export const escapeLike = (query) => String(query).replace(/[\\%_]/g, (c) => "\\" + c);
 

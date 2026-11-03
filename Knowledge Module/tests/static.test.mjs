@@ -47,3 +47,47 @@ test("the admin-users edge function lets admins grant the knowledge tab", () => 
   assert.ok(tabs, "TABS list not found");
   assert.ok(tabs[1].includes('"knowledge"'), "knowledge missing from TABS");
 });
+
+const source = (name) => code.find(([f]) => f === name)[1];
+const PRIVATE = ["basis", "payee", "confidence"];
+
+test("price line reads and writes list their columns, never *", () => {
+  const api = source("services/knowledgeApi.js");
+  assert.doesNotMatch(api, /from\("knowledge_price_lines"\)\.select\("\*/);
+  assert.match(api, /listPriceLines[\s\S]*?select\(`\$\{PRICE_LINE_COLUMNS\}, knowledge_categories\(name\)`\)/);
+  assert.doesNotMatch(api, /\.select\(\)/, "a bare select() returns every column and fails on price lines");
+});
+
+test("the service's price line columns are exactly the ones the migration grants", () => {
+  const listed = source("services/knowledgeApi.js").match(/PRICE_LINE_COLUMNS = "([^"]+)"/)[1].split(",").map((c) => c.trim());
+  const granted = sql.match(/grant select \(([^)]+)\)\s+on public\.knowledge_price_lines/)[1].split(",").map((c) => c.trim());
+  assert.deepEqual([...listed].sort(), [...granted].sort());
+  for (const column of PRIVATE) assert.ok(!listed.includes(column), column);
+});
+
+test("service rows leave out inactive categories", () => {
+  assert.match(source("services/knowledgeApi.js"), /service_categories!inner\(name, department\)[\s\S]*?\.eq\("service_categories\.is_active", true\)/);
+});
+
+test("PricingView formats money through copyText, not its own rule", () => {
+  const view = source("components/PricingView.jsx");
+  assert.doesNotMatch(view, /toLocaleString/);
+  assert.match(view, /import \{[^}]*\baed\b[^}]*\} from "\.\.\/logic\/copyText\.js"/);
+});
+
+test("PricingView hides the Business Setup empty message under the Banking filter", () => {
+  assert.match(source("components/PricingView.jsx"), /inBanking \? null : \(?\s*<Empty>\{rows\.length \? "No Business Setup/);
+});
+
+test("NeedsReview bulk buttons stay disabled while busy or with nothing chosen", () => {
+  const review = source("components/NeedsReview.jsx");
+  assert.equal([...review.matchAll(/disabled=\{busy \|\| !chosen\.length\}/g)].length, 3);
+  assert.doesNotMatch(review, /disabled=\{!chosen\.length\}/);
+});
+
+test("EditForm sends the private columns only through privateChanges", () => {
+  const form = source("components/EditForm.jsx");
+  assert.match(form, /\.\.\.privateChanges\(v, loaded\)/);
+  for (const column of PRIVATE) assert.doesNotMatch(form, new RegExp(`\\b${column}: blank\\(`), column);
+  for (const column of PRIVATE) assert.doesNotMatch(form, new RegExp(`row\\?\\.${column}`), column);
+});

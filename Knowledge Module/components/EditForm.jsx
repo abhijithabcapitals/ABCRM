@@ -7,9 +7,9 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Button, Modal, useAction } from "@banking/components/shared";
 import { savePriceLine, saveEntry } from "../services/knowledgeApi";
+import { blank, loadedPrivateValues, privateChanges } from "../logic/status.js";
 
 const ENTRY_TYPES = [["procedure", "Procedure"], ["checklist", "Checklist"], ["plan", "Plan"], ["client_answer", "Client answer"]];
-const blank = (v) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
 
 // Minimal body editor. Tables stay in the extension list so imported article tables survive a save.
 function BodyEditor({ html, onChange }) {
@@ -32,13 +32,16 @@ function BodyEditor({ html, onChange }) {
 }
 
 // Admin only. kind: "price" | "entry". row: the record to edit, or null to add. The form stays open with the error if the save fails.
-// basis, confidence and payee are shown here and in NeedsReview only.
-export default function EditForm({ kind, row, defaultType, categories, isAdmin, onClose, onSaved }) {
+// basis, confidence and payee are shown here and in NeedsReview only. They come from reviewRows, null when that load failed:
+// the fields then lock, and a save leaves the stored values alone.
+export default function EditForm({ kind, row, defaultType, categories, reviewRows, reviewError, isAdmin, onClose, onSaved }) {
   const isPrice = kind === "price";
+  const [loaded] = useState(() => (isPrice ? loadedPrivateValues(row, reviewRows) : null));
+  const locked = isPrice && !loaded;
   const [v, setV] = useState(() => ({
     category_id: row?.category_id || categories.find((c) => c.name === (isPrice ? "Business Setup" : "General"))?.id || categories[0]?.id || "",
     template: row?.template ?? "", line_group: row?.line_group ?? "", item: row?.item ?? "", amount_aed: row?.amount_aed ?? "",
-    payee: row?.payee ?? "", confidence: row?.confidence ?? "", basis: row?.basis ?? "", valid_until: row?.valid_until ?? "",
+    payee: loaded?.payee ?? "", confidence: loaded?.confidence ?? "", basis: loaded?.basis ?? "", valid_until: row?.valid_until ?? "",
     entry_type: row?.entry_type || defaultType || "procedure", title: row?.title ?? "",
     status: row?.status || "Draft", visibility: row?.visibility || "Internal",
   }));
@@ -50,9 +53,9 @@ export default function EditForm({ kind, row, defaultType, categories, isAdmin, 
   const field = (label, k, { full, ...props } = {}) => (
     <div className={`bk-field ${full ? "bk-full" : ""}`}><label htmlFor={`kn-${k}`}>{label}</label><input id={`kn-${k}`} value={v[k]} onChange={set(k)} {...props} /></div>
   );
-  const select = (label, k, options) => (
+  const select = (label, k, options, props = {}) => (
     <div className="bk-field"><label htmlFor={`kn-${k}`}>{label}</label>
-      <select id={`kn-${k}`} value={v[k]} onChange={set(k)}>{options.map(([val, text]) => <option key={val} value={val}>{text}</option>)}</select></div>
+      <select id={`kn-${k}`} value={v[k]} onChange={set(k)} {...props}>{options.map(([val, text]) => <option key={val} value={val}>{text}</option>)}</select></div>
   );
 
   const submit = async (e) => {
@@ -65,7 +68,7 @@ export default function EditForm({ kind, row, defaultType, categories, isAdmin, 
       if (!blank(v.template) || !blank(v.line_group) || !blank(v.item)) return setProblem("Template, group and item are required.");
       if (!Number.isFinite(amount) || amount < 0) return setProblem("Enter an amount of 0 or more.");
       payload = { ...common, template: v.template.trim(), line_group: v.line_group.trim(), item: v.item.trim(), amount_aed: amount,
-        payee: blank(v.payee), confidence: blank(v.confidence), basis: blank(v.basis), valid_until: blank(v.valid_until) };
+        valid_until: blank(v.valid_until), ...privateChanges(v, loaded) };
     } else {
       if (!blank(v.title)) return setProblem("A title is required.");
       payload = { ...common, entry_type: v.entry_type, title: v.title.trim(), body: body ?? row?.body ?? "" };
@@ -84,10 +87,11 @@ export default function EditForm({ kind, row, defaultType, categories, isAdmin, 
             {field("Group", "line_group")}
             {field("Item", "item")}
             {field("Amount (AED)", "amount_aed", { type: "number", min: 0, step: "0.01" })}
-            {field("Payee", "payee")}
-            {select("Confidence", "confidence", [["", "Not set"], ["High", "High"], ["Medium", "Medium"], ["Low", "Low"]])}
+            {field("Payee", "payee", { disabled: locked })}
+            {select("Confidence", "confidence", [["", "Not set"], ["High", "High"], ["Medium", "Medium"], ["Low", "Low"]], { disabled: locked })}
             {field("Valid until", "valid_until", { type: "date" })}
-            <div className="bk-field bk-full"><label htmlFor="kn-basis">Basis</label><textarea id="kn-basis" rows={2} value={v.basis} onChange={set("basis")} /></div>
+            <div className="bk-field bk-full"><label htmlFor="kn-basis">Basis</label><textarea id="kn-basis" rows={2} value={v.basis} onChange={set("basis")} disabled={locked} /></div>
+            {locked && <p className="kn-error bk-full" role="alert">Could not load payee, confidence and basis{reviewError ? `: ${reviewError}` : ""}. They stay as they are when you save.</p>}
           </> : <>
             {select("Type", "entry_type", ENTRY_TYPES)}
             {field("Title", "title", { full: true })}
