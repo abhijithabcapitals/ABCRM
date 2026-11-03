@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import registry from "../registry.json";
+import ZohoConnection from "./ZohoConnection.jsx";
 
 // Settings > Integrations: every app the CRM can connect to, plus any custom app. Values are
 // encrypted in Supabase Vault and write-only: this screen shows whether one is saved, never what it is.
@@ -130,6 +131,7 @@ export default function IntegrationsPanel({ supabase }) {
                 </div>
               );
             })}
+            {i.id === "zoho-books" && <ZohoConnection supabase={supabase} />}
           </div>
         )}
       </div>

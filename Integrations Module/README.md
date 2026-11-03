@@ -37,6 +37,17 @@ Saving a credential does not build a connection. Only apps with status `in_use` 
 1. In the function, read each value with `requireSecret` and deploy `secrets.ts` next to `index.ts`.
 2. Set the app's `status` to `in_use` and fill in `usedBy` in `registry.json`.
 
+### Zoho Books
+
+Connected through the `zoho-books` function. Admins use **Settings → Integrations → Zoho Books**: save the
+settings, press Test, then pick the 5% VAT code. The function can read Zoho's organisations, taxes, contacts, items, estimates and invoices, and create estimates
+and invoices (never sent to the client). It sends no update or delete request to Zoho. Credential values are never shown or logged.
+
+Deploy from the folder where `supabase/functions/zoho-books` is laid out. `secrets.ts` already sits next to
+`index.ts`, so nothing else needs copying:
+
+`supabase functions deploy zoho-books --project-ref pnnakrhfzyxudjaghoxx --use-api`
+
 ## Deploying crm-connections
 
 It imports the IMAP and SMTP clients from its siblings, so copy these into one `supabase/functions` folder and
