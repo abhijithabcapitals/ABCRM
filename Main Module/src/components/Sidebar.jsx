@@ -1188,6 +1188,7 @@ export default function Sidebar({
           { key: "clients", Icon: IconClients, label: "Clients" },
           { key: "hr", Icon: IconClients, label: "HR" },
           { key: "tax", Icon: IconCheck, label: "Tax Compliance" },
+          { key: "knowledge", Icon: IconFile, label: "Knowledge" },
           ...(profile?.role === "admin"
             ? [
                 { key: "ceo", Icon: IconSparkles, label: "CEO Agent" },

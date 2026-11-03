@@ -27,6 +27,7 @@
     "@tiptap/react": "^3.24.0",
     "@tiptap/starter-kit": "^3.24.0",
     "docxtemplater": "^3.69.3",
+    "dompurify": "^3.4.17",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
     "papaparse": "^5.5.3",

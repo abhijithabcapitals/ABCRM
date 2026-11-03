@@ -24,6 +24,7 @@ export default defineConfig({
       '@client-module': fileURLToPath(new URL('../Client Module', import.meta.url)),
       '@accounting': fileURLToPath(new URL('../Accounting Module', import.meta.url)),
       '@business-setup': fileURLToPath(new URL('../Business Setup Module', import.meta.url)),
+      '@knowledge': fileURLToPath(new URL('../Knowledge Module', import.meta.url)),
       // The Template Hub lives outside this app folder, so resolve its
       // dependencies from the host app's node_modules.
       'pizzip': fileURLToPath(new URL('./node_modules/pizzip/js/index.js', import.meta.url)),
@@ -35,6 +36,17 @@ export default defineConfig({
       '@app': fileURLToPath(new URL('./src', import.meta.url)),
     },
     // Those folders have no node_modules; resolve shared packages from this app.
-    dedupe: ['react', 'react-dom', '@supabase/supabase-js'],
+    dedupe: [
+      'react',
+      'react-dom',
+      '@supabase/supabase-js',
+      'dompurify',
+      '@tiptap/react',
+      '@tiptap/starter-kit',
+      '@tiptap/extension-table',
+      '@tiptap/extension-table-row',
+      '@tiptap/extension-table-cell',
+      '@tiptap/extension-table-header',
+    ],
   },
 })
