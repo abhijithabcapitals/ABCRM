@@ -119,7 +119,7 @@ test("submit_change and gallery_url sit after the session check and use the sess
   assert.match(caseBlock("gallery_url"), /client_portal_gallery_path/);
 });
 
-test("gallery_url validates source and id, signs from banking-documents for 120 seconds, never returns the path", () => {
+test("gallery_url validates source and id, signs from banking-documents for 120 seconds, response has no path field", () => {
   const block = caseBlock("gallery_url");
   assert.match(block, /"kyc"/);
   assert.match(block, /"generated"/);
@@ -133,8 +133,10 @@ test("gallery_url validates source and id, signs from banking-documents for 120 
 });
 
 test("submit_change shows only P0001 SQL messages and bounds its inputs", () => {
-  const block = caseBlock("submit_change");
-  assert.match(block, /P0001/);
+  const block = caseBlock("submit_change").replace(/\/\/.*$/gm, "");
+  assert.match(block, /error\.code === "P0001"\) throw new InputError\(error\.message\)/);
+  assert.match(block, /throw new Error\(error\.message\)/);
+  assert.equal((block.match(/new InputError\(error\.message\)/g) || []).length, 1);
   assert.match(block, /slice\(0, 60\)/);
   assert.match(block, /slice\(0, 600\)/);
   assert.match(block, /return json\(\{ id/);

@@ -15,7 +15,7 @@
 - Work only on branch `client-login` in `D:\Abhijith Projects\CRM-client-login`. Never touch the main checkout at `D:\Abhijith Projects\CRM`.
 - Nothing is applied to live, deployed or merged before Task 9's approval gate.
 - New SQL functions: revoke from `public, anon, authenticated`, then grant by name, as at the end of `Client Base/migrations/003_client_portal.sql`. Migrations must be idempotent (the harness runs them twice).
-- Never shown to clients: risk fields, source of funds, turnover, `remarks`, `received_by`, `reference_note`, `import_row_id`, approval fields, commission, staff names, `banking-documents` storage paths.
+- Never shown to clients: risk fields, source of funds, turnover, `remarks`, `received_by`, `reference_note`, `import_row_id`, approval fields, commission, staff names, `banking-documents` storage paths (no path field in any response; the only exposure is inside a client's own signed link).
 - Signed links last 120 seconds. IBAN is masked to its last 4 characters.
 - Keep existing `client_portal_me` keys (`record`, `services`, `master_services`, `documents`) because the old site must keep working during rollout. Only add keys.
 - Match the surrounding style: one-line comments on why, `bk-*` classes, plain client-facing English.

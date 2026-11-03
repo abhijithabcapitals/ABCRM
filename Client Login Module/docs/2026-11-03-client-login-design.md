@@ -169,7 +169,7 @@ Settings > Client Portal is extended. Admins only, enforced in SQL.
 - All client data goes through the Edge Function using the session token. Each read and write is limited to the session's own account, resolved server side and never taken from the request.
 - `client_portal_me` and the new read functions return named fields only, and execute only for `service_role`.
 - Ledger reads leave out internal columns: `remarks`, `received_by`, `reference_note`, `import_row_id`, approval fields and commission.
-- `banking-documents` paths are never sent to the browser. The client sends a document id, and the server resolves and checks it.
+- `banking-documents` paths are never sent to the browser as a field. The client sends a document id, and the server resolves and checks it with the session token. The only exposure is inside a client's own 120-second signed link.
 - Sessions stay at 12 hours and the lockout stays at 5 attempts for 15 minutes.
 
 Known limit: the browser has no virus scan on uploads. Files stay in the private bucket and staff open them only as downloads, as today.
