@@ -1,0 +1,16 @@
+/* Portal screens. Layout classes only; colours and controls come from banking.css (bk-*). */
+.pt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 12px; margin-bottom: 14px; }
+.pt-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 14px; border: 1px solid #e6ebed; border-radius: 9px; background: #fff; overflow-wrap: anywhere; }
+.pt-card h4 { margin: 0; font-size: 14px; color: #13363d; }
+.pt-card small, .pt-muted { color: #667780; font-size: 11.5px; }
+.pt-card .bk-badge { align-self: flex-start; }
+.pt-bar { height: 8px; border-radius: 999px; background: #eef2f4; overflow: hidden; }
+.pt-bar-fill { height: 100%; border-radius: 999px; background: #0d7d82; }
+.pt-case { display: grid; gap: 8px; }
+.pt-field { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; padding: 10px 0; border-bottom: 1px solid #eef2f4; }
+.pt-field:last-child { border-bottom: 0; }
+.pt-field-label { flex: 0 0 200px; color: #667780; font-size: 12px; font-weight: 600; }
+.pt-field-value { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.pt-field-extra { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.pt-note { color: #b42318; font-size: 12px; }
+@media (max-width: 520px) { .pt-field-label { flex-basis: 100%; } }

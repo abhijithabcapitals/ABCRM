@@ -151,3 +151,50 @@ test("portalApi exports submitChange and galleryUrl", () => {
 test("function header lists the new actions", () => {
   assert.match(fnSrc().split("import ")[0], /submit_change[\s\S]*gallery_url/);
 });
+
+// ── Portal screens (static checks on source) ──
+const portalDir = fileURLToPath(new URL("../portal/", import.meta.url));
+const portalSrc = (name) => readFileSync(join(portalDir, name), "utf8");
+const portalFiles = ["ClientPortal.jsx", "ServicesTab.jsx", "AccountsTab.jsx", "DocumentsTab.jsx", "InformationTab.jsx", "portal.css"];
+const allPortal = () => portalFiles.map(portalSrc).join("\n");
+
+test("portal files read nothing from the database directly", () => {
+  for (const f of portalFiles.filter((n) => n.endsWith(".jsx"))) {
+    const s = portalSrc(f);
+    assert.doesNotMatch(s, /\.from\(/, f);
+    assert.doesNotMatch(s, /supabase/i, f);
+  }
+});
+
+test("readOnly gates edit and file opening", () => {
+  assert.match(portalSrc("InformationTab.jsx"), /readOnly/);
+  assert.match(portalSrc("DocumentsTab.jsx"), /readOnly/);
+  assert.match(portalSrc("ClientPortal.jsx"), /readOnly/);
+});
+
+test("portal carries the exact client-facing strings", () => {
+  const s = allPortal();
+  for (const text of ["Payment history is not held in this system. Contact your account manager.", "Held by AB Capital", "Pending review", "Not recorded yet", "Not accepted:", "In credit"]) assert.ok(s.includes(text), text);
+});
+
+test("portal never shows tax basis text, links the website, or imports Client Module from portal", () => {
+  const s = allPortal();
+  assert.doesNotMatch(s, /\.basis\b/);
+  assert.doesNotMatch(s, /href=/);
+  assert.match(portalSrc("AccountsTab.jsx"), /@client-module\/crm\/taxLogic/);
+  assert.match(portalSrc("ClientPortal.jsx"), /export { fmtSize }/);
+});
+
+test("progress bar is accessible and cards use a wrapping grid", () => {
+  const s = portalSrc("ServicesTab.jsx");
+  for (const a of ['role="progressbar"', "aria-valuenow", 'aria-valuemin="0"', 'aria-valuemax="100"']) assert.ok(s.includes(a), a);
+  assert.match(portalSrc("portal.css"), /auto-fill, minmax/);
+});
+
+test("Client Module imports only fmtSize from the portal", () => {
+  const dir = fileURLToPath(new URL("../../Client Module/crm/", import.meta.url));
+  for (const f of readdirSync(dir).filter((n) => /\.jsx?$/.test(n))) {
+    const lines = readFileSync(join(dir, f), "utf8").split(/\r?\n/).filter((l) => /^import .* from ".*\/portal\/.*"/.test(l));
+    for (const l of lines) assert.match(l, /^import \{ fmtSize \} from "@client-login\/portal\/ClientPortal";$/, `${f}: ${l}`);
+  }
+});
