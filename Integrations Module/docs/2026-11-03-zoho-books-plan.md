@@ -217,12 +217,12 @@ Deno.test("429 says Zoho is busy and leaves the row retryable");
 - Delete: `Business Setup Module/components/ZohoInvoicePanel.jsx`
 
 **Interfaces:**
-- Consumes: `contact_get`, `contacts_search`, `contact_link`, `document_create`, `document_state` (Task 9).
+- Consumes: `contact_get`, `contacts_search`, `contact_link`, `document_create`, `document_state` and `document_pdf` (Task 9).
 - Produces: `<ZohoPanel supabase department sourceTable sourceId kinds canCreate />`, and `panelMode(state): "not_connected"|"needs_contact"|"ready"|"created"|"failed"|"unknown"|"gone"`.
 
 - [ ] **Step 1: Write failing tests:** `panelMode` for each state; `ZohoPanel.jsx` source has no `disabled` tied to the Accounts action; `Quotes.jsx` and `BankProcess.jsx` import `ZohoPanel` and keep `Send to Accounts` and `bk-complete`; the old panel file is gone. Update the existing static test in `Business Setup Module/tests/static.test.mjs` that expects `ZohoInvoicePanel`.
 - [ ] **Step 2: Run** `node --test "Integrations Module/tests/zohoPanel.test.mjs" "Business Setup Module/tests/static.test.mjs"`. Expected: FAIL.
-- [ ] **Step 3: Build the panel.** A `{connected:false}` reply from `connection_test` carries no `contacts`, so the panel must not read that field. Use the `bk-` classes and shared `Button` and `ErrorNote`. Keep the current notice when not connected. The contact picker shows name, TRN and currency. After a press, block the button while busy. Show the total warning and earlier draft warning as `bk-alert-warn`. Business Setup shows both kinds; `kinds` is `["estimate","invoice"]` in both departments.
+- [ ] **Step 3: Build the panel.** A `{connected:false}` reply from `connection_test` carries no `contacts`, so the panel must not read that field. Use the `bk-` classes and shared `Button` and `ErrorNote`. Keep the current notice when not connected. The contact picker shows name, TRN and currency. After a press, block the button while busy. Show the total warning and earlier draft warning as `bk-alert-warn`. Business Setup shows both kinds; `kinds` is `["estimate","invoice"]` in both departments. A created or adopted document shows a **View PDF** link: open a blank tab on the click so pop-up blockers allow it, call `document_pdf`, then point the tab at a blob URL, and close the tab and show `ErrorNote` on failure. Revoke the blob URL afterwards.
 - [ ] **Step 4: Run the tests and** `npm run build` in `Main Module`. Expected: PASS.
 - [ ] **Step 5: Start the dev server with `preview_start`** and open a quote as a staff user. Expected: not connected notice with Send to Accounts usable. Screenshot it. If no test login exists, say this was not browser-tested.
 - [ ] **Step 6: Commit** `Replace Zoho placeholder with working panel`.
@@ -234,7 +234,7 @@ Deno.test("429 says Zoho is busy and leaves the row retryable");
 - Modify: `Integrations Module/supabase/zoho-books/handlers.ts`, `handlers.test.ts`, `Database Module/Business Setup Base/tests/040_portal_test.sql`
 
 **Interfaces:**
-- Produces: action `document_state {source_table, source_id, force?}` returning the rows for that source. Unique index `business_setup_invoices_zoho_uq` on `zoho_id`.
+- Produces: action `document_state {source_table, source_id, force?}` returning the rows for that source. Action `document_pdf {source_table, source_id, kind}` returning `application/pdf` bytes. Client method `getPdf(path): Promise<Uint8Array>` that sends `accept=pdf` and refuses a reply that isn't a PDF. Unique index `business_setup_invoices_zoho_uq` on `zoho_id`.
 
 - [ ] **Step 1: Write failing tests.**
 
@@ -248,12 +248,19 @@ Deno.test("an estimate never adds a row");
 Deno.test("a Banking invoice adds a row with quote_id null");
 Deno.test("404 from Zoho sets gone and removes any row");
 Deno.test("a Zoho failure leaves the last status and reports it");
+Deno.test("document_pdf needs setup.access or cases.view and makes no Zoho call when refused");
+Deno.test("document_pdf takes the Zoho ID from zoho_documents and ignores any ID from the browser");
+Deno.test("document_pdf with no created row says so and calls nothing");
+Deno.test("document_pdf on a 404 sets gone");
+Deno.test("document_pdf stores nothing");
+Deno.test("getPdf sends accept=pdf with organization_id and returns the bytes");
+Deno.test("getPdf refuses a non-PDF reply and a non-digit ID");
 ```
 
 Add to `040_portal_test.sql`: the portal view shows only that client's rows, and a row with no file reports `has_file` false.
 
 - [ ] **Step 2: Run** handler tests and `bash "Database Module/Business Setup Base/tests/run-local.sh"`. Expected: FAIL.
-- [ ] **Step 3: Implement `document_state` and the migration.**
+- [ ] **Step 3: Implement `document_state`, `document_pdf`, `getPdf` and the migration.** `index.ts` returns the PDF with `Content-Type: application/pdf` and the existing CORS headers, and no error text in the body of a good reply.
 - [ ] **Step 4: Run both.** Expected: PASS.
 - [ ] **Step 5: Commit** `Read Zoho status back and show sent invoices to clients`.
 
@@ -263,7 +270,8 @@ Needs the user at each step.
 
 - [ ] **Step 1: Ask the user to approve** applying `005_zoho_invoices.sql`, deploying the function, and releasing the panel. State each in full.
 - [ ] **Step 2: The user names one client.** Create one estimate and one invoice. Expected: both in Zoho as unsent drafts, totals equal, and no row in Client Login.
-- [ ] **Step 3: The user sends the invoice in Zoho,** then presses Refresh. Expected: it appears in Client Login for that client only.
-- [ ] **Step 4: The user voids and removes the test documents.** Press Refresh. Expected: gone from Client Login, and the panel offers a new draft.
-- [ ] **Step 5: Press Send to Accounts on a case with Zoho errors or not connected.** Expected: still works. Skip if no safe case exists, and say so.
-- [ ] **Step 6: Update `Integrations Module/README.md`, commit** `Record Zoho live test`.
+- [ ] **Step 3: The user presses View PDF on both drafts,** signed out of Zoho. Expected: each opens in a new tab and matches Zoho.
+- [ ] **Step 4: The user sends the invoice in Zoho,** then presses Refresh. Expected: it appears in Client Login for that client only.
+- [ ] **Step 5: The user voids and removes the test documents.** Press Refresh. Expected: gone from Client Login, and the panel offers a new draft.
+- [ ] **Step 6: Press Send to Accounts on a case with Zoho errors or not connected.** Expected: still works. Skip if no safe case exists, and say so.
+- [ ] **Step 7: Update `Integrations Module/README.md`, commit** `Record Zoho live test`.

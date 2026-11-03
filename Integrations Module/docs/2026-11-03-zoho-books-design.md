@@ -25,6 +25,7 @@ Done means:
 | Where quotes are generated | In the CRM, using the current templates. Zoho gets a draft copy | User approved the rule that says so, 2026-11-03 |
 | Who sends to clients | Staff, from Zoho. The CRM never sends | Same |
 | Missing Zoho contact | CRM stops and asks staff to add it in Zoho | Same |
+| Seeing documents in the CRM | A View PDF link opens Zoho's own PDF in a new tab. Read-only, stored nowhere | User, 2026-11-03 |
 
 ## 3. Access limits
 
@@ -55,8 +56,8 @@ This drops `ZohoBooks.customerpayments.READ` from the list shown to the user ear
 | GET | `/contacts`, `/contacts/{id}` | Match a client |
 | GET | `/items` | Only if lines turn out to need an item, see section 8 |
 | GET | `/settings/taxes` | Find the VAT code |
-| GET | `/estimates`, `/estimates/{id}` | Duplicate check, status |
-| GET | `/invoices`, `/invoices/{id}` | Duplicate check, status |
+| GET | `/estimates`, `/estimates/{id}` | Duplicate check, status, PDF with `accept=pdf` |
+| GET | `/invoices`, `/invoices/{id}` | Duplicate check, status, PDF with `accept=pdf` |
 | POST | `/estimates` | Create a draft. `send` is always `false` |
 | POST | `/invoices` | Create a draft. `send` is always `false` |
 
@@ -136,9 +137,11 @@ A Banking client with no `client_master_id` cannot be linked. The panel says so.
 3. It searches Zoho for that `reference_number`, so a repeat can never make a second copy.
 4. It sends the POST with `send=false`.
 5. It saves the Zoho ID and number and sets `created`.
-6. The panel shows the number and an Open in Zoho link.
+6. The panel shows the number, a View PDF link and an Open in Zoho link.
 
 **Read back.** The panel reads status and balance when it opens and when staff press Refresh, at most once per 15 minutes per document unless Refresh is pressed. There is no background job in this version, so a sent invoice reaches Client Login after staff next open the panel.
+
+**View PDF.** Staff click the link on a created document. The function finds the Zoho ID from `zoho_documents` by source and kind, never from the browser. It fetches the document with `accept=pdf` under the existing READ scopes, and returns the file to the browser, which opens it in a new tab. Staff need no Zoho login. Nothing is stored and nothing changes in Zoho. Drafts can be viewed, so the PDF shows whatever Zoho holds at that moment. If Zoho says the document no longer exists, the row becomes `gone`. Documents created directly in Zoho do not appear, because the CRM has no record linking them to a quote.
 
 ## 8. Mapping
 
@@ -163,7 +166,7 @@ A Banking client with no `client_master_id` cannot be linked. The panel says so.
 | Link a contact, create an estimate, Business Setup | `setup.quotes.manage` |
 | Create an invoice, Business Setup | `setup.services.manage` |
 | Link a contact, create either, Banking | `cases.manage` |
-| See status | Anyone who can open the quote |
+| See status, View PDF | Anyone who can open the quote: `setup.access` in Business Setup, `cases.view` in Banking |
 
 The function checks these on the server using the caller's login.
 
@@ -214,4 +217,4 @@ Going live needs separate approval at each step.
 
 ## 15. Not in this version
 
-Changing or deleting anything in Zoho, sending from the CRM, creating contacts or items, payment records and reconciliation, credit notes, PDF copies, background sync, webhooks, Zoho CRM, Mail or Sign, and importing past Zoho records.
+Changing or deleting anything in Zoho, sending from the CRM, creating contacts or items, payment records and reconciliation, credit notes, stored PDF copies, PDFs in Client Login, background sync, webhooks, Zoho CRM, Mail or Sign, and importing past Zoho records.
