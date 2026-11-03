@@ -120,7 +120,7 @@ Policies:
 
 **Interfaces:**
 - Consumes: `buildChatLink`, `referenceText`, `participantsKey` from Task 1; `crm_communication_links` from Task 2.
-- Produces: `<TeamsPanel recordType id label currentUserId />`; `listStaff(): Promise<{id, full_name, email}[]>`, `listLinks(recordType, recordId)`, `saveChatLink({recordType, recordId, reference, label})`, `deleteLink(id)`; `splitStaff(rows, currentUserId): { available, noEmail }`.
+- Produces: `<TeamsPanel recordType recordId displayId label currentUserId />`, where `recordId` is what is stored and `displayId` is what the message shows; `listStaff(): Promise<{id, full_name, email}[]>`, `listLinks(recordType, recordId)`, `saveChatLink({recordType, recordId, reference, label})`, `deleteLink(id)`; `splitStaff(rows, currentUserId): { available, noEmail }`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -155,14 +155,14 @@ Screen: a "Teams" panel with a searchable staff picker, a topic box shown when t
 
 On click, call `window.open` first, in the click handler, so browsers allow it. If it returns null, show the link with "Your browser blocked the new window. Open it here." Then save the reference: `participantsKey` as `reference`, the topic or names as `label`. A failed save shows a note and never stops the chat, and a unique-rule refusal is ignored.
 
-- [ ] **Step 5: Add the panel** to `ClientForm` when `row.client_id` is set, with `label` from the existing `plain(rec["Client Legal Name"])`; and to `LeadWorkspace` with `id={lead.lead_number}`-based label but `recordId` = `lead.id`. Add a separate `recordId` prop to `TeamsPanel` for this: `id` is the display ID.
+- [ ] **Step 5: Add the panel** to `ClientForm` when `row.client_id` is set: `recordId` and `displayId` are `row.client_id`, `label` is `plain(rec["Client Legal Name"])`. Add it to `LeadWorkspace`: `recordId` is `lead.id`, `displayId` is `lead.lead_number`, `label` is `lead.prospect_name`.
 - [ ] **Step 6: Run node tests and the build.** Expected: PASS, build succeeds.
 - [ ] **Step 7: Commit** `Add Teams panel to client and lead records`.
 
 ### Task 4: Module shell and tab
 
 **Files:**
-- Create: `Messenger Module/index.js`, `components/MessengerModule.jsx`, `components/Chats.jsx`, `Messenger Module/README.md`
+- Create: `Messenger Module/index.js`, `components/MessengerModule.jsx`, `components/Overview.jsx`, `components/Chats.jsx`, `Messenger Module/README.md`
 - Modify: `Main Module/vite.config.js`, `Main Module/src/App.jsx`, `Main Module/src/tabs.js`, `Main Module/src/components/Sidebar.jsx`
 - Test: `Messenger Module/tests/static.test.mjs`
 
@@ -349,7 +349,7 @@ The return address comes only from setting `MESSENGER_APP_URL`, never from the r
 
 **Files:**
 - Create: `Messenger Module/components/Settings.jsx`, `components/SyncLogs.jsx`, `docs/entra-setup.md`, `docs/api.md`, `docs/deployment.md`, `docs/testing-report.md`
-- Modify: `Messenger Module/components/MessengerModule.jsx`, `components/Overview` section, `services/messengerApi.js`, `Main Module/src/App.jsx` (keep `ms` and `reason` for the module), `tests/browser-check.md`, `README.md`
+- Modify: `Messenger Module/components/MessengerModule.jsx`, `components/Overview.jsx`, `services/messengerApi.js`, `Main Module/src/App.jsx` (keep `ms` and `reason` for the module), `tests/browser-check.md`, `README.md`
 - Test: `Messenger Module/tests/static.test.mjs`, `Messenger Module/tests/connectionText.test.mjs`
 - Create: `Messenger Module/logic/connectionText.js`
 
