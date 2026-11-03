@@ -2,6 +2,7 @@
 import { useMemo } from "react";
 import { compliance } from "@client-module/crm/taxLogic";
 import { Badge, DataTable, Empty, KeyVals, Panel } from "@banking/components/shared";
+import { hidesBalance } from "../logic/progress";
 import { fmtMoney, showDate } from "./format";
 
 // Plain wording for clients. Only the title, due date and status of each item are shown.
@@ -24,16 +25,17 @@ function Balance({ value }) {
   return Number(value) < 0 ? `${fmtMoney(-Number(value))} In credit` : fmtMoney(value);
 }
 
-function CasePanel({ c }) {
+function CasePanel({ c, outcome }) {
   const title = `${c.bank || "Business banking"} · ${c.case_ref}`;
   if (c.hidden) {
     return <Panel title={title}><p>Payment history is not held in this system. Contact your account manager.</p></Panel>;
   }
+  const paidOnly = hidesBalance(outcome);
   const direct = Number(c.direct_to_bank);
   return (
     <Panel title={title}>
-      <KeyVals items={[["Payable to AB Capital", fmtMoney(c.payable)], ["Paid", fmtMoney(c.paid)], ["Balance", <Balance key="b" value={c.balance} />]]} />
-      {direct > 0 && <p className="bk-note bk-mt">You pay {fmtMoney(direct)} directly to the bank. It is not part of the balance above.</p>}
+      <KeyVals items={paidOnly ? [["Paid", fmtMoney(c.paid)]] : [["Payable to AB Capital", fmtMoney(c.payable)], ["Paid", fmtMoney(c.paid)], ["Balance", <Balance key="b" value={c.balance} />]]} />
+      {!paidOnly && direct > 0 && <p className="bk-note bk-mt">You pay {fmtMoney(direct)} directly to the bank. It is not part of the balance above.</p>}
       <div className="bk-mt">
         <DataTable rows={c.lines || []} empty="No payments recorded yet." columns={[
           { key: "payment_date", label: "Date", render: (l) => showDate(l.payment_date) },
@@ -50,12 +52,13 @@ function CasePanel({ c }) {
 
 export default function AccountsTab({ me }) {
   const accounts = me.accounts || [];
+  const outcomeOf = (ref) => (me.banking_services || []).find((s) => s.case_ref === ref)?.outcome;
   return (
     <>
       <Panel title="Filing status" sub="VAT and Corporate Tax dates as held by AB Capital.">
         <Filing record={me.has_master ? me.filing_record : null} />
       </Panel>
-      {accounts.length ? accounts.map((c) => <CasePanel key={c.case_ref} c={c} />) : <Panel title="Amounts and payments"><Empty>Nothing recorded yet.</Empty></Panel>}
+      {accounts.length ? accounts.map((c) => <CasePanel key={c.case_ref} c={c} outcome={outcomeOf(c.case_ref)} />) : <Panel title="Amounts and payments"><Empty>Nothing recorded yet.</Empty></Panel>}
     </>
   );
 }

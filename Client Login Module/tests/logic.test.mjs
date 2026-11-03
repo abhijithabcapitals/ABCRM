@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { bankingProgress } from "../logic/progress.js";
+import { bankingProgress, hidesBalance } from "../logic/progress.js";
 import { FIELDS, fieldState } from "../logic/fields.js";
 
 test("bankingProgress percent follows the 15 visible steps", () => {
@@ -14,6 +14,20 @@ test("bankingProgress percent follows the 15 visible steps", () => {
   assert.equal(pct(14), 93);
   assert.equal(pct(17), 93);
   assert.equal(pct(18), 100);
+});
+
+test("bankingProgress: Returned, Cancelled and Closed show a plain label and no percent, at any stage", () => {
+  for (const outcome of ["Returned", "Cancelled", "Closed"]) {
+    for (const current_stage of [1, 8, 17]) {
+      assert.deepEqual(bankingProgress({ current_stage, outcome }), { state: "closed", percent: null, label: outcome });
+    }
+  }
+});
+
+test("hidesBalance: only a Cancelled or Returned case hides what would read as owed", () => {
+  assert.equal(hidesBalance("Cancelled"), true);
+  assert.equal(hidesBalance("Returned"), true);
+  for (const outcome of ["Approved", "Rejected", "Closed", null, undefined]) assert.equal(hidesBalance(outcome), false);
 });
 
 test("bankingProgress outcomes override the stage", () => {
