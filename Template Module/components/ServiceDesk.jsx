@@ -14,15 +14,17 @@ const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="non
 const CLIENT_MAP = { client: "name", contact: "contact", email: "email", phone: "phone", address: "address", license: "license", trn: "trn" };
 const inDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
-export default function ServiceDesk({ department, profile }) {
+// initial: form values to start from, plus service (the first line's service). onDocument(doc): called once a quote or letter is filed.
+export default function ServiceDesk({ department, profile, initial, onDocument }) {
   const catalogue = useLoad(loadCatalogue, []);
   const settings = useLoad(loadHubSettings, []);
   const clients = useClientLookup();
   const [dept, setDept] = useState(department || DEPARTMENTS[0]);
   const [lines, setLines] = useState([]);
-  const [service, setService] = useState("");
+  const { service: initialService, ...initialForm } = initial || {};
+  const [service, setService] = useState(initialService || "");
   const [fee, setFee] = useState("");
-  const [form, setForm] = useState({ client: "", contact: "", email: "", phone: "", address: "", license: "", trn: "", vat_mode: "inclusive", valid_until: inDays(15), notes: "" });
+  const [form, setForm] = useState({ client: "", contact: "", email: "", phone: "", address: "", license: "", trn: "", vat_mode: "inclusive", valid_until: inDays(15), notes: "", ...initialForm });
   const [last, setLast] = useState(null);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
@@ -69,6 +71,7 @@ export default function ServiceDesk({ department, profile }) {
     if (!mailOf(doc)) await createDocument({ doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email, services: doc.services, lines: doc.lines, vat_mode: doc.vat_mode, vat_rate: doc.vat_rate, mail_subject: draft.subject, mail_body: draft.body });
     await docs.reload();
     setLast(doc);
+    onDocument?.(doc);
   };
 
   const generateQuote = async () => {
