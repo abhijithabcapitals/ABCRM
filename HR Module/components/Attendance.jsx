@@ -93,7 +93,7 @@ export default function Attendance({ role, employeeId, profile }) {
       </Panel>
       {role === "hr" && <BiometricPanel onChanged={reload} />}
       {editing && (
-        <EditDayModal person={editing.person} date={editing.date} isAdmin={isAdmin} onClose={() => setEditing(null)}
+        <EditDayModal person={editing.person} date={editing.date} direct={isAdmin || (role === "hr" && editing.person.employee_id !== employeeId)} onClose={() => setEditing(null)}
           onSaved={async (message) => { setNotice(message); await reload(); }} />
       )}
     </div>

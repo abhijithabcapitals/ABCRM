@@ -43,9 +43,9 @@ export function statusLabel(row) {
   return row.status;
 }
 
-export const editFormNote = (isAdmin) => (isAdmin
+export const editFormNote = (direct) => (direct
   ? "Your change applies now and is logged. It makes this a manual day, which the biometric sync no longer changes."
-  : "This goes to an administrator for approval. The day keeps its current value until then.");
+  : "This goes to HR or an administrator for approval. The day keeps its current value until then.");
 
 export function monthDays(year, month) {
   const n = new Date(Date.UTC(year, month, 0)).getUTCDate();

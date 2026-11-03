@@ -10,8 +10,9 @@ const value = (v) => {
 };
 const TONE = { approved: "good", rejected: "bad", superseded: "plain" };
 
-// Admin only: the tab is hidden from others and the database refuses anyone else. The day keeps its value until it is approved here.
-export default function Approvals({ onDecided }) {
+// HR and administrators: the tab is hidden from others and the database refuses anyone else. HR cannot decide their own day. The day keeps its value until it is approved here.
+export default function Approvals({ onDecided, employeeId, profile }) {
+  const isAdmin = profile?.role === "admin"; // display only: the database enforces it
   const pending = useLoad(() => attendanceEdits("pending"), []);
   const approved = useLoad(() => attendanceEdits("approved"), []);
   const rejected = useLoad(() => attendanceEdits("rejected"), []);
@@ -32,7 +33,7 @@ export default function Approvals({ onDecided }) {
 
   return (
     <div>
-      <PageHead title="Approvals" sub="Attendance changes waiting for an administrator. A day keeps its value until it is approved." />
+      <PageHead title="Approvals" sub="Attendance changes waiting for HR or an administrator. A day keeps its value until it is approved." />
       <ErrorNote message={pending.error || approved.error || rejected.error || error} />
       {notice && <div className="hr-warning" role="status">{notice}</div>}
       <Panel title="Waiting">
@@ -44,7 +45,7 @@ export default function Approvals({ onDecided }) {
             { key: "new", label: "Change to", render: (e) => value(e) },
             { key: "reason", label: "Reason" },
             { key: "by", label: "Asked by", render: (e) => nameOf(e.requested_by) },
-            { key: "x", label: "", render: (e) => <><Button variant="primary" busy={busy} onClick={() => approve(e)}>Approve</Button> <Button onClick={() => { setNotice(null); setRejecting(e); }}>Reject</Button></> },
+            { key: "x", label: "", render: (e) => (!isAdmin && e.employee_id === employeeId ? <span className="hr-days">Your own: another person decides</span> : <><Button variant="primary" busy={busy} onClick={() => approve(e)}>Approve</Button> <Button onClick={() => { setNotice(null); setRejecting(e); }}>Reject</Button></>) },
           ]} />
         )}
       </Panel>
