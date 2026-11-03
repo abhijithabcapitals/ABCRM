@@ -1,5 +1,6 @@
 import { supabase } from "@app/supabase";
 import { escapeLike } from "../logic/search.js";
+import { assertAllUpdated } from "../logic/status.js";
 
 const SEARCH_LIMIT = 50;
 // Only these two tables hold rows that are approved, shared or removed through the helpers below.
@@ -61,11 +62,15 @@ export const saveEntry = (row) => save("knowledge_entries", row);
 export const savePriceLine = (row) => save("knowledge_price_lines", row);
 
 // Sets status only. The trigger records who approved and when.
-export const approve = async (table, ids) =>
-  check(await reviewed(table).update({ status: "Approved" }).in("id", [].concat(ids)).select());
+export async function approve(table, ids) {
+  const list = [].concat(ids);
+  return assertAllUpdated(check(await reviewed(table).update({ status: "Approved" }).in("id", list).select()), list, "Approved");
+}
 
-export const setVisibility = async (table, ids, visibility) =>
-  check(await reviewed(table).update({ visibility }).in("id", [].concat(ids)).select());
+export async function setVisibility(table, ids, visibility) {
+  const list = [].concat(ids);
+  return assertAllUpdated(check(await reviewed(table).update({ visibility }).in("id", list).select()), list, "Changed visibility of");
+}
 
 export const softDelete = async (table, id) =>
   check(await reviewed(table).update({ deleted_at: new Date().toISOString() }).eq("id", id).select().single());

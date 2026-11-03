@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isExpired, needsReview } from "../logic/status.js";
+import { isExpired, needsReview, assertAllUpdated } from "../logic/status.js";
 
 test("isExpired: null false; today false; yesterday true", () => {
   assert.equal(isExpired(null, "2026-11-03"), false);
@@ -19,4 +19,13 @@ test("needsReview: true for Draft, Internal or Low confidence; false for Approve
 test("needsReview works for entries, which have no confidence", () => {
   assert.equal(needsReview({ status: "Approved", visibility: "Shareable" }), false);
   assert.equal(needsReview({ status: "Draft", visibility: "Shareable" }), true);
+});
+
+test("assertAllUpdated: passes when every row came back; throws on some or none", () => {
+  const rows = [{ id: "a" }, { id: "b" }];
+  assert.equal(assertAllUpdated(rows, ["a", "b"], "Approved"), rows);
+  assert.equal(assertAllUpdated([{ id: "a" }], "a", "Approved").length, 1);
+  assert.throws(() => assertAllUpdated([{ id: "a" }], ["a", "b"], "Approved"), /Approved 1 of 2 rows \(not permitted or not found\)/);
+  assert.throws(() => assertAllUpdated([], ["a", "b"], "Changed visibility of"), /0 of 2 rows/);
+  assert.throws(() => assertAllUpdated(null, ["a"], "Approved"), /0 of 1 rows/);
 });
