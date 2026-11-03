@@ -104,14 +104,14 @@ insert into public.banking_documents (id, client_id, document_type_id, title, cu
   select v.id::uuid, v.cl::uuid, t.id, v.title, 1, v.del::timestamptz
     from (values
       ('d1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000000a', 'T_LIC',  'Alpha licence', null),
-      ('d1000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-00000000000a', 'T_PASS', 'Partner passport', null),
+      ('d1000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-00000000000a', 'T_PASS', 'Jane Doe scan', null),
       ('d1000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-00000000000a', 'T_LIC',  'Old licence', '2026-10-10'),
       ('d2000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-00000000000b', 'T_LIC',  'Beta licence', null)) v(id, cl, code, title, del)
     join public.banking_document_types t on t.doc_code = v.code;
 insert into public.banking_document_versions (document_id, version, storage_path, file_name) values
   ('d1000000-0000-0000-0000-000000000001', 1, 'alpha/old.pdf', 'licence-old.pdf'),
   ('d1000000-0000-0000-0000-000000000001', 2, 'alpha/licence.pdf', 'licence.pdf'),
-  ('d1000000-0000-0000-0000-000000000002', 1, 'alpha/passport.pdf', 'passport.pdf'),
+  ('d1000000-0000-0000-0000-000000000002', 1, 'alpha/passport.pdf', 'jane-doe-id-9931.pdf'),
   ('d1000000-0000-0000-0000-000000000003', 1, 'alpha/deleted.pdf', 'deleted.pdf'),
   ('d2000000-0000-0000-0000-000000000001', 1, 'beta/lic.pdf', 'beta-lic.pdf');
 update public.banking_documents set current_version = 2 where id = 'd1000000-0000-0000-0000-000000000001';
@@ -205,6 +205,10 @@ select public.ok('path function returns the latest storage_path and file name',
   (select p ->> 'storage_path' = 'alpha/licence.pdf' and p ->> 'file_name' = 'licence.pdf' from (select public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'kyc', 'd1000000-0000-0000-0000-000000000001') p) x));
 select public.ok('sensitive doc: flagged, cannot open',
   (select g ->> 'sensitive' = 'true' and g ->> 'can_open' = 'false' from (select public.card('aa000000-0000-0000-0000-0000000000aa', 'd1000000-0000-0000-0000-000000000002') g) x));
+select public.ok('sensitive doc: title and file name are null, the type stays',
+  (select g -> 'title' = 'null'::jsonb and g -> 'file_name' = 'null'::jsonb and g ->> 'doc_type' = 'Partner passport' from (select public.card('aa000000-0000-0000-0000-0000000000aa', 'd1000000-0000-0000-0000-000000000002') g) x));
+select public.ok('sensitive doc: the name appears nowhere in the whole output',
+  (select t !~* 'jane|doe|9931' from (select public.client_portal_me('aa000000-0000-0000-0000-0000000000aa')::text t) x));
 select public.ok('sensitive doc: path function returns null', (select public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'kyc', 'd1000000-0000-0000-0000-000000000002') is null));
 select public.ok('deleted doc absent from gallery', (select public.card('aa000000-0000-0000-0000-0000000000aa', 'd1000000-0000-0000-0000-000000000003') is null));
 select public.ok('deleted doc: path function returns null', (select public.client_portal_gallery_path('aa000000-0000-0000-0000-0000000000aa', 'kyc', 'd1000000-0000-0000-0000-000000000003') is null));

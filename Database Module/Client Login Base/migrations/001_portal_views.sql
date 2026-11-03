@@ -64,7 +64,9 @@ language sql stable security definer set search_path = public, pg_temp as $$
                           where qq.case_id = cs.id and qq.status = 'Accepted' order by qq.version desc limit 1) q on true
       cross join lateral (select count(*) as n, coalesce(sum(p.signed_amount), 0) as paid from banking_payments p where p.case_id = cs.id) pay),
   gal as (
-    select d.id, 'kyc' as source, d.title, t.doc_name as doc_type, d.created_at::date as doc_date, v.file_name,
+    -- a sensitive card carries its type only: a title or file name can name the person
+    select d.id, 'kyc' as source, case when coalesce(t.is_sensitive, false) then null else d.title end as title, t.doc_name as doc_type, d.created_at::date as doc_date,
+           case when coalesce(t.is_sensitive, false) then null else v.file_name end as file_name,
            coalesce(t.is_sensitive, false) as sensitive,
            (not coalesce(t.is_sensitive, false)) and nullif(v.storage_path, '') is not null as can_open
       from c
