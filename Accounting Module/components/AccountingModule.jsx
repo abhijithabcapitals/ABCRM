@@ -8,6 +8,7 @@ import SalariesPanel from "@hr/components/SalariesPanel";
 import ExpensesPanel from "@hr/components/ExpensesPanel";
 import "@hr/components/hr.css";
 import BankingValidation from "./BankingValidation";
+import SetupValidation from "./SetupValidation";
 
 const TABS = [["banking", "Business Banking"], ["setup", "Business Setup"], ["accounting", "Accounting"], ["salaries", "Salaries"], ["expenses", "Expenses"]];
 
@@ -25,7 +26,7 @@ export default function AccountingModule({ profile }) {
         {TABS.map(([k, label]) => <button type="button" key={k} data-label={label} aria-current={tab === k ? "page" : undefined} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
       </nav>
       {tab === "banking" && <BankingValidation />}
-      {tab === "setup" && <p className="bk-note">Nothing here yet. Business Setup cases will appear once that module is built.</p>}
+      {tab === "setup" && <SetupValidation />}
       {tab === "accounting" && <ServiceDesk department="Accounting" profile={profile} />}
       {tab === "salaries" && <SalariesPanel />}
       {tab === "expenses" && <ExpensesPanel />}

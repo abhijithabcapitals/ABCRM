@@ -131,3 +131,61 @@ revoke all on function public.business_setup_portal_client(uuid), public.busines
   public.client_portal_me(uuid) from public, anon, authenticated;
 grant execute on function public.business_setup_portal_client(uuid), public.business_setup_portal_view(uuid), public.business_setup_portal_file(uuid, text, uuid),
   public.client_portal_me(uuid) to service_role;
+
+-- ── Client login, for staff with setup.portal.manage ─────────────────
+-- Same rules as client_portal_admin_save in Client Base 003, for this module's clients. The password is hashed here and never stored in the clear.
+create or replace function public.business_setup_portal_account(p_client text) returns uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select a.id from client_portal_accounts a
+   where a.client_master_id = p_client
+      or a.banking_client_id in (select b.id from banking_clients b where b.client_master_id = p_client)
+   limit 1
+$$;
+
+create or replace function public.business_setup_portal_login_state(p_client text) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.portal.manage');
+  return (select jsonb_build_object('id', a.id, 'username', a.username, 'status', a.status, 'last_login_at', a.last_login_at)
+            from client_portal_accounts a where a.id = business_setup_portal_account(p_client));
+end $$;
+
+create or replace function public.business_setup_portal_login_save(p_client text, p_username text, p_password text) returns uuid
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
+declare v_id uuid; v_name text; v_user text := lower(trim(coalesce(p_username, '')));
+begin
+  perform business_setup_require('setup.portal.manage');
+  if v_user !~ '^[a-z0-9][a-z0-9._-]{3,59}$' then raise exception 'Username needs 4 to 60 letters, numbers, dots, dashes or underscores. It cannot contain @.'; end if;
+  if length(coalesce(p_password, '')) < 10 then raise exception 'Password needs at least 10 characters.'; end if;
+  select coalesce(legal_name, client_id) into v_name from client_master where client_id = p_client;
+  if v_name is null then raise exception 'Client not found.'; end if;
+  v_id := business_setup_portal_account(p_client);
+  if exists (select 1 from client_portal_accounts where username = v_user and id is distinct from v_id) then raise exception 'That username is taken. Choose another.'; end if;
+  if v_id is null then
+    insert into client_portal_accounts (client_master_id, display_name, username, password_hash, created_by)
+    values (p_client, v_name, v_user, crypt(p_password, gen_salt('bf', 10)), auth.uid()) returning id into v_id;
+  else
+    update client_portal_accounts set username = v_user, password_hash = crypt(p_password, gen_salt('bf', 10)), status = 'active',
+           failed_attempts = 0, locked_until = null, revoked_at = null, revoked_by = null where id = v_id;
+    delete from client_portal_sessions where account_id = v_id;
+  end if;
+  perform business_setup_audit('client_portal_accounts', v_id::text, 'login_save', null, jsonb_build_object('client_id', p_client, 'username', v_user));
+  return v_id;
+end $$;
+
+-- Revoke ends every open session at once. Restore brings back the same login.
+create or replace function public.business_setup_portal_login_status(p_client text, p_active boolean) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_id uuid;
+begin
+  perform business_setup_require('setup.portal.manage');
+  v_id := business_setup_portal_account(p_client);
+  if v_id is null then raise exception 'This client has no login.'; end if;
+  update client_portal_accounts set status = case when p_active then 'active' else 'revoked' end, revoked_at = case when p_active then null else now() end,
+         revoked_by = case when p_active then null else auth.uid() end, failed_attempts = 0, locked_until = null where id = v_id;
+  if not p_active then delete from client_portal_sessions where account_id = v_id; end if;
+  perform business_setup_audit('client_portal_accounts', v_id::text, case when p_active then 'login_restore' else 'login_revoke' end, null, jsonb_build_object('client_id', p_client));
+end $$;
+revoke all on function public.business_setup_portal_account(text), public.business_setup_portal_login_state(text), public.business_setup_portal_login_save(text, text, text),
+  public.business_setup_portal_login_status(text, boolean) from public, anon, authenticated;
+grant execute on function public.business_setup_portal_login_state(text), public.business_setup_portal_login_save(text, text, text), public.business_setup_portal_login_status(text, boolean) to authenticated;

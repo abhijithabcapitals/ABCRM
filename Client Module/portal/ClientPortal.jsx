@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { DOC_TYPES, portalApi } from "./portalApi";
+import SetupView from "./SetupView";
 
 const STATUS = { pending: ["Received", "warn"], in_review: ["Under review", "warn"], validated: ["Accepted", "good"], rejected: ["Please re-upload", "bad"] };
 
@@ -18,6 +19,7 @@ export default function ClientPortal({ api = portalApi, readOnly }) {
       <PageHead title={me.data?.display_name || "Client Portal"} sub={readOnly ? "Preview of what this client sees. Nothing can be changed here." : "Your record with AB Capital, and a safe place to send us documents."} />
       {!readOnly && <div className="bk-actions bk-mb"><Button onClick={() => setChanging(true)}>Change password</Button><Button onClick={() => api.logout()}>Sign out</Button></div>}
       <ErrorNote message={me.error} />
+      {!readOnly && <SetupView api={api} />}
       {me.loading && !me.data ? <Spinner /> : me.data && <>
         <Panel title="Your record" sub="If something is wrong, upload the correct document or contact your account manager.">
           <KeyVals items={[["Legal name", r.legal_name], ["Trade name", r.trade_name], ["Licence number", r.license_number], ["Licence expiry", fmtDate(r.license_expiry_date)], ["Issuing authority", r.issuing_authority], ["Legal structure", r.legal_structure], ["Business activity", r.business_activity], ["Registered address", r.registered_address], ["VAT TRN", r.vat_trn], ["Corporate Tax number", r.ct_registration_number], ["Financial year end", r.financial_year_end], ["Website", r.website], ["Email", r.email], ["Phone", r.phone]]} />

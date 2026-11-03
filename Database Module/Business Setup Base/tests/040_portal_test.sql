@@ -106,6 +106,34 @@ select public.bs_check('portal functions for the service role only',
   and not has_function_privilege('authenticated', 'public.business_setup_portal_client(uuid)', 'execute')
   and has_function_privilege('service_role', 'public.business_setup_portal_view(uuid)', 'execute') and has_function_privilege('service_role', 'public.business_setup_portal_file(uuid, text, uuid)', 'execute'));
 
+-- ── Client login managed from the module ──
+select public.bs_as(null);
+insert into public.client_master (client_id, legal_name, data) values ('CL900083', 'Login Client LLC', '{}');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error($$select business_setup_portal_login_save('CL900083','login.client','longenough123')$$, 'permission');
+select public.bs_expect_error($$select business_setup_portal_login_state('CL900083')$$, 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_check('no login at first', public.business_setup_portal_login_state('CL900083') is null);
+select public.bs_expect_error($$select business_setup_portal_login_save('CL900083','bad name','longenough123')$$, 'Username');
+select public.bs_expect_error($$select business_setup_portal_login_save('CL900083','login.client','short')$$, 'Password');
+select public.bs_expect_error($$select business_setup_portal_login_save('CL900083','portal.a','longenough123')$$, 'taken');
+select public.business_setup_portal_login_save('CL900083', 'login.client', 'longenough123') as ignored \gset
+select public.bs_check('login issued', public.business_setup_portal_login_state('CL900083') ->> 'username' = 'login.client' and public.business_setup_portal_login_state('CL900083') ->> 'status' = 'active');
+select public.bs_as(null);
+select public.bs_check('the password is hashed', (select password_hash not like '%longenough123%' and length(password_hash) > 40 from public.client_portal_accounts where username = 'login.client'));
+select public.bs_check('issuing a login creates the form', exists (select 1 from public.business_setup_onboarding_forms where client_id = 'CL900083' and status = 'Draft'));
+select public.bs_check('the password never reaches the audit log', not exists (select 1 from public.business_setup_audit_log where new_data::text ~ 'longenough123'));
+insert into public.client_portal_sessions (account_id, token_hash, expires_at) select id, encode(sha256('tok-l'::bytea), 'hex'), now() + interval '1 hour' from public.client_portal_accounts where username = 'login.client';
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.business_setup_portal_login_status('CL900083', false);
+select public.bs_as(null);
+select public.bs_check('revoking ends the session', public.client_portal_session('tok-l') is null and (select status = 'revoked' from public.client_portal_accounts where username = 'login.client'));
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.business_setup_portal_login_status('CL900083', true);
+select public.bs_check('restored', public.business_setup_portal_login_state('CL900083') ->> 'status' = 'active');
+select public.bs_expect_error($$select business_setup_portal_login_status('CL900081x', true)$$, 'no login');
+select public.bs_as(null);
+
 -- ── Summary: raise when anything failed so psql exits non-zero ──
 do $$
 declare f int; t int;

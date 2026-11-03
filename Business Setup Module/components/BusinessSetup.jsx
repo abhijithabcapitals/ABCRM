@@ -1,12 +1,18 @@
-// Business Setup tab: client management and compliance. Pages arrive task by task; the rest show a placeholder.
+// Business Setup tab: from the client's form to a service handed to Accounts.
 import { useMemo, useState } from "react";
 import "@banking/components/banking.css";
-import { Empty, ErrorNote, Spinner, useLoad } from "@banking/components/shared";
-import ServiceDesk from "@template-hub/components/ServiceDesk";
+import { ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import { myAccess, profiles } from "../services/businessSetupApi";
 import { visibleNav } from "../logic/nav";
 import { SetupContext } from "./SetupContext";
 import Settings from "./Settings";
+import Dashboard from "./Dashboard";
+import Onboarding from "./Onboarding";
+import Clients from "./Clients";
+import FeeMaster from "./FeeMaster";
+import Documents from "./Documents";
+import Tasks from "./Tasks";
+import Import from "./Import";
 
 export default function BusinessSetup({ profile }) {
   const access = useLoad(() => myAccess(), []);
@@ -43,7 +49,6 @@ export default function BusinessSetup({ profile }) {
   }
   const nav = visibleNav(ctx.can);
   const current = nav.some(([k]) => k === page) ? page : nav[0]?.[0];
-  const title = nav.find(([k]) => k === current)?.[1];
 
   return (
     <SetupContext.Provider value={ctx}>
@@ -54,9 +59,14 @@ export default function BusinessSetup({ profile }) {
             <button type="button" key={k} data-label={label} aria-current={current === k ? "page" : undefined} className={current === k ? "active" : ""} onClick={() => ctx.goTo(k)}>{label}</button>
           ))}
         </nav></div>
-        {current === "services" && <ServiceDesk department="Business Setup" profile={profile} />}
+        {current === "dashboard" && <Dashboard />}
+        {current === "onboarding" && <Onboarding />}
+        {current === "clients" && <Clients />}
+        {current === "services" && <FeeMaster />}
+        {current === "documents" && <Documents />}
+        {current === "tasks" && <Tasks />}
+        {current === "import" && <Import />}
         {current === "settings" && <Settings />}
-        {current && !["services", "settings"].includes(current) && <Empty>{title} will be available in a later release.</Empty>}
       </div>
     </SetupContext.Provider>
   );

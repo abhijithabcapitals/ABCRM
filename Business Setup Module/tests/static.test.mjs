@@ -10,7 +10,7 @@ import { NAV, visibleNav } from "../logic/nav.js";
 const here = fileURLToPath(new URL("..", import.meta.url));
 const dbDir = join(here, "../Database Module/Business Setup Base/migrations");
 const sql = readdirSync(dbDir).map((f) => readFileSync(join(dbDir, f), "utf8")).join("\n");
-const src = ["components", "services", "logic"].flatMap((d) => readdirSync(join(here, d)).filter((f) => /\.jsx?$/.test(f)).map((f) => readFileSync(join(here, d, f), "utf8"))).join("\n");
+const src = ["components", "components/workspace", "services", "logic"].flatMap((d) => readdirSync(join(here, d)).filter((f) => /\.jsx?$/.test(f)).map((f) => readFileSync(join(here, d, f), "utf8"))).join("\n");
 
 const fns = {};
 for (const m of sql.matchAll(/create or replace function public\.(business_setup_\w+)\(([^)]*)\)/g)) {
@@ -54,9 +54,9 @@ test("navigation follows the spec and is filtered by permission", () => {
   assert.ok(visibleNav((p) => importer.has(p)).some(([k]) => k === "import"));
 });
 
-test("the module keeps the existing ServiceDesk as Services", () => {
+test("the shell opens each page of the spec", () => {
   const shell = readFileSync(join(here, "components/BusinessSetup.jsx"), "utf8");
-  assert.match(shell, /ServiceDesk department="Business Setup"/);
+  for (const c of ["Dashboard", "Onboarding", "Clients", "FeeMaster", "Documents", "Tasks", "Import", "Settings"]) assert.match(shell, new RegExp(`<${c} />`));
   assert.match(shell, /myAccess\(\)/);
   assert.match(readFileSync(join(here, "services/businessSetupApi.js"), "utf8"), /rpc\("business_setup_my_access"\)/);
 });
