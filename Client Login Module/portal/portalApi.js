@@ -44,6 +44,16 @@ export const portalApi = {
   docUrl: async (id) => (await call("doc_url", { id })).url,
   submitChange: (field, value) => call("submit_change", { field, value }),
   galleryUrl: async (source, id) => (await call("gallery_url", { source, id })).url,
+  setupView: () => call("setup_view"),
+  formSave: (answers) => call("form_save", { answers }),
+  formSubmit: () => call("form_submit"),
+  setupFile: async (kind, id) => (await call("setup_file", { kind, id })).url,
+  formUpload: async (file, doc_type) => {
+    const { id, upload_url, mime } = await call("upload_start", { file_name: file.name, size: file.size, doc_type, for_form: true });
+    const put = await fetch(upload_url, { method: "PUT", headers: { "Content-Type": mime }, body: file });
+    if (!put.ok) throw new Error(`${file.name} could not be uploaded. Please try again.`);
+    await call("upload_done", { id });
+  },
   logout: async () => {
     try { await call("logout"); } finally { signOutLocally(); }
   },

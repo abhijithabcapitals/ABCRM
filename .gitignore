@@ -36,3 +36,10 @@ Resources/
 Database Module/Banking Base/data/
 Database Module/Banking Base/private/
 Database Module/Generated Documents/
+
+# Business Setup: price list and import output (confidential, stay on this PC)
+Database Module/Business Setup Base/private/
+Database Module/Business Setup Base/data/
+
+# Plan execution scratch
+.superpowers/

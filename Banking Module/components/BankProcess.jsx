@@ -1,3 +1,4 @@
+import ZohoInvoicePanel from "@business-setup/components/ZohoInvoicePanel";
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FilePick, FormGrid, FormModal, KeyVals, Modal, Panel, Spinner, cleanValues, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { openFile, rpc, run, table, uploadFile } from "../services/bankingApi";
@@ -172,6 +173,7 @@ function AccountDetails({ c, app, account, kyc, client, history, missingCount, o
         <FilePick label={letter ? `Welcome letter: ${letter.name}` : account?.welcome_letter_path ? "Replace welcome letter" : "Upload welcome letter"} busy={busy} onFile={setLetter} />
         {account?.welcome_letter_path && <button type="button" className="bk-link" onClick={() => fileAct(() => openFile(account.welcome_letter_path))}>{account.welcome_letter_name || "Open"}</button>}
       </div>
+      <ZohoInvoicePanel />
       <div className="bk-modal-actions">
         <Button busy={busy} onClick={() => act(persist)}>Save details</Button>
         <Button id="bk-complete" variant="primary" busy={busy} onClick={complete}>Mark complete and send to Accounts</Button>

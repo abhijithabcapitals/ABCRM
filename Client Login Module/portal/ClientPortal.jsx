@@ -8,6 +8,7 @@ import ServicesTab from "./ServicesTab";
 import AccountsTab from "./AccountsTab";
 import DocumentsTab from "./DocumentsTab";
 import InformationTab from "./InformationTab";
+import SetupView from "./SetupView";
 
 // Kept here because Client Inputs imports it from this file.
 export { fmtSize } from "./format";
@@ -23,6 +24,7 @@ export default function ClientPortal({ api = portalApi, readOnly }) {
       <PageHead title={me.data?.display_name || "Client Portal"} sub={readOnly ? "Preview of what this client sees. Nothing can be changed here." : "Your record with AB Capital, and a safe place to send us documents."} />
       {!readOnly && <div className="bk-actions bk-mb"><Button onClick={() => api.logout()}>Sign out</Button></div>}
       <ErrorNote message={me.error} />
+      {!readOnly && <SetupView api={api} />}
       {me.loading && !me.data ? <Spinner /> : me.data && <>
         <div className="bk-tabs" role="tablist" aria-label="Your portal">
           {TABS.map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}

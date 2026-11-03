@@ -9,6 +9,12 @@ const TEMPLATES = [
   ["Service_Engagement_Template.docx", "Service Engagement Letter", new URL("../templates/Service_Engagement_Template.docx", import.meta.url).href],
   ["Quotation_Template.docx", "Business Banking Quotation", new URL("../../Banking Module/templates/Quotation_Template.docx", import.meta.url).href],
   ["Engagement_Letter_Template.docx", "Business Banking Engagement Letter", new URL("../../Banking Module/templates/Engagement_Letter_Template.docx", import.meta.url).href],
+  // Business Setup quotes. They hold prices, so they are uploaded here and have no built-in copy.
+  ["IFZA.docx", "Business Setup Quote: IFZA", null],
+  ["Rakez.docx", "Business Setup Quote: RAKEZ", null],
+  ["SHAMS.docx", "Business Setup Quote: SHAMS", null],
+  ["Mainland.docx", "Business Setup Quote: Dubai Mainland", null],
+  ["Liquidation.docx", "Business Setup Quote: Liquidation", null],
   ["Fee_Receipt_Voucher_Template.docx", "Fee Receipt Voucher", new URL("../../Banking Module/templates/Fee_Receipt_Voucher_Template.docx", import.meta.url).href],
 ];
 
@@ -23,6 +29,7 @@ async function checkFile(file, url) {
   const buffer = await file.arrayBuffer();
   const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
   try { new Docxtemplater(new PizZip(buffer), { paragraphLoop: true, linebreaks: true }); } catch { throw new Error(`${file.name} cannot be used: it is not a valid Word file, or a {tag} in it is broken.`); }
+  if (!url) return { missing: [], unknown: [] };   // no built-in copy to compare with
   const base = await (await fetch(url)).arrayBuffer();
   return compareTags(await documentText(base), await documentText(buffer));
 }
@@ -70,9 +77,9 @@ export default function MasterTemplates({ manage }) {
           <div className="bk-row" key={file}>
             <span><strong>{label}:</strong> {row?.storage_path ? <>{row.file_name} <small className="bk-muted">uploaded {fmtDate(row.uploaded_at)}</small></> : <Badge>Built-in</Badge>}</span>
             <span className="bk-actions">
-              <Button busy={busy === `d-${file}`} onClick={() => download(file, url)}>Download</Button>
+              {(url || row?.storage_path) && <Button busy={busy === `d-${file}`} onClick={() => download(file, url)}>Download</Button>}
               {manage && <Button variant="primary" busy={busy === `u-${file}`} onClick={() => { setTarget([file, label, url]); input.current?.click(); }}>Upload</Button>}
-              {manage && row?.storage_path && <Button busy={busy === `b-${file}`} onClick={() => act(`b-${file}`, () => useBuiltInTemplate(file))}>Use built-in</Button>}
+              {manage && url && row?.storage_path && <Button busy={busy === `b-${file}`} onClick={() => act(`b-${file}`, () => useBuiltInTemplate(file))}>Use built-in</Button>}
             </span>
           </div>
         );
