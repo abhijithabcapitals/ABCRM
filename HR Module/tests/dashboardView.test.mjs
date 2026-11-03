@@ -1,6 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { annualRows, lateShade, leaveCard, netLateMinutes, setOffNote, todayLabel } from "../logic/attendance.js";
+import { annualRows, cardTimes, lateShade, leaveCard, netLateMinutes, setOffNote, todayLabel, workedText } from "../logic/attendance.js";
+
+test("workedText gives the time between first and last punch", () => {
+  assert.equal(workedText({ time_in: "10:00:00", time_out: "19:00:00" }), "9h 00m");
+  assert.equal(workedText({ time_in: "09:31:00", time_out: "18:36:59" }), "9h 05m");
+  assert.equal(workedText({ time_in: "10:00:00", time_out: "10:00:00" }), "0h 00m");
+  assert.equal(workedText({ time_in: "10:00:00", time_out: null }), "");
+  assert.equal(workedText({ time_in: null, time_out: "19:00:00" }), "");
+  assert.equal(workedText(undefined), "");
+});
+test("cardTimes gives first punches for Present and Late, and last punches for Overtime", () => {
+  const rows = [
+    { employee_id: "a", work_date: "2026-11-03", status: "Present", time_in: "10:00:00", time_out: "19:30:00", late_minutes: 0, overtime_minutes: 60 },
+    { employee_id: "a", work_date: "2026-11-02", status: "Present", time_in: "10:15:00", time_out: "18:30:00", late_minutes: 45, overtime_minutes: 0 },
+    { employee_id: "b", work_date: "2026-11-03", status: "Absent", time_in: null, time_out: null, late_minutes: 0, overtime_minutes: 0 },
+  ];
+  assert.deepEqual(cardTimes(rows, "present"), { a: [{ date: "2026-11-02", time: "10:15" }, { date: "2026-11-03", time: "10:00" }] });
+  assert.deepEqual(cardTimes(rows, "late"), { a: [{ date: "2026-11-02", time: "10:15" }] });
+  assert.deepEqual(cardTimes(rows, "overtime"), { a: [{ date: "2026-11-03", time: "19:30" }] });
+  assert.deepEqual(cardTimes(null, "late"), {});
+});
 
 const annual = (over) => [{ leave_type: "Unpaid", entitlement: null, adjustment: 0, carried: 0, used: 4, pending: 0, remaining: null }, { leave_type: "Annual", entitlement: 30, adjustment: 0, carried: 0, used: 0, pending: 0, remaining: 30, ...over }];
 

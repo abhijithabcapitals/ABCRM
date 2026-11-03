@@ -1,14 +1,15 @@
 import { fmtDate } from "@banking/components/shared";
-import { SHORT, lateShade, markClasses, markText, netLateMinutes, setOffNote, statusLabel } from "../../logic/attendance";
+import { SHORT, lateShade, markClasses, markText, netLateMinutes, setOffNote, statusLabel, workedText } from "../../logic/attendance";
 
 export const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
 
 export function dayTip(person, date, row, named) {
   const times = row?.time_in || row?.time_out ? ` ${hhmm(row.time_in) || "?"}-${hhmm(row.time_out) || "?"}` : "";
+  const worked = workedText(row) ? ` (${workedText(row)})` : "";
   const late = row?.late_minutes > 0 ? `, ${row.late_minutes} min late` : "";
   const over = row?.overtime_minutes > 0 ? `, ${row.overtime_minutes} min overtime` : "";
   const pending = row?.pending_edit_id ? ". Pending approval" : "";
-  return `${person.full_name}, ${fmtDate(date)}: ${statusLabel(row)}${times}${late}${over}${setOffNote(row)}${named?.length ? `. ${markText(named)}` : ""}${row?.note ? `. ${row.note}` : ""}${pending}`;
+  return `${person.full_name}, ${fmtDate(date)}: ${statusLabel(row)}${times}${worked}${late}${over}${setOffNote(row)}${named?.length ? `. ${markText(named)}` : ""}${row?.note ? `. ${row.note}` : ""}${pending}`;
 }
 
 export const cellClass = (row, date, today) => `hr-cell ${row?.status ? `hr-cell-${row.status}` : ""} ${date === today ? "hr-cell-today" : ""} ${row?.pending_edit_id ? "hr-cell-pending" : ""} ${netLateMinutes(row) > 0 ? "hr-cell-late" : ""}`;

@@ -69,6 +69,31 @@ export function marksByDate(holidays, marks) {
   return by;
 }
 
+const clockMinutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+// Time between first and last punch as "9h 05m". Blank until both punches exist.
+export function workedText(row) {
+  if (!row?.time_in || !row?.time_out) return "";
+  const m = clockMinutes(row.time_out) - clockMinutes(row.time_in);
+  return `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
+}
+
+// Which time a dashboard card shows beside a name, and which days count for it, as the database counts them.
+export const CARD_TIME = {
+  present: { label: "In", field: "time_in", counts: (r) => r.status === "Present" },
+  late: { label: "In", field: "time_in", counts: (r) => r.late_minutes > 0 },
+  overtime: { label: "Out", field: "time_out", counts: (r) => r.overtime_minutes > 0 },
+};
+
+// Rows from hr_attendance_range -> { employee_id: [{ date, time }] } for a card, earliest day first.
+export function cardTimes(rows, key) {
+  const { field, counts } = CARD_TIME[key];
+  const by = {};
+  for (const r of (rows || []).filter(counts)) (by[r.employee_id] ??= []).push({ date: r.work_date, time: String(r[field] ?? "").slice(0, 5) });
+  for (const list of Object.values(by)) list.sort((a, b) => a.date.localeCompare(b.date));
+  return by;
+}
+
 export const markText = (list) => (list || []).map((m) => (m.holiday ? m.name : `${m.name} (estimated)`)).join(", ");
 
 export const markClasses = (list) => ["UAE", "India"].filter((r) => (list || []).some((m) => m.region === r)).map((r) => `hr-cell-mark-${r.toLowerCase()}`).join(" ");

@@ -1,5 +1,5 @@
 import DayCell, { hhmm } from "./DayCell";
-import { markText, statusLabel, weekDays } from "../../logic/attendance";
+import { markText, statusLabel, weekDays, workedText } from "../../logic/attendance";
 
 const HEAD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -18,6 +18,7 @@ export default function CalendarView({ person, days, today, canEdit, onEdit, mar
               <strong>{Number(d.slice(8))}</strong>
               <span className="hr-calendar-status">{r?.status ? statusLabel(r) : ""}</span>
               {(r?.time_in || r?.time_out) && <small>{hhmm(r.time_in) || "?"} - {hhmm(r.time_out) || "?"}</small>}
+              {workedText(r) && <small className="hr-calendar-worked">{workedText(r)}</small>}
               {marks?.[d] && <span className="hr-calendar-mark">{markText(marks[d])}</span>}
             </span>
           </DayCell>
