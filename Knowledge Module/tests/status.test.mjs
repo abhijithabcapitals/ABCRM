@@ -39,3 +39,12 @@ test("groupCopyItem ignores Internal lines when deciding Shareable and Draft", (
   assert.deepEqual(groupCopyItem([l("Approved", "Shareable"), l("Draft", "Shareable")]), { visibility: "Shareable", status: "Draft" });
   assert.deepEqual(groupCopyItem([]), { visibility: "Internal", status: "Approved" });
 });
+
+import { groupDisplayStatus } from "../logic/status.js";
+
+test("groupDisplayStatus is Draft when any line is Draft, even if all are Internal", () => {
+  const l = (status, visibility) => ({ status, visibility });
+  assert.equal(groupDisplayStatus([l("Draft", "Internal"), l("Draft", "Internal")]), "Draft");
+  assert.equal(groupDisplayStatus([l("Approved", "Shareable"), l("Draft", "Internal")]), "Draft");
+  assert.equal(groupDisplayStatus([l("Approved", "Shareable"), l("Approved", "Internal")]), "Approved");
+});

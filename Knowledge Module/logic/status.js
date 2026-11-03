@@ -21,3 +21,7 @@ export function groupCopyItem(lines) {
     status: shareable.some((l) => l.status === "Draft") ? "Draft" : "Approved",
   };
 }
+
+// Status shown on a group card: Draft if any line in the group is Draft, whatever its visibility.
+// The copy tick follows groupCopyItem instead.
+export const groupDisplayStatus = (lines) => (lines.some((l) => l.status === "Draft") ? "Draft" : "Approved");

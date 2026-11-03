@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Badge, Button, Empty, ErrorNote, Panel, Spinner, fmtDate } from "@banking/components/shared";
 import { bankingPriceToText, priceLinesToText } from "../logic/copyText.js";
 import { groupPriceLines } from "../logic/search.js";
-import { groupCopyItem, isExpired } from "../logic/status.js";
+import { groupCopyItem, groupDisplayStatus, isExpired } from "../logic/status.js";
 import ResultCard from "./ResultCard";
 import CopyButton from "./CopyButton";
 
@@ -18,7 +18,7 @@ export function PriceGroupCard({ title, lines, today, isAdmin, onEdit }) {
       title={title}
       department={lines[0] ? deptOf(lines[0]) : undefined}
       updatedAt={latest(lines, "updated_at")}
-      status={item.status}
+      status={groupDisplayStatus(lines)}
       visibility={item.visibility}
       stale={lines.some((l) => isExpired(l.valid_until, today))}
       footer={<CopyButton item={item} text={priceLinesToText(lines, title)} />}
