@@ -94,3 +94,58 @@ test("a master date written as DD/MM/YYYY is what fmtUae writes and parseUaeDate
   assert.equal(parseUaeDate("31/12/2027")?.getTime(), d.getTime());
   assert.equal(parseUaeDate("2027-12-31"), null);
 });
+
+// ── Edge Function: submit_change and gallery_url (static checks on source) ──
+const fnSrc = () => readFileSync(fileURLToPath(new URL("../supabase/client-portal/index.ts", import.meta.url)), "utf8");
+const caseBlock = (name) => {
+  const src = fnSrc();
+  const start = src.indexOf(`case "${name}"`);
+  assert.ok(start >= 0, `case ${name} exists`);
+  const rest = src.slice(start + 1);
+  const next = rest.search(/\n\s*case "|\n\s*default:/);
+  return src.slice(start, start + 1 + (next < 0 ? rest.length : next));
+};
+
+test("submit_change and gallery_url sit after the session check and use the session account only", () => {
+  const src = fnSrc();
+  const sessionAt = src.indexOf('rpc("client_portal_session"');
+  for (const name of ["submit_change", "gallery_url"]) {
+    const block = caseBlock(name);
+    assert.ok(src.indexOf(`case "${name}"`) > sessionAt, `${name} after session check`);
+    assert.match(block, /p_account: accountId/);
+    assert.doesNotMatch(block, /body\.(account|account_id|p_account)/);
+  }
+  assert.match(caseBlock("submit_change"), /client_change_submit/);
+  assert.match(caseBlock("gallery_url"), /client_portal_gallery_path/);
+});
+
+test("gallery_url validates source and id, signs from banking-documents for 120 seconds, never returns the path", () => {
+  const block = caseBlock("gallery_url");
+  assert.match(block, /"kyc"/);
+  assert.match(block, /"generated"/);
+  assert.match(block, /Document not found\./);
+  assert.match(block, /GALLERY_BUCKET/);
+  assert.match(fnSrc(), /const GALLERY_BUCKET = "banking-documents"/);
+  assert.match(block, /return json\(\{ url:/);
+  assert.match(block, /return json\(\{ url: await signed\(data\.storage_path, [^)]*GALLERY_BUCKET\) \}\)/);
+  assert.doesNotMatch(block, /json\(data|storage_path:/);
+  assert.match(fnSrc(), /createSignedUrl\(path, 120, \{ download: name \}\)/);
+});
+
+test("submit_change shows only P0001 SQL messages and bounds its inputs", () => {
+  const block = caseBlock("submit_change");
+  assert.match(block, /P0001/);
+  assert.match(block, /slice\(0, 60\)/);
+  assert.match(block, /slice\(0, 600\)/);
+  assert.match(block, /return json\(\{ id/);
+});
+
+test("portalApi exports submitChange and galleryUrl", () => {
+  const api = readFileSync(fileURLToPath(new URL("../portal/portalApi.js", import.meta.url)), "utf8");
+  assert.match(api, /submitChange:[^\n]*call\("submit_change", \{ field, value \}\)/);
+  assert.match(api, /galleryUrl:[^\n]*call\("gallery_url", \{ source, id \}\)/);
+});
+
+test("function header lists the new actions", () => {
+  assert.match(fnSrc().split("import ")[0], /submit_change[\s\S]*gallery_url/);
+});
