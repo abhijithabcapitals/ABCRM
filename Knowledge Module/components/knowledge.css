@@ -1,0 +1,39 @@
+/* Knowledge module. Uses the shared bk- look from Banking Module/components/banking.css; only Knowledge-specific bits are here. */
+.kn-root { min-width: 0; max-width: 100%; overflow-x: hidden; }
+.kn-search { width: 100%; max-width: 460px; }
+.kn-stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.kn-section { margin: 8px 0 0; font-size: 14px; }
+
+.kn-card { min-width: 0; padding: 13px 15px; border: 1px solid #e6ebed; border-radius: 10px; background: #fff; }
+.kn-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; margin-bottom: 8px; }
+.kn-card-head h3 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.kn-meta { margin: 2px 0 0; color: #7b8990; font-size: 11.5px; }
+.kn-badges { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.kn-warn { margin: 0 0 8px; padding: 6px 9px; border: 1px solid #ecd596; border-radius: 7px; background: #fdf3dc; color: #7a560c; font-size: 12px; font-weight: 600; }
+.kn-card-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+
+.kn-copy { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.kn-copied { color: #1f6e49; font-size: 12px; font-weight: 700; }
+.kn-error { margin: 6px 0; color: #a53d36; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+
+.kn-details summary { cursor: pointer; color: #0d7277; font-size: 12px; font-weight: 700; }
+.kn-html { max-width: 100%; margin-top: 8px; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+.kn-html table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.kn-html th, .kn-html td { padding: 4px 8px; border: 1px solid #e6ebed; text-align: left; vertical-align: top; }
+.kn-html img { max-width: 100%; height: auto; }
+
+.kn-service-list { margin: 0; padding-left: 18px; columns: 2 220px; }
+.kn-service-list li { margin-bottom: 3px; overflow-wrap: anywhere; }
+
+.kn-editor { border: 1px solid #d5dee1; border-radius: 7px; background: #fff; }
+.kn-editor-bar { display: flex; flex-wrap: wrap; gap: 4px; padding: 5px; border-bottom: 1px solid #e8edef; background: #f6f8f9; }
+.kn-editor-bar button { padding: 4px 9px; border: 1px solid #dbe3e6; border-radius: 6px; background: #fff; font-size: 12px; cursor: pointer; }
+.kn-editor-bar button.active { border-color: #0d7d82; background: #e8f6f6; color: #0d7277; }
+.kn-editor .ProseMirror { min-height: 140px; max-height: 320px; padding: 8px 10px; overflow: auto; outline: none; }
+.kn-editor .ProseMirror table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.kn-editor .ProseMirror th, .kn-editor .ProseMirror td { padding: 3px 7px; border: 1px solid #d5dee1; }
+
+@media (max-width: 480px) {
+  .kn-card { padding: 11px 12px; }
+  .kn-search { max-width: none; }
+}

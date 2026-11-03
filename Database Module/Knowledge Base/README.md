@@ -1,8 +1,32 @@
 # Knowledge Base data
 
-The CRM's **Knowledge Base** tab (formerly Wiki, `Main Module/src/components/Wiki.jsx`) reads the
-`wiki_categories`, `wiki_articles`, `wiki_history` and `wiki_attachments` tables. This folder holds the
-tools that copy those articles from another CRM database (Rahul's live project) into ours.
+The staff **Knowledge** tab reads three tables, two functions and one view, created by `migrations/001_knowledge.sql`.
+Members need the `knowledge` tab grant to read; only admins write. Design: `Knowledge Module/docs/2026-11-03-knowledge-module-design.md`.
+
+| Object | Purpose |
+|---|---|
+| `knowledge_categories` | Business Setup, Banking, Accounting, Tax, Visas, General |
+| `knowledge_entries` | Procedures, checklists, plans and client answers (HTML body) |
+| `knowledge_price_lines` | Business Setup price lines in AED, by template and line group |
+| `knowledge_banking_prices()` | Customer-facing columns of the prices in effect today from `banking_pricing`, for users without Banking access. Leaves out retired banks and schemes, fills a blank service fee from the default, and returns the Banking VAT mode |
+| `knowledge_price_line_review()` | Admin only: `id`, `basis`, `payee` and `confidence` of each price line. No rows for anyone else |
+| `v_knowledge_search` | Entries, price lines, banking prices and active services in one list |
+| `knowledge_touch()` | Trigger: stamps edits, records who approved, and returns an Approved row to Draft when its content changes |
+
+An Approved entry returns to Draft when `title` or `body` changes. An Approved price line returns to Draft when `template`,
+`line_group`, `item`, `amount_aed` or `payee` changes. Changing only visibility, validity or confidence keeps it Approved.
+`knowledge_price_lines` has column-level read: `basis`, `payee` and `confidence` are refused to every API user, so select named columns, never `*`. Admins read those three through `knowledge_price_line_review()` and can still write them.
+Prices never go into Git: import output belongs in the git-ignored `data/` folder. Agent commission figures do not belong in these tables.
+
+Test on a throwaway local Postgres (nothing touches Supabase): `bash "Database Module/Knowledge Base/tests/run-local.sh"`.
+It runs the migration twice, once more over an old table-wide read grant, the access tests, then `migrations/rollback/001_rollback.sql`.
+Before going live, run `audit_trail_attach_all()`; it exists live.
+
+## Legacy Wiki copy tools
+
+The CRM's old **Knowledge Base** tab (formerly Wiki, `Main Module/src/components/Wiki.jsx`) reads the
+`wiki_categories`, `wiki_articles`, `wiki_history` and `wiki_attachments` tables. The tools below copy those articles
+from another CRM database (Rahul's live project) into ours. They are unchanged by the Knowledge tab.
 
 The articles are stored in the database, not in the Git repo, so copying the repo brings the code only.
 
