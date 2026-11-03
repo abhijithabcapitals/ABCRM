@@ -64,5 +64,23 @@ chk "revise then accept (non-root): no deadlock" "$(echo "$S1OUT$S2OUT" | grep -
 chk "revise then accept (non-root): revise commits, accept refused" "$([ "$S1RC" = 0 ] && [ "$S2RC" != 0 ] && echo "$S2OUT" | grep -qi 'only an issued quote can be accepted' && echo 1 || echo 0)" "$S2OUT"
 chk "revise then accept (non-root): one clean outcome" "$([ "$(status_of "$D2")" = superseded ] && [ "$(one "select count(*) from public.hub_documents where revises_id = '$D2'")" = 1 ] && [ "$(lines_of "$D2")" = 0 ] && echo 1 || echo 0)"
 
+# 5. Take vs take on one form: session 1 holds it, session 2 is told who has it.
+mkform() {
+  local cl="$1"
+  "${PS[@]}" -c "insert into public.client_master (client_id, legal_name, data) values ('$cl', '$cl LLC', '{}'); insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values ('$cl', '$cl', lower('$cl'), 'x'); update public.business_setup_onboarding_forms set status = 'Submitted', answers = '{\"client_name\":\"Asha\",\"phone\":\"1\",\"email\":\"a@b.test\",\"services\":[\"Visa\"],\"company_status\":\"New\",\"activity\":\"Trading\",\"partners\":[{\"name\":\"Asha\",\"nationality\":\"Indian\"}]}' where client_id = '$cl'; insert into public.client_portal_documents (account_id, form_id, doc_type, file_name, storage_path, upload_complete, status) select account_id, id, t, t, gen_random_uuid()::text, true, 'validated' from public.business_setup_onboarding_forms, unnest(array['Passport','Ejari']) t where client_id = '$cl';" >/dev/null
+  one "select id from public.business_setup_onboarding_forms where client_id = '$cl'"
+}
+F1=$(mkform CL900070)
+race "select public.business_setup_form_take('$F1'); select pg_sleep($HOLD);" "select public.business_setup_form_take('$F1');"
+chk "take vs take: first commits" "$([ "$S1RC" = 0 ] && echo 1 || echo 0)" "$S1OUT"
+chk "take vs take: second is told it is taken" "$([ "$S2RC" != 0 ] && echo "$S2OUT" | grep -qi 'already taken' && echo 1 || echo 0)" "$S2OUT"
+
+# 6. Validate vs validate on one form: one wins, the other is told, Client Master changes once.
+F2=$(mkform CL900071)
+race "select public.business_setup_form_validate('$F2','{}',null); select pg_sleep($HOLD);" "select public.business_setup_form_validate('$F2','{}',null);"
+chk "validate vs validate: first commits" "$([ "$S1RC" = 0 ] && echo 1 || echo 0)" "$S1OUT"
+chk "validate vs validate: second is told" "$([ "$S2RC" != 0 ] && echo "$S2OUT" | grep -qi 'already validated' && echo 1 || echo 0)" "$S2OUT"
+chk "validate vs validate: one partner row" "$([ "$(one "select count(*) from public.business_setup_kyc_partners p join public.business_setup_kyc_profiles k on k.id = p.kyc_id where k.client_id = 'CL900071'")" = 1 ] && echo 1 || echo 0)"
+
 echo "concurrency: $TOTAL checks, $FAILS failed"
 [ "$FAILS" -eq 0 ]
