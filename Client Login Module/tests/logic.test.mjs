@@ -198,3 +198,20 @@ test("Client Module imports only fmtSize from the portal", () => {
     for (const l of lines) assert.match(l, /^import \{ fmtSize \} from "@client-login\/portal\/ClientPortal";$/, `${f}: ${l}`);
   }
 });
+
+test("filterClients narrows by access, KYC and business line", async () => {
+  const { filterClients } = await import("../logic/adminFilters.js");
+  const A = { id: "A", status: "active", kyc_percent: 100, lines: ["Business Banking"] };
+  const B = { id: "B", status: "revoked", kyc_percent: 6, lines: [] };
+  const C = { id: "C", status: null, kyc_percent: null, lines: [] };
+  const rows = [A, B, C];
+  assert.deepEqual(filterClients(rows, { access: "on" }), [A]);
+  assert.deepEqual(filterClients(rows, { access: "revoked" }), [B]);
+  assert.deepEqual(filterClients(rows, { access: "none" }), [C]);
+  assert.deepEqual(filterClients(rows, { kyc: "complete" }), [A]);
+  assert.deepEqual(filterClients(rows, { kyc: "incomplete" }), [B, C]);
+  assert.deepEqual(filterClients(rows, { line: "Business Banking" }), [A]);
+  assert.deepEqual(filterClients(rows, { access: "on", kyc: "incomplete" }), []);
+  assert.deepEqual(filterClients(rows, {}), rows);
+  assert.deepEqual(filterClients(rows), rows);
+});
