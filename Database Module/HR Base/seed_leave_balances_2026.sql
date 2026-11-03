@@ -1,7 +1,8 @@
 -- AB Capital's Annual leave balances for 2026 and join dates, from the sheet the user gave on 2026-11-03. Run on live, after seed_ab_capital.sql.
 -- A join date replaces what the record holds. Attendance starts from it, so a blank working day after it counts Absent.
 -- Opening goes in as entitlement and Used as a negative adjustment, so Remaining shows the sheet's Closing. Used has no dates, so it cannot be leave requests.
--- Every named person gets a row, because a person with none would show the type's default of 30 days. Rishu, Lakshay and Abhijith have no balance on the sheet: 0.
+-- Every named person gets a row. Lakshay and Abhijith have no balance on the sheet: 0. Names follow the live records, where the sheet's Aishwarya is Aiswarya.
+-- The sheet's Tagore and Rishu are left out: the live list of 14 employees on 2026-11-03 has no record for them.
 -- All or nothing: it stops and saves nothing if a name does not match exactly one employee, or if 2026 Annual leave is already approved. A second run sets the same values.
 do $$
 declare
@@ -18,11 +19,9 @@ begin
     ('ABAIZ', '2025-02-12', 3, 0, 3),
     ('GARIMA', '2025-03-25', 21.5, 0.5, 21),
     ('NAVNEET', '2025-07-01', 31.5, 0.5, 31),
-    ('AISHWARYA', '2025-11-19', 0, 0, 0),
+    ('AISWARYA', '2025-11-19', 0, 0, 0),
     ('GEO', '2026-01-05', 29, 0, 29),
     ('YOMALI', '2026-08-10', 0, 0, 0),
-    ('TAGORE', '2026-07-28', 0, 0, 0),
-    ('RISHU', '2026-08-03', 0, 0, 0),
     ('MADHAVI', '2026-09-07', 0, 0, 0),
     ('HIMANSHU', '2026-09-28', 0, 0, 0),
     ('LAKSHAY', '2026-10-05', 0, 0, 0),
