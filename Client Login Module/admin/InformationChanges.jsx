@@ -51,7 +51,7 @@ export default function InformationChanges() {
           { key: "client", label: "Client" },
           { key: "field_key", label: "Field", render: (d) => fieldLabel(d.field_key) },
           { key: "official_value", label: "Current official value", render: (d) => showValue(d.field_key, d.status === "pending" || d.status === "in_review" ? d.official_value : d.old_value) },
-          { key: "new_value", label: "Proposed value", render: (d) => <>{showValue(d.field_key, d.new_value)}{d.stale && <> <Badge tone="bad">Record changed</Badge></>}</> },
+          { key: "new_value", label: "Proposed value", render: (d) => <>{showValue(d.field_key, d.new_value)}{d.stale && <> <Badge tone="bad">Record changed</Badge></>}{d.license_conflict && <> <Badge tone="bad">Held by another client</Badge></>}</> },
           { key: "status", label: "Status", render: (d) => <Badge tone={TONE[d.status]}>{LABEL[d.status]}</Badge> },
           { key: "assignee", label: "Assigned to" },
           { key: "created_at", label: "Received", render: (d) => fmtDate(d.created_at) },

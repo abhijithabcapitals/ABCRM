@@ -23,6 +23,7 @@ drop function if exists public.client_changes_assignees();
 drop function if exists public.client_changes_list();
 drop function if exists public.client_change_submit(uuid, text, text);
 drop function if exists public.client_change_apply(uuid, text, text, uuid);
+drop function if exists public.client_change_license_taken(uuid, text);
 drop function if exists public.client_change_official(uuid, text);
 drop function if exists public.client_change_iso(text);
 drop function if exists public.client_change_field(text);

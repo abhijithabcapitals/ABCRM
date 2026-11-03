@@ -162,7 +162,7 @@ select public.must_fail('rights: service_role cannot call the staff list (no sta
 reset role;
 select public.ok('rights: no browser role holds execute on the internal helpers',
   (select not bool_or(has_function_privilege(r, p.oid, 'execute')) from pg_proc p cross join unnest(array['authenticated', 'anon']) r
-    where p.pronamespace = 'public'::regnamespace and p.proname in ('client_change_submit', 'client_change_official', 'client_change_apply')));
+    where p.pronamespace = 'public'::regnamespace and p.proname in ('client_change_submit', 'client_change_official', 'client_change_apply', 'client_change_license_taken')));
 select public.ok('rights: every client_changes_ function is open to authenticated and closed to anon',
   (select count(*) = 6 and bool_and(has_function_privilege('authenticated', p.oid, 'execute')) and not bool_or(has_function_privilege('anon', p.oid, 'execute'))
      from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'client\_changes\_%'));
@@ -241,7 +241,7 @@ set role authenticated;
 select public.who('00000000-0000-0000-0000-000000000001');
 select public.ok('list: every documented key on every row',
   (select jsonb_array_length(l) > 0 and (select bool_and(r ?& array['id', 'client', 'field_key', 'old_value', 'new_value', 'official_value', 'stale', 'status', 'assignee', 'assigned_to',
-        'can_decide', 'created_at', 'reviewer', 'reviewed_at', 'review_note']) from jsonb_array_elements(l) r) from (select public.client_changes_list() l) x));
+        'can_decide', 'created_at', 'reviewer', 'reviewed_at', 'review_note', 'license_conflict']) from jsonb_array_elements(l) r) from (select public.client_changes_list() l) x));
 select public.ok('list: superseded requests are not listed', (select not exists (select 1 from jsonb_array_elements(public.client_changes_list()) r where r ->> 'status' = 'superseded')));
 select public.ok('list: client name, official value, not stale',
   (select r ->> 'client' = 'Alpha Trading LLC' and r ->> 'official_value' = 'Alpha' and r ->> 'old_value' = 'Alpha' and (r ->> 'stale')::boolean = false and r ->> 'new_value' = 'Alpha Renamed'
@@ -507,6 +507,40 @@ select public.ok('IBAN backstop: nothing written, requests still in_review',
   (select registered_address is null from public.banking_kyc_profiles where client_id = 'b0000000-0000-0000-0000-00000000000b')
   and (select not (data::text ~* 'AE[0-9]{21}') from public.client_master where client_id = 'CL000902')
   and (select count(*) = 2 from public.client_portal_change_requests where status = 'in_review' and new_value like 'AE07%'));
+
+-- ═══ licence number held by another banking client ═══
+select public.client_change_submit(current_setting('t.a')::uuid, 'license_number', ' lic-b ') as _ \gset
+select (select count(*) from public.admin_audit where action = 'client_change_validated') as audit_before \gset
+set role authenticated;
+select public.who('00000000-0000-0000-0000-000000000001');
+select public.ok('licence conflict: the list flags it, whatever the case or spaces',
+  (select (r ->> 'license_conflict')::boolean from jsonb_array_elements(public.client_changes_list()) r where r ->> 'field_key' = 'license_number' and r ->> 'client' = 'Alpha Trading LLC' and r ->> 'status' = 'pending'));
+select public.client_changes_take(public.rq(current_setting('t.a')::uuid, 'license_number'));
+select public.must_fail('licence conflict: validation refused with a clear message', format($$select public.client_changes_decide(%L, 'validated', null)$$, public.rq(current_setting('t.a')::uuid, 'license_number')), 'already holds licence number lic-b');
+select public.must_fail('licence conflict: force does not get past it', format($$select public.client_changes_decide(%L, 'validated', null, true)$$, public.rq(current_setting('t.a')::uuid, 'license_number')), 'already holds');
+reset role;
+select public.ok('licence conflict: nothing written, request still in_review, no audit row',
+  (select license_number = 'LIC-A-NEW' from public.banking_kyc_profiles where client_id = 'a0000000-0000-0000-0000-00000000000a')
+  and (select license_number = 'LIC-A-NEW' from public.banking_clients where id = 'a0000000-0000-0000-0000-00000000000a')
+  and (select license_number = 'LIC-B' from public.banking_clients where id = 'b0000000-0000-0000-0000-00000000000b')
+  and (select status = 'in_review' and reviewed_by is null from public.client_portal_change_requests where id = public.rq(current_setting('t.a')::uuid, 'license_number'))
+  and (select count(*) = :audit_before from public.admin_audit where action = 'client_change_validated'));
+set role authenticated;
+select public.client_changes_decide(public.rq(current_setting('t.a')::uuid, 'license_number'), 'rejected', 'Held by another client');
+reset role;
+select public.client_change_submit(current_setting('t.a')::uuid, 'license_number', 'lic-a-new') as _ \gset
+set role authenticated;
+select public.ok('licence conflict: the client''s own number in another case is not a conflict',
+  (select not (r ->> 'license_conflict')::boolean from jsonb_array_elements(public.client_changes_list()) r where r ->> 'field_key' = 'license_number' and r ->> 'client' = 'Alpha Trading LLC' and r ->> 'status' = 'pending'));
+select public.client_changes_take(public.rq(current_setting('t.a')::uuid, 'license_number'));
+select public.client_changes_decide(public.rq(current_setting('t.a')::uuid, 'license_number'), 'validated', null);
+reset role;
+select public.ok('licence conflict: ... and it validates', (select license_number = 'lic-a-new' from public.banking_clients where id = 'a0000000-0000-0000-0000-00000000000a'));
+set role authenticated;
+select public.ok('licence conflict: a decided request is not flagged, even though the number is still held',
+  (select count(*) = 1 and bool_and(not (r ->> 'license_conflict')::boolean) from jsonb_array_elements(public.client_changes_list()) r
+    where r ->> 'field_key' = 'license_number' and r ->> 'client' = 'Alpha Trading LLC' and r ->> 'status' = 'rejected'));
+reset role;
 
 \echo === FAILURES ===
 select n || ' FAIL ' || name || ' :: ' || coalesce(detail, '') from public.t_result where not ok order by n;

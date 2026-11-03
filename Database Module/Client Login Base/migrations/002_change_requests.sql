@@ -80,6 +80,13 @@ begin
   return nullif(btrim(coalesce(v, '')), '');
 end $$;
 
+-- Is this licence number held by a different banking client? banking_get_or_create_client matches on licence with limit 1,
+-- so a duplicate could attach that client's next case to this portal.
+create or replace function public.client_change_license_taken(p_client uuid, p_value text) returns boolean
+language sql stable set search_path = public, pg_temp as $$
+  select exists (select 1 from banking_clients o where o.id <> p_client and lower(btrim(o.license_number)) = lower(btrim(p_value)))
+$$;
+
 -- Writes one validated value. The caller (client_changes_decide) has checked who may and whether the record moved.
 create or replace function public.client_change_apply(p_account uuid, p_field text, p_value text, p_actor uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -91,6 +98,9 @@ begin
     from client_portal_accounts a left join banking_clients c on c.id = a.banking_client_id where a.id = p_account;
   if regexp_replace(p_value, '\s', '', 'g') ~* 'AE[0-9]{21}' then raise exception 'Store only the last 4 digits of an IBAN'; end if;
   if f.kyc_col is not null and b is not null then
+    if p_field = 'license_number' and client_change_license_taken(b, p_value) then
+      raise exception 'Another banking client already holds licence number %. Resolve the duplicate before validating this change.', btrim(p_value);
+    end if;
     insert into banking_kyc_profiles (client_id) values (b) on conflict (client_id) do nothing;
     if f.kind = 'date' then execute format('update banking_kyc_profiles set %I = $1::date where client_id = $2', f.kyc_col) using p_value, b;
     else execute format('update banking_kyc_profiles set %I = $1 where client_id = $2', f.kyc_col) using p_value, b; end if;
@@ -154,13 +164,14 @@ begin
   return (select coalesce(jsonb_agg(jsonb_build_object(
       'id', t.id, 'client', t.client, 'field_key', t.field_key, 'old_value', t.old_value, 'new_value', t.new_value,
       'official_value', t.official, 'stale', t.is_open and t.official is distinct from t.old_value, 'status', t.status,
-      'assignee', t.assignee, 'assigned_to', t.assigned_to,
+      'license_conflict', t.license_conflict, 'assignee', t.assignee, 'assigned_to', t.assigned_to,
       'can_decide', t.status = 'in_review' and (t.assigned_to = auth.uid() or client_portal_is_admin()),
       'created_at', t.created_at, 'reviewer', t.reviewer, 'reviewed_at', t.reviewed_at, 'review_note', t.review_note)
       order by t.is_open desc, t.created_at desc), '[]'::jsonb)
     from (select r.*, a.display_name as client, pa.full_name as assignee, pr.full_name as reviewer,
                  r.status in ('pending', 'in_review') as is_open,
-                 case when r.status in ('pending', 'in_review') then client_change_official(r.account_id, r.field_key) end as official
+                 case when r.status in ('pending', 'in_review') then client_change_official(r.account_id, r.field_key) end as official,
+                 r.status in ('pending', 'in_review') and r.field_key = 'license_number' and client_change_license_taken(a.banking_client_id, r.new_value) as license_conflict
             from client_portal_change_requests r
             join client_portal_accounts a on a.id = r.account_id
             left join profiles pa on pa.id = r.assigned_to
@@ -240,7 +251,7 @@ end $$;
 do $$
 declare f text;
 begin
-  foreach f in array array['client_change_field(text)', 'client_change_iso(text)', 'client_change_official(uuid, text)', 'client_change_apply(uuid, text, text, uuid)',
+  foreach f in array array['client_change_field(text)', 'client_change_iso(text)', 'client_change_official(uuid, text)', 'client_change_license_taken(uuid, text)', 'client_change_apply(uuid, text, text, uuid)',
     'client_change_submit(uuid, text, text)', 'client_changes_list()', 'client_changes_assignees()', 'client_changes_take(uuid)',
     'client_changes_assign(uuid, uuid)', 'client_changes_release(uuid)', 'client_changes_decide(uuid, text, text, boolean)']
   loop
