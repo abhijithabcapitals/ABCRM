@@ -3,8 +3,8 @@ import { DataTable, ErrorNote, PageHead, Panel, Badge, Spinner, fmtDate, useLoad
 import { useSetup } from "./SetupContext";
 import { dashboard, expiries } from "../services/businessSetupApi";
 import { expiryNote } from "../logic/expiries";
+import { aedMoney as money } from "@app/money";
 
-const money = (n) => `AED ${Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 })}`;
 const CARDS = [
   ["forms_waiting", "Forms waiting", "onboarding"], ["open_quotes", "Open quotes", "documents"], ["accepted_without_letter", "Accepted without letter", "documents"],
   ["active_services", "Active services", "clients"], ["ready_for_accounts", "Ready for Accounts", "clients"], ["reverted_by_accounts", "Reverted by Accounts", "clients"],

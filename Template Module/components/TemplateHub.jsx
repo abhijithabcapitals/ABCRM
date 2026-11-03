@@ -1,4 +1,5 @@
 import { useState } from "react";
+import "@banking/components/banking.css";
 import CompanyLibrary from "./CompanyLibrary";
 import ServiceDesk from "./ServiceDesk";
 import HubNumbering from "./HubNumbering";

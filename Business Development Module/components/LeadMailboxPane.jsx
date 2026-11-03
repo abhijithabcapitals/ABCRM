@@ -3,17 +3,8 @@ import {
   callLeadSources, fetchLatestPlatformReplyDraft, fetchEmailSignatures, savePlatformReplyDraft,
 } from "../logic/businessDevelopmentData";
 import BoldLineTextarea from "@app/components/BoldLineTextarea";
+import { appendSignature, endsWithSignature, finalReply, stripSignature } from "@app/replySignature";
 
-// The chosen signature is kept as the last block of the reply text, so the saved draft is exactly what is sent.
-const signatureText = (signature) => signature.body_text.trim();
-const endsWithSignature = (text, signature) => !!signature && text.trimEnd().endsWith(signatureText(signature));
-const stripSignature = (text, signature) => (endsWithSignature(text, signature)
-  ? text.trimEnd().slice(0, -signatureText(signature).length).trimEnd()
-  : text);
-// Five blank lines above the signature give room to write; prepareSend tidies them to one before sending.
-const DRAFT_GAP = "\n".repeat(6);
-const appendSignature = (text, signature) => `${text.trimEnd()}${DRAFT_GAP}${signatureText(signature)}`;
-const finalReply = (text, signature) => `${stripSignature(text, signature).trim()}\n\n${signatureText(signature)}`;
 // Explee ends its drafts with its own sign-off; the CRM signature replaces it.
 const stripSignOff = (text) => text.replace(/\n\s*(best|best regards|kind regards|regards|thanks|thank you|sincerely|cheers),?\s*\n[^\n]{1,60}\s*$/i, "");
 

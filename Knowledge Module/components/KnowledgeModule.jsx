@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Empty, ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import { dubaiToday } from "@hr/logic/attendance.js";
@@ -10,8 +10,10 @@ import PricingView, { BankingCard, PriceGroupCard } from "./PricingView";
 import ServicesView, { ServiceCard } from "./ServicesView";
 import EntriesView, { EntryCard } from "./EntriesView";
 import NeedsReview from "./NeedsReview";
-import EditForm from "./EditForm";
 import ResultCard from "./ResultCard";
+
+// Brings in the rich text editor, so it loads only when someone edits.
+const EditForm = lazy(() => import("./EditForm"));
 
 const TABS = [["pricing", "Pricing"], ["services", "Plans & Services"], ["procedures", "Procedures & Documents"], ["answers", "Client Answers"]];
 
@@ -108,8 +110,8 @@ export default function KnowledgeModule({ profile }) {
       {editing && categories.error && <ErrorNote message={`Could not load departments: ${categories.error}`} />}
       {editing && editing.kind === "price" && review.loading && <Spinner label="Loading" />}
       {editing && categories.data && !(editing.kind === "price" && review.loading) && (
-        <EditForm kind={editing.kind} row={editing.row} defaultType={editing.defaultType} categories={categories.data} reviewRows={reviewRows} reviewError={review.error} isAdmin={isAdmin}
-          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadAll(); }} />
+        <Suspense fallback={<Spinner label="Loading" />}><EditForm kind={editing.kind} row={editing.row} defaultType={editing.defaultType} categories={categories.data} reviewRows={reviewRows} reviewError={review.error} isAdmin={isAdmin}
+          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadAll(); }} /></Suspense>
       )}
     </div>
   );

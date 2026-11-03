@@ -3,8 +3,8 @@ import { Badge, Button, KeyVals, Panel, fmtDate } from "@banking/components/shar
 import { useSetup } from "../SetupContext";
 import NewServiceFlow from "../NewServiceFlow";
 import { statusTone } from "../../logic/statuses";
+import { aedMoney as money } from "@app/money";
 
-const money = (n) => `AED ${Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 })}`;
 
 export default function Overview({ w, clientId, reload, goTab }) {
   const { can } = useSetup();

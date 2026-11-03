@@ -5,8 +5,8 @@ import { openStored } from "@template-hub/services/hubApi";
 import { useSetup } from "../SetupContext";
 import { addPayment, addRefund, reversePayment } from "../../services/businessSetupApi";
 import { fileReceipt } from "../../services/documents";
+import { money } from "@app/money";
 
-const money = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
 
 export default function Payments({ w, reload }) {
   const { can } = useSetup();

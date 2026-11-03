@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
-import ExcelImport from "./ExcelImport";
+import { Suspense, lazy, useMemo, useState } from "react";
 import KycForm from "./KycForm";
 import NewLeadWizard from "./NewLeadWizard";
 import { Badge, Button, ClosedSection, CommsList, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { insertRow, listAll, loadSettings, rpc, run, table, updateRow } from "../services/bankingApi";
 import { LEAD_STATUSES, PRIORITIES } from "../logic/constants";
 import { filterLeads, firstTab, leadTabs, stageOf } from "../logic/leadFilters";
+
+// Brings in the Excel library, so it loads only when an import starts.
+const ExcelImport = lazy(() => import("./ExcelImport"));
 
 const FALLBACK_SOURCES = ["Other"];
 const NO_FILTERS = { status: "", source: "", employee: "", priority: "", from: "", to: "", due: "" };
@@ -76,7 +78,7 @@ export default function Leads({ initialMode }) {
     return (
       <div>
         <div className="bk-mb"><Button onClick={() => { setMode("list"); leads.reload(); }}>Back to leads</Button></div>
-        <ExcelImport />
+        <Suspense fallback={<Spinner />}><ExcelImport /></Suspense>
       </div>
     );
   }

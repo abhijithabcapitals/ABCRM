@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import "@banking/components/banking.css";
 import { supabase } from "../supabase";
 import { IconClose } from "./icons";
 import IntegrationsPanel, { EmailAccountsPanel } from "@integrations";

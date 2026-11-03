@@ -1,4 +1,5 @@
 import { supabase } from "@app/supabase";
+import { shapeSharedSignatures } from "@app/replySignature";
 
 // Backend: Database Module/migrations/bd (001 schema, 002 seed, 003 UI functions).
 // Every write goes through a bd_* database function; the lists below mirror the seed names.
@@ -250,15 +251,7 @@ export async function fetchEmailSignatures() {
   return { data: shapeSharedSignatures(result.data || [], sessionData?.session?.user?.id), error: null };
 }
 
-export function shapeSharedSignatures(rows, userId) {
-  return rows
-    .map((s) => {
-      const mine = s.user_id === userId;
-      const owner = s.owner?.full_name || s.owner?.email || "a colleague";
-      return { ...s, mine, is_default: mine && s.is_default, label: mine ? s.name : `${s.name} (shared by ${owner})` };
-    })
-    .sort((a, b) => Number(b.mine) - Number(a.mine));
-}
+export { shapeSharedSignatures };
 
 export async function discardPlatformReplyDraft(prospectId) {
   const { error: draftError } = await supabase.schema("email_base").from("bd_reply_drafts")

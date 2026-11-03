@@ -5,8 +5,8 @@ import { rpc } from "@banking/services/bankingApi";
 import { useSetup } from "./SetupContext";
 import { clientList, saveKyc } from "../services/businessSetupApi";
 import Workspace from "./Workspace";
+import { money } from "@app/money";
 
-const money = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
 
 export default function Clients() {
   const { pageParams, goTo, can } = useSetup();

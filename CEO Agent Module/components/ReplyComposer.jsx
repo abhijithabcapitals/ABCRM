@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import BoldLineTextarea from "@app/components/BoldLineTextarea";
+import { appendSignature, endsWithSignature, finalReply, shapeSharedSignatures, stripSignature } from "@app/replySignature";
 
 // Reply composer for one Inbox conversation, with the same flow as the Business
 // Development reply mailer: save draft, AI redraft with instructions and undo,
@@ -8,29 +9,7 @@ import BoldLineTextarea from "@app/components/BoldLineTextarea";
 // sent by the ceo-mail-reply Edge Function, from the mailbox the chosen signature
 // names, or else from the conversation's own mailbox.
 
-// The chosen signature is kept as the last block of the reply text, so the saved draft is exactly what is sent.
-const signatureText = (signature) => signature.body_text.trim();
-const endsWithSignature = (text, signature) => !!signature && text.trimEnd().endsWith(signatureText(signature));
-const stripSignature = (text, signature) => (endsWithSignature(text, signature)
-  ? text.trimEnd().slice(0, -signatureText(signature).length).trimEnd()
-  : text);
-// Five blank lines above the signature give room to write; prepareSend tidies them to one before sending.
-const DRAFT_GAP = "\n".repeat(6);
-const appendSignature = (text, signature) => `${text.trimEnd()}${DRAFT_GAP}${signatureText(signature)}`;
-const finalReply = (text, signature) => `${stripSignature(text, signature).trim()}\n\n${signatureText(signature)}`;
 const listText = (list) => (list || []).join(", ");
-
-// Signatures are shared across the organization: the user's own come first, another person's are
-// labelled with their name, and only the user's own default is selected automatically.
-function shapeSharedSignatures(rows, userId) {
-  return rows
-    .map((s) => {
-      const mine = s.user_id === userId;
-      const owner = s.owner?.full_name || s.owner?.email || "a colleague";
-      return { ...s, mine, is_default: mine && s.is_default, label: mine ? s.name : `${s.name} (shared by ${owner})` };
-    })
-    .sort((a, b) => Number(b.mine) - Number(a.mine));
-}
 
 export default function ReplyComposer({ sb, thread, when, onClose, onSent }) {
   const [loading, setLoading] = useState(true);
