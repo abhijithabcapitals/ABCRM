@@ -133,7 +133,8 @@ def collect(folder):
     head = None
     for r in ws.iter_rows(values_only=True):
         if head is None:
-            head = [str(c).strip() if c is not None else None for c in r]
+            if any(str(c).strip() == "Company Name" for c in r if c is not None):
+                head = [str(c).strip() if c is not None else None for c in r]
             continue
         d = {h: c for h, c in zip(head, r) if h}
         name = _text(d.get("Name"))

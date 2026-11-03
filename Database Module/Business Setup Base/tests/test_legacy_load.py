@@ -68,6 +68,7 @@ def _resources(tmp_path):
     wb.save(tmp_path / ll.WORK_SHEET)
     wb = openpyxl.Workbook()
     ws = wb.active
+    ws.append([None] * 7)   # the real sheet has a blank row above its header
     ws.append([None, "Name", "Company Name", "Visa Title (Occupation)", "Visa Issue Date", "Visa Expiry Date", "2026 Updates"])
     ws.append([None, "A Person", "Acme LLC", "PARTNER", datetime.datetime(2025, 1, 1), datetime.datetime(2027, 1, 1), "Sent"])
     wb.save(tmp_path / ll.VISA_SHEET)
