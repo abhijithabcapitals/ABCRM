@@ -11,3 +11,13 @@ export function assertAllUpdated(rows, ids, action) {
   if (done !== wanted) throw new Error(`${action} ${done} of ${wanted} rows (not permitted or not found)`);
   return rows;
 }
+
+// A group of price lines is copied through its Shareable lines only, so the copy rules follow those lines.
+// Shareable if any line is; Draft if any Shareable line is Draft (the confirm tick is then required).
+export function groupCopyItem(lines) {
+  const shareable = lines.filter((l) => l.visibility === "Shareable");
+  return {
+    visibility: shareable.length ? "Shareable" : "Internal",
+    status: shareable.some((l) => l.status === "Draft") ? "Draft" : "Approved",
+  };
+}

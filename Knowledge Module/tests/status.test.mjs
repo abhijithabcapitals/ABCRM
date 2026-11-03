@@ -29,3 +29,13 @@ test("assertAllUpdated: passes when every row came back; throws on some or none"
   assert.throws(() => assertAllUpdated([], ["a", "b"], "Changed visibility of"), /0 of 2 rows/);
   assert.throws(() => assertAllUpdated(null, ["a"], "Approved"), /0 of 1 rows/);
 });
+
+import { groupCopyItem } from "../logic/status.js";
+
+test("groupCopyItem ignores Internal lines when deciding Shareable and Draft", () => {
+  const l = (status, visibility) => ({ status, visibility });
+  assert.deepEqual(groupCopyItem([l("Draft", "Internal"), l("Approved", "Internal")]), { visibility: "Internal", status: "Approved" });
+  assert.deepEqual(groupCopyItem([l("Draft", "Internal"), l("Approved", "Shareable")]), { visibility: "Shareable", status: "Approved" });
+  assert.deepEqual(groupCopyItem([l("Approved", "Shareable"), l("Draft", "Shareable")]), { visibility: "Shareable", status: "Draft" });
+  assert.deepEqual(groupCopyItem([]), { visibility: "Internal", status: "Approved" });
+});
