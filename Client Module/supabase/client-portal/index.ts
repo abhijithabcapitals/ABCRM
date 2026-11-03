@@ -6,9 +6,11 @@
 // Client actions (POST JSON { action, token, ... }):
 //   login { username, password }, logout, me, change_password { current, next }
 //   upload_start { file_name, size, doc_type, note? } -> { id, upload_url }
+//   upload_start { for_form: true, ... } files the upload under this login's own Business Setup form
 //   upload_done { id }, doc_url { id }
+//   setup_view, form_get, form_save { answers }, form_submit, setup_file { kind, id }
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
-//   admin_preview { account_id }   admins only, read-only copy of what the client sees
+//   admin_preview { account_id }   admins and setup.portal.manage, read-only copy of what the client sees
 //   staff_url { id, filed? }, staff_review { id, status, note? }
 //
 // Deploy: supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
@@ -29,6 +31,8 @@ const BUCKET = "client-portal";
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOADS_PER_DAY = 100;
 const DOC_TYPES = ["Trade Licence", "MOA / AOA", "Passport / ID", "Bank Statement", "Invoice", "VAT Document", "Corporate Tax Document", "Other"];
+const FORM_DOC_TYPES = ["Passport", "Emirates visa", "Emirates ID", "Ejari", "Bank statement", "Utility bill", "Old visa", "Old Emirates ID", "Other"];
+const SETUP_FILE_KINDS = ["quote", "letter", "receipt", "output", "invoice"];
 const MIME: Record<string, string> = {
   pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", tif: "image/tiff", tiff: "image/tiff",
   doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -65,11 +69,15 @@ Deno.serve(async (req) => {
         auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
       });
       if (action === "admin_preview") {
-        const { data: ok } = await staff.rpc("client_portal_is_admin");
-        if (ok !== true) return json({ error: "Admins only." }, 403);
-        const { data, error } = await admin.rpc("client_portal_me", { p_account: String(body.account_id || "") });
+        const { data: isAdmin } = await staff.rpc("client_portal_is_admin");
+        const { data: canSetup } = await staff.rpc("business_setup_can", { p_permission: "setup.portal.manage" });
+        if (isAdmin !== true && canSetup !== true) return json({ error: "You do not have permission to preview this." }, 403);
+        const previewAccount = String(body.account_id || "");
+        const { data, error } = await admin.rpc("client_portal_me", { p_account: previewAccount });
         if (error) throw new Error(error.message);
-        return json(data);
+        const { data: setup, error: setupErr } = await admin.rpc("business_setup_portal_view", { p_account: previewAccount });
+        if (setupErr) throw new Error(setupErr.message);
+        return json({ ...data, setup });
       }
       const { data: doc, error: docErr } = await staff.rpc("client_inputs_file", { p_id: String(body.id || "") });
       if (docErr) return json({ error: docErr.message }, 403);
@@ -128,7 +136,14 @@ Deno.serve(async (req) => {
         const size = Number(body.size);
         if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) throw new InputError("Files must be under 25 MB.");
         const docType = String(body.doc_type || "");
-        if (!DOC_TYPES.includes(docType)) throw new InputError("Choose the document type.");
+        let formId: string | null = null;
+        if (body.for_form) {
+          const { data: form, error: formErr } = await admin.rpc("business_setup_form_get", { p_account: accountId });
+          if (formErr) throw new Error(formErr.message);
+          if (!form || !["Draft", "Returned"].includes(form.status)) throw new InputError("This form cannot take new documents now.");
+          if (!FORM_DOC_TYPES.includes(docType)) throw new InputError("Choose the document type.");
+          formId = form.id;
+        } else if (!DOC_TYPES.includes(docType)) throw new InputError("Choose the document type.");
         const since = new Date(Date.now() - 86400000).toISOString();
         const { count } = await admin.from("client_portal_documents").select("id", { count: "exact", head: true }).eq("account_id", accountId).gte("uploaded_at", since);
         if ((count || 0) >= MAX_UPLOADS_PER_DAY) throw new InputError("Upload limit reached for today. Please try again tomorrow.");
@@ -138,7 +153,7 @@ Deno.serve(async (req) => {
         if (upErr) throw new Error(upErr.message);
         const { error } = await admin.from("client_portal_documents").insert({
           id, account_id: accountId, doc_type: docType, note: String(body.note || "").trim().slice(0, 500) || null,
-          file_name: name, mime: MIME[ext], storage_path: path,
+          file_name: name, mime: MIME[ext], storage_path: path, form_id: formId,
         });
         if (error) throw new Error(error.message);
         return json({ id, upload_url: up.signedUrl, mime: MIME[ext] });
@@ -157,6 +172,37 @@ Deno.serve(async (req) => {
         const doc = await ownDoc();
         if (!doc.upload_complete) throw new InputError("Document not found.");
         return json({ url: await signed(doc.storage_path, doc.file_name) });
+      }
+      case "setup_view": {
+        const { data, error } = await admin.rpc("business_setup_portal_view", { p_account: accountId });
+        if (error) throw new Error(error.message);
+        return json(data);
+      }
+      case "form_get": {
+        const { data, error } = await admin.rpc("business_setup_form_get", { p_account: accountId });
+        if (error) throw new Error(error.message);
+        return json(data);
+      }
+      case "form_save": {
+        const answers = body.answers;
+        if (!answers || typeof answers !== "object" || Array.isArray(answers) || JSON.stringify(answers).length > 50000) throw new InputError("The form answers are not valid.");
+        const { data, error } = await admin.rpc("business_setup_form_save", { p_account: accountId, p_answers: answers });
+        if (error) throw new InputError(error.message);
+        return json(data);
+      }
+      case "form_submit": {
+        const { data, error } = await admin.rpc("business_setup_form_submit", { p_account: accountId });
+        if (error) throw new InputError(error.message);
+        return json(data);
+      }
+      case "setup_file": {
+        const kind = String(body.kind || "");
+        if (!SETUP_FILE_KINDS.includes(kind)) throw new InputError("File not found.");
+        const { data, error } = await admin.rpc("business_setup_portal_file", { p_account: accountId, p_kind: kind, p_id: String(body.id || "") });
+        if (error) throw new InputError("File not found.");
+        const { data: link, error: linkErr } = await admin.storage.from(data.bucket).createSignedUrl(data.path, 300, { download: data.file_name });
+        if (linkErr) throw new Error(linkErr.message);
+        return json({ url: link.signedUrl });
       }
       default:
         return json({ error: "Unknown action." }, 400);
