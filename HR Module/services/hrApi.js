@@ -114,7 +114,8 @@ export async function attendanceRange(from, to) {
   }
 }
 export const attendanceSet = (employee, date, status, timeIn, timeOut, note) => rpc("hr_attendance_set", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null });
-export const attendanceRequest = (employee, date, status, timeIn, timeOut, note, reason) => rpc("hr_attendance_request", { p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null, p_reason: reason || null });
+export const attendanceRequest = (employee, date, status, timeIn, timeOut, note, reason, useAnnual) => rpc("hr_attendance_request", { p_use_annual: !!useAnnual, p_employee: employee, p_date: date, p_status: status, p_in: timeIn || null, p_out: timeOut || null, p_note: note || null, p_reason: reason || null });
+export const attendanceHistory = () => rpc("hr_attendance_history");
 export const attendanceDecide = (edit, approve, note) => rpc("hr_attendance_decide", { p_edit: edit, p_approve: approve, p_note: note || null });
 export const attendanceEdits = (state) => run(table("hr_attendance_edits").select("*, hr_employees(employee_code, full_name)").eq("state", state).order("requested_at", { ascending: false }).limit(50));
 export const attendanceEditsPending = () => rpc("hr_attendance_edits_pending");

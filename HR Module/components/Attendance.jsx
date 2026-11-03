@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, ErrorNote, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { attendanceRange, calendarMarks } from "../services/hrApi";
+import AttendanceHistory from "./attendance/AttendanceHistory";
 import BiometricPanel from "./BiometricPanel";
 import CalendarView from "./attendance/CalendarView";
 import DailyList from "./attendance/DailyList";
@@ -50,13 +51,13 @@ export default function Attendance({ role, employeeId, profile }) {
   const person = people.find((p) => p.employee_id === personId) || people.find((p) => p.employee_id === employeeId) || people[0];
   const year = Number(date.slice(0, 4));
   const month = Number(date.slice(5, 7));
-  const canEdit = (p, d) => canEditDay({ role, myId: employeeId, employeeId: p.employee_id, date: d, today, employeeStatus: p.employee_status, exitDate: p.exit_date });
+  const canEdit = (p, d) => canEditDay({ role, myId: employeeId, employeeId: p.employee_id, date: d, today, employeeStatus: p.employee_status, exitDate: p.exit_date, status: p.days[d]?.status, isAdmin });
   const onEdit = (p, d) => { setNotice(null); setEditing({ person: p, date: d }); };
   const needsPerson = viewKey === "calendar" || viewKey === "year";
 
   return (
     <div>
-      <PageHead title="Attendance Sheet" sub={role === "hr" ? "Everyone. Click a day to change it." : role === "manager" ? "You and your direct reports. Click a report's day to request a change." : "Your attendance."}>
+      <PageHead title="Attendance Sheet" sub={role === "hr" ? "Everyone. Click a day to change it." : role === "manager" ? "You and your direct reports. Click a day to request a change." : "Your attendance. Click a day to use Annual leave, work from home or correct the times."}>
         <span className="hr-month-nav">
           <Button onClick={() => setDate(shiftPeriod(view.period, date, -1))} aria-label="Previous">‹</Button>
           <strong>{periodTitle(view.period, date)}</strong>
@@ -91,9 +92,10 @@ export default function Attendance({ role, employeeId, profile }) {
           : viewKey === "year" ? <YearHeatmap person={person} year={year} today={today} canEdit={canEdit} onEdit={onEdit} marks={marks} />
           : <DailyList date={date} people={people} canEdit={canEdit} onEdit={onEdit} />}
       </Panel>
+      <AttendanceHistory role={role} refresh={refresh} />
       {role === "hr" && <BiometricPanel onChanged={reload} />}
       {editing && (
-        <EditDayModal person={editing.person} date={editing.date} isAdmin={isAdmin} onClose={() => setEditing(null)}
+        <EditDayModal person={editing.person} date={editing.date} own={!isAdmin && editing.person.employee_id === employeeId} direct={isAdmin || (role === "hr" && editing.person.employee_id !== employeeId)} onClose={() => setEditing(null)}
           onSaved={async (message) => { setNotice(message); await reload(); }} />
       )}
     </div>

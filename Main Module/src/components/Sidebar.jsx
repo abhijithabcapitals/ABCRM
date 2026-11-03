@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "../supabase";
 import Notifications from "./Notifications";
 import { BrandLogo } from "./Brand";
+import { moveTab, orderTabs, readTabOrder, saveTabOrder } from "../tabs";
 import { IconDashboard, IconMyTasks, IconSettings, IconTrash, IconEdit, IconPalette, IconFolderPlus, IconFile, IconClients, IconList, IconPlus, IconCheck, IconBoard, IconSparkles, IconMail } from "./icons";
 
 // Map the emoji used in context-menu configs to the shared SVG icon set.
@@ -400,6 +401,9 @@ export default function Sidebar({
   // Drag-and-drop reordering of spaces / folders / lists.
   const [dragItem, setDragItem] = useState(null);   // { type, id, parentId }
   const [dragOverId, setDragOverId] = useState(null);
+  const [tabOrder, setTabOrder] = useState(null); // keys after a drag; before that, the saved order
+  const [navDrag, setNavDrag] = useState(null);   // key of the tab being dragged
+  const [navOver, setNavOver] = useState(null);
   const [expandedFolders, setExpandedFolders] = useState({});
   const [newListFolderId, setNewListFolderId] = useState(null); // folder id showing inline create
   const [newListName, setNewListName] = useState("");
@@ -1177,7 +1181,7 @@ export default function Sidebar({
       {/* Nav */}
       <div style={{ padding: "8px 0 4px" }}>
         <div className="sidebar-section">Main</div>
-        {[
+        {orderTabs([
           { key: "mytasks", Icon: IconMyTasks, label: "Hot Alerts" },
           { key: "dashboard", Icon: IconDashboard, label: "Dashboard" },
           { key: "business-development", Icon: IconBoard, label: "Business Development" },
@@ -1195,11 +1199,26 @@ export default function Sidebar({
                 { key: "settings", Icon: IconSettings, label: "Settings" },
               ]
             : []),
-        ].filter((item) => profile?.role === "admin" || (allowedTabs || []).includes(item.key)).map((item) => (
+        ].filter((item) => profile?.role === "admin" || (allowedTabs || []).includes(item.key)), tabOrder ?? readTabOrder(profile?.id)).map((item, index, items) => (
           <div
             key={item.key}
             className={`nav-item ${view === item.key ? "active" : ""}`}
             onClick={() => onNavigate(item.key)}
+            draggable
+            onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", item.label); setNavDrag(item.key); }}
+            onDragOver={(e) => { if (!navDrag) return; e.preventDefault(); e.stopPropagation(); setNavOver(item.key); }}
+            onDragEnd={() => { setNavDrag(null); setNavOver(null); }}
+            onDrop={(e) => {
+              if (!navDrag) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const next = moveTab(items.map((t) => t.key), navDrag, item.key);
+              setTabOrder(next);
+              saveTabOrder(profile?.id, next);
+              setNavDrag(null);
+              setNavOver(null);
+            }}
+            style={navOver === item.key && navDrag && navDrag !== item.key ? { boxShadow: `inset 0 ${items.findIndex((t) => t.key === navDrag) < index ? -2 : 2}px 0 #12a3a0` } : undefined}
           >
             <span style={{ display: "inline-flex", opacity: 0.9 }}><item.Icon size={17} /></span>
             <span>{item.label}</span>

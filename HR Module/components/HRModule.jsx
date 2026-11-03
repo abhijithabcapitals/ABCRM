@@ -20,12 +20,11 @@ const BUILT = new Set(Object.keys(SCREENS));
 
 export default function HRModule({ profile, onOpenTask }) {
   const access = useLoad(myAccess, []);
-  const isAdmin = profile?.role === "admin";
-  const pending = useLoad(async () => (isAdmin ? attendanceEditsPending() : 0), [isAdmin]);
   const [page, setPage] = useState("dashboard");
   const [intent, setIntent] = useState(null);
   const role = access.data?.role;
-  const tabs = tabsFor(role, BUILT).filter((t) => t.key !== "approvals" || isAdmin); // only an admin decides; the database enforces it
+  const pending = useLoad(async () => (role === "hr" ? attendanceEditsPending() : 0), [role]);
+  const tabs = tabsFor(role, BUILT);
   const current = firstTab(tabs, page);
   useEffect(() => { if (current && current !== page) setPage(current); }, [current, page]);
   const go = (tab, next) => { setIntent(next || null); setPage(tab); };

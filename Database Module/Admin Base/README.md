@@ -6,7 +6,8 @@ What Settings needs for the admin's technical panel. It lives in the CRM Supabas
 |---|---|
 | `migrations/001_admin_panel.sql` | Tab access per member, the audit log, and admin-only checks: members, health, storage, AI usage and scheduled jobs |
 | `migrations/002_triggers.sql` | Admin-made timers: the task catalogue, the `admin-trigger-dispatcher` cron job and the `admin_trigger_*` functions |
-| `tests/run-local.sh` | Runs both migrations twice and the trigger tests on a throwaway local Postgres. Nothing touches Supabase |
+| `migrations/003_audit_trail.sql` | The audit trail: `audit_trail`, a trigger on every table, and the `audit-trail-attach` hourly job that covers new tables. Undo: `migrations/rollback/003_rollback.sql` |
+| `tests/run-local.sh` | Runs the migrations twice and the trigger and audit trail tests on a throwaway local Postgres. Nothing touches Supabase |
 
 Triggers are stored in Dubai time and one dispatcher job checks every minute for what is due. To add a task, add it to `admin_trigger_catalogue()` and to the `case` in `admin_trigger_start()`. Tasks with no backend yet stay in the catalogue with an `unavailable` reason, and the server refuses them.
 

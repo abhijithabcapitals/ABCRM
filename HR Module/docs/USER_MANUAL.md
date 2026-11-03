@@ -48,7 +48,7 @@ Documents sit inside Employees. Each profile has a Documents section, and HR als
 Expiry shows as expired, within 30, 60 or 90 days. A leaver's document shows "Left: not tracked" and is not counted on the dashboard. **View** opens the file through a link that works for five minutes. Stored files are never replaced; add a new document instead.
 
 ## Leave
-nAnnual leave builds up by 2.5 days a month after 6 months of service, from 1 November 2026. Unused days carry forward. Approved Annual leave, Absent days and every 4th late day all use the balance. Anything beyond the balance is unpaid: (total salary / days in the month) x unpaid days. Approved Unpaid leave is always unpaid.
+Annual leave builds up by 2.5 days a month after 6 months of service, from 1 November 2026. Unused days carry forward. Approved Annual leave, Absent days and every 4th late day all use the balance. Anything beyond the balance is unpaid: (total salary / days in the month) x unpaid days. Approved Unpaid leave is always unpaid.
 
 - **Employees** press **+ Request leave**, choose the type and dates. Weekends and holidays are not counted. A request across a year end is saved as one row per year. You can cancel your own pending leave any time, and your own approved leave only before its first day (Dubai date). After that, ask HR.
 - **Managers** approve or reject their reports' pending requests. **Nobody can decide their own leave.** If you have no manager, HR decides.
@@ -72,7 +72,9 @@ In **Month grid**, scroll sideways for any earlier or later month. The title fol
 - Each day is worked out in this order: a day edited by hand, approved leave, a holiday, punches, a Work From Home Saturday, the weekly off. **A working day with none of these is Absent, and Absent is deducted from pay.**
 - Someone who has stopped coming shows Absent every day until HR records their exit date.
 - Until a join date is entered, Absent counts only from the person's first punch.
-- **An administrator** clicks any day and the change applies at once. **HR list members** and **managers** (for their reports, not themselves) click a day, give a reason and send it for approval. The day keeps its value, and shows a dashed outline, until an administrator decides on the **Approvals** tab. **Employees** only read.
+- **An administrator** or **HR list member** clicks a day and the change applies at once. **Managers** click a report's day, give a reason and send it for approval. The day keeps its value, and shows a dashed outline, until HR or an administrator decides on the **Approvals** tab. Nobody on the HR list decides their own day.
+- **Your own day:** anyone, including an HR member, clicks their own past day or today and chooses **Use Annual leave**, **Work from home** or **Change timing**, with a reason. It goes to HR, and the day keeps its value until HR validates it. A holiday, a weekly off or a month with an approved pay run cannot be changed this way. An Absent day already uses Annual leave, so choosing Annual leave records the same day as Leave and the balance stays the same. With no balance the day is unpaid.
+- **History:** below the sheet, every request, decision and manual change, with who and why. You see your own, a manager also sees their reports, and HR sees everyone. Entries cannot be edited or removed.
 - Choose the status and, for Present or Work From Home, the times as HH:MM. Other statuses cannot have times. Future days cannot be set. If the month's payroll run is approved, the day is saved, the screen says the month is locked, and the approved pay does not change: add an adjustment in a later run.
 - **Overnight shifts are not supported.** Time out cannot be earlier than time in. Record a shift across midnight as a note on the day, not as times.
 - Someone marked Left cannot be edited until HR records their exit date. Days after the exit date cannot be edited.
@@ -101,7 +103,7 @@ Press **+ New request** and choose the type. Leave and most requests go to your 
 You can cancel your own request while it is pending. HR can also cancel an approved one, unless it has been paid, and its effect goes away.
 
 ## Payroll
-n**Salaries** (here and on the Accounting page) shows what is Payable, Paid and Outstanding for each approved run. HR, administrators and the Accounts team can record a payment, in part or for everyone at once. Recording a payment does not send money. A payment entered by mistake can be removed, and the removal is logged.
+**Salaries** (here and on the Accounting page) shows what is Payable, Paid and Outstanding for each approved run. HR, administrators and the Accounts team can record a payment, in part or for everyone at once. Recording a payment does not send money. A payment entered by mistake can be removed, and the removal is logged.
 
 **Employees and managers** see their own approved months, with **Details** (how the figure was worked out) and **Print payslip**. Nothing shows until HR approves the month.
 
