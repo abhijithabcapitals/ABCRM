@@ -24,7 +24,7 @@ When the business team finishes an approved banking case and sends it to Account
 | `docs/` | Design spec and implementation plan for the pipeline |
 | `tests/logic.test.mjs`, `tests/static.test.mjs` | Unit tests for `logic/jobs.js`, and checks that the RPC calls and constants match the migrations |
 
-The page needs the `accounts.review` permission: assign the ACCOUNTS role in Business Banking settings. It reuses the Banking Module's components and client through the `@banking` alias.
+The page needs the `accounts.review` permission. Giving someone the Accounting tab grants it; the ACCOUNTS and ADMIN data roles also carry it.
 
 ## Tests
 
