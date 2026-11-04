@@ -22,6 +22,9 @@ done
 "${PSQL[@]}" -t -f "$HERE/030_audit_all_test.sql" 2>&1 | grep -E "ok |FAILED|ERROR|passed|error"
 "${PSQL[@]}" -t -f "$HERE/040_zoho_test.sql" 2>&1 | grep -E "ok |FAILED|ERROR|passed|error"
 "${PSQL[@]}" -t -f "$HERE/050_zoho_finance_test.sql" 2>&1 | grep -E "ok |FAILED|ERROR|passed|error"
+# A migration pass must keep data: 050 wrote calls_used = 77, rerun 008 and check it survived.
+"${PSQL[@]}" -f "$HERE/../migrations/008_zoho_finance.sql" >/dev/null 2>&1 || { echo "FAILED 008 rerun"; exit 1; }
+"${PSQL[@]}" -t -c "select case when (select calls_used from public.zoho_finance_snapshot) = 77 and (select count(*) from public.zoho_finance_snapshot) = 1 then 'ok 008 rerun keeps data' else 'FAILED 008 rerun lost data' end"
 # Rollback 005 twice, check the tables are gone, then migrate again.
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../migrations/rollback/005_rollback.sql" || { echo "FAILED rollback 005"; exit 1; }; done
 "${PSQL[@]}" -t -c "select case when to_regclass('public.zoho_documents') is null and to_regclass('public.zoho_contact_links') is null then 'ok rollback 004 clean' else 'FAILED rollback 005 left tables' end"

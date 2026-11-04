@@ -54,3 +54,12 @@ set role service_role;
 update public.zoho_finance_snapshot set data = '{"a":1}', status = 'ok', calls_used = 3, as_of = now();
 select t5.ok('the service role writes the snapshot', (select status = 'ok' and calls_used = 3 and data = '{"a":1}'::jsonb from public.zoho_finance_snapshot));
 reset role;
+
+-- The hourly audit job must skip this table and still work on others.
+create table public.t5_other (id int primary key);
+select public.audit_trail_attach_all();
+select t5.ok('the audit job does not attach to the snapshot table', not exists (select 1 from pg_trigger where tgrelid = 'public.zoho_finance_snapshot'::regclass and tgname = 'audit_trail_row'));
+select t5.ok('the audit job still attaches to other tables', exists (select 1 from pg_trigger where tgrelid = 'public.t5_other'::regclass and tgname = 'audit_trail_row'));
+drop table public.t5_other;
+-- Marker for the second-migration-pass data check in run-local.sh.
+update public.zoho_finance_snapshot set calls_used = 77;
