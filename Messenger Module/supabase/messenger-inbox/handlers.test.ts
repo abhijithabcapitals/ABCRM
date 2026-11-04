@@ -121,6 +121,13 @@ Deno.test("the database's own sentence reaches the person; other wording does no
   const err = await assertRejects(() => handle({ action: "send", thread_id: THREAD, body: "Hi" }, x.d), Refused);
   assert(!err.message.includes("secret db"));
 });
+Deno.test("a call with no login gets no database names", async () => {
+  const x = deps({ dbError: { code: "42501", message: "permission denied for function messenger_inbox_send_begin" } });
+  const err = await assertRejects(() => handle({ action: "send", thread_id: THREAD, body: "Hi" }, x.d), Refused);
+  assertEquals(err.message, "Your message was not sent. Please try again.");
+  const y = deps({ dbError: { code: "42501", message: "You do not have access to this conversation" } });
+  await assertRejects(() => handle({ action: "send", thread_id: THREAD, body: "Hi" }, y.d), Refused, "do not have access");
+});
 Deno.test("Telegram's disconnect removes its webhook; Meta's says one is left", async () => {
   const t = deps();
   assertEquals((await handle({ action: "disconnect", account_id: ACC }, t.d)).meta_webhook_left, false);

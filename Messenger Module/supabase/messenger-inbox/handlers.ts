@@ -98,7 +98,8 @@ export async function handle(body: Record<string, unknown>, deps: Deps): Promise
     const thread = id(body.thread_id);
     const message = typeof body.body === "string" ? body.body : "";
     const { data, error } = await deps.userRpc("messenger_inbox_send_begin", { p_thread: thread, p_body: message });
-    if (error) throw new Refused(error.code === "P0001" || error.code === "42501" ? error.message || "Your message was not sent." : "Your message was not sent. Please try again.");
+    // Only sentences written for people pass through. A login failure's 42501 names database objects, so it does not.
+    if (error) throw new Refused(error.code === "P0001" || error.message?.startsWith("You do not have access") ? error.message || "Your message was not sent." : "Your message was not sent. Please try again.");
     const row = (Array.isArray(data) ? data[0] : null) as { message_id: string; account_id: string; channel: string; account_external_id: string; thread_external_id: string } | null;
     if (!row) throw new Refused("Your message was not sent. Please try again.");
     const token = await secret(deps, row.account_id, "token");
