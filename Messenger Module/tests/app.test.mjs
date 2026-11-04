@@ -119,7 +119,7 @@ test("a channel shows its own name, not a person's", async () => {
 
 test("every database call the service makes names real parameters", () => {
   const dir = join(here, "..", "Database Module", "Messanger Base", "migrations");
-  const sql = ["003_chat.sql", "004_chat_parity.sql", "005_teams_channels.sql", "006_calls.sql", "007_inbox_channels.sql"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+  const sql = ["003_chat.sql", "004_chat_parity.sql", "005_teams_channels.sql", "006_calls.sql", "007_inbox_channels.sql", "008_receipts_typing.sql"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
   const api = readFileSync(join(here, "services", "chatApi.js"), "utf8");
   const calls = [...api.matchAll(/"(messenger_\w+)",\s*\{([^}]*)\}/g)];
   assert.ok(calls.length > 20);

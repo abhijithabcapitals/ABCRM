@@ -79,7 +79,7 @@ end $$;
 -- holding a password, token or similar column are never offered.
 create or replace function public.agent_table_allowed(p_schema text, p_table text)
 returns boolean language sql stable security definer set search_path = pg_catalog, pg_temp as $$
-  select p_schema !~ '^(pg_.*|information_schema|auth|vault|storage|cron|net|realtime|extensions|graphql.*|pgsodium.*|supabase_.*|_.*|.*rollback.*)$'
+  select p_schema !~ '^(pg_.*|information_schema|auth|vault|storage|cron|net|realtime|extensions|graphql.*|pgsodium.*|supabase_.*|router|_.*|.*rollback.*)$'
     and not (p_schema = 'public' and p_table ~ '^(agents|agent_.*|integration_credentials|audit_trail|admin_audit)$')
     and exists (
       select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace

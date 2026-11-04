@@ -29,11 +29,11 @@ export const HELP = {
   provider: "The company that supplies the AI. Anthropic is Claude. OpenRouter gives access to other models. Your Team plan's monthly API credits apply only to a key from your linked Claude Console organization.",
   model: "Which AI model answers. Pick from the list or type a model name. Better models cost more per message.",
   api_key: "Optional. Get a key at platform.claude.com under API keys, or at openrouter.ai under Keys. Leave empty to use the shared key in Settings > Integrations. Once saved, nobody can read it back; you can only replace or remove it.",
-  budget: "The most this agent may spend in a month, in US dollars. Leave empty for no agent cap; each person's credit still applies. The gateway will enforce this once connected.",
+  budget: "The most this agent may spend in a month, in US dollars. Leave empty for no agent cap; each person's credit still applies. Bruno enforces this for Support, BD and CEO.",
   users: "Only people ticked here can use this agent. Everyone else cannot see or call it. Admins must tick themselves too.",
   approval: "Actions this agent must not take alone, one per line. A person must approve each one first.",
   notes: "Your own notes. The agent does not read them.",
-  credit: "The most this person may spend across all agents in a month, in US dollars. Zero means they cannot run paid calls. Use the buttons to increase or decrease it, or type a new amount. The gateway will enforce this once connected.",
+  credit: "The most this person may spend across all agents in a month, in US dollars. Zero means they cannot run paid calls. Use the buttons to increase or decrease it, or type a new amount. Bruno enforces this for Support, BD and CEO.",
 };
 
 export const agentKeyName = (id) => `AGENT_KEY_${id.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;

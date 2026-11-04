@@ -1,4 +1,4 @@
-// The pages an admin can grant a member. Settings, CEO Agent and Email Agent stay admin-only.
+// The pages an admin can grant a member. Settings and CEO Agent stay admin-only.
 export const GRANTABLE_TABS = [
   { key: "mytasks", label: "Hot Alerts" },
   { key: "dashboard", label: "Dashboard" },
@@ -35,7 +35,12 @@ export function resolveView(view, isAdmin, tabs) {
 }
 
 // The page asked for in the address (a link can open ?view=settings), else the saved one.
-export const startView = (search, saved) => new URLSearchParams(search).get("view") || saved;
+// A retired page falls through to the default.
+const RETIRED_VIEWS = new Set(["email-agent"]);
+export function startView(search, saved) {
+  const view = new URLSearchParams(search).get("view") || saved;
+  return RETIRED_VIEWS.has(view) ? null : view;
+}
 
 // The page to open at start. "accounting" was the old name of the Clients page; the Wiki and Messenger
 // tabs were removed. `write` says the saved value in abc_view must be set again.

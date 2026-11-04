@@ -36,6 +36,12 @@ grant select on public.client_master, public.bd_leads, public.tasks to authentic
 
 -- Supabase Realtime publication, which 003_chat.sql adds messenger_messages to.
 create publication supabase_realtime;
+-- Supabase Realtime's own table and topic function, which 008 writes rules for.
+create schema realtime;
+grant usage on schema realtime to authenticated, anon;
+create table realtime.messages (id bigserial primary key, topic text, extension text, payload jsonb);
+alter table realtime.messages enable row level security;
+create function realtime.topic() returns text language sql stable as $$ select current_setting('realtime.topic', true) $$;
 
 -- Supabase Vault, only what 002_microsoft_connection.sql calls. The vault schema is outside public, so the default privileges above do not reach it; anon and authenticated get no usage, as on Supabase.
 grant usage on schema public to service_role;

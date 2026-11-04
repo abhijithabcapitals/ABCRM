@@ -316,3 +316,15 @@ test("clicking the page collapses the dock unless the person chose to keep it op
 test("the reading widget moves clear of the dock", () => {
   assert.match(readFileSync(join(here, "..", "Banking Module/components/reading.css"), "utf8"), /var\(--msgr-dock-offset/);
 });
+
+test("the chat marks delivery, shows live ticks and shows who is typing", () => {
+  assert.match(read("components/useChat.js"), /chatApi\.markDelivered\(\)/);
+  const conv = read("components/Conversation.jsx");
+  assert.match(conv, /chatApi\.watchReceipts\(cid/);
+  assert.match(conv, /useTyping\(/);
+  assert.match(conv, /msgr-typing/);
+  assert.doesNotMatch(conv, /readState/);
+  assert.match(read("components/Message.jsx"), /delivered: \["✓✓", "Delivered"\]/);
+  assert.match(read("components/Composer.jsx"), /onTyping\?\.\(/);
+  assert.match(read("components/chat.css"), /\.msgr-typing \{/);
+});

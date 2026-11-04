@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { barId, isTabBar } from "../src/jsx/DragTabs.js";
-import { GRANTABLE_TABS, moveTab, orderTabs, readTabOrder, toggleAllTabs } from "../src/tabs.js";
+import { GRANTABLE_TABS, moveTab, orderTabs, readTabOrder, startView, toggleAllTabs } from "../src/tabs.js";
 
 const every = GRANTABLE_TABS.map((t) => t.key);
 
@@ -39,3 +39,8 @@ test("a named bar keeps its identity when a tab is added; an unnamed one is know
   assert.notEqual(barId("Status", ["a"]), barId("Status", ["z"]));
   assert.equal(barId(undefined, ["b", "a"]), "a,b");
 });
+
+test("a saved Email Agent page is retired", () => assert.equal(startView("", "email-agent"), null));
+test("an Email Agent address is retired", () => assert.equal(startView("?view=email-agent", "hr"), null));
+test("other saved pages still open", () => assert.equal(startView("", "hr"), "hr"));
+test("the address still wins", () => assert.equal(startView("?view=messenger", "hr"), "messenger"));
