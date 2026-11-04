@@ -243,6 +243,11 @@ Deno.serve(async (req) => {
           if (!name || !SIGNED_EXT.includes(ext)) throw new InputError("Upload the signed quote as a PDF or an image.");
           const size = Number(body.size);
           if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) throw new InputError("Files must be under 25 MB.");
+          // Signed copies count toward the same daily limit as other uploads: this account's documents plus its signed copies of the last day.
+          const since = new Date(Date.now() - 86400000).toISOString();
+          const { count: docCount } = await admin.from("client_portal_documents").select("id", { count: "exact", head: true }).eq("account_id", accountId).gte("uploaded_at", since);
+          const { count: signedCount } = await admin.from("business_setup_signed_quotes").select("id", { count: "exact", head: true }).like("storage_path", `incoming/${accountId}/%`).gte("created_at", since);
+          if ((docCount || 0) + (signedCount || 0) >= MAX_UPLOADS_PER_DAY) throw new InputError("Upload limit reached for today. Please try again tomorrow.");
           const { data: view, error: viewErr } = await admin.rpc("business_setup_portal_view", { p_account: accountId });
           if (viewErr) throw new Error(viewErr.message);
           const quote = (view?.quotes || []).find((q: { id: string }) => q.id === quoteId);
@@ -259,7 +264,16 @@ Deno.serve(async (req) => {
           if (!mine.test(path)) throw new InputError("The upload did not finish. Please try again.");
           const folder = path.slice(0, path.lastIndexOf("/"));
           const { data: files } = await admin.storage.from(BUCKET).list(folder);
-          if (!files?.some((f: { name: string }) => f.name === path.slice(path.lastIndexOf("/") + 1))) throw new InputError("The upload did not finish. Please try again.");
+          const base = path.slice(path.lastIndexOf("/") + 1);
+          const stored = files?.find((f: { name: string }) => f.name === base);
+          if (!stored) throw new InputError("The upload did not finish. Please try again.");
+          // The link was made for a checked name and size, but what was really stored is what counts: wrong type or too big is deleted and refused.
+          const realSize = Number(stored.metadata?.size);
+          const realExt = base.split(".").pop()?.toLowerCase() || "";
+          if (!SIGNED_EXT.includes(realExt) || !Number.isFinite(realSize) || realSize <= 0 || realSize > MAX_BYTES) {
+            await admin.storage.from(BUCKET).remove([path]);
+            throw new InputError("The signed copy must be a PDF or an image under 25 MB. The file was not kept.");
+          }
           const { data, error } = await admin.rpc("business_setup_portal_signed_add", { p_account: accountId, p_quote: quoteId, p_path: path });
           if (error) {
             if (error.code === "P0001") throw new InputError(error.message);

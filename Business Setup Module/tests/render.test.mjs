@@ -80,3 +80,19 @@ test("the payments panel of a case has no quote picker, and the ledger shows adv
   const paid = await html("workspace/Payments.jsx", "default", { w, reload() {}, caseId: "c1", caseRow: { ...c, docs: { paid: true } } });
   assert.doesNotMatch(paid, /Waive payment/);
 });
+
+test("the quote message area renders on an issued quote without crashing and keeps the password out", { skip }, async () => {
+  const out = await html("workspace/PortalMessage.jsx", "default", { q: { id: "q1", document_number: "Q1", contact_name: "A", contact_email: "a@b.ae" }, clientId: "CL000001" });
+  assert.doesNotMatch(out, /Password:/);
+});
+
+test("Record refund is offered in case mode only when the case has money, with no quote picker", { skip }, async () => {
+  const mk = (amount) => ({ client: { legal_name: "Acme" }, quotes: [], letters: [], services: [], payments: [{ id: "p1", type: "Payment", amount, paid_on: "2026-11-04", quote_id: null, case_id: "c1", receipt_number: "R1" }] });
+  const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", client_id: "CL000001", docs: {} };
+  const funded = await html("workspace/Payments.jsx", "default", { w: mk(500), reload() {}, caseId: "c1", caseRow: c });
+  assert.doesNotMatch(funded, /Record refund<\/button>[^]*disabled/);
+  assert.match(funded, /<button[^>]*>Record refund<\/button>/);
+  assert.doesNotMatch(funded.match(/<button[^>]*>Record refund<\/button>/)[0], /disabled/);
+  const empty = await html("workspace/Payments.jsx", "default", { w: { ...mk(0), payments: [] }, reload() {}, caseId: "c1", caseRow: c });
+  assert.match(empty.match(/<button[^>]*>Record refund<\/button>/)[0], /disabled/);
+});

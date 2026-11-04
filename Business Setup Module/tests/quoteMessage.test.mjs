@@ -22,3 +22,27 @@ test("the quote screen builds the message from the stored login, with the sign-i
   assert.match(src, /SIGN_IN_URL/); assert.match(src, /quoteMessage\(\{[^}]*username: a\.username/);
   assert.doesNotMatch(src.split("sendPassword")[0], /password:\s*a\./);
 });
+
+import { messageState, validAmount } from "../logic/quoteMessage.js";
+
+test("a failed login load is not shown as 'no login'", () => {
+  assert.equal(messageState({ loading: false, error: "boom", login: null }), "error");
+  assert.equal(messageState({ loading: false, error: null, login: null }), "nologin");
+  assert.equal(messageState({ loading: true, error: null, login: null }), "loading");
+  assert.equal(messageState({ loading: false, error: null, login: { username: "a" } }), "ready");
+});
+
+test("an amount is checked before a client is created for a payment", () => {
+  for (const ok of [1, "10.5", "0.01", 100]) assert.ok(validAmount(ok), String(ok));
+  for (const bad of [0, -5, "abc", "", null, "10.555", NaN]) assert.ok(!validAmount(bad), String(bad));
+});
+
+test("the quote screen reads the login with the quote right, and Payments links through the payment right", () => {
+  const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8");
+  assert.match(read("../components/workspace/PortalMessage.jsx"), /loginName\(/);
+  assert.doesNotMatch(read("../components/workspace/PortalMessage.jsx"), /loginState(/);
+  const pay = read("../components/workspace/Payments.jsx");
+  assert.match(pay, /caseLinkClientForPayment\(caseId\)/); assert.doesNotMatch(pay, /caseLinkClient\(/);
+  assert.ok(pay.indexOf("validAmount(v.amount)") < pay.indexOf("caseLinkClientForPayment(caseId)"), "the amount is checked before the client is linked");
+  assert.doesNotMatch(read("../services/businessSetupApi.js"), /acceptQuote/);
+});

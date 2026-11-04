@@ -113,3 +113,10 @@ test("staff open a signed copy through the SQL right check, never a path from th
   assert.match(b, /staff\.rpc\("business_setup_signed_file"/);
   assert.doesNotMatch(b, /body\.(path|storage_path)/);
 });
+
+test("on finish the stored object's real type and size are checked, and a bad file is deleted", () => {
+  const b = branch("setup_signed_upload");
+  assert.match(b, /stored\.metadata\?\.size/); assert.match(b, /realExt/); assert.match(b, /MAX_BYTES/);
+  assert.match(b, /storage\.from\(BUCKET\)\.remove\(\[path\]\)/);
+  assert.match(b, /MAX_UPLOADS_PER_DAY/);
+});

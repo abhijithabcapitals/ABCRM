@@ -5,7 +5,8 @@ import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, fmtDate, today, useAction } from "@banking/components/shared";
 import { openStored } from "@template-hub/services/hubApi";
 import { useSetup } from "../SetupContext";
-import { addPayment, addRefund, caseLinkClient, casePaidOverride, reversePayment } from "../../services/businessSetupApi";
+import { addPayment, addRefund, caseLinkClientForPayment, casePaidOverride, reversePayment } from "../../services/businessSetupApi";
+import { validAmount } from "../../logic/quoteMessage";
 import { fileReceipt } from "../../services/documents";
 import { money } from "@app/money";
 
@@ -24,6 +25,8 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
   const reversed = new Set(payments.filter((p) => p.type === "Reversal").map((p) => p.reverses_id));
   const number = (id) => quotes.find((q) => q.id === id)?.document_number || "";
   const clientName = w?.client?.legal_name || caseRow?.client_name || caseRow?.lead_name || "";
+  // What the case has net paid, from its payments (a refund or reversal takes away).
+  const caseNet = payments.filter((p) => !caseId || p.case_id === caseId || quotes.some((q) => q.id === p.quote_id)).reduce((n, p) => n + (p.type === "Payment" ? 1 : -1) * Number(p.amount || 0), 0);
   const done = async () => { await reload?.(); await onChanged?.(); };
   const canWaive = !!caseId && can("setup.payments.override") && caseRow?.docs?.quote && !caseRow.docs.paid && !["Lost", "Cancelled", "Completed"].includes(caseRow.stage);
   return (
@@ -31,7 +34,7 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
       <ErrorNote message={error} onClose={() => setError(null)} />
       {manage && <div className="bk-actions bk-mb">
         <Button variant="primary" disabled={!caseId && !accepted.length} onClick={() => setAdding(true)}>+ Record payment</Button>
-        {w && <Button disabled={!accepted.some((q) => Number(q.balance?.net_paid) > 0)} onClick={() => setRefunding(true)}>Record refund</Button>}
+        {w && <Button disabled={caseId ? !(caseNet > 0) : !accepted.some((q) => Number(q.balance?.net_paid) > 0)} onClick={() => setRefunding(true)}>Record refund</Button>}
         {canWaive && <Button onClick={() => setWaiving(true)}>Waive payment</Button>}
         {!caseId && !accepted.length && <small className="bk-muted">A payment needs an accepted quote.</small>}
         {caseId && !caseRow?.client_id && <small className="bk-muted">Recording a payment first creates the client from the lead details.</small>}</div>}
@@ -56,7 +59,8 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
           ...(can("setup.payments.override") && (!caseId || accepted.length) ? [{ name: "override_reason", label: "Reason, if above the balance", full: true }] : [])]}
         onSubmit={async (v) => {
           // A case with no client gets its client first. A client that already exists is not made twice: the error says so and the form stays open.
-          if (caseId && !caseRow?.client_id) await caseLinkClient(caseId);
+          if (caseId && !validAmount(v.amount)) throw new Error("Enter an amount above zero with at most two decimals");
+          if (caseId && !caseRow?.client_id) await caseLinkClientForPayment(caseId);
           const r = await addPayment(caseId ? { ...v, case_id: caseId } : v);
           try {
             await fileReceipt({ ...v, receipt_id: r.receipt_id, receipt_number: r.receipt_number }, clientName, number(v.quote_id) || accepted[0]?.document_number || caseRow?.case_number || "");
@@ -65,10 +69,11 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
         }} />}
       {waiving && <FormModal title="Waive payment" submitLabel="Waive payment" note="Marks Paid as met without a payment. This is logged with your reason." fields={[{ name: "reason", label: "Reason", type: "textarea", required: true, full: true }]} onClose={() => setWaiving(false)}
         onSubmit={async (v) => { await casePaidOverride(caseId, v.reason); await done(); }} />}
-      {refunding && <FormModal title="Record refund" submitLabel="Record refund" note="For money really returned to the client. To undo a payment recorded by mistake, use Reverse." initial={{ quote_id: accepted.find((q) => Number(q.balance?.net_paid) > 0)?.id }} onClose={() => setRefunding(false)}
-        fields={[{ name: "quote_id", label: "Quote", type: "select", required: true, options: accepted.filter((q) => Number(q.balance?.net_paid) > 0).map((q) => ({ value: q.id, label: `${q.document_number}: paid AED ${money(q.balance?.net_paid)}` })) },
+      {refunding && <FormModal title="Record refund" submitLabel="Record refund" note={caseId ? `For money really returned to the client, up to AED ${money(caseNet)} paid on this case (an advance included). To undo a payment recorded by mistake, use Reverse.` : "For money really returned to the client. To undo a payment recorded by mistake, use Reverse."}
+        initial={{ quote_id: accepted.find((q) => Number(q.balance?.net_paid) > 0)?.id }} onClose={() => setRefunding(false)}
+        fields={[...(caseId ? [] : [{ name: "quote_id", label: "Quote", type: "select", required: true, options: accepted.filter((q) => Number(q.balance?.net_paid) > 0).map((q) => ({ value: q.id, label: `${q.document_number}: paid AED ${money(q.balance?.net_paid)}` })) }]),
           { name: "amount", label: "Amount (AED)", type: "number", required: true }, { name: "method", label: "Method", type: "select", options: ["Bank transfer", "Cash", "Cheque", "Card", "Other"] }, { name: "reference", label: "Reference" }, { name: "reason", label: "Reason", type: "textarea", required: true, full: true }]}
-        onSubmit={async (v) => { await addRefund(v); await done(); }} />}
+        onSubmit={async (v) => { await addRefund(caseId ? { ...v, case_id: caseId } : v); await done(); }} />}
       {reversing && <FormModal title={`Reverse ${reversing.receipt_number}`} submitLabel="Reverse" note="The payment and receipt stay on record. The receipt shows as Reversed." fields={[{ name: "reason", label: "Reason", type: "textarea", required: true, full: true }]} onClose={() => setReversing(null)}
         onSubmit={async (v) => { await reversePayment(reversing.id, v.reason); await done(); }} />}
     </div>

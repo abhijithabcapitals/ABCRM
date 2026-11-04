@@ -39,7 +39,6 @@ export const listQuoteTemplates = () => run(table("business_setup_quote_template
 export const saveQuoteTemplate = (p) => rpc("business_setup_quote_template_save", { p });
 
 // Quotes and services
-export const acceptQuote = (id, allowExpired = false) => rpc("business_setup_quote_accept", { p_id: id, p_allow_expired: allowExpired });
 export const rejectQuote = (id, reason) => rpc("business_setup_quote_reject", { p_id: id, p_reason: reason });
 export const linkQuote = (id, client) => rpc("business_setup_quote_link", { p_id: id, p_client: client });
 export const signLetter = (id, date, path) => rpc("business_setup_letter_sign", { p_id: id, p_date: date, p_path: path });
@@ -81,6 +80,8 @@ export const returnForm = (id, note) => rpc("business_setup_form_return", { p_id
 export const validateForm = (id, contact, version) => rpc("business_setup_form_validate", { p_id: id, p_contact: contact, p_version: version });
 
 // Client login
+// The login name for the quote message: id, username and status, for anyone who may issue quotes.
+export const loginName = (client) => rpc("business_setup_portal_login_name", { p_client: client });
 export const loginState = (client) => rpc("business_setup_portal_login_state", { p_client: client });
 export const loginSave = (client, username, password) => rpc("business_setup_portal_login_save", { p_client: client, p_username: username, p_password: password });
 export const loginStatus = (client, active) => rpc("business_setup_portal_login_status", { p_client: client, p_active: active });
@@ -89,6 +90,8 @@ export const loginStatus = (client, active) => rpc("business_setup_portal_login_
 export const caseList = (view) => rpc("business_setup_case_list", { p_view: view });
 export const caseNew = (p) => rpc("business_setup_case_new", { p });
 export const caseTake = (id) => rpc("business_setup_case_take", { p_case: id });
+// The same checked step for Finance, on the payment right (no login is issued).
+export const caseLinkClientForPayment = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client_for_payment", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 export const caseLinkClient = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 export const caseShared = (id) => rpc("business_setup_case_shared", { p_case: id });
 export const caseLost = (id, reason) => rpc("business_setup_case_lost", { p_case: id, p_reason: reason });

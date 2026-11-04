@@ -5,18 +5,20 @@ import { Button, ErrorNote, useAction, useLoad } from "@banking/components/share
 import { rpc } from "@banking/services/bankingApi";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { SIGN_IN_URL } from "@client-login/supabase/_shared/credentialText.ts";
-import { loginState } from "../../services/businessSetupApi";
-import { quoteMessage } from "../../logic/quoteMessage";
+import { loginName } from "../../services/businessSetupApi";
+import { messageState, quoteMessage } from "../../logic/quoteMessage";
 
 const validEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
 
 export default function PortalMessage({ q, clientId }) {
-  const login = useLoad(() => loginState(clientId), [clientId]);
+  // loginName needs only the right to issue quotes; loginState (the Client Login tab) needs the portal right.
+  const login = useLoad(() => loginName(clientId), [clientId]);
   const admin = useLoad(() => rpc("client_portal_is_admin"), []);
   const { error, setError, busy, act } = useAction();
   const [note, setNote] = useState(null);
   const a = login.data;
-  if (login.loading && !a) return null;
+  const state = messageState({ loading: login.loading, error: login.error, login: a });
+  if (state === "loading") return null;
   const text = a ? quoteMessage({ contact: q.contact_name, number: q.document_number, url: SIGN_IN_URL, username: a.username }) : null;
   const sendPassword = () => act(async () => {
     setNote(null);
@@ -30,7 +32,8 @@ export default function PortalMessage({ q, clientId }) {
   return (
     <div className="bk-mt">
       <ErrorNote message={error || login.error} onClose={error ? () => setError(null) : undefined} />
-      {!a ? <p className="bk-note">This client has no login yet, so the message has no login ID. Issue one with Share link, or on the client's Client Login tab.</p> : <>
+      {state === "error" ? <p className="bk-note">The login could not be read, so the message cannot be built. Try again, or ask someone with access to the client's Client Login tab.</p>
+        : !a ? <p className="bk-note">This client has no login yet, so the message has no login ID. Issue one with Share link, or on the client's Client Login tab.</p> : <>
         <label className="bk-muted" htmlFor={`pm-${q.id}`}>Message to send with the quote (portal link and login ID, no password)</label>
         <textarea id={`pm-${q.id}`} className="bk-input" rows={9} readOnly value={text} />
         <div className="bk-actions bk-mt">
