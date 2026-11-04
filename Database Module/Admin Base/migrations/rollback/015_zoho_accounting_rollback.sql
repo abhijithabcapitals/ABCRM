@@ -1,4 +1,4 @@
--- Undoes 013_zoho_accounting.sql. Re-runnable.
+-- Undoes 015_zoho_accounting.sql. Re-runnable.
 -- Rows with department 'Accounting' or source_table 'accounting_jobs' in zoho_documents must be removed first.
 -- Any left behind are not checked by the restored rules (they are added NOT VALID, so this file does not fail),
 -- but they would stay as rows the narrower rules do not allow, and any later edit to one of them would be refused.

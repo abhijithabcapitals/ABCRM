@@ -24,7 +24,7 @@ for pass in 1 2; do
   done
   [ "$ran" -gt 0 ] || { echo "FAILED pass $pass: no migration 002 or later found"; exit 1; }
   # Zoho invoices for jobs: Admin Base 005 (zoho_documents) then 013, which needs the job tables above.
-  for f in "$HERE"/../../Admin\ Base/migrations/005_zoho.sql "$HERE"/../../Admin\ Base/migrations/013_zoho_accounting.sql; do
+  for f in "$HERE"/../../Admin\ Base/migrations/005_zoho.sql "$HERE"/../../Admin\ Base/migrations/015_zoho_accounting.sql; do
     "${PSQL[@]}" -f "$f" >/dev/null 2>"$DATA/err" || { echo "FAILED pass $pass: $f"; cat "$DATA/err"; exit 1; }
   done
   echo "migrations pass $pass ok"
@@ -43,12 +43,12 @@ OUT005="$("${PSQL[@]}" -t -A -c "select case when to_regprocedure('public.accoun
 echo "$OUT005"
 case "$OUT005" in "ok "*) ;; *) status=1 ;; esac
 "${PSQL[@]}" -f "$HERE/../migrations/005_job_fee_vat.sql" >/dev/null 2>"$DATA/err" && echo "ok 005 reapplies after rollback" || { echo "FAILED 005 reapply"; cat "$DATA/err"; status=1; }
-# Rollback of Admin 013 twice with an Accounting row still in zoho_documents: it must not fail, and must leave the old rules.
-RB="$HERE/../../Admin Base/migrations/rollback/013_zoho_accounting_rollback.sql"
+# Rollback of Admin 015 twice with an Accounting row still in zoho_documents: it must not fail, and must leave the old rules.
+RB="$HERE/../../Admin Base/migrations/rollback/015_zoho_accounting_rollback.sql"
 for i in 1 2; do "${PSQL[@]}" -f "$RB" >/dev/null 2>"$DATA/err" || { echo "FAILED rollback 013"; cat "$DATA/err"; status=1; }; done
 OUT013="$("${PSQL[@]}" -t -A -c "select case when to_regprocedure('public.accounting_zoho_invoice_fill(uuid,text,date,numeric,uuid)') is null and (select count(*) from public.zoho_documents where department = 'Accounting') = 1 and (select pg_get_constraintdef(oid) from pg_constraint where conname = 'zoho_documents_department_check') not like '%Accounting%' then 'ok rollback 013 clean' else 'FAILED rollback 013 left objects' end")"
 echo "$OUT013"
 case "$OUT013" in "ok "*) ;; *) status=1 ;; esac
-"${PSQL[@]}" -f "$HERE/../../Admin Base/migrations/013_zoho_accounting.sql" >/dev/null 2>"$DATA/err" && echo "ok 013 reapplies after rollback" || { echo "FAILED 013 reapply"; cat "$DATA/err"; status=1; }
+"${PSQL[@]}" -f "$HERE/../../Admin Base/migrations/015_zoho_accounting.sql" >/dev/null 2>"$DATA/err" && echo "ok 013 reapplies after rollback" || { echo "FAILED 013 reapply"; cat "$DATA/err"; status=1; }
 [ "$status" -eq 0 ] && echo "ALL PASSED" || echo "TESTS FAILED"
 exit "$status"

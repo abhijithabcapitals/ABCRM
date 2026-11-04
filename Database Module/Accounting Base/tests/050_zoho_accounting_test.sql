@@ -86,5 +86,5 @@ select t.ok('only_service_role_has_execute', not has_function_privilege('public'
 select t.ok('job_still_empty_after_denied_calls', (select invoice_number is null from accounting_jobs where id = t.zid('open')));
 
 -- Migration 013 runs again with nothing lost
-\ir '../../Admin Base/migrations/013_zoho_accounting.sql'
+\ir '../../Admin Base/migrations/015_zoho_accounting.sql'
 select t.ok('migration_rerun_keeps_rows', (select count(*) from zoho_documents) = 3 and (select invoice_number from accounting_jobs where id = t.zid('done')) = 'INV-0001');

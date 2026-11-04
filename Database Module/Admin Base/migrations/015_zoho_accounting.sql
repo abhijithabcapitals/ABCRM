@@ -9,7 +9,7 @@
 -- "Invoice recorded" history entry. It returns {"result": "recorded" | "same" | "different" | "cleared" | "refused"}.
 -- same adds amount_differs and date_differs (nothing is overwritten); different adds number (the one on the job);
 -- cleared means staff cleared this number from the job, so it is not recorded again.
--- Re-runnable. Undo: rollback/013_zoho_accounting_rollback.sql
+-- Re-runnable. Undo: rollback/015_zoho_accounting_rollback.sql
 -- =====================================================================
 alter table public.zoho_documents drop constraint if exists zoho_documents_department_check;
 alter table public.zoho_documents add constraint zoho_documents_department_check
