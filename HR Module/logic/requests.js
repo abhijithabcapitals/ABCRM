@@ -1,10 +1,10 @@
 // Staff requests. Leave stays in hr_leave_requests and everything else in hr_requests; the Requests screen shows both as one list.
 import { parseTime, statusLabel } from "./attendance.js";
 export const REQUEST_KINDS = {
-  half_day: { label: "Half day", approver: "Your manager or HR", fields: ["work_date", "note"] },
-  wfh: { label: "Work from home", approver: "Your manager or HR", fields: ["work_date", "note"] },
-  late_concession: { label: "Late concession", approver: "Your manager or HR", fields: ["work_date", "note"] },
-  overtime: { label: "Overtime payment", approver: "Your manager or HR. HR enters the amount", fields: ["work_date", "hours", "note"] },
+  half_day: { label: "Half day", approver: "HR", fields: ["work_date", "note"] },
+  wfh: { label: "Work from home", approver: "HR", fields: ["work_date", "note"] },
+  late_concession: { label: "Late concession", approver: "HR", fields: ["work_date", "note"] },
+  overtime: { label: "Overtime payment", approver: "HR, who also enters the amount", fields: ["work_date", "hours", "note"] },
   reimbursement: { label: "Expense reimbursement", approver: "A Finance Manager, then Accounts pays it", fields: ["work_date", "amount", "note"], needsFile: true },
   other: { label: "Other", approver: "HR", fields: ["note"] },
 };

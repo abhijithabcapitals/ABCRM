@@ -6,6 +6,7 @@
 
 reset role;
 \ir ../migrations/014_hr_requests.sql
+\ir ../migrations/018_hr_decisions_hr_only.sql
 reset role;
 truncate public.t_result;
 update public.hr_employees set status = 'Left', exit_date = '2000-01-01', join_date = '1999-01-01', on_payroll = false;
@@ -79,10 +80,14 @@ select public.ok('the employee sees all 6', (select count(*) = 6 from public.hr_
 select public.ok('nothing is marked for them to decide', (select count(*) = 0 from public.hr_requests_list() where can_decide));
 select public.as_user('c6');
 select public.ok('the manager sees all but the claim', (select count(*) = 5 from public.hr_requests_list() where full_name = 'Req Staff'));
-select public.ok('the manager can decide day requests but not Other', (select count(*) = 4 from public.hr_requests_list() where can_decide));
+select public.ok('the manager has nothing to decide (018)', (select count(*) = 0 from public.hr_requests_list() where can_decide));
+select public.must_fail('a manager cannot decide work from home', $$select public.hr_request_decide(public.rq_id('wfh', '2026-09-03'), true, null)$$, 'not allowed');
+select public.must_fail('a manager cannot decide a late concession', $$select public.hr_request_decide(public.rq_id('late_concession', '2026-09-01'), true, null)$$, 'not allowed');
+select public.must_fail('a manager cannot decide a half day', $$select public.hr_request_decide(public.rq_id('half_day', '2026-09-02'), true, null)$$, 'not allowed');
+select public.must_fail('a manager cannot decide overtime', $$select public.hr_request_decide(public.rq_id('overtime', '2026-09-03'), true, null)$$, 'not allowed');
 select public.must_fail('a manager cannot decide Other', $$select public.hr_request_decide(public.rq_id('other', null), true, null)$$, 'not allowed');
 select public.must_fail('a manager cannot decide a claim', $$select public.hr_request_decide(public.rq_id('reimbursement', '2026-09-03'), true, null)$$, 'not allowed');
-select public.must_fail('a manager cannot set an overtime amount', $$select public.hr_request_decide(public.rq_id('overtime', '2026-09-03'), true, null, 100)$$, 'Only HR');
+select public.must_fail('a manager cannot set an overtime amount', $$select public.hr_request_decide(public.rq_id('overtime', '2026-09-03'), true, null, 100)$$, 'not allowed');
 select public.as_user('c7');
 select public.ok('a Finance Manager sees only the claim', (select count(*) = 1 and bool_and(kind = 'reimbursement') from public.hr_requests_list()));
 select public.must_fail('a Finance Manager cannot decide leave-like requests', $$select public.hr_request_decide(public.rq_id('wfh', '2026-09-03'), true, null)$$, 'not allowed');
@@ -92,7 +97,7 @@ select public.must_fail('another employee cannot decide', $$select public.hr_req
 select public.must_fail('another employee cannot cancel', $$select public.hr_request_cancel(public.rq_id('wfh', '2026-09-03'))$$, 'not allowed');
 
 -- ── effects ──
-select public.as_user('c6');
+select public.as_user('0b');
 select public.hr_request_decide(public.rq_id('late_concession', '2026-09-01'), true, null);
 select public.ok('a late concession removes the lateness', public.rq_day('2026-09-01', 'late_minutes') = '0', public.rq_day('2026-09-01', 'late_minutes'));
 select public.hr_request_decide(public.rq_id('half_day', '2026-09-02'), true, null);
@@ -110,13 +115,14 @@ insert into public.hr_attendance (employee_id, work_date, status) values (public
 set role authenticated;
 select public.as_user('c5');
 select public.hr_request_create(public.rq(1), 'half_day', '2026-09-04', null, null, null, null);
-select public.as_user('c6');
+select public.as_user('0b');
 select public.hr_request_decide(public.rq_id('half_day', '2026-09-04'), true, null);
 select public.ok('a half day with no punches charges one day', public.rq_closing() = 11, public.rq_closing()::text);
 
 -- overtime: approved with no amount pays nothing, then HR enters it
 select public.hr_request_decide(public.rq_id('overtime', '2026-09-03'), true, 'OK');
 select public.ok('overtime with no amount is not paid', not exists (select 1 from jsonb_array_elements(public.rq_earn('2026-09-01')) x where x ->> 'label' = 'Overtime claims'));
+select public.as_user('c6');
 select public.must_fail('a manager cannot enter the amount later', $$select public.hr_request_overtime_amount(public.rq_id('overtime', '2026-09-03'), 100)$$, 'Only HR');
 select public.as_user('0b');
 select public.hr_request_overtime_amount(public.rq_id('overtime', '2026-09-03'), 120);

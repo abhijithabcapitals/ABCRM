@@ -6,7 +6,7 @@ import { dubaiToday } from "../logic/expiry";
 const TONE = { pending: "warn", approved: "good", rejected: "bad", cancelled: "plain" };
 const label = (e) => `${e.employee_code} · ${e.full_name}`;
 
-// HR sees and enters leave for everyone. A manager sees direct reports and decides their pending requests. An employee requests,
+// HR sees, enters and decides leave for everyone. A manager sees direct reports' requests but does not decide them. An employee requests,
 // sees and cancels their own. The database decides who may do what; buttons here only follow its answers.
 export default function Leave({ role, employeeId }) {
   const isHr = role === "hr";
@@ -34,7 +34,7 @@ export default function Leave({ role, employeeId }) {
   const cancel = (r) => { if (window.confirm(`Cancel this ${r.status} leave from ${fmtDate(r.from_date)} to ${fmtDate(r.to_date)}?`)) act(() => leaveCancel(r.id)); };
 
   const canAct = (r) => ({
-    decide: r.status === "pending" && r.employee_id !== employeeId && (isHr || role === "manager"),
+    decide: r.status === "pending" && r.employee_id !== employeeId && isHr,
     // HR any time. The employee: pending any time, approved only before the first day (Asia/Dubai date). The database enforces this too.
     cancel: ["pending", "approved"].includes(r.status) && (isHr || (r.employee_id === employeeId && (r.status === "pending" || r.from_date > today))),
   });

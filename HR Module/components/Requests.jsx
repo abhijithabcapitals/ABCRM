@@ -23,7 +23,7 @@ export default function Requests({ role, employeeId, profile, onDecided }) {
   const [rejectingEdit, setRejectingEdit] = useState(null);
   const [notice, setNotice] = useState(null);
   const [error, setError] = useState(null);
-  const canDecideLeave = (l) => l.employee_id !== employeeId && (isHr || role === "manager");
+  const canDecideLeave = (l) => l.employee_id !== employeeId && isHr;
   const canDecideEdit = (e) => isAdmin || e.employee_id !== employeeId; // HR cannot decide their own day
   const rows = mergeRequests(others.data, leaves.data, canDecideLeave, edits.data, canDecideEdit);
   const reload = async () => { await Promise.all([others.reload(), leaves.reload(), edits.reload()]); await onDecided?.(); };

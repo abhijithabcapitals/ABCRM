@@ -88,9 +88,12 @@ select public.ok('loner sees only own request', (select count(*) = 1 from public
 select public.as_user('a1');
 select public.ok('manager sees report request only', (select count(*) = 1 and bool_and(employee_id = '20000000-0000-0000-0000-0000000000a2') from public.hr_leave_requests));
 select public.must_fail('manager cannot approve another employee', format($$select public.hr_leave_decide(%L, true, null)$$, public.tid('l1#1')), 'not allowed');
+select public.must_fail('a manager cannot decide a direct report leave (018)', format($$select public.hr_leave_decide(%L, true, 'ok')$$, public.tid('r1#1')), 'not allowed');
+select public.as_user('0b');
 select public.hr_leave_decide(public.tid('r1#1'), true, 'ok');
-select public.ok('manager approved report', (select status = 'approved' and approver is not null and decided_at is not null from public.hr_leave_requests where id = public.tid('r1#1')));
+select public.ok('HR approved the report', (select status = 'approved' and approver is not null and decided_at is not null from public.hr_leave_requests where id = public.tid('r1#1')));
 select public.must_fail('deciding twice fails', format($$select public.hr_leave_decide(%L, false, null)$$, public.tid('r1#1')), 'pending');
+select public.as_user('a1');
 select public.must_fail('manager cannot cancel', format($$select public.hr_leave_cancel(%L)$$, public.tid('r1#1')), 'not allowed');
 select public.must_fail('manager cannot request for report', $$select public.t_req('x', 'a2', 'Annual', '2026-12-01', '2026-12-02')$$, 'yourself');
 select public.ok('manager reads report balance', (select used = 4 and remaining = 26 from public.hr_leave_balance('20000000-0000-0000-0000-0000000000a2', 2026) where leave_type = 'Annual'));
