@@ -16,7 +16,7 @@ Design: `docs/2026-11-04-router-agent-design.md`. Plan: `docs/2026-11-04-router-
 
 ## Who can use which agent
 
-Set in Settings > Agents. An agent is used only when it is switched on, the person is ticked, the person has credit left, the agent's budget (if set) is not used up, and the agent is in `ROUTES`. Today `ROUTES` holds Support, Business Development and CEO. Admins need ticks and credit too.
+Set in Settings > Agents. An agent is used only when it is switched on, the person is ticked, the person has credit left, the agent's budget (if set) is not used up, and the agent is in `ROUTES`. Today `ROUTES` holds Support, Business Development, CEO and CRM (`crm-agent`, which answers lead status questions with no AI model). Admins need ticks and credit too.
 
 The function logs a short reason code for each fixed reply, such as `no_credit` or `agent_403`, never message text.
 
@@ -27,7 +27,7 @@ Each step needs approval. Keep this order.
 > **Warning:** step 6 removes the Support chat from Hot Alerts. If it goes live before step 4, staff lose that chat and Bruno answers `Opps! I dont Know` to everyone, because nobody has access or credit yet.
 
 1. Apply `Database Module/Router Base/migrations/001_router.sql` to project `pnnakrhfzyxudjaghoxx`.
-2. Deploy the three agents with their `router` mode, from `Database Module/tools` in Git Bash, using the CLI set up in its README. Copy each from its module folder first:
+2. Deploy the agents with their `router` mode, from `Database Module/tools` in Git Bash, using the CLI set up in its README. Copy each from its module folder first:
 
    ```bash
    mkdir -p supabase/functions/support-agent supabase/functions/bd-agent supabase/functions/ceo-agent
@@ -37,7 +37,12 @@ Each step needs approval. Keep this order.
    npx supabase functions deploy support-agent --project-ref pnnakrhfzyxudjaghoxx
    npx supabase functions deploy bd-agent --project-ref pnnakrhfzyxudjaghoxx
    npx supabase functions deploy ceo-agent --project-ref pnnakrhfzyxudjaghoxx
+   mkdir -p supabase/functions/crm-agent
+   cp "../../Agent Module/14_CRM_Agent/supabase/crm-agent/"* supabase/functions/crm-agent/
+   npx supabase functions deploy crm-agent --project-ref pnnakrhfzyxudjaghoxx
    ```
+
+   Do not deploy `ceo-agent` from `main` or this branch. That code reads `public.email_saved_facts` and `public.email_drafts`, which do not exist live. The live `ceo-agent` is the old live code plus router mode.
 
 3. Deploy `router-agent` with JWT verification on. It needs the `OPENROUTER_API_KEY` secret, which the project already has:
 

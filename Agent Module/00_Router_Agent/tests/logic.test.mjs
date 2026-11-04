@@ -10,11 +10,14 @@ test("the fixed reply keeps the user's spelling", () => assert.equal(FIXED_REPLY
 test("constants", () => {
   assert.equal(NO_INFO, "NO_INFO");
   assert.equal(MAX_MESSAGE, 4000);
-  assert.deepEqual(Object.keys(ROUTES), ["AGT-08-SUPPORT", "AGT-05-BIZDEV", "AGT-11-CEO"]);
+  assert.deepEqual(Object.keys(ROUTES), ["AGT-08-SUPPORT", "AGT-05-BIZDEV", "AGT-11-CEO", "AGT-14-CRM"]);
+  assert.equal(ROUTES["AGT-14-CRM"].fn, "crm-agent");
   assert.equal(ROUTES["AGT-08-SUPPORT"].fn, "support-agent");
   assert.equal(ROUTES["AGT-05-BIZDEV"].fn, "bd-agent");
   assert.equal(ROUTES["AGT-11-CEO"].fn, "ceo-agent");
 });
+test("CRM agent is eligible", () => assert.deepEqual(eligibleAgents([{ id: "AGT-14-CRM" }]).map((a) => a.id), ["AGT-14-CRM"]));
+test("CRM request is router mode", () => { const m = [{ role: "user", content: "x" }]; assert.deepEqual(agentRequest("AGT-14-CRM", m), { messages: m, router: true }); });
 test("only agents with a route", () => assert.deepEqual(eligibleAgents([{ id: "AGT-13-EMAIL" }, { id: "AGT-08-SUPPORT" }]).map((a) => a.id), ["AGT-08-SUPPORT"]));
 test("eligible keeps order", () => assert.deepEqual(eligibleAgents([{ id: "AGT-11-CEO" }, { id: "AGT-08-SUPPORT" }]).map((a) => a.id), ["AGT-11-CEO", "AGT-08-SUPPORT"]));
 test("ranking keeps at most two", () => assert.deepEqual(parseRanking('["a","b","c"]', ["a", "b", "c"]), ["a", "b"]));

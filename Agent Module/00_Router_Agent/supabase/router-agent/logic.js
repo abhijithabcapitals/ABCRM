@@ -9,6 +9,7 @@ export const ROUTES = {
   "AGT-08-SUPPORT": { fn: "support-agent" },
   "AGT-05-BIZDEV": { fn: "bd-agent" },
   "AGT-11-CEO": { fn: "ceo-agent" },
+  "AGT-14-CRM": { fn: "crm-agent" },
 };
 
 export function eligibleAgents(agents, routes = ROUTES) {

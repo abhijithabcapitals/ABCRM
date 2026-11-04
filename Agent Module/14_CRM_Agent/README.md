@@ -33,6 +33,15 @@ tool inputs and results are never stored. A logging failure never changes the to
 
 Claude OAuth is not implemented.
 
+## Bruno route
+
+Bruno calls the Edge Function `supabase/crm-agent/` (`index.ts`, `logic.js`) for agent `AGT-14-CRM`. It reads lead numbers
+(`LD-YYYY-n`) from the chat, up to 5, looks each up with the database function `crm_agent_lead_status_for_me` using the
+person's own login, and replies with stage, status, priority, owner, onboarding and dates (Dubai time). With no number, or no
+lead the person can see, it replies `NO_INFO`. No AI model, service role or secrets; `cost_usd` is always 0. Logs hold reason
+codes only. Tests: `node --test "Agent Module/14_CRM_Agent/tests/crmAgentChat.test.mjs"`. Deploy steps are in the Router
+Agent README.
+
 ## Claude plan usage
 
 Settings > Claude Subscription shows the plan and limit percentages. An hourly scheduled task in the Claude desktop app
