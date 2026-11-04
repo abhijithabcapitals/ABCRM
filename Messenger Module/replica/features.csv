@@ -1,0 +1,60 @@
+feature,area,priority,original,clone,notes
+Direct and group chats,chat,must,yes,yes,Live in CRM dock
+Unread counts,chat,must,yes,yes,Live in CRM dock
+Links to CRM records in chat,chat,should,no,yes,Our addition; live
+Edit and delete message,chat,must,yes,no,
+Reply and quote,chat,must,yes,no,
+Reactions,chat,must,yes,no,
+Mentions,chat,must,yes,no,
+Rich text composer,chat,should,yes,no,Reuse TipTap
+File attachments,chat,must,yes,no,Files outside the database
+Typing indicator,chat,could,yes,no,
+Read receipts,chat,could,yes,partial,last_read_at exists; not shown per message
+Pin and mute chats,chat,should,yes,no,
+Message search,search,must,yes,no,
+People and file search,search,should,yes,no,
+Activity feed,activity,must,yes,no,
+Presence and status,presence,must,yes,no,
+Teams,channels,must,yes,no,
+Team roles,channels,must,yes,no,
+Standard channels,channels,must,yes,no,
+Private channels,channels,should,yes,no,
+Threaded posts,channels,must,yes,no,
+Channel Files tab,channels,should,yes,no,
+Full-page app shell,shell,must,yes,partial,Built on fake data; real login check open
+Keep docked panel,shell,must,no,yes,User's approved design
+Windows installer,desktop,must,yes,no,Tauri; Rust not yet installed on this PC
+Tray and close to tray,desktop,must,yes,no,
+Windows notifications,desktop,must,yes,no,
+Start with Windows,desktop,should,yes,no,
+Protocol links,desktop,should,yes,no,
+Auto update,desktop,should,yes,no,
+Code-signed installer,desktop,should,yes,no,Needs a paid certificate; otherwise SmartScreen warns
+One-to-one audio and video,calls,must,yes,no,
+Group calls,calls,must,yes,no,
+Incoming call ring,calls,must,yes,no,Reliable only in the desktop app at first
+Call history,calls,should,yes,no,
+Screen share,meetings,must,yes,no,
+Device picker and pre-join,meetings,must,yes,no,
+Meet now,meetings,must,yes,no,
+Calendar day and week views,calendar,must,yes,no,Extend Calendar Module
+Schedule meeting,calendar,must,yes,no,
+Repeating meetings,calendar,should,yes,no,
+Invitations and reminders,calendar,should,yes,no,
+Meeting chat,meetings,must,yes,no,
+Roles in meetings,meetings,must,yes,no,
+Lobby,meetings,should,yes,no,
+Guest join by link,meetings,could,yes,no,Needs a security review
+Raise hand and in-call reactions,meetings,should,yes,no,
+Background blur,meetings,could,yes,no,
+Recording,meetings,should,yes,no,Everyone told when it starts; storage cost
+Live transcript,meetings,could,yes,no,Needs a speech service; cost to confirm
+Recap page,meetings,could,yes,no,
+Breakout rooms,meetings,could,yes,no,
+Teams brand and assets,brand,skip,yes,skip,Microsoft's property
+Interop with real Teams,integration,skip,yes,skip,Existing deep link stays
+Phone network calling,calls,skip,yes,skip,Needs a licensed carrier
+Copilot,ai,skip,yes,skip,Licensed; separate decision
+Shared channels with other companies,channels,skip,yes,skip,Not needed for one company
+Webinars and town halls,meetings,skip,yes,skip,Not needed
+App store and live Office co-editing,apps,skip,yes,skip,Too large; not core

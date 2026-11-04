@@ -31,6 +31,7 @@ const HR = lazy(() => import("@hr"));
 const AccountingPage = lazy(() => import("@accounting"));
 const BusinessSetup = lazy(() => import("@business-setup"));
 const Knowledge = lazy(() => import("@knowledge"));
+const MessengerApp = lazy(() => import("@messenger/components/MessengerApp"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
 const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
@@ -550,6 +551,7 @@ export default function App() {
         {view === "accounts" && <AccountingPage profile={profile} />}
         {view === "business-setup" && <BusinessSetup profile={profile} />}
         {view === "knowledge" && <Knowledge profile={profile} />}
+        {view === "team-messenger" && <MessengerApp profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
         {view === "email-agent" && profile?.role === "admin" && <EmailAgent />}
         {view === "tax" && (
@@ -563,7 +565,7 @@ export default function App() {
       </main>
       <BrandFooter />
       </div>
-      <MessengerDock profile={profile} onOpenMail={profile?.role === "admin" ? () => handleNavigate("ceo") : undefined} />
+      {view !== "team-messenger" && <MessengerDock profile={profile} onOpenMail={profile?.role === "admin" ? () => handleNavigate("ceo") : undefined} />}
     </div>
   );
 }
