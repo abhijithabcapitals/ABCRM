@@ -6,6 +6,7 @@ Admin screens for connecting the CRM to outside services, and the store for thei
 |---|---|
 | `components/EmailAccountsPanel.jsx` | **Settings → Email Accounts**: add a mailbox by username and password; it syncs into Email Base |
 | `components/IntegrationsPanel.jsx` | **Settings → Integrations**: every app in `registry.json`, plus custom apps, with write-only fields |
+| `components/AgentsPanel.jsx`, `logic/agents.js` | **Settings → Agents**: each agent's configuration, per-person access and monthly usage credit. Tables are in `Database Module/AI Base/migrations/002_agents.sql`. Saving runs nothing: the agent gateway must read and enforce these settings |
 | `registry.json` | The app list: status (`in_use` / `ready` / `planned`), what uses it, each credential's name, purpose and source. Names only, never values. `envOnly` apps are read directly by background functions and stay in Supabase secrets |
 | `supabase/crm-connections/index.ts` | Edge Function for both screens (admins only). Tests a mailbox login before saving. Never returns a value |
 | `supabase/migrations/001_credentials.sql` | `admin_credential_set`, `admin_credential_delete`, `credential_get`, `integration_credentials`, `email_base.mailboxes.login_user` |
