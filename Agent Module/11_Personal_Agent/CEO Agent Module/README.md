@@ -11,7 +11,7 @@ a standalone Next.js app, ported into the CRM so it opens inside the CRM shell.
 | `components/InboxPanel.jsx` | **Inbox** tab: full message text, AI summaries, importance markers, saved facts, reply-draft review and alerts |
 | `supabase/ceo-mail-sync/index.ts` | Edge Function `ceo-mail-sync`: read-only IMAP sync, full text retention and conversation summaries |
 | `supabase/ceo-mail-sync/imap.ts` | Minimal read-only IMAP client on `Deno.connectTls` |
-| `../Database Module/Email Base/migrations/` | Shared mailbox, message and conversation schema, CRM access policies and sync schedule |
+| `../../../Database Module/Email Base/migrations/` | Shared mailbox, message and conversation schema, CRM access policies and sync schedule |
 | `supabase/migrations/202610300003_email_base_mail_assistant.sql` | Connects CEO saved facts and unsent drafts to shared Email Base threads |
 | `index.js` | Default export of the page |
 

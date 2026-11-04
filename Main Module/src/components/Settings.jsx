@@ -3,6 +3,7 @@ import "@banking/components/banking.css";
 import { supabase } from "../supabase";
 import { IconClose } from "./icons";
 import IntegrationsPanel, { AgentsPanel, EmailAccountsPanel } from "@integrations";
+import { ClaudeConnectionPanel } from "@crm-agent";
 import ClientPortalAdmin from "@client-login/admin/ClientPortalAdmin";
 import { AiUsagePanel, AuditPanel, AuditTrailPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
 
@@ -512,7 +513,12 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
         {/* ── INTEGRATIONS TAB (admin only) ── */}
         {activeTab === "email-accounts" && profile?.role === "admin" && <EmailAccountsPanel supabase={supabase} />}
         {activeTab === "integrations" && profile?.role === "admin" && <IntegrationsPanel supabase={supabase} />}
-        {activeTab === "agents" && profile?.role === "admin" && <AgentsPanel supabase={supabase} />}
+        {activeTab === "agents" && profile?.role === "admin" && (
+          <>
+            <ClaudeConnectionPanel />
+            <AgentsPanel supabase={supabase} />
+          </>
+        )}
         {activeTab === "client-portal" && profile?.role === "admin" && <ClientPortalAdmin />}
 
         {/* ── USAGE TAB (admin only) ── */}

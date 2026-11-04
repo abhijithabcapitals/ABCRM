@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "crm-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // MCP_AUTH_TOKEN is a Worker secret (wrangler secret put), never a var.
+  "observability": {
+    "enabled": true
+  }
+}

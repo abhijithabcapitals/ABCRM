@@ -62,4 +62,4 @@ Deploy this function before the front end ships. Without it the card shows "In u
 
 It imports the IMAP and SMTP clients from its siblings, so copy these into one `supabase/functions` folder and
 deploy with `--project-ref pnnakrhfzyxudjaghoxx --use-api`: `crm-connections`,
-`ceo-mail-sync` and `ceo-mail-reply` (from `CEO Agent Module/supabase`).
+`ceo-mail-sync` and `ceo-mail-reply` (from `Agent Module/11_Personal_Agent/CEO Agent Module/supabase`).
