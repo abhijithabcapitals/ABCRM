@@ -29,8 +29,8 @@ Run in this order. Each is safe to run twice, and removes nothing.
 
 1. Done 2026-11-04: `Database Module/Messanger Base/migrations/004_chat_parity.sql`
 2. Done 2026-11-04: `004b_chat_audit_private.sql`. Chat text no longer enters the audit trail, at the user's decision
-3. `Database Module/Messanger Base/migrations/005_teams_channels.sql`
-4. `Database Module/Messanger Base/migrations/006_calls.sql`
+3. Done 2026-11-04: `Database Module/Messanger Base/migrations/005_teams_channels.sql`
+4. Done 2026-11-04: `Database Module/Messanger Base/migrations/006_calls.sql`
 
 After each, confirm the live chat dock still lists chats and sends a message.
 
