@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The app's own page only. Native features go through the commands in src/lib.rs, which check what they are given.",
+  "windows": ["main"],
+  "permissions": ["core:event:default"]
+}

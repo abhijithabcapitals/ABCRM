@@ -101,3 +101,37 @@
   .msgr-dock-pane { position: fixed; inset: 0; z-index: 8900; width: 100vw; height: 100dvh; transition: transform 0.22s ease; transform: translateX(100%); }
   .msgr-dock-open .msgr-dock-pane { transform: none; width: 100vw; }
 }
+
+/* Replies, reactions, mentions, edits, files and message actions. */
+.msgr-msg { position: relative; }
+.msgr-quote { margin-bottom: 3px; padding: 2px 8px; border-left: 3px solid #0F6E56; background: rgba(15, 110, 86, 0.08); color: #5b6d72; font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.msgr-deleted { color: #5b6d72; font-style: italic; }
+.msgr-mention { color: #0F6E56; font-weight: 600; }
+.msgr-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.msgr-reaction { padding: 0 6px; border: 1px solid #d5dee1; border-radius: 10px; background: #fff; color: #172f35; font: 12px/20px system-ui, sans-serif; cursor: pointer; }
+.msgr-reaction-mine { border-color: #0F6E56; background: #d7ebe5; }
+.msgr-actions { position: absolute; top: -14px; right: 4px; z-index: 1; display: flex; opacity: 0; pointer-events: none; align-items: center; gap: 2px; padding: 2px 4px; border: 1px solid #d5dee1; border-radius: 8px; background: #fff; color: #172f35; font-size: 12px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); white-space: nowrap; }
+.msgr-msg:hover .msgr-actions, .msgr-msg:focus-within .msgr-actions, .msgr-actions-on { opacity: 1; pointer-events: auto; }
+.msgr-action { padding: 2px 4px; border: 0; border-radius: 4px; background: none; color: #172f35; font: 12px/18px system-ui, sans-serif; cursor: pointer; }
+.msgr-action:hover, .msgr-action:focus-visible { background: #eef3f3; }
+.msgr-edit { display: flex; flex-direction: column; gap: 4px; min-width: 200px; }
+.msgr-edit-row { display: flex; gap: 10px; font-size: 12px; }
+.msgr-file { display: flex; flex-direction: column; align-items: flex-start; max-width: 100%; padding: 6px 10px; border: 1px solid #d5dee1; border-radius: 8px; background: #fff; color: #172f35; font: 13px/18px system-ui, sans-serif; text-align: left; cursor: pointer; }
+.msgr-file:disabled { cursor: default; opacity: 0.7; }
+.msgr-file small { color: #5b6d72; font-size: 11px; }
+.msgr-file-name { font-weight: 600; overflow-wrap: anywhere; }
+.msgr-file-input { display: none; }
+.msgr-file-btn { flex: none; padding: 8px; border: 0; border-radius: 8px; background: none; color: #5b6d72; cursor: pointer; }
+.msgr-file-btn:hover { background: #eef3f3; }
+.msgr-replying { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; padding: 4px 8px; border-left: 3px solid #0F6E56; background: #f6f8f8; font-size: 12px; }
+.msgr-replying-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #5b6d72; }
+.msgr-mentions { margin: 0 0 6px; padding: 4px; list-style: none; border: 1px solid #d5dee1; border-radius: 8px; background: #fff; max-height: 180px; overflow-y: auto; }
+.msgr-mention-pick { display: block; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: #172f35; font: 13px/18px system-ui, sans-serif; text-align: left; cursor: pointer; }
+.msgr-mention-pick:hover, .msgr-mention-on { background: #d7ebe5; }
+.msgr-flag { flex: none; margin-left: 8px; font-size: 12px; }
+@media (hover: none) { .msgr-actions { position: static; opacity: 1; pointer-events: auto; flex-wrap: wrap; margin-top: 4px; box-shadow: none; white-space: normal; } }
+
+/* Channel posts and threads. */
+.msgr-reply-count { align-self: flex-start; margin-top: 4px; padding: 0; border: 0; background: none; color: #0F6E56; font: 600 12px/18px system-ui, sans-serif; cursor: pointer; }
+.msgr-reply-count:hover { text-decoration: underline; }
+.msgr-thread-top { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #e6ebed; }

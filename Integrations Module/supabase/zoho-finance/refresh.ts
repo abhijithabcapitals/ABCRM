@@ -1,14 +1,18 @@
 // Rebuilds the one zoho_finance_snapshot row. Limits: design document section 4.
-// Stops at MAX_CALLS Zoho calls, and a section it did not finish has no total. A failure keeps the old numbers.
+// Stops at MAX_CALLS Zoho calls or TIME_BUDGET_MS, and a section it did not finish has no total. A failure keeps the old numbers.
 
 import { browserMessage, UserError } from "./errors.ts";
 import { buildFigures, ledgerStart } from "./figures.ts";
 import type { Deps, ZohoLike } from "./handlers.ts";
 import { ledgerAccountCount, readAccounts, readCash, readLedger, readOrganization, readPayables, readReceivables, UnfinishedRead } from "./zohoSources.ts";
 
-export const MAX_CALLS = 90;
+export const MAX_CALLS = 200;
+// A Supabase Edge Function request ends at 150 seconds. New calls stop well before that; calls already running finish.
+export const TIME_BUDGET_MS = 125_000;
+// Zoho allows 100 requests a minute for the organisation, and the drafts function shares them.
+const STARTS_PER_MINUTE = 90;
 const LOCK_MINUTES = 5;
-const AUTO_MINUTES = 60;
+const AUTO_MINUTES = 360;
 const FORCED_MINUTES = 5;
 const MINUTE = 60_000;
 const UAE_OFFSET_MS = 4 * 60 * MINUTE; // The UAE has no daylight saving.
@@ -16,20 +20,40 @@ const UAE_OFFSET_MS = 4 * 60 * MINUTE; // The UAE has no daylight saving.
 export type RefreshResult = { status: "ok" | "partial" | "failed" | "busy" | "fresh"; error?: string };
 
 class CallLimitReached extends Error {}
+class TimeBudgetReached extends Error {}
+
+const TOO_SLOW = "Zoho took too long, so some figures are incomplete. Refresh to try again.";
 
 // A due date falls on a UAE calendar day, so "today" must too.
 const uaeToday = (now: Date) => new Date(now.getTime() + UAE_OFFSET_MS).toISOString().slice(0, 10);
 
-function limited(zoho: ZohoLike) {
+const realSleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+
+// Counts calls, stops at the call limit or the time budget, and holds a call back while 90 have started in the last minute.
+function limited(zoho: ZohoLike, startedAt: number, clock: () => number, sleep: (ms: number) => Promise<void>) {
   let used = 0;
+  const starts: number[] = [];
   return {
     used: () => used,
     reader: {
       orgId: zoho.orgId,
-      get: (path: string, query?: Record<string, string>) => {
-        if (used >= MAX_CALLS) throw new CallLimitReached();
-        used++;
-        return zoho.get(path, query);
+      get: async (path: string, query?: Record<string, string>) => {
+        // Checked again after each wait. Nothing awaits between the last check and the count, so two calls cannot take the last slot.
+        for (;;) {
+          const t = clock();
+          if (t - startedAt >= TIME_BUDGET_MS) throw new TimeBudgetReached();
+          if (used >= MAX_CALLS) throw new CallLimitReached();
+          while (starts.length && starts[0] <= t - MINUTE) starts.shift();
+          if (starts.length < STARTS_PER_MINUTE) {
+            starts.push(t);
+            used++;
+            return zoho.get(path, query);
+          }
+          // A wait that would outlast the budget is not started: the function is killed at 150 s and nothing would be stored.
+          const wait = starts[0] + MINUTE - t;
+          if (wait >= startedAt + TIME_BUDGET_MS - t) throw new TimeBudgetReached();
+          await sleep(wait);
+        }
       },
     },
   };
@@ -54,7 +78,7 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
   const olderThan = (column: string, cutoff: string) => `${column}.is.null,${column}.lt."${cutoff}"`;
 
   // Claim the row. The lock and both age limits sit in this one update, so there is no gap between checking and claiming.
-  // A failure keeps the old as_of, so last_attempt_at is what stops each Dashboard open spending up to 90 calls again.
+  // A failure keeps the old as_of, so last_attempt_at is what stops each Dashboard open spending up to 200 calls again.
   const claim = now.toISOString();
   const wait = ago(force ? FORCED_MINUTES : AUTO_MINUTES);
   const { data: claimed, error: claimError } = await table()
@@ -87,9 +111,9 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
   let calls: ReturnType<typeof limited> | undefined;
   try {
     if (!client) throw clientError;
-    calls = limited(client);
+    calls = limited(client, now.getTime(), () => deps.now().getTime(), deps.sleep ?? realSleep);
     const zoho = calls.reader;
-    let stopped = false;
+    let stopped: string | null = null; // The stored message, once a limit has stopped the refresh.
     const section = async <T>(read: () => Promise<T>): Promise<T | null> => {
       if (stopped) return null;
       try {
@@ -97,8 +121,9 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
       } catch (e) {
         // Only this section is unfinished. The others can still be read.
         if (e instanceof UnfinishedRead) return null;
-        if (!(e instanceof CallLimitReached)) throw e;
-        stopped = true;
+        if (e instanceof TimeBudgetReached) stopped ??= TOO_SLOW;
+        else if (e instanceof CallLimitReached) stopped ??= `The limit of ${MAX_CALLS} Zoho calls was not enough. Some figures are incomplete.`;
+        else throw e;
         return null;
       }
     };
@@ -110,7 +135,10 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
     const payables = await section(() => readPayables(zoho));
     const cash = await section(() => readCash(zoho, accounts, currency));
     // At least one call per account. If they cannot fit, the ledger could only end partial, so no calls are spent on it.
-    if (accounts && ledgerAccountCount(accounts) > MAX_CALLS - calls.used()) stopped = true;
+    const accountCount = accounts ? ledgerAccountCount(accounts) : 0;
+    if (accounts && accountCount > MAX_CALLS - calls.used()) {
+      stopped ??= `This Zoho organisation has ${accountCount} income and cost accounts, more than the limit of ${MAX_CALLS} calls.`;
+    }
     const ledger = accounts && await section(() => readLedger(zoho, accounts, ledgerStart(today), today));
 
     const data = buildFigures({
@@ -129,11 +157,10 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
       as_of: deps.now().toISOString(),
       status,
       calls_used: calls.used(),
-      error: stopped
-        ? `The limit of ${MAX_CALLS} Zoho calls was not enough. Some figures are incomplete.`
-        : status === "partial"
-        ? "Some figures could not be read from Zoho."
-        : null,
+      error: stopped ??
+        (status === "partial"
+          ? "Some figures could not be read from Zoho."
+          : null),
     });
     return stored ? { status } : { status: "busy" };
   } catch (e) {

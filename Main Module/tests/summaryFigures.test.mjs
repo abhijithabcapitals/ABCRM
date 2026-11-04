@@ -123,16 +123,16 @@ test("empty input gives zeros, not a throw", () => {
 const NOW = Date.parse("2026-11-04T10:00:00Z");
 const minutesAgo = (m) => new Date(NOW - m * 60_000).toISOString();
 
-test("snapshotState: no as_of is empty, 59 minutes is fresh, 61 is stale", () => {
+test("snapshotState: no as_of is empty, 359 minutes is fresh, 361 is stale", () => {
   assert.equal(snapshotState(null, NOW), "empty");
   assert.equal(snapshotState({ as_of: null, status: "ok" }, NOW), "empty");
-  assert.equal(snapshotState({ as_of: minutesAgo(59), status: "ok" }, NOW), "fresh");
-  assert.equal(snapshotState({ as_of: minutesAgo(61), status: "ok" }, NOW), "stale");
+  assert.equal(snapshotState({ as_of: minutesAgo(359), status: "ok" }, NOW), "fresh");
+  assert.equal(snapshotState({ as_of: minutesAgo(361), status: "ok" }, NOW), "stale");
   assert.equal(snapshotState({ as_of: minutesAgo(5), status: "partial" }, NOW), "fresh");
 });
 
 test("snapshotState: a failed refresh with old data is failed", () => {
-  assert.equal(snapshotState({ as_of: minutesAgo(300), status: "failed", error: "x" }, NOW), "failed");
+  assert.equal(snapshotState({ as_of: minutesAgo(600), status: "failed", error: "x" }, NOW), "failed");
   assert.equal(snapshotState({ as_of: null, status: "failed" }, NOW), "empty");
 });
 
@@ -155,7 +155,7 @@ test("failureNote: shows the error for a first-ever failure, and says there are 
   assert.equal(failureNote({ as_of: minutesAgo(5), status: "ok", error: null }), null);
   assert.equal(failureNote({ as_of: null, status: "failed", error: "Zoho did not answer." }), "Zoho did not answer. There are no earlier figures.");
   assert.equal(failureNote({ as_of: null, status: "failed", error: null }), "The last refresh failed. There are no earlier figures.");
-  assert.equal(failureNote({ as_of: minutesAgo(300), status: "failed", error: "x" }), "x The figures below are from the last good refresh.");
+  assert.equal(failureNote({ as_of: minutesAgo(600), status: "failed", error: "x" }), "x The figures below are from the last good refresh.");
 });
 
 test("isMissingTable recognises a missing table and nothing else", () => {

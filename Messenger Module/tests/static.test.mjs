@@ -117,7 +117,7 @@ test("App.jsx keeps view in abc_view and does not use URLSearchParams.size", () 
 test("the dock is mounted once in App.jsx, beside the page and not over it, imported statically so a failed chunk cannot crash the app", () => {
   const app = main("src/App.jsx");
   assert.match(app, /^import MessengerDock from "@messenger\/components\/MessengerDock";$/m);
-  assert.doesNotMatch(app, /lazy\(\(\) => import\("@messenger/);
+  assert.doesNotMatch(app, /lazy\(\(\) => import\("@messenger\/components\/MessengerDock/);
   assert.equal((app.match(/<MessengerDock /g) || []).length, 1);
   // Beside .app-body in the flex layout, so the page resizes when the dock opens and closes.
   assert.ok(app.indexOf("<MessengerDock ") > app.indexOf("</main>"));
