@@ -161,7 +161,9 @@ Each live step needs approval.
 5. Delete the `MCP_AUTH_TOKEN` secret from `crm-agent`.
 
 Rollback: redeploy the previous Worker version `5ee226af`. It uses only the secret, so step 5 must not have happened,
-and the connector must hold the secret's token.
+and the connector must hold the secret's token. Redeploy `5ee226af` before running the 011 rollback SQL, because the new
+Worker answers 503 once the check function is gone. Rolling back clears the stored hash, so the state returns to `unset`
+and the old `MCP_AUTH_TOKEN` is accepted again if the secret still exists.
 
 ## Out of scope
 

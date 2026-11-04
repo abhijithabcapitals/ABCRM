@@ -29,7 +29,7 @@ Every request needs a Bearer token. The Worker checks it with the database funct
 Settings (`unset`). If the database cannot be reached, the endpoint answers 503 and does not use the fallback.
 
 Each tool call is logged through `crm_agent_log_call`: tool name, success, error code and duration. Lead numbers,
-tool inputs and results are never stored. A logging failure never changes the tool result.
+tool inputs and results are never stored. A logging failure never changes the tool result. Calls the SDK rejects for invalid input are not logged, so the failure count can be slightly understated.
 
 Claude OAuth and subscription usage reporting are not implemented.
 

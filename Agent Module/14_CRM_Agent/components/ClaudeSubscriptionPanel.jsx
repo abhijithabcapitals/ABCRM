@@ -32,7 +32,7 @@ export default function ClaudeSubscriptionPanel({ supabase }) {
   const [issued, setIssued] = useState(null);
   const [tokenBusy, setTokenBusy] = useState(false);
   const [tokenError, setTokenError] = useState(null);
-  const [copyNote, setCopyNote] = useState("");
+  const [copyNote, setCopyNote] = useState({ where: "", msg: "" });
   const busyRef = useRef(false);
 
   async function savePlan() {
@@ -50,23 +50,23 @@ export default function ClaudeSubscriptionPanel({ supabase }) {
     if (busyRef.current) return;
     if (!window.confirm("Generate a new token? The current token stops working at once, and Claude cannot reach the CRM until you update its connector.")) return;
     busyRef.current = true;
-    setTokenBusy(true); setTokenError(null); setIssued(null); setCopyNote("");
+    setTokenBusy(true); setTokenError(null); setIssued(null); setCopyNote({ where: "", msg: "" });
     try {
       const t = await createMcpToken();
       check(await supabase.rpc("crm_agent_set_mcp_token_hash", { p_hash: t.hash }));
       setIssued(t.headerValue);
       await overview.reload();
-    } catch (e) { setTokenError(e.message); }
+    } catch (e) { setTokenError(`${e.message} The token may have changed. If Claude stops working, generate a new token.`); }
     busyRef.current = false;
     setTokenBusy(false);
   }
 
-  async function copyValue() {
+  async function copyText(text, where) {
     try {
-      await navigator.clipboard.writeText(issued);
-      setCopyNote("Copied");
+      await navigator.clipboard.writeText(text);
+      setCopyNote({ where, msg: "Copied" });
     } catch {
-      setCopyNote("Could not copy. Select the value above and copy it by hand.");
+      setCopyNote({ where, msg: "Could not copy. Select the text and copy it by hand." });
     }
   }
 
@@ -76,7 +76,8 @@ export default function ClaudeSubscriptionPanel({ supabase }) {
 
   if (overview.loading && !o) return <Spinner />;
   return (
-    <div>
+    // bk-root gives the plan select and date input the banking form styles; its page padding and background are switched off.
+    <div className="bk-root" style={{ padding: 0, minHeight: 0, background: "transparent" }}>
       <ErrorNote message={overview.error} />
       {overview.error && !o && <Button onClick={overview.reload}>Retry</Button>}
       {o && (
@@ -101,7 +102,7 @@ export default function ClaudeSubscriptionPanel({ supabase }) {
             </p>
           </Panel>
 
-          <Panel title="Connection">
+          <Panel title="Connection" sub="Not a live check. Not set means the connector still uses the Worker secret, if one exists.">
             <KeyVals items={[
               ["Endpoint", <code key="e" style={{ overflowWrap: "anywhere" }}>{MCP_ENDPOINT}</code>],
               ["Header name", <code key="h">Authorization</code>],
@@ -121,8 +122,8 @@ export default function ClaudeSubscriptionPanel({ supabase }) {
                 <code style={{ display: "block", overflowWrap: "anywhere", userSelect: "all", padding: 8, border: "1px solid #dbe3e6", borderRadius: 7 }}>{issued}</code>
                 <p className="bk-note" style={{ marginTop: 6 }}>Shown once. If you leave this tab before copying it, generate a new one.</p>
                 <div className="bk-actions">
-                  <Button onClick={copyValue}>Copy</Button>
-                  {copyNote && <span role="status" className="bk-note">{copyNote}</span>}
+                  <Button onClick={() => copyText(issued, "token")}>Copy</Button>
+                  {copyNote.where === "token" && <span role="status" className="bk-note">{copyNote.msg}</span>}
                 </div>
               </div>
             )}
@@ -132,6 +133,11 @@ export default function ClaudeSubscriptionPanel({ supabase }) {
             <ol className="bk-note" style={{ paddingLeft: 18 }}>
               {STEPS.map((s, i) => <li key={i}>{s}</li>)}
             </ol>
+            <div className="bk-actions">
+              <Button onClick={() => copyText(MCP_ENDPOINT, "steps")}>Copy URL</Button>
+              <Button onClick={() => copyText("Authorization", "steps")}>Copy header name</Button>
+              {copyNote.where === "steps" && <span role="status" className="bk-note">{copyNote.msg}</span>}
+            </div>
           </Panel>
 
           <Panel title="CRM Agent usage" sub="CRM Agent tool calls only. This is not your total Claude usage. Last 30 days.">

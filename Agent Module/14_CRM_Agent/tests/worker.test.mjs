@@ -197,6 +197,8 @@ test("log failure does not change the result", async () => {
   reset("valid", "ok", "down");
   const bad = await callTool("get_crm_lead_status", { lead_id: LEAD });
   assert.deepEqual(bad, good);
+  // seen was cleared by reset above, so this is the failed log attempt of the second call.
+  assert.ok(await logRequest());
 });
 
 test("unknown path still 404", async () => {

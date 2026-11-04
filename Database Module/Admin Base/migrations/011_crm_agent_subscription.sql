@@ -6,7 +6,7 @@
 -- reports each call through crm_agent_log_call. The log holds the tool name, outcome, a short error code and the
 -- duration, never lead numbers, inputs or results. Rows older than 90 days are deleted on each new call.
 -- Hashes are never returned by a function or written to admin_audit.
--- Run after 003 and after Database Module/migrations/bd/011 (crm_agent_access). Idempotent.
+-- Run after 003, 009 and after Database Module/migrations/bd/011 (crm_agent_access). Idempotent.
 -- Undo: rollback/011_crm_agent_subscription_rollback.sql
 -- =====================================================================
 begin;
@@ -31,6 +31,8 @@ alter table public.crm_agent_tool_calls enable row level security;
 revoke all on public.crm_agent_tool_calls from public, anon, authenticated;
 
 -- The hourly job attaches audit triggers to new tables, so the call log is excluded in this same transaction.
+-- Body is the newest definition, 009's (003 plus the zoho_finance_snapshot exclusion), with crm_agent_tool_calls added.
+-- Re-running 003, 009 or rollback/009 restores a list without crm_agent_tool_calls, so re-apply 011 afterwards.
 -- Puts the trigger on every table that lacks it. Runs hourly, so new tables are covered without anyone remembering.
 -- Tables that are logs themselves or only count usage are left out.
 create or replace function public.audit_trail_attach_all() returns table (attached int, failed text[]) language plpgsql security definer set search_path = pg_catalog, public, pg_temp as $$
@@ -44,7 +46,7 @@ begin
     select c.oid, n.nspname, c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
     where c.relkind in ('r', 'p') and not c.relispartition
       and n.nspname in ('public', 'acct', 'ceo', 'email_base', 'email_agent')
-      and (n.nspname, c.relname) not in (('public', 'audit_trail'), ('public', 'admin_audit'), ('public', 'hr_audit_log'), ('public', 'banking_activity_logs'), ('public', 'bd_audit_logs'), ('public', 'ai_usage'), ('public', 'crm_agent_tool_calls'), ('ceo', 'audit_logs'))
+      and (n.nspname, c.relname) not in (('public', 'audit_trail'), ('public', 'admin_audit'), ('public', 'hr_audit_log'), ('public', 'banking_activity_logs'), ('public', 'bd_audit_logs'), ('public', 'ai_usage'), ('ceo', 'audit_logs'), ('public', 'zoho_finance_snapshot'), ('public', 'crm_agent_tool_calls'))
       and not exists (select 1 from pg_trigger g where g.tgrelid = c.oid and g.tgname = 'audit_trail_row')
   loop
     select string_agg(quote_literal(a.attname), ', ' order by k.ord) into pk
@@ -63,6 +65,7 @@ end $$;
 
 -- Re-running 003 after this would restore the old function and attach a trigger, so remove it here.
 drop trigger if exists audit_trail_row on public.crm_agent_tool_calls;
+drop trigger if exists audit_trail_row on public.zoho_finance_snapshot;
 
 -- The Worker asks this for every incoming MCP request. unset means no hash is stored yet.
 create or replace function public.crm_agent_check_mcp_token(p_token text) returns text
@@ -144,5 +147,8 @@ revoke all on function public.crm_agent_check_mcp_token(text), public.crm_agent_
   public.crm_agent_admin_overview(), public.crm_agent_set_mcp_token_hash(text), public.crm_agent_set_plan(text, date) from public, anon, authenticated;
 grant execute on function public.crm_agent_check_mcp_token(text), public.crm_agent_log_call(text, text, boolean, text, integer) to anon;
 grant execute on function public.crm_agent_admin_overview(), public.crm_agent_set_mcp_token_hash(text), public.crm_agent_set_plan(text, date) to authenticated;
+
+-- So PostgREST sees the new functions. Without it crm_agent_check_mcp_token answers 404 and the Worker returns 503.
+notify pgrst, 'reload schema';
 
 commit;

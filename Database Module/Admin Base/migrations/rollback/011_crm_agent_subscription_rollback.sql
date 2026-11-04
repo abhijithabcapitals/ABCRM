@@ -1,4 +1,6 @@
 -- Undoes 011_crm_agent_subscription.sql. This deletes the stored MCP token hash, the plan and the whole call log.
+-- Redeploy Worker 5ee226af first: the new Worker answers 503 once crm_agent_check_mcp_token is gone. Rolling back clears
+-- the stored hash, so the state returns to unset and the old MCP_AUTH_TOKEN is accepted again if the secret still exists.
 -- audit_trail_attach_all keeps its extra exclusion, which does no harm.
 
 begin;

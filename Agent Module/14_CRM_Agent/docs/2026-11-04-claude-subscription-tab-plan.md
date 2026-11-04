@@ -282,9 +282,11 @@ git commit -m "Add the Claude Subscription tab to Settings"
 
 Each step is live and needs the user's approval first. Stop and report if a check fails.
 
+Already done before Step 1: `origin/main` merged into `crm-agent-mcp`, with `npm test`, the build and `run-local.sh` re-run.
+
 - [ ] **Step 1: Apply the migration**
 
-Apply 011 to `pnnakrhfzyxudjaghoxx` as `admin_011_crm_agent_subscription`. Expected: `crm_agent_check_mcp_token` gives `unset`, and the current connector still reads `LD-2026-000002`.
+First compare the live `audit_trail_attach_all` with the repo (it must exclude `zoho_finance_snapshot` and `crm_agent_tool_calls`). Then apply 011 to `pnnakrhfzyxudjaghoxx` as `admin_011_crm_agent_subscription`. Expected: `crm_agent_check_mcp_token` gives `unset` when called through `/rest/v1/rpc` (not SQL), and the current connector still reads `LD-2026-000002`.
 
 - [ ] **Step 2: Deploy the Worker**
 
@@ -292,7 +294,7 @@ Run: `npm run deploy` in `Agent Module/14_CRM_Agent`, after committing. Expected
 
 - [ ] **Step 3: Merge and release the CRM**
 
-Merge `origin/main` into `crm-agent-mcp` and re-run `npm test`, the build and `run-local.sh`. Merge to main, push, then run `npm run deploy:cloudflare` in `Main Module`. Expected: the tab appears for an admin and is hidden for a non-admin. The user signs in for this check, because Claude does not enter real passwords.
+Merge to main, push, then run `npm run deploy:cloudflare` in `Main Module`. Expected: the tab appears for an admin and is hidden for a non-admin. The user signs in for this check, because Claude does not enter real passwords.
 
 - [ ] **Step 4: Switch to a CRM-generated token**
 
