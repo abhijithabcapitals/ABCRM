@@ -1,6 +1,6 @@
 # ArdentTax Base
 
-Database for the ArdentTax (ASP) tab in `Template Module/ardentax`, in the CRM Supabase project. Not applied to live yet.
+Database for the ArdentTax (ASP) tab in `Template Module/ardentax`, in the CRM Supabase project. Applied to live on 2026-11-05 as migration `ardentax_001`.
 
 | Path | Purpose |
 |---|---|
