@@ -79,6 +79,10 @@ In **Month grid**, scroll sideways for any earlier or later month. The title fol
 - **Overnight shifts are not supported.** Time out cannot be earlier than time in. Record a shift across midnight as a note on the day, not as times.
 - Someone marked Left cannot be edited until HR records their exit date. Days after the exit date cannot be edited.
 
+### Sync now (everyone)
+
+Anyone linked to an employee record can press **Sync now** on the Attendance Sheet to read the last 3 days from the biometric device. If someone did this in the last 2 minutes, the screen just shows the latest punches. HR has more options below.
+
 ### Biometric sync (HR only)
 
 Punches from e-timeoffice arrive every 15 minutes and show below the grid as **Biometric sync**.

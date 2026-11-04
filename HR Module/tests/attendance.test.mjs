@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { monthDays, shiftMonth, groupRange, canEditDay, parseTime, dubaiToday } from "../logic/attendance.js";
+import { monthDays, shiftMonth, groupRange, canEditDay, parseTime, dubaiToday, staffSyncNote } from "../logic/attendance.js";
 
 test("monthDays gives every date of the month, leap year included", () => {
   assert.equal(monthDays(2025, 2).length, 28);
@@ -67,4 +67,9 @@ test("parseTime accepts HH:MM, blank is null, anything else throws", () => {
 test("dubaiToday uses the Asia/Dubai calendar date", () => {
   assert.equal(dubaiToday(new Date("2025-03-10T21:00:00Z")), "2025-03-11");
   assert.equal(dubaiToday(new Date("2025-03-10T19:59:00Z")), "2025-03-10");
+});
+
+test("staffSyncNote says what the sync did", () => {
+  assert.match(staffSyncNote({ synced: true }), /up to date/i);
+  assert.match(staffSyncNote({ skipped: true }), /moments ago/i);
 });

@@ -76,3 +76,13 @@ export async function fetchPunches({ auth, window, fetchImpl = fetch, timeoutMs 
   try { body = await res.json(); } catch { throw new Error("e-timeoffice returned an unexpected response"); }
   return parsePunchResponse(body);
 }
+
+const STAFF_WAIT_MS = 2 * 60 * 1000;
+
+// Who may run a sync: HR anything; anyone else linked to an employee only the recent one, at most once in two minutes across everyone.
+export function syncDecision({ role, hasRange, lastAttemptAt, now }) {
+  if (role === "hr") return "run";
+  if (!["manager", "employee"].includes(role) || hasRange) return "denied";
+  if (lastAttemptAt && now - new Date(lastAttemptAt).getTime() < STAFF_WAIT_MS) return "wait";
+  return "run";
+}

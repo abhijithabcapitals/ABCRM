@@ -63,7 +63,7 @@ begin
 end $$;
 
 -- Receipt numbering, and the checks it widened.
-delete from public.hub_number_counters where kind = 'receipt';
+delete from public.hub_number_counters where kind = 'receipt' and department = 'Business Setup';
 do $$
 declare r record;
 begin
