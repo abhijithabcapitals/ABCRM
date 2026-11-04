@@ -1,13 +1,14 @@
 // Documentation: one row per case in Services or Documentation, with its checklist. Opening a case shows its quote, letter and payments.
 // A second view is the register of every quote and letter.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, useLoad } from "@banking/components/shared";
+import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { openStored } from "@template-hub/services/hubApi";
 import { LostDialog, ReassignActions } from "./CaseActions";
 import { useSetup } from "./SetupContext";
 import Documents from "./Documents";
 import Quotes from "./workspace/Quotes";
 import Payments from "./workspace/Payments";
-import { caseLinkClient, caseList, workspace } from "../services/businessSetupApi";
+import { caseDocuments, caseLinkClient, caseList, workspace } from "../services/businessSetupApi";
 import { caseWorkspace } from "../logic/caseWorkspace";
 import { CHECKLIST, itemState, itemTone } from "../logic/checklist";
 
@@ -16,7 +17,7 @@ export default function DocumentationPage() {
   const [view, setView] = useState("cases");
   const [open, setOpen] = useState(null);
   const list = useLoad(() => caseList("documentation"), []);
-  if (open) return <CaseDocs c={(list.data || []).find((x) => x.id === open) || { id: open }} onBack={() => { setOpen(null); list.reload(); }} />;
+  if (open) return <CaseDocs c={(list.data || []).find((x) => x.id === open) || { id: open }} onBack={() => { setOpen(null); list.reload(); }} onChanged={list.reload} />;
   return (
     <div>
       <PageHead title="Documentation" sub="Quote, signature, payment, letter and invoice for each case. A case moves on when all are met." />
@@ -37,11 +38,14 @@ export default function DocumentationPage() {
   );
 }
 
-export function CaseDocs({ c, onBack }) {
+export function CaseDocs({ c, onBack, onChanged }) {
   const { goTo, can } = useSetup();
   const [dialog, setDialog] = useState(null);
+  const [fileError, setFileError] = useState(null);
   const ws = useLoad(() => (c.client_id ? workspace(c.client_id) : Promise.resolve(null)), [c.client_id]);
   const w = ws.data ? caseWorkspace(ws.data, c.id) : null;
+  // With no client the workspace cannot load. The case's own quote and letter are still listed, read-only, so staff can tell which case it is.
+  const docs = useLoad(() => (c.client_id ? Promise.resolve([]) : caseDocuments(c.id)), [c.id, c.client_id]);
   return (
     <div>
       <PageHead title={`${c.case_number || "Case"} · ${c.client_name || c.lead_name || ""}`} sub={`${c.stage || ""}${c.owner_name ? ` · ${c.owner_name}` : ""}`}>
@@ -52,9 +56,20 @@ export function CaseDocs({ c, onBack }) {
       <ErrorNote message={ws.error} />
       <div className="bk-mb"><ReassignActions c={c} onChanged={onBack} /></div>
       <div className="bk-actions bk-wrap bk-mb">{CHECKLIST.map(([k, label]) => <Badge key={k} tone={itemTone(itemState(c, k))}>{label}: {itemState(c, k)}</Badge>)}</div>
-      {!c.client_id ? <div className="bk-note">This case has no client yet. {can("setup.leads.manage") ? <Button onClick={() => setDialog("link")}>Link client</Button> : "Ask someone with lead rights to link one."}</div> : ws.loading && !w ? <Spinner /> : w && <>
-        <Panel title="Quote and letter"><Quotes w={w} clientId={c.client_id} caseId={c.id} reload={ws.reload} /></Panel>
-        <Panel title="Payments"><Payments w={w} reload={ws.reload} /></Panel>
+      {!c.client_id ? <>
+        <div className="bk-note">This case has no client yet. {can("setup.leads.manage") ? <Button onClick={() => setDialog("link")}>Link client</Button> : "Ask someone with lead rights to link one."}</div>
+        <Panel title="Quote and letter" sub="Read-only until a client is linked.">
+          <ErrorNote message={docs.error || fileError} onClose={fileError ? () => setFileError(null) : undefined} />
+          <DataTable rows={docs.data || []} empty="No quote or letter for this case yet." columns={[
+            { key: "document_number", label: "Number" }, { key: "doc_type", label: "Type", render: (d) => (d.doc_type === "letter" ? "Engagement letter" : "Quote") },
+            { key: "status", label: "Status" }, { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
+            { key: "x", label: "", render: (d) => (d.storage_path ? <Button onClick={() => openStored(d.storage_path).catch((e) => setFileError(e.message))}>Open file</Button> : "No file") },
+          ]} />
+        </Panel>
+        <Panel title="Payments"><Payments w={null} caseId={c.id} caseRow={c} onChanged={onChanged} /></Panel>
+      </> : ws.loading && !w ? <Spinner /> : w && <>
+        <Panel title="Quote and letter"><Quotes w={w} clientId={c.client_id} caseId={c.id} reload={async () => { await ws.reload(); await onChanged?.(); }} /></Panel>
+        <Panel title="Payments"><Payments w={w} reload={ws.reload} caseId={c.id} caseRow={c} onChanged={onChanged} /></Panel>
       </>}
       {dialog === "lost" && <LostDialog c={c} onClose={() => setDialog(null)} onDone={onBack} />}
       {dialog === "link" && <FormModal title={`Link a client to ${c.case_number}`} submitLabel="Link client" onClose={() => setDialog(null)}

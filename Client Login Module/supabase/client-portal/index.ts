@@ -11,12 +11,15 @@
 //   upload_start { for_form: true, ... } files the upload under this login's own Business Setup form
 //   upload_done { id }, doc_url { id }
 //   setup_view, form_get, form_save { answers }, form_submit, setup_file { kind, id }
+//   setup_signed_upload { step: "start", quote_id, file_name, size } -> { path, upload_url, mime }   the client's signed copy of an issued quote
+//   setup_signed_upload { step: "done", quote_id, path }              checks the file is in storage, then records it for staff to review
 //   submit_change { field, value } -> { id }       asks staff to change one company detail
 //   gallery_url { source, id } -> { url }          source is kyc or generated; link lasts 120 seconds
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
 //   admin_preview { account_id }   admins and setup.portal.manage, read-only copy of what the client sees
 //   admin_grant_access { banking_client_id, client_master_id, username, password, email, reset }   admins only: saves the login, mails the password
 //   staff_url { id, filed? }, staff_review { id, status, note? }
+//   staff_signed_url { id }                                        setup.quotes.manage: a link to open a signed quote copy
 //
 // Deploy: supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
 
@@ -41,6 +44,7 @@ const MAX_UPLOADS_PER_DAY = 100;
 const DOC_TYPES = ["Trade Licence", "MOA / AOA", "Passport / ID", "Bank Statement", "Invoice", "VAT Document", "Corporate Tax Document", "Other"];
 const FORM_DOC_TYPES = ["Passport", "Emirates visa", "Emirates ID", "Ejari", "Bank statement", "Utility bill", "Old visa", "Old Emirates ID", "Other"];
 const SETUP_FILE_KINDS = ["quote", "letter", "receipt", "output", "invoice"];
+const SIGNED_EXT = ["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff"];
 const MIME: Record<string, string> = {
   pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", tif: "image/tiff", tiff: "image/tiff",
   doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -71,7 +75,7 @@ Deno.serve(async (req) => {
       return json({ token: data.token });
     }
 
-    if (action === "admin_preview" || action === "admin_grant_access" || action === "staff_url" || action === "staff_review") {
+    if (action === "admin_preview" || action === "admin_grant_access" || action === "staff_url" || action === "staff_review" || action === "staff_signed_url") {
       // Runs as the signed-in staff member, so the SQL's auth.uid() checks apply.
       const staff = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
         auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
@@ -101,6 +105,12 @@ Deno.serve(async (req) => {
         const { data: setup, error: setupErr } = await admin.rpc("business_setup_portal_view", { p_account: previewAccount });
         if (setupErr) throw new Error(setupErr.message);
         return json({ ...data, setup });
+      }
+      if (action === "staff_signed_url") {
+        // The SQL checks the right (setup.quotes.manage) and says where the file is; a legacy row has none.
+        const { data: file, error: fileErr } = await staff.rpc("business_setup_signed_file", { p_id: String(body.id || "") });
+        if (fileErr) return json({ error: fileErr.message }, 403);
+        return json({ url: await signed(file.path, file.file_name) });
       }
       const { data: doc, error: docErr } = await staff.rpc("client_inputs_file", { p_id: String(body.id || "") });
       if (docErr) return json({ error: docErr.message }, 403);
@@ -220,6 +230,44 @@ Deno.serve(async (req) => {
         const { data: link, error: linkErr } = await admin.storage.from(data.bucket).createSignedUrl(data.path, 300, { download: data.file_name });
         if (linkErr) throw new Error(linkErr.message);
         return json({ url: link.signedUrl });
+      }
+      case "setup_signed_upload": {
+        // Same start and finish pattern as upload_start and upload_done. The link is made only for an issued quote of this client that can take a copy;
+        // the path is checked again on finish, and the SQL refuses any quote that is not this client's.
+        const quoteId = String(body.quote_id || "");
+        if (!UUID.test(quoteId)) throw new InputError("Quote not found.");
+        const step = String(body.step || "");
+        if (step === "start") {
+          const name = displayName(String(body.file_name || ""));
+          const ext = name.split(".").pop()?.toLowerCase() || "";
+          if (!name || !SIGNED_EXT.includes(ext)) throw new InputError("Upload the signed quote as a PDF or an image.");
+          const size = Number(body.size);
+          if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) throw new InputError("Files must be under 25 MB.");
+          const { data: view, error: viewErr } = await admin.rpc("business_setup_portal_view", { p_account: accountId });
+          if (viewErr) throw new Error(viewErr.message);
+          const quote = (view?.quotes || []).find((q: { id: string }) => q.id === quoteId);
+          if (!quote) throw new InputError("Quote not found.");
+          if (!quote.can_sign) throw new InputError("This quote cannot take a signed copy now.");
+          const path = `incoming/${accountId}/${crypto.randomUUID()}/${storageSafe(name)}`;
+          const { data: up, error: upErr } = await admin.storage.from(BUCKET).createSignedUploadUrl(path);
+          if (upErr) throw new Error(upErr.message);
+          return json({ path, upload_url: up.signedUrl, mime: MIME[ext] });
+        }
+        if (step === "done") {
+          const path = String(body.path || "");
+          const mine = new RegExp(`^incoming/${accountId}/[0-9a-f-]{36}/[A-Za-z0-9._-]+$`, "i");
+          if (!mine.test(path)) throw new InputError("The upload did not finish. Please try again.");
+          const folder = path.slice(0, path.lastIndexOf("/"));
+          const { data: files } = await admin.storage.from(BUCKET).list(folder);
+          if (!files?.some((f: { name: string }) => f.name === path.slice(path.lastIndexOf("/") + 1))) throw new InputError("The upload did not finish. Please try again.");
+          const { data, error } = await admin.rpc("business_setup_portal_signed_add", { p_account: accountId, p_quote: quoteId, p_path: path });
+          if (error) {
+            if (error.code === "P0001") throw new InputError(error.message);
+            throw new Error(error.message);
+          }
+          return json({ id: data });
+        }
+        throw new InputError("Unknown step.");
       }
       case "submit_change": {
         const { data, error } = await admin.rpc("client_change_submit", { p_account: accountId, p_field: String(body.field || "").slice(0, 60), p_value: String(body.value ?? "").slice(0, 600) });

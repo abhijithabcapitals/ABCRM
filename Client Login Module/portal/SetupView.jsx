@@ -1,15 +1,29 @@
 // A client's Business Setup work: their form, services, quotes, payments, invoices and files. Named fields from the server only.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { Badge, Button, DataTable, ErrorNote, FilePick, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { portalSections } from "@business-setup/logic/formDefinition";
 import SetupForm from "./SetupForm";
 
 const money = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
 const QUOTE = { issued: "Waiting for you", accepted: "Accepted", rejected: "Declined" };
 
+// What the client sees of their signed copy: no staff names, only the state and the note we wrote for them.
+function SignedCell({ q, busy, onFile }) {
+  const sg = q.signed;
+  return (
+    <span>
+      {sg?.status === "Uploaded" && <Badge tone="warn">Sent {fmtDate(sg.date)}, waiting for review</Badge>}
+      {sg?.status === "Refused" && <><Badge tone="bad">Refused</Badge>{sg.note ? <> {sg.note}</> : null} </>}
+      {sg?.status === "Confirmed" && <Badge tone="good">Confirmed</Badge>}
+      {q.can_sign && <FilePick label={sg?.status === "Refused" ? "Upload a new signed copy" : "Upload signed copy"} accept=".pdf,image/*" busy={busy} onFile={onFile} />}
+    </span>
+  );
+}
+
 export default function SetupView({ api }) {
   const view = useLoad(() => api.setupView(), [api]);
   const [error, setError] = useState(null);
+  const [uploading, setUploading] = useState(null);
   if (view.loading && !view.data) return <Spinner />;
   const v = view.data;
   const sections = portalSections(v);
@@ -18,6 +32,11 @@ export default function SetupView({ api }) {
   const open = async (kind, id) => {
     setError(null);
     try { window.location.assign(await api.setupFile(kind, id)); } catch (e) { setError(e.message); }
+  };
+  const sign = async (quoteId, f) => {
+    setError(null); setUploading(quoteId);
+    try { await api.signedUpload(quoteId, f); await view.reload(); } catch (e) { setError(e.message); }
+    setUploading(null);
   };
   const file = (kind, id, label) => <button type="button" className="bk-link" onClick={() => open(kind, id)}>{label}</button>;
   return (
@@ -35,6 +54,7 @@ export default function SetupView({ api }) {
           <DataTable rows={v.quotes} columns={[{ key: "number", label: "Quote", render: (q) => (q.has_file ? file("quote", q.id, q.number) : q.number) }, { key: "date", label: "Date", render: (q) => fmtDate(q.date) },
             { key: "status", label: "Status", render: (q) => <Badge tone={q.status === "accepted" ? "good" : undefined}>{QUOTE[q.status]}</Badge> }, { key: "total", label: "Total (AED)", right: true, render: (q) => money(q.total) },
             { key: "net_paid", label: "Paid", right: true, render: (q) => money(q.net_paid) }, { key: "outstanding", label: "Balance", right: true, render: (q) => (q.status === "accepted" ? money(q.outstanding) : "") },
+            { key: "signed", label: "Signed copy", render: (q) => <SignedCell q={q} busy={uploading === q.id} onFile={(f) => sign(q.id, f)} /> },
             { key: "letter", label: "Agreement", render: (q) => (q.letter ? (q.letter.has_file ? file("letter", q.letter.id, q.letter.number) : q.letter.number) : "") }]} />
         </Panel>
       )}

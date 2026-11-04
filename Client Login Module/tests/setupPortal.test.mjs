@@ -93,3 +93,23 @@ test("the portal imports nothing from staff modules beyond the form definition a
     for (const m of s.matchAll(/from "(@[^"]+)"/g)) assert.ok(["@banking/components/shared", "@business-setup/logic/formDefinition"].includes(m[1]), `${f} imports ${m[1]}`);
   }
 });
+
+test("the signed quote upload uses the session's account, checks the path and the file, and names no client", () => {
+  const session = src.indexOf('"client_portal_session"');
+  assert.ok(src.indexOf('case "setup_signed_upload":') > session, "runs before the session check");
+  const b = branch("setup_signed_upload");
+  assert.doesNotMatch(b, /body\.(client_id|client|account_id|account|form_id)/);
+  assert.match(b, /business_setup_portal_view/); assert.match(b, /can_sign/);
+  assert.match(b, /incoming\/\$\{accountId\}\//);
+  assert.match(b, /storage\.from\(BUCKET\)\.list\(/);
+  assert.match(b, /business_setup_portal_signed_add/); assert.match(b, /p_account: accountId/);
+  assert.match(b, /SIGNED_EXT/);
+});
+
+test("staff open a signed copy through the SQL right check, never a path from the browser", () => {
+  const i = src.indexOf('if (action === "staff_signed_url")');
+  assert.ok(i > 0);
+  const b = src.slice(i, i + 500);
+  assert.match(b, /staff\.rpc\("business_setup_signed_file"/);
+  assert.doesNotMatch(b, /body\.(path|storage_path)/);
+});

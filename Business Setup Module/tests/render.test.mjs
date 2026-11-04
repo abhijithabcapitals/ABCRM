@@ -62,3 +62,21 @@ test("revising an older quote shows the VAT note; an exclusive one does not", { 
   assert.match(await r("inclusive"), /lines included VAT\. Check each fee/);
   assert.doesNotMatch(await r("exclusive"), /lines included VAT/);
 });
+
+test("a case with no client lists its quote and letter read-only and offers no issuing actions", { skip }, async () => {
+  const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", lead_name: "Lead", docs: {} };
+  const bare = await html("DocumentationPage.jsx", "CaseDocs", { c, onBack() {} });
+  assert.match(bare, /Read-only until a client is linked/); assert.match(bare, /No quote or letter for this case yet/);
+  assert.match(bare, /\+ Record payment/); assert.match(bare, /first creates the client from the lead details/);
+  assert.doesNotMatch(bare, /New quote/); assert.doesNotMatch(bare, /Add signed copy/); assert.doesNotMatch(bare, /Create engagement letter/); assert.doesNotMatch(bare, /Waive payment/);
+});
+
+test("the payments panel of a case has no quote picker, and the ledger shows advances", { skip }, async () => {
+  const w = { client: { legal_name: "Acme" }, quotes: [], letters: [], services: [], payments: [{ id: "p1", type: "Payment", amount: 500, paid_on: "2026-11-04", quote_id: null, case_id: "c1", receipt_number: "R1" }] };
+  const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", client_id: "CL000001", docs: { quote: true, paid: false } };
+  const out = await html("workspace/Payments.jsx", "default", { w, reload() {}, caseId: "c1", caseRow: c });
+  assert.match(out, /\+ Record payment/); assert.match(out, /Advance/); assert.match(out, /Waive payment/);
+  assert.doesNotMatch(out, /A payment needs an accepted quote/);
+  const paid = await html("workspace/Payments.jsx", "default", { w, reload() {}, caseId: "c1", caseRow: { ...c, docs: { paid: true } } });
+  assert.doesNotMatch(paid, /Waive payment/);
+});

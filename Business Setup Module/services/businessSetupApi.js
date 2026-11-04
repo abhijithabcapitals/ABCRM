@@ -116,3 +116,18 @@ export const latestImport = async () => (await run(table("business_setup_import_
 export const importReport = (id) => rpc("business_setup_import_report", { p_import: id });
 export const importDecide = (row, client, decision) => rpc("business_setup_import_decide", { p_row: row, p_client: client, p_decision: decision });
 export const importApply = (id) => rpc("business_setup_import_apply", { p_import: id });
+
+// Signed copies of quotes. A client uploads through the portal; staff add one under staff/<client_id>/ in the same bucket.
+export const listSigned = (quote) => run(table("business_setup_signed_quotes").select("id,quote_id,source,status,note,storage_path,created_at,decided_at").eq("quote_id", quote).order("created_at", { ascending: false }));
+export const signedAdd = (quote, path) => rpc("business_setup_signed_add", { p_quote: quote, p_path: path });
+export const signedDecide = (id, confirm, note = null, allowExpired = false) => rpc("business_setup_signed_decide", { p_id: id, p_confirm: confirm, p_note: note, p_allow_expired: allowExpired });
+export async function addStaffSignedCopy(quote, clientId, file) {
+  const path = `staff/${clientId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
+  const { error } = await supabase.storage.from("client-portal").upload(path, file);
+  if (error) throw new Error(error.message);
+  return signedAdd(quote, path);
+}
+
+// Payment by case, and a case's documents when it has no client yet
+export const casePaidOverride = (id, reason) => rpc("business_setup_case_paid_override", { p_case: id, p_reason: reason });
+export const caseDocuments = (id) => rpc("business_setup_case_documents", { p_case: id });
