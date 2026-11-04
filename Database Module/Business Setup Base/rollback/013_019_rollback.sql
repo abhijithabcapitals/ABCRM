@@ -20,6 +20,61 @@ drop function if exists public.business_setup_reassign_respond(uuid, boolean, te
 drop function if exists public.business_setup_form_staff_save(uuid, jsonb);
 drop function if exists public.business_setup_form_doc_add(uuid, text, text);
 drop table if exists public.business_setup_reassign_requests;
+-- Accepting a quote, as Business Setup Base 006 defines it (014 adds a one-accepted-quote-per-case check).
+create or replace function public.business_setup_quote_accept(p_id uuid, p_allow_expired boolean default false) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; v_root uuid; ln jsonb; kyc jsonb; v_today date := (now() at time zone 'Asia/Dubai')::date;
+  v_name text; v_action text; v_renews uuid; v_fee uuid; v_svc uuid; n int := 0;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  select * into q from hub_documents where id = p_id;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  if q.doc_type <> 'quote' or q.department <> 'Business Setup' then raise exception 'Only a Business Setup quote can be accepted'; end if;
+  v_root := coalesce(q.root_quote_id, q.id);
+  perform 1 from hub_documents where id = v_root for update;
+  select * into q from hub_documents where id = p_id for update;   -- read again: it may have changed while we waited
+  if exists (select 1 from hub_documents where doc_type = 'quote' and status = 'accepted' and coalesce(root_quote_id, id) = v_root) then
+    raise exception 'A quote in this revision chain is already accepted';
+  end if;
+  if q.status <> 'issued' then raise exception 'Only an issued quote can be accepted (this one is %)', q.status; end if;
+  if q.client_id is null then raise exception 'Link this quote to a client before accepting it'; end if;
+  kyc := business_setup_kyc_status(q.client_id);
+  -- KYC already done (validated here, or marked Done in the old records) is not asked for again.
+  if (kyc ->> 'percent')::int < 100 and not exists (select 1 from business_setup_kyc_profiles where client_id = q.client_id and kyc_state = 'Done') then
+    raise exception 'The client KYC is incomplete: missing %', (select string_agg(m, ', ') from jsonb_array_elements_text(kyc -> 'missing') m);
+  end if;
+  if q.valid_until is not null and q.valid_until < v_today and not coalesce(p_allow_expired, false) then
+    raise exception 'This quote expired on %: confirm to accept it anyway', to_char(q.valid_until, 'DD Mon YYYY');
+  end if;
+
+  update hub_documents set status = 'accepted', status_at = now(), status_by = auth.uid(),
+         status_reason = case when q.valid_until is not null and q.valid_until < v_today then 'Accepted after expiry' else null end
+   where id = q.id;
+
+  for ln in select value from jsonb_array_elements(coalesce(q.lines, '[]'::jsonb)) loop
+    v_name := coalesce(nullif(btrim(coalesce(ln ->> 'service_name', '')), ''), nullif(btrim(coalesce(ln ->> 'description', '')), ''));
+    if v_name is null then raise exception 'Every quote line needs a service name'; end if;
+    v_action := coalesce(nullif(btrim(coalesce(ln ->> 'action', '')), ''), 'New');
+    if v_action not in ('New','Renewal','Rectification','Cancellation') then raise exception 'Unknown action % on a quote line', v_action; end if;
+    v_renews := nullif(ln ->> 'renews_service_id', '')::uuid;
+    if v_renews is not null and not exists (select 1 from business_setup_services where id = v_renews and client_id = q.client_id) then
+      raise exception 'A renewal must link to an earlier service of the same client';
+    end if;
+    v_fee := nullif(ln ->> 'fee_item_id', '')::uuid;
+    insert into business_setup_services (client_id, quote_id, fee_item_id, name, action, amount, renews_service_id)
+    values (q.client_id, q.id, v_fee, v_name, v_action, nullif(ln ->> 'amount', '')::numeric, v_renews)
+    returning id into v_svc;
+    insert into business_setup_service_history (service_id, from_status, to_status, note)
+    values (v_svc, null, 'Not started', 'Created from quote ' || q.document_number);
+    n := n + 1;
+  end loop;
+
+  perform business_setup_audit('hub_documents', q.id::text, 'quote_accept', null,
+          jsonb_build_object('client_id', q.client_id, 'document_number', q.document_number, 'services_created', n,
+                             'after_expiry', q.valid_until is not null and q.valid_until < v_today));
+  return jsonb_build_object('quote_id', q.id, 'status', 'accepted', 'services_created', n);
+end $$;
 -- Payments stop following their quote's case, and net paid goes back to a sum by quote (Business Setup Base 006).
 drop trigger if exists business_setup_payment_case_fill on public.business_setup_payments;
 drop function if exists public.business_setup_payment_case_fill();

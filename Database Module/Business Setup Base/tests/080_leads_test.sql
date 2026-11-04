@@ -412,11 +412,12 @@ select pg_temp.mkclient('CL980040', false);
 select pg_temp.mkclient('CL980041', false);
 select pg_temp.mkcase('doc_case', 'CL980040', 'Services');
 select pg_temp.mkcase('doc_case_open', null, 'Lead');
+select pg_temp.mkcase('doc_case2', 'CL980040', 'Services');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Accounting","case_id":"%s"}')$$, pg_temp.fx('doc_case')), 'Business Setup');
 select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s","client_id":"CL980041"}')$$, pg_temp.fx('doc_case')), 'client');
 select public.bs_check('a matching client keeps the case on the quote', (select case_id = pg_temp.cid('doc_case') from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","client_id":"CL980040"}', pg_temp.fx('doc_case'))::jsonb)));
-select public.bs_check('a quote with no client of its own joins the case', (select case_id = pg_temp.cid('doc_case') from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('doc_case'))::jsonb)));
+select public.bs_check('a quote with no client of its own joins the case', (select case_id = pg_temp.cid('doc_case2') from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('doc_case2'))::jsonb)));
 select public.bs_check('a case with no client yet accepts a quote for any client', (select case_id = pg_temp.cid('doc_case_open') from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","client_id":"CL980041"}', pg_temp.fx('doc_case_open'))::jsonb)));
 select public.bs_check('issuing a quote moved the case on', pg_temp.stage('doc_case') = 'Documentation');
 select public.bs_check('Accounting with no case behaves as before', (select case_id is null and status = 'issued' from pg_temp.hq('{"department":"Accounting"}'::jsonb)));
@@ -500,6 +501,8 @@ select public.bs_as(null);
 
 -- ── Net paid by case (fix round 1) ──
 create function pg_temp.np(p_q uuid) returns numeric language sql security definer as $$ select public.business_setup_net_paid(p_q) $$;
+create function pg_temp.net_a() returns numeric language sql security definer as $$ select greatest(1050 - public.business_setup_net_paid(pg_temp.cid('fq_a2')), 0) $$;
+create function pg_temp.net_b() returns numeric language sql security definer as $$ select greatest(1000 - public.business_setup_net_paid(pg_temp.cid('fq_b')), 0) $$;
 -- A: Q1 paid 400, then superseded by Q2 accepted at 1050 in the same case.
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('e0', pg_temp.dash()::text);
@@ -518,8 +521,11 @@ select pg_temp.mkpay('CL980070', null, pg_temp.cid('f_b'), 100);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_check('net_paid: a payment on a superseded revision counts against the accepted quote', pg_temp.np(pg_temp.cid('fq_a2')) = 400);
 select public.bs_check('net_paid: a payment with no quote counts against the case accepted quote, once', pg_temp.np(pg_temp.cid('fq_b')) = 100);
-select public.bs_check('net_paid: Q1 paid 400, Q2 accepted 1050 and B accepted 1000 paid 100 give receivables 650 + 900, advances 0',
-  pg_temp.dd('e0', 'receivables') = 1550 and pg_temp.dd('e0', 'advances') = 0);
+select public.bs_check('scenario A: Q1 paid 400 then superseded by Q2 accepted 1050 leaves 650 receivable', pg_temp.net_a() = 650);
+select public.bs_check('scenario B: an accepted 1000 quote with a quote-less payment of 100 leaves 900 receivable', pg_temp.net_b() = 900);
+select public.bs_check('scenario A and B: advances stay 0', pg_temp.dd('e0', 'advances') = 0);
+select public.bs_check('scenario A and B together: receivables rose by 1550', pg_temp.dd('e0', 'receivables') = 1550);
+
 -- C: a payment on a quote in a case with no accepted quote is an advance only. The case follows the quote when none is given.
 select public.bs_as(null);
 select pg_temp.mkcase('f_c', 'CL980070', 'Documentation');
@@ -527,7 +533,8 @@ select pg_temp.mkquote('fq_c', 'FQ-4', 'CL980070', pg_temp.cid('f_c'));
 select pg_temp.mkpay('CL980070', pg_temp.cid('fq_c'), null, 200);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_check('payment_case: a payment fills its case_id from its quote', (select count(*) = 1 from public.business_setup_payments where quote_id = pg_temp.cid('fq_c') and case_id = pg_temp.cid('f_c')));
-select public.bs_check('advances: that payment is an advance and not a receivable', pg_temp.dd('e0', 'advances') = 200 and pg_temp.dd('e0', 'receivables') = 1550);
+select public.bs_check('scenario C: that payment is an advance', pg_temp.dd('e0', 'advances') = 200);
+select public.bs_check('scenario C: and not a receivable', pg_temp.dd('e0', 'receivables') = 1550);
 -- D: a quote with no case sums by quote_id as before.
 select public.bs_as(null);
 select pg_temp.mkquote('fq_d', 'FQ-5', 'CL980070', null, 'accepted');
@@ -550,6 +557,33 @@ select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_check('payment_case: payment_add sets the case_id', (select count(*) = 1 from public.business_setup_payments where quote_id = pg_temp.cid('fq_e') and case_id = pg_temp.cid('f_e')));
 select public.bs_check('payment_case: and the case moves to Assignment', pg_temp.stage('f_e') = 'Assignment');
+select public.bs_as(null);
+
+-- ── One quote per case (fix round 2) ──
+-- A case holds one quote and its revisions. Cases are made as the table owner, quotes as a user who may issue them.
+select public.bs_as(null);
+select pg_temp.mkcase('g_iss', 'CL980070', 'Services');
+select pg_temp.mkcase('g_acc', 'CL980070', 'Documentation');
+select pg_temp.mkcase('g_rej', 'CL980070', 'Services');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 select 'gq_iss', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('g_iss'))::jsonb)).id::text;
+select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s"}')$$, pg_temp.fx('g_iss')), 'already has a quote');
+select public.bs_check('one_quote: the refusal tells staff to revise or open a new case', (select count(*) = 1 from public.hub_documents where case_id = pg_temp.cid('g_iss') and doc_type = 'quote'));
+select public.bs_check('one_quote: a revision on the same case is allowed', (select case_id = pg_temp.cid('g_iss') and revises_id = pg_temp.cid('gq_iss')
+  from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","revises_id":"%s"}', pg_temp.fx('g_iss'), pg_temp.fx('gq_iss'))::jsonb)));
+insert into f80 select 'gq_acc', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('g_acc'))::jsonb)).id::text;
+select public.bs_as(null);
+update public.hub_documents set status = 'accepted' where id = pg_temp.cid('gq_acc');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s"}')$$, pg_temp.fx('g_acc')), 'already has a quote');
+insert into f80 select 'gq_rej', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('g_rej'))::jsonb)).id::text;
+select public.business_setup_quote_reject(pg_temp.cid('gq_rej'), 'Client declined');
+select public.bs_check('one_quote: a new quote is allowed when the only quote was rejected', (select case_id = pg_temp.cid('g_rej') and status = 'issued' from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('g_rej'))::jsonb)));
+-- Second guard: a second quote forced in beside an accepted one cannot be accepted.
+select public.bs_as(null);
+select pg_temp.mkquote('gq_x1', 'GQ-1', 'CL980070', pg_temp.cid('g_acc'));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('gq_x1')), 'Another quote of this case is already accepted');
 select public.bs_as(null);
 
 -- ── Summary: raise when anything failed so psql exits non-zero ──
