@@ -22,7 +22,7 @@ export default function SummaryCard({ card, collapsed, onToggle, onMove, first, 
 
   const request = useCallback(() => {
     Promise.resolve()
-      .then(load)
+      .then(() => load())
       .then((data) => setState({ status: "data", data }), (error) => setState({ status: "error", error }));
   }, [load]);
 

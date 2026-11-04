@@ -12,6 +12,11 @@ const DEPARTMENT_BODIES = {
 const SLIDE_MS = 220;
 const DRAG_TYPE = "application/x-crm-summary-card";
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+// Wait for the last slide to finish, or cards passing under the pointer swap straight back.
+const stillSliding = (d) => performance.now() < d.waitUntil;
+const waitForSlide = (d) => {
+  d.waitUntil = performance.now() + SLIDE_MS;
+};
 
 // The cards below the Dashboard, in groups. `zoho` is null, or { header, bodies: { [cardId]: Component }, load }.
 export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
@@ -74,25 +79,22 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     return zohoRequest.current;
   };
 
-  const handleFor = (group, card) => ({
-    draggable: true,
-    onDragStart: (e) => {
-      const slot = slots.current.get(card.id);
-      const box = slot.getBoundingClientRect();
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData(DRAG_TYPE, card.id);
-      e.dataTransfer.setDragImage(slot, e.clientX - box.left, e.clientY - box.top);
-      drag.current = { id: card.id, group, start: layout, dropped: false, waitUntil: 0 };
-      // Changing the page inside dragstart can cancel the drag in Chrome.
-      requestAnimationFrame(() => setDraggingId(card.id));
-    },
-    onDragEnd: () => {
-      // Dropped outside the group: put the cards back as they were.
-      if (drag.current && !drag.current.dropped) show(drag.current.start);
-      drag.current = null;
-      requestAnimationFrame(() => setDraggingId(null));
-    },
-  });
+  const startDrag = (e, group, card) => {
+    const slot = slots.current.get(card.id);
+    const box = slot.getBoundingClientRect();
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData(DRAG_TYPE, card.id);
+    e.dataTransfer.setDragImage(slot, e.clientX - box.left, e.clientY - box.top);
+    drag.current = { id: card.id, group, start: layout, dropped: false, waitUntil: 0 };
+    // Changing the page inside dragstart can cancel the drag in Chrome.
+    requestAnimationFrame(() => setDraggingId(card.id));
+  };
+  const endDrag = () => {
+    // Dropped outside the group: put the cards back as they were.
+    if (drag.current && !drag.current.dropped) show(drag.current.start);
+    drag.current = null;
+    requestAnimationFrame(() => setDraggingId(null));
+  };
 
   const onDragOver = (e, group) => {
     const d = drag.current;
@@ -100,9 +102,8 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const target = e.target.closest?.("[data-card-id]")?.dataset.cardId;
-    // Wait for the last slide to finish, or cards passing under the pointer swap straight back.
-    if (!target || target === d.id || performance.now() < d.waitUntil) return;
-    d.waitUntil = performance.now() + SLIDE_MS;
+    if (!target || target === d.id || stillSliding(d)) return;
+    waitForSlide(d);
     show(moveCard(layout, group, d.id, target));
   };
 
@@ -115,8 +116,8 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
   };
 
   const groups = [
-    { id: "departments", title: "Departments", bodies: DEPARTMENT_BODIES, loadFor: (card) => api?.[card.id] },
-    zoho && { id: "zoho", title: "Zoho Financials", header: zoho.header, bodies: zoho.bodies, loadFor: () => loadZoho },
+    { id: "departments", title: "Departments", bodies: DEPARTMENT_BODIES },
+    zoho && { id: "zoho", title: "Zoho Financials", header: zoho.header, bodies: zoho.bodies },
   ].filter(Boolean);
   const byId = new Map(visible.map((c) => [c.id, c]));
 
@@ -156,8 +157,8 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
                       onMove={(delta) => change(stepCard(layout, group.id, card.id, delta))}
                       first={i === 0}
                       last={i === cards.length - 1}
-                      dragHandlers={handleFor(group.id, card)}
-                      load={group.loadFor(card)}
+                      dragHandlers={{ draggable: true, onDragStart: (e) => startDrag(e, group.id, card), onDragEnd: endDrag }}
+                      load={group.id === "zoho" ? loadZoho : api?.[card.id]}
                       onOpen={card.view ? () => onNavigate?.(card.view) : undefined}
                     >
                       {(data) => (Body ? <Body data={data} /> : null)}
