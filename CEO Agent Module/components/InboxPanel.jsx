@@ -28,6 +28,7 @@ const POLL_MS = 2 * 60 * 1000;
 const INBOX_REFRESH_MS = 60 * 1000;
 const PAGE_SIZE = 50;
 const BUCKET = "email-base";
+const MAIL_WINDOW_DAYS = 15;
 const THREAD_COLUMNS = "id, mailbox_id, subject, participants, last_message_at, message_count, status, category, priority, needs_reply, is_important, summary, key_points, suggested_actions, folders";
 const MESSAGE_COLUMNS = "id, folder, direction, from_address, from_name, to_addresses, cc_addresses, subject, sent_at, body_text, body_complete, parse_error, attachment_count, raw_path";
 const CATEGORIES = ["client", "internal", "vendor", "government", "bank", "newsletter", "personal", "other"];
@@ -52,7 +53,8 @@ export function useInboxAlerts(sb) {
   const check = useCallback(async () => {
     const hidden = await fetchHiddenMailboxes(sb);
     const { data, error } = await withoutHidden(sb.schema("email_base").from("threads")
-      .select("id, subject, priority, needs_reply").contains("tags", ["ceo"]).eq("status", "new"), hidden).limit(200);
+      .select("id, subject, priority, needs_reply").contains("tags", ["ceo"]).eq("status", "new")
+      .gte("last_message_at", new Date(Date.now() - MAIL_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()), hidden).limit(200);
     if (error) return;
     setUnread(data.length);
     const important = data.filter((t) => t.priority === "urgent" || t.needs_reply);
@@ -107,7 +109,8 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [alerts, setAlerts] = useState(() => (typeof Notification === "undefined" ? "unsupported" : Notification.permission));
 
-  // Conversations are filtered and paged in the database, so every stored email is reachable.
+  // Conversations are filtered and paged in the database. Only recent mail shows here;
+  // older mail is read directly in the mailbox.
   const threadQuery = useCallback((sentFolders, hiddenIds, from, to) => {
     let q = withoutHidden(sb.schema("email_base").from("threads").select(THREAD_COLUMNS, { count: "exact" }).contains("tags", ["ceo"]), hiddenIds);
     q = filter === "archived" ? q.eq("status", "archived") : q.neq("status", "archived");
@@ -118,11 +121,8 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     if (filter === "sent") q = q.overlaps("folders", sentFolders.length ? sentFolders : ["-"]);
     if (mailboxFilter !== "all") q = q.eq("mailbox_id", mailboxFilter);
     if (categoryFilter !== "all") q = q.eq("category", categoryFilter);
-    if (dateFilter !== "all") {
-      const age = dateFilter === "day" ? 1 : dateFilter === "week" ? 7 : 30;
-      const cutoff = new Date(Date.now() - age * 24 * 60 * 60 * 1000).toISOString();
-      q = dateFilter === "older" ? q.lt("last_message_at", cutoff) : q.gte("last_message_at", cutoff);
-    }
+    const age = dateFilter === "day" ? 1 : dateFilter === "week" ? 7 : MAIL_WINDOW_DAYS;
+    q = q.gte("last_message_at", new Date(Date.now() - age * 24 * 60 * 60 * 1000).toISOString());
     if (searchIds) q = q.in("id", searchIds.length ? searchIds : ["00000000-0000-0000-0000-000000000000"]);
     if (sortBy === "subject-asc" || sortBy === "subject-desc") {
       q = q.order("subject", { ascending: sortBy === "subject-asc", nullsFirst: false })
@@ -683,8 +683,6 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
             <option value="all">Any time</option>
             <option value="day">Past 24 hours</option>
             <option value="week">Past 7 days</option>
-            <option value="month">Past 30 days</option>
-            <option value="older">Older than 30 days</option>
           </select>
         </label>
       </div>

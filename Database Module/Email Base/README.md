@@ -12,6 +12,9 @@ The shared CRM email store. For now it syncs `info@abcapital.ae` and
 - `reply_drafts` stores replies written in the CEO Inbox (recipients, subject, text, signature, status). `reply_send_confirmations` holds the hashed one-time send codes and is readable by the server only. Migration 006 also adds `display_name`, `smtp_host` and `smtp_port` to `mailboxes`.
 - `bd_reply_drafts` stores unsent Business Development replies to Explee prospects. Drafts remain in the CRM Email Base when the mailbox pane is closed and are restored when the conversation is opened again.
 
+The CRM brings in and shows mail from the last 15 days only (`MAIL_WINDOW_DAYS`). Older mail stays on
+the mail server and is read there directly.
+
 The `ceo-mail-sync` Edge Function reads IMAP in read-only mode. Each run (every
 2 minutes, job `email-base-sync`) walks the enabled folders of each mailbox,
 INBOX first. New UIDs are imported newest first, while older history is

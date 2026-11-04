@@ -1,13 +1,19 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import "@banking/components/banking.css";
 import CompanyLibrary from "./CompanyLibrary";
 import ServiceDesk from "./ServiceDesk";
 import HubNumbering from "./HubNumbering";
 import VoucherRegister from "./VoucherRegister";
 
+// Each brings in the Word and Excel tools, so they load only when opened.
+const QuotationsPage = lazy(() => import("./QuotationsPage"));
+const CompanyTemplatesPage = lazy(() => import("./CompanyTemplatesPage"));
+
 const TABS = [
   { key: "services", label: "Service Documents" },
   { key: "library", label: "Company Library" },
+  { key: "quotations", label: "Freezone Quotations" },
+  { key: "company-templates", label: "Company Templates" },
   { key: "vouchers", label: "Voucher Register" },
   { key: "settings", label: "⚙ Settings" },
 ];
@@ -52,6 +58,10 @@ export default function TemplateHub({ profile }) {
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><HubNumbering /></div>
         ) : tab === "services" ? (
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><ServiceDesk profile={profile} /></div>
+        ) : tab === "quotations" || tab === "company-templates" ? (
+          <Suspense fallback={<div style={{ color: "#9ca3af", fontSize: 13 }}>Loading…</div>}>
+            {tab === "quotations" ? <QuotationsPage profile={profile} /> : <CompanyTemplatesPage />}
+          </Suspense>
         ) : (
           <CompanyLibrary />
         )}
