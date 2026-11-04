@@ -47,6 +47,9 @@ const MAX_TOOL_ROUNDS = 5;
 const MAX_TOOL_RESULT_CHARS = 6000;
 const MAX_HISTORY = 12;
 const MAX_MESSAGE_CHARS = 4000;
+// Used only when Bruno (router-agent) calls this function.
+const NO_INFO = "NO_INFO";
+const ROUTER_RULE = "Answer only from what your tools and data return. If they do not give the answer, reply with exactly NO_INFO and nothing else.";
 const TZ = "Asia/Dubai";
 
 const cors = {
@@ -422,7 +425,7 @@ class UpstreamError extends Error {
   }
 }
 
-async function chat(apiKey: string, model: string, messages: ChatMessage[]) {
+async function chat(apiKey: string, model: string, messages: ChatMessage[], spend: { usd: number }) {
   const res = await aiFetch("ceo-agent", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "CEO Agent" },
@@ -441,6 +444,7 @@ async function chat(apiKey: string, model: string, messages: ChatMessage[]) {
   if (!res.ok || data.error) {
     throw new UpstreamError(res.ok ? Number(data.error?.code) || 502 : res.status, data.error?.message || `HTTP ${res.status}`);
   }
+  spend.usd += Number(data.usage?.cost) || 0;
   const choice = data.choices?.[0];
   if (!choice?.message) throw new UpstreamError(502, "The model returned no message.");
   return choice as { finish_reason: string; message: { content: string | null; tool_calls?: ToolCall[] } };
@@ -475,7 +479,7 @@ async function handle(req: Request) {
     if (aal !== "aal2") return json({ error: "Verify with your authenticator app first." }, 403);
   }
 
-  let body: { messages?: { role: string; content: string }[]; idempotencyKey?: string; threadId?: string };
+  let body: { messages?: { role: string; content: string }[]; idempotencyKey?: string; threadId?: string; router?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -514,22 +518,24 @@ async function handle(req: Request) {
   if (threadId) {
     await db.from("chat_messages").insert({ user_id: uid, thread_id: threadId, role: "user", content: last.content, capture_id: captureId });
   }
+  const routerMode = body.router === true;
+  const spend = { usd: 0 };
   const finish = async (reply: string, savedItems: unknown[], didChange: boolean) => {
     if (threadId) {
-      await db.from("chat_messages").insert({ user_id: uid, thread_id: threadId, role: "assistant", content: reply.slice(0, 40000), saved: savedItems });
+      await db.from("chat_messages").insert({ user_id: uid, thread_id: threadId, role: "assistant", content: (reply.includes(NO_INFO) ? "No information found." : reply).slice(0, 40000), saved: savedItems });
       await db.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
     }
-    return json({ reply, changed: didChange, saved: savedItems, threadId });
+    return json({ reply, changed: didChange, saved: savedItems, threadId, ...(routerMode ? { cost_usd: spend.usd } : {}) });
   };
 
-  const system = `${SYSTEM}\n\nCurrent Dubai time: ${dubaiNow()} (UTC+04:00). The CEO's name: ${profile.display_name || "the CEO"}.`;
+  const system = `${SYSTEM}\n\nCurrent Dubai time: ${dubaiNow()} (UTC+04:00). The CEO's name: ${profile.display_name || "the CEO"}.${routerMode ? `\n\n${ROUTER_RULE}` : ""}`;
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...history];
   const saved: unknown[] = [];
   let changed = false;
 
   try {
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-      const { finish_reason, message } = await chat(apiKey, model, messages);
+      const { finish_reason, message } = await chat(apiKey, model, messages, spend);
       const toolCalls = message.tool_calls || [];
       if (!toolCalls.length) {
         const cut = finish_reason === "length" ? "\n\n(Reply cut short. Ask me to continue.)" : "";
@@ -569,7 +575,7 @@ async function handle(req: Request) {
         messages.push({ role: "tool", tool_call_id: t.id, content: JSON.stringify(result).slice(0, MAX_TOOL_RESULT_CHARS) });
       }
     }
-    return await finish("That took too many steps. Try splitting the request.", saved, changed);
+    return await finish(routerMode ? NO_INFO : "That took too many steps. Try splitting the request.", saved, changed);
   } catch (e) {
     if (e instanceof UpstreamError) {
       if (e.status === 401 || e.status === 403) return json({ error: "The OPENROUTER_API_KEY secret is not valid." }, 500);
