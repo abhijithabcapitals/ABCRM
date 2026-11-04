@@ -22,6 +22,8 @@ export type Deps = {
   // Service-role Supabase client. Used by refresh.
   db: Json;
   now(): Date;
+  // Waits. Only tests set it, to run without waiting.
+  sleep?(ms: number): Promise<void>;
   // Removes secrets from text bound for the server log.
   scrub(text: string): string;
 };

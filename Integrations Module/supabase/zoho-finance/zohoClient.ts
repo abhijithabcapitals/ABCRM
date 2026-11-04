@@ -8,6 +8,13 @@ export class NotAllowedError extends Error {
   }
 }
 
+export class ZohoTimeoutError extends Error {
+  constructor() {
+    super("Zoho did not answer in time.");
+    this.name = "ZohoTimeoutError";
+  }
+}
+
 export class ZohoHttpError extends Error {
   status: number;
   code?: number;
@@ -74,7 +81,19 @@ export function clientKey(cfg: ZohoConfig): string {
   return JSON.stringify([cfg.clientId, cfg.clientSecret, cfg.refreshToken, cfg.orgId, cfg.dc]);
 }
 
+// A hung call must not outlast the 150-second function limit. refresh.ts stops new calls at 125 s, so 125 + 20 stays under it.
+export const REQUEST_TIMEOUT_MS = 20_000;
+
 export function createFinanceClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch) {
+  const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
+    try {
+      return await fetchFn(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    } catch (e) {
+      if ((e as Error)?.name === "TimeoutError") throw new ZohoTimeoutError();
+      throw e;
+    }
+  };
+
   const hosts = hostsFor(cfg.dc);
   let token: { value: string; expires: number } | undefined;
   const secrets = () => [cfg.clientSecret, cfg.refreshToken, cfg.clientId, token?.value ?? ""];
@@ -101,7 +120,7 @@ export function createFinanceClient(cfg: ZohoConfig, fetchFn: typeof fetch = fet
       client_secret: cfg.clientSecret,
     });
     // A redirect could carry the secrets to another host, so it is an error.
-    const res = await fetchFn(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body, redirect: "error" });
+    const res = await fetchWithTimeout(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body, redirect: "error" });
     if (!res.ok) {
       const err = await readError(res);
       // A rate limit or outage is not a lost connection. Only a refusal means reconnect.
@@ -136,7 +155,7 @@ export function createFinanceClient(cfg: ZohoConfig, fetchFn: typeof fetch = fet
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
     url.searchParams.set("organization_id", cfg.orgId);
     const headers: Record<string, string> = { Authorization: `Zoho-oauthtoken ${await accessToken()}` };
-    const res = await fetchFn(url.toString(), { method: "GET", headers, redirect: "error" });
+    const res = await fetchWithTimeout(url.toString(), { method: "GET", headers, redirect: "error" });
     if (!res.ok) throw await readError(res);
     return await res.json();
   }
