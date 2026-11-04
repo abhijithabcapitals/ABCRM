@@ -34,3 +34,22 @@ export const summaryApi = {
     return notificationFigures(check(await supabase.from("notifications").select("*").eq("user_id", id).order("created_at", { ascending: false }).limit(50)));
   },
 };
+
+const EMPTY_SNAPSHOT = { data: null, as_of: null, status: null, error: null, last_attempt_at: null };
+
+// The one snapshot row. The Zoho cards share a single read of it.
+export async function readSnapshot() {
+  const row = check(await supabase.from("zoho_finance_snapshot").select("data, as_of, status, error, last_attempt_at").eq("id", 1).maybeSingle());
+  return row || EMPTY_SNAPSHOT;
+}
+
+// Asks the zoho-finance function to rebuild the row: { status: "ok" | "partial" | "failed" | "busy" | "fresh", error? }.
+export async function refreshSnapshot(force = false) {
+  const { data, error } = await supabase.functions.invoke("zoho-finance", { body: { action: "refresh", force } });
+  if (error) {
+    let message = error.message;
+    try { message = (await error.context?.json())?.error || message; } catch { /* keep message */ }
+    throw new Error(message);
+  }
+  return data;
+}

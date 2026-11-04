@@ -6,6 +6,8 @@ import { fmtDate } from "@app/dateFormat";
 import DrilldownModal from "@app/components/DrilldownModal";
 import AssigneeTasksModal from "@app/components/AssigneeTasksModal";
 import SummaryBoard from "./SummaryBoard";
+import { useZohoFinance } from "./ZohoSection";
+import { SnapshotContext } from "./summaryCards/zohoContext";
 import { summaryApi } from "../services/summaryApi";
 
 const ATTN_META = {
@@ -67,6 +69,7 @@ export default function Dashboard({ spaces, profile, tabs, onNavigate, onSpaceSe
   const [assigneeModal, setAssigneeModal] = useState(null); // assignee name being drilled into
   const [drill, setDrill] = useState(null);                 // { title, metric } KPI drill-down
   const isAdmin = profile?.role === "admin";
+  const { zoho, row: zohoRow } = useZohoFinance(isAdmin);
 
   const load = useCallback(async () => {
     setLoading(true); setErr("");
@@ -300,7 +303,9 @@ export default function Dashboard({ spaces, profile, tabs, onNavigate, onSpaceSe
             </div>
           </>
         ) : null}
-        <SummaryBoard profile={profile} tabs={tabs} onNavigate={onNavigate} api={summaryApi} zoho={null} />
+        <SnapshotContext.Provider value={zohoRow}>
+          <SummaryBoard profile={profile} tabs={tabs} onNavigate={onNavigate} api={summaryApi} zoho={zoho} />
+        </SnapshotContext.Provider>
       </div>
 
       {assigneeModal && (

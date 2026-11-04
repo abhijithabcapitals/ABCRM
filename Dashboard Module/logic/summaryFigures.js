@@ -70,3 +70,27 @@ export function notificationFigures(rows) {
 
 // Postgres "insufficient privilege".
 export const isNoAccess = (error) => error?.code === "42501";
+
+// ---- Zoho financial snapshot ----
+const MINUTE = 60_000;
+const FRESH_MINUTES = 60;
+const REFRESH_WAIT_MINUTES = 5;
+const stamp = (v) => (v ? Date.parse(v) : NaN);
+
+// "empty" has no figures yet, "failed" is the last attempt failing (the old figures stay), "stale" is over an hour old.
+export function snapshotState(row, now) {
+  const asOf = stamp(row?.as_of);
+  if (Number.isNaN(asOf)) return "empty";
+  if (row.status === "failed") return "failed";
+  return now - asOf > FRESH_MINUTES * MINUTE ? "stale" : "fresh";
+}
+
+// "n/a" for an unknown ratio. Never zero.
+export const fmtRatio = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? "n/a" : Number(v).toFixed(2));
+
+// Whole minutes until the Refresh button works: the function allows it once both the figures and the last attempt are 5 minutes old.
+export function refreshWaitMinutes(row, now) {
+  const newest = Math.max(stamp(row?.as_of) || 0, stamp(row?.last_attempt_at) || 0);
+  if (!newest) return 0;
+  return Math.max(0, Math.ceil((newest + REFRESH_WAIT_MINUTES * MINUTE - now) / MINUTE));
+}

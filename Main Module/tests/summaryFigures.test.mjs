@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, isNoAccess,
+  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes,
 } from "../../Dashboard Module/logic/summaryFigures.js";
 
 const rows = (n, stage = "New") => Array.from({ length: n }, () => ({ stage }));
@@ -75,4 +75,34 @@ test("empty input gives zeros, not a throw", () => {
   assert.deepEqual(hrFigures(null), { headcount: 0, pendingLeave: 0, expiringDocuments: 0 });
   assert.deepEqual(taxFigures(null), { overdue: 0, due14: 0, due30: 0, missing: 0, clients: 0 });
   assert.deepEqual(notificationFigures(null), { unread: 0, latest: [] });
+});
+
+const NOW = Date.parse("2026-11-04T10:00:00Z");
+const minutesAgo = (m) => new Date(NOW - m * 60_000).toISOString();
+
+test("snapshotState: no as_of is empty, 59 minutes is fresh, 61 is stale", () => {
+  assert.equal(snapshotState(null, NOW), "empty");
+  assert.equal(snapshotState({ as_of: null, status: "ok" }, NOW), "empty");
+  assert.equal(snapshotState({ as_of: minutesAgo(59), status: "ok" }, NOW), "fresh");
+  assert.equal(snapshotState({ as_of: minutesAgo(61), status: "ok" }, NOW), "stale");
+  assert.equal(snapshotState({ as_of: minutesAgo(5), status: "partial" }, NOW), "fresh");
+});
+
+test("snapshotState: a failed refresh with old data is failed", () => {
+  assert.equal(snapshotState({ as_of: minutesAgo(300), status: "failed", error: "x" }, NOW), "failed");
+  assert.equal(snapshotState({ as_of: null, status: "failed" }, NOW), "empty");
+});
+
+test("fmtRatio shows n/a for unknown and two decimals otherwise", () => {
+  assert.equal(fmtRatio(null), "n/a");
+  assert.equal(fmtRatio(undefined), "n/a");
+  assert.equal(fmtRatio(1.234), "1.23");
+  assert.equal(fmtRatio(0), "0.00");
+});
+
+test("refreshWaitMinutes: Refresh waits 5 minutes from the last figures or attempt", () => {
+  assert.equal(refreshWaitMinutes(null, NOW), 0);
+  assert.equal(refreshWaitMinutes({ as_of: minutesAgo(10), last_attempt_at: minutesAgo(10) }, NOW), 0);
+  assert.equal(refreshWaitMinutes({ as_of: minutesAgo(1), last_attempt_at: minutesAgo(1) }, NOW), 4);
+  assert.equal(refreshWaitMinutes({ as_of: minutesAgo(400), last_attempt_at: minutesAgo(2.5) }, NOW), 3);
 });
