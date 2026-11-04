@@ -192,7 +192,7 @@ export function DataTable({ columns, rows, onRow, pageSize = 25, search, empty =
       {search && <input className="bk-search" type="search" placeholder={typeof search === "string" ? search : "Search…"} aria-label="Search" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} />}
       <div className="bk-table-wrap">
         <table className="bk-table">
-          <thead><tr>{columns.map((c) => <th key={c.key || c.label} className={c.right ? "bk-right" : ""}>{c.label}</th>)}</tr></thead>
+          <thead><tr>{columns.map((c) => <th key={c.key || c.label} className={c.right ? "bk-right" : ""} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}</tr></thead>
           <tbody>
             {shown.map((r, i) => (
               <tr key={r.id || i} className={onRow ? "bk-click" : ""} onClick={onRow ? () => onRow(r) : undefined} tabIndex={onRow ? 0 : undefined} onKeyDown={onRow ? (e) => e.key === "Enter" && onRow(r) : undefined}>
