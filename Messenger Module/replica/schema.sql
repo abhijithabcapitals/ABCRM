@@ -3,6 +3,8 @@
 -- Each phase becomes its own numbered file in Database Module/Messanger Base/migrations, with a rollback and tests,
 -- and adds its row security policies and guarded functions at that point. Policies are not written here yet.
 -- Extends the live messenger_ tables from migration 003. Times are timestamptz in UTC.
+-- Phase 1 is now real, in migrations/004_chat_parity.sql, and differs from the sketch below: reactions and the file summary live on the message,
+-- mentions are a column, and presence has last_seen_at. Read 004 for phase 1.
 -- =====================================================================
 
 -- Phase 1: chat parity

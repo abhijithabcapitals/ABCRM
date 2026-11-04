@@ -18,6 +18,14 @@ function rows(res, sentence) {
 export function createChatApi(client) {
   const call = async (fn, args, sentence) => rows(await client.rpc(fn, args), sentence);
 
+  // The function answers with its own sentence when a request is refused, so that sentence is safe to show.
+  async function fileCall(body) {
+    const { data, error } = await client.functions.invoke("messenger-files", { body });
+    if (error || !data) fail("File sharing is not available right now.");
+    if (data.error) fail(data.error);
+    return data;
+  }
+
   // One copy of the people the caller may see. The picker fetches it once per opening and filters it as the person types.
   async function clientLookup() {
     return rows(await client.rpc("client_lookup"), "Could not search clients. Please try again.") || [];
@@ -59,6 +67,8 @@ export function createChatApi(client) {
       .channel(`messenger:messages:${++seq}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messenger_messages" },
         (payload) => { if (!stopped) onMessage?.(payload.new); })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messenger_messages" },
+        (payload) => { if (!stopped) onMessage?.(payload.new, "update"); })
       .subscribe((status) => {
         if (stopped) return;
         if (status === "SUBSCRIBED") {
@@ -91,12 +101,32 @@ export function createChatApi(client) {
     readState: (conversationId) => call("messenger_read_state", { p_conversation: conversationId }, "Could not check who has read this chat."),
     markRead: (conversationId) => call("messenger_mark_read", { p_conversation: conversationId }, "Could not mark this chat as read."),
     // A repeat of the same message id hits the unique rule (23505). That means it already arrived.
-    async send({ id, conversationId, senderId, body, link }) {
+    async send({ id, conversationId, senderId, body, link, parentId, mentionIds }) {
       const row = { id, conversation_id: conversationId, sender_id: senderId, body };
+      if (parentId) row.parent_id = parentId;
+      if (mentionIds?.length) row.mention_ids = mentionIds;
       if (link) Object.assign(row, { link_type: link.type, link_ref: link.ref, link_label: link.label });
       const { error } = await client.from("messenger_messages").insert(row);
       if (error && error.code !== "23505") fail("Your message was not sent. Please try again.");
     },
+    editMessage: (id, body) => call("messenger_edit_message", { p_message: id, p_body: body }, "Could not save your change. Please try again."),
+    deleteMessage: (id) => call("messenger_delete_message", { p_message: id }, "Could not delete this message. Please try again."),
+    toggleReaction: (id, emoji) => call("messenger_toggle_reaction", { p_message: id, p_emoji: emoji }, "Could not add your reaction. Please try again."),
+    setChatFlags: (conversationId, { muted = null, pinned = null }) => call("messenger_set_chat_flags", { p_conversation: conversationId, p_muted: muted, p_pinned: pinned }, "Could not change this chat. Please try again."),
+    search: (query) => call("messenger_search", { p_query: query }, "Could not search your messages. Please try again."),
+    activity: () => call("messenger_activity_list", undefined, "Could not load your activity. Please try again."),
+    activityRead: (id = null) => call("messenger_activity_read", { p_id: id }, "Could not mark this as read. Please try again."),
+    files: () => call("messenger_files", undefined, "Could not load your files. Please try again."),
+    presence: () => call("messenger_presence_list", undefined, "Could not load who is available."),
+    beat: (status = null) => call("messenger_presence_beat", { p_status: status }, "Could not update your status. Please try again."),
+    // Asks the function for a short-lived upload link, stores the file, then the function checks its real size and sends the message.
+    async sendFile({ id, conversationId, file, parentId }) {
+      const start = await fileCall({ action: "upload_start", conversation_id: conversationId, name: file.name, size: file.size });
+      const put = await fetch(start.url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } }).catch(() => null);
+      if (!put?.ok) fail("Your file was not uploaded. Please try again.");
+      await fileCall({ action: "send_file", message_id: id, conversation_id: conversationId, key: start.key, name: file.name, type: file.type, parent_id: parentId || null });
+    },
+    fileLink: async (attachmentId) => (await fileCall({ action: "download", attachment_id: attachmentId })).url,
     startDirect: (otherId) => call("messenger_start_direct", { p_other: otherId }, "Could not open this chat. Please try again."),
     createGroup: (title, memberIds) => call("messenger_create_group", { p_title: title, p_members: memberIds }, "Could not create the group. Please try again."),
     addMembers: (conversationId, memberIds) => call("messenger_add_members", { p_conversation: conversationId, p_members: memberIds }, "Could not add these people. Please try again."),

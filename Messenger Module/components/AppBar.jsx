@@ -15,11 +15,10 @@ const ICONS = {
 
 // The strip that switches between the page's sections: a left column, or a bottom row on phones.
 export default function AppBar({ section, unread, onSection }) {
-  const count = badgeText(unread);
   return (
     <nav className="abm-bar" aria-label="Messenger sections">
       {SECTIONS.map((s) => {
-        const badge = s.key === "chats" ? count : null;
+        const badge = badgeText(unread[s.key] || 0);
         return (
           <button key={s.key} type="button" className="abm-bar-btn" aria-current={section === s.key ? "page" : undefined}
             aria-label={badge ? `${s.label}, ${badge} unread` : s.label} onClick={() => onSection(s.key)}>

@@ -2,12 +2,12 @@ import { chatTitle } from "./chat.js";
 
 // The sections of the full Messenger page, in app bar order. A section with a phase is not built yet.
 export const SECTIONS = [
-  { key: "activity", label: "Activity", phase: 1, note: "Mentions, replies and reactions meant for you will collect here." },
+  { key: "activity", label: "Activity" },
   { key: "chats", label: "Chats" },
   { key: "teams", label: "Teams", phase: 2, note: "Teams and their channels will live here, with threaded posts." },
   { key: "calendar", label: "Calendar", phase: 5, note: "Your meetings will show here by day and week." },
   { key: "calls", label: "Calls", phase: 4, note: "Audio and video calls and your call history will live here." },
-  { key: "files", label: "Files", phase: 1, note: "Files shared in your chats will be listed here." },
+  { key: "files", label: "Files" },
 ];
 
 const KEYS = new Set(SECTIONS.map((s) => s.key));
@@ -23,7 +23,7 @@ export function saveSection(key) {
   try { localStorage.setItem(SAVED, key); } catch { /* still applies until the page reloads */ }
 }
 
-// Matches the chat's name only. Searching message text comes with phase 1.
+// Matches the chat's name. Message text is searched separately, in the database.
 export function filterChats(rows, query) {
   const q = query.trim().toLowerCase();
   if (!q) return rows;

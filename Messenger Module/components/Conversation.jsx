@@ -13,7 +13,7 @@ const oldestFirst = (list) => [...list].reverse();
 const addAll = (cur, page) => oldestFirst(page).reduce((acc, m) => mergeMessage(acc, m), cur);
 
 // Open chat. The panel gives it key={conversationId}, so every chat starts with clean state.
-export default function Conversation({ row, profile, visible, connected, onMessage, reload, draft, onDraft, onClose, onInfo, attachSlot }) {
+export default function Conversation({ row, profile, visible, connected, onMessage, reload, draft, onDraft, onClose, onInfo, attachSlot, status, onFlags }) {
   const cid = row.id;
   const me = profile?.id;
   const [messages, setMessages] = useState([]);
@@ -25,6 +25,8 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   const [loaded, setLoaded] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [fresh, setFresh] = useState(false); // "New messages" while scrolled up
+  const [replyTo, setReplyTo] = useState(null);
+  const pendingFiles = useRef(new Map()); // files still being sent, by message id, so a retry can send them again
   const box = useRef(null);
   const scrollTo = useRef(null); // "bottom", or the scroll height from before older messages were added
   const busy = useRef(false);
@@ -69,8 +71,10 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   useEffect(() => { refresh(true); }, [cid, refresh]);
 
   // Live messages for this chat.
-  useEffect(() => onMessage((m) => {
+  useEffect(() => onMessage((m, change) => {
     if (m.conversation_id !== cid) return;
+    // An edit, delete, reaction or file summary. Only messages already on screen change, and nobody is scrolled.
+    if (change === "update") { setMessages((cur) => (cur.some((x) => x.id === m.id) ? mergeMessage(cur, m) : cur)); return; }
     const stick = atBottom() || m.sender_id === me;
     setMessages((cur) => mergeMessage(cur, m));
     if (stick) scrollTo.current = "bottom"; else setFresh(true);
@@ -132,15 +136,63 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   async function deliver(m) {
     const link = m.link_type ? { type: m.link_type, ref: m.link_ref, label: m.link_label } : undefined;
     try {
-      await chatApi.send({ id: m.id, conversationId: cid, senderId: me, body: m.body, link });
+      if (pendingFiles.current.has(m.id)) {
+        await chatApi.sendFile({ id: m.id, conversationId: cid, file: pendingFiles.current.get(m.id), parentId: m.parent_id });
+        pendingFiles.current.delete(m.id);
+        // The live copy brings the stored file's id; a refresh covers a missed one.
+        refresh(false);
+      } else {
+        await chatApi.send({ id: m.id, conversationId: cid, senderId: me, body: m.body, link, parentId: m.parent_id, mentionIds: m.mention_ids });
+      }
       setStatus(m.id, undefined);
-    } catch {
+    } catch (e) {
       setStatus(m.id, "failed");
+      // A file can fail for a reason worth saying: its type, its size, or storage not being set up.
+      if (pendingFiles.current.has(m.id)) setError(e.message);
     }
   }
 
-  function send(body, link) {
-    const m = { id: crypto.randomUUID(), conversation_id: cid, sender_id: me, body, created_at: new Date().toISOString(), status: "sending" };
+  function sendFile(file, parentId) {
+    const m = { id: crypto.randomUUID(), conversation_id: cid, sender_id: me, body: file.name, parent_id: parentId, attachment: { name: file.name, size: file.size }, created_at: new Date().toISOString(), status: "sending" };
+    pendingFiles.current.set(m.id, file);
+    scrollTo.current = "bottom";
+    setMessages((cur) => mergeMessage(cur, m));
+    deliver(m);
+  }
+
+  const patchMessage = (id, change) => setMessages((cur) => cur.map((m) => (m.id === id ? { ...m, ...change } : m)));
+
+  async function react(m, emoji) {
+    try { patchMessage(m.id, { reactions: await chatApi.toggleReaction(m.id, emoji) }); } catch (e) { setError(e.message); }
+  }
+
+  // A failure comes back to the editor, which stays open with the text.
+  async function saveEdit(m, body) {
+    await chatApi.editMessage(m.id, body);
+    patchMessage(m.id, { body, edited_at: new Date().toISOString() });
+    reload();
+  }
+
+  async function remove(m) {
+    try {
+      await chatApi.deleteMessage(m.id);
+      patchMessage(m.id, { deleted_at: new Date().toISOString(), body: "Message deleted", reactions: {}, attachment: null });
+      if (replyTo?.id === m.id) setReplyTo(null);
+      reload();
+    } catch (e) { setError(e.message); }
+  }
+
+  async function openFile(id) {
+    // Opened before the wait, as browsers block a window opened after one.
+    const tab = window.open("", "_blank");
+    try {
+      const url = await chatApi.fileLink(id);
+      if (tab) { tab.opener = null; tab.location = url; } else window.location.assign(url);
+    } catch (e) { tab?.close(); setError(e.message); }
+  }
+
+  function send(body, link, extra = {}) {
+    const m = { id: crypto.randomUUID(), conversation_id: cid, sender_id: me, body, parent_id: extra.parentId, mention_ids: extra.mentionIds, created_at: new Date().toISOString(), status: "sending" };
     if (link) Object.assign(m, { link_type: link.type, link_ref: link.ref, link_label: link.label });
     scrollTo.current = "bottom";
     setMessages((cur) => mergeMessage(cur, m));
@@ -153,6 +205,8 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   }
 
   const names = new Map(members.map((x) => [x.profile_id, x.full_name]));
+  const allNames = members.map((x) => x.full_name);
+  const byId = new Map(messages.map((x) => [x.id, x]));
   const group = row.kind === "group";
   let lastDay = null;
   let lastSender = null;
@@ -166,7 +220,8 @@ export default function Conversation({ row, profile, visible, connected, onMessa
       <div key={m.id}>
         {showDay && <div className="msgr-day">{DAY_LABEL.format(new Date(m.created_at))}</div>}
         <Message message={m} mine={m.sender_id === me} name={showName ? senderName(names.get(m.sender_id) ?? null) : ""}
-          tick={tickState(m, me, readAt)} onRetry={() => retry(m)} />
+          tick={tickState(m, me, readAt)} onRetry={() => retry(m)} me={me} names={allNames} parent={byId.get(m.parent_id)}
+          onReply={() => setReplyTo(m)} onReact={(emoji) => react(m, emoji)} onEdit={(body) => saveEdit(m, body)} onDelete={() => remove(m)} onOpenFile={openFile} />
       </div>
     );
   });
@@ -176,8 +231,10 @@ export default function Conversation({ row, profile, visible, connected, onMessa
       <header className="msgr-pane-head">
         <span className="msgr-head-title">
           <strong>{chatTitle(row)}</strong>
-          {group && <small>{row.member_count} members</small>}
+          {group ? <small>{row.member_count} members</small> : status && <small>{status}</small>}
         </span>
+        {onFlags && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.pinned} onClick={() => onFlags({ pinned: !row.pinned })}>{row.pinned ? "Unpin" : "Pin"}</button>}
+        {onFlags && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.muted} onClick={() => onFlags({ muted: !row.muted })}>{row.muted ? "Unmute" : "Mute"}</button>}
         {group && <button type="button" className="msgr-icon-btn" onClick={onInfo} aria-label="Group info">ⓘ</button>}
         <button type="button" className="msgr-close" onClick={onClose} aria-label="Close chat">×</button>
       </header>
@@ -189,7 +246,8 @@ export default function Conversation({ row, profile, visible, connected, onMessa
       {fresh && <button type="button" className="msgr-fresh" onClick={() => { scrollTo.current = "bottom"; setMessages((c) => [...c]); }}>New messages</button>}
       {personLeft(row)
         ? <p className="msgr-note">This person has left</p>
-        : <Composer conversationId={cid} draft={draft} onDraft={onDraft} onSend={send} attachSlot={attachSlot} />}
+        : <Composer conversationId={cid} draft={draft} onDraft={onDraft} onSend={send} attachSlot={attachSlot} members={members} me={me} onFile={sendFile}
+            replyTo={replyTo} replyName={replyTo ? (replyTo.sender_id === me ? "yourself" : senderName(names.get(replyTo.sender_id) ?? null)) : ""} onCancelReply={() => setReplyTo(null)} />}
     </section>
   );
 }

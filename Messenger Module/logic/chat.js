@@ -8,7 +8,7 @@ export function badgeText(total) {
 }
 
 export function totalUnread(rows) {
-  return rows.reduce((sum, r) => sum + (r.unread || 0), 0);
+  return rows.reduce((sum, r) => sum + (r.muted ? 0 : r.unread || 0), 0);
 }
 
 export function checkBody(text) {
@@ -89,7 +89,7 @@ export function personLeft(row) {
 // Latest message first. Chats with no message yet go last.
 export function sortChats(rows) {
   const at = (r) => (r.last_message_at ? Date.parse(r.last_message_at) : 0);
-  return [...rows].sort((a, b) => at(b) - at(a));
+  return [...rows].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || at(b) - at(a));
 }
 
 export function initials(title) {

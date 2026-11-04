@@ -2,19 +2,19 @@ feature,area,priority,original,clone,notes
 Direct and group chats,chat,must,yes,yes,Live in CRM dock
 Unread counts,chat,must,yes,yes,Live in CRM dock
 Links to CRM records in chat,chat,should,no,yes,Our addition; live
-Edit and delete message,chat,must,yes,no,
-Reply and quote,chat,must,yes,no,
-Reactions,chat,must,yes,no,
-Mentions,chat,must,yes,no,
+Edit and delete message,chat,must,yes,yes,Sender only; delete clears the text
+Reply and quote,chat,must,yes,yes,
+Reactions,chat,must,yes,yes,Five quick reactions
+Mentions,chat,must,yes,yes,
 Rich text composer,chat,should,yes,no,Reuse TipTap
-File attachments,chat,must,yes,no,Files outside the database
+File attachments,chat,must,yes,partial,Built; needs R2 setup and has not run against real storage
 Typing indicator,chat,could,yes,no,
 Read receipts,chat,could,yes,partial,last_read_at exists; not shown per message
-Pin and mute chats,chat,should,yes,no,
-Message search,search,must,yes,no,
-People and file search,search,should,yes,no,
-Activity feed,activity,must,yes,no,
-Presence and status,presence,must,yes,no,
+Pin and mute chats,chat,should,yes,yes,
+Message search,search,must,yes,yes,Opens the chat; does not jump to the message yet
+People and file search,search,should,yes,partial,Chat names and message text; files listed in the Files section
+Activity feed,activity,must,yes,yes,
+Presence and status,presence,must,yes,yes,Updates every 2 minutes; not instant
 Teams,channels,must,yes,no,
 Team roles,channels,must,yes,no,
 Standard channels,channels,must,yes,no,

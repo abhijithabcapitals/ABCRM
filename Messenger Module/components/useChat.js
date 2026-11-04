@@ -58,7 +58,12 @@ export default function useChat(profileId) {
     if (!profileId) return undefined;
     reload();
     const stop = chatApi.subscribe(
-      (message) => {
+      (message, change) => {
+        if (change === "update") {
+          reload(); // an edit or delete can change the list's preview
+          listeners.current.forEach((fn) => { try { fn(message, change); } catch (e) { console.error("Messenger listener failed", e); } });
+          return;
+        }
         const mine = rowsRef.current.find((r) => r.id === message.conversation_id);
         if (!mine || message.sender_id !== profileId) reload();
         else {

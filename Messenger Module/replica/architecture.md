@@ -29,7 +29,7 @@ Plan: start on LiveKit Cloud's free plan, move to a VPS if usage passes the limi
 
 ## Schema
 
-Draft in `schema.sql`. It extends the three live `messenger_` tables and adds new ones. Rules: row security on every table, no admin read exception (as today), and writes that need checks go through functions.
+Phase 1 is in `Database Module/Messanger Base/migrations/004_chat_parity.sql`. Later phases are a draft in `schema.sql`. It extends the three live `messenger_` tables and adds new ones. Rules: row security on every table, no admin read exception (as today), and writes that need checks go through functions.
 
 Existing chat prunes messages older than 365 days, once its schedule is approved. Channels and meeting chats will need the user's decision on keeping that limit.
 
