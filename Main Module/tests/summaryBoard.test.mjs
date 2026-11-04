@@ -29,3 +29,17 @@ test("no animation or drag library is imported", () => {
     assert.doesNotMatch(read(f), /from\s+["'](framer-motion|react-dnd|@dnd-kit)/, f);
   }
 });
+
+test("a body that throws stays inside its card, and Retry remounts it", () => {
+  const src = read("SummaryCard.jsx");
+  assert.match(src, /getDerivedStateFromError/);
+  assert.match(src, /<BodyBoundary\s+key=\{attempt\}/);
+  assert.ok(src.indexOf("<BodyBoundary") < src.indexOf("<RenderBody"), "the render function should run inside the boundary");
+});
+
+test("a step returns keyboard focus to a move button, falling back when it is disabled", () => {
+  const src = read("SummaryBoard.jsx");
+  assert.match(src, /refocus\.current/);
+  assert.match(src, /\.disabled/);
+  assert.match(src, /\.focus\(/);
+});

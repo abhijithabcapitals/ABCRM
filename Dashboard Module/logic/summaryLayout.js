@@ -79,3 +79,11 @@ export function setGroupCollapsed(layout, ids, collapsed) {
   const rest = layout.collapsed.filter((c) => !ids.includes(c));
   return { ...layout, collapsed: collapsed ? [...rest, ...ids] : rest };
 }
+
+// While dragging: which card to swap with now. The card just swapped with is ignored until the pointer
+// leaves it, or a short card dragged over a tall one swaps back and forth under a still pointer.
+export function nextDragMove(lastTarget, over, dragId) {
+  if (!over || over === dragId) return { move: null, lastTarget: null };
+  if (over === lastTarget) return { move: null, lastTarget };
+  return { move: over, lastTarget: over };
+}

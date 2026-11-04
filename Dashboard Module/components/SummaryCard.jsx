@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 
 const Icon = ({ d }) => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
@@ -14,10 +14,27 @@ function Shimmer() {
   );
 }
 
+// A body that throws while rendering stays inside its own card.
+class BodyBoundary extends Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    return this.state.error ? this.props.fallback(this.state.error) : this.props.children;
+  }
+}
+
+// Calls the render function here, so the boundary above it also catches a throw from the function itself.
+const RenderBody = ({ render, data }) => render(data);
+
 // Title bar, collapse and move controls, plus loading, error and no-access states for the body.
 // The body is only asked for once the card is first expanded; collapsing keeps what was loaded.
 export default function SummaryCard({ card, collapsed, onToggle, onMove, first, last, dragHandlers, load, onOpen, children }) {
   const [state, setState] = useState({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
   const started = useRef(false);
 
   const request = useCallback(() => {
@@ -33,6 +50,7 @@ export default function SummaryCard({ card, collapsed, onToggle, onMove, first, 
   }, [collapsed, request]);
 
   const retry = () => {
+    setAttempt((n) => n + 1);
     setState({ status: "loading" });
     request();
   };
@@ -51,6 +69,13 @@ export default function SummaryCard({ card, collapsed, onToggle, onMove, first, 
       }
     : {};
 
+  const errorNote = (error) => (
+    <div className="sum-note sum-error">
+      <span>{error?.message || "Could not load this card"}</span>
+      <button type="button" className="sum-link" onClick={retry}>Retry</button>
+    </div>
+  );
+
   return (
     <div className={`sum-card${collapsed ? " is-collapsed" : ""}`}>
       <div className="sum-head">
@@ -68,14 +93,11 @@ export default function SummaryCard({ card, collapsed, onToggle, onMove, first, 
         <div className="sum-fold-inner" inert={collapsed}>
           {state.status === "loading" && <Shimmer />}
           {state.status === "error" && state.error?.noAccess && <div className="sum-note">No access to this data</div>}
-          {state.status === "error" && !state.error?.noAccess && (
-            <div className="sum-note sum-error">
-              <span>{state.error?.message || "Could not load this card"}</span>
-              <button type="button" className="sum-link" onClick={retry}>Retry</button>
-            </div>
-          )}
+          {state.status === "error" && !state.error?.noAccess && errorNote(state.error)}
           {state.status === "data" && (
-            <div className={`sum-body${onOpen ? " is-link" : ""}`} {...opener}>{children(state.data)}</div>
+            <BodyBoundary key={attempt} fallback={errorNote}>
+              <div className={`sum-body${onOpen ? " is-link" : ""}`} {...opener}><RenderBody render={children} data={state.data} /></div>
+            </BodyBoundary>
           )}
         </div>
       </div>

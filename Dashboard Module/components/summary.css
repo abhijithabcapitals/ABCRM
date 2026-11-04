@@ -30,6 +30,7 @@
 .is-collapsed .sum-chevron { transform: rotate(-90deg); }
 .sum-step { display: inline-flex; flex-shrink: 0; padding: 4px; background: none; border: 0; border-radius: 6px; color: #9ca3af; cursor: pointer; transition: background .12s ease, color .12s ease; }
 .sum-step:hover:not(:disabled) { background: var(--accent-weak); color: var(--accent); }
+.sum-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .sum-step:disabled { opacity: .35; cursor: default; }
 @media (pointer: coarse) { .sum-step { padding: 9px; } }
 

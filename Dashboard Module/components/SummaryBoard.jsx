@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  SUMMARY_CARDS, visibleCards, readLayout, saveLayout, mergeLayout, moveCard, stepCard, toggleCollapsed, setGroupCollapsed,
+  SUMMARY_CARDS, visibleCards, readLayout, saveLayout, mergeLayout, moveCard, stepCard, toggleCollapsed, setGroupCollapsed, nextDragMove,
 } from "../logic/summaryLayout.js";
 import SummaryCard from "./SummaryCard";
 import { BdBody, BankingBody, SetupBody, AccountingBody, HrBody, TaxBody, NotificationsBody } from "./summaryCards/DepartmentBodies";
@@ -33,6 +33,7 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
 
   const slots = useRef(new Map());
   const before = useRef(null);
+  const refocus = useRef(null);
   const drag = useRef(null);
   const [draggingId, setDraggingId] = useState(null);
   const zohoRequest = useRef(null);
@@ -54,6 +55,17 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     }
   }, [layout]);
 
+  // Reordering detaches the focused button, and the end of the list disables it: put focus back.
+  useLayoutEffect(() => {
+    const step = refocus.current;
+    refocus.current = null;
+    const slot = step && slots.current.get(step.id);
+    if (!slot) return;
+    const button = (dir) => slot.querySelector(`[aria-label$=" ${dir}"]`);
+    const same = button(step.delta < 0 ? "up" : "down");
+    (same.disabled ? button(step.delta < 0 ? "down" : "up") : same).focus();
+  }, [layout]);
+
   const show = (next) => {
     if (next.order !== layout.order) {
       before.current = new Map([...slots.current].map(([id, el]) => [id, el.getBoundingClientRect()]));
@@ -64,6 +76,12 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     if (next === layout) return;
     show(next);
     saveLayout(userId, next);
+  };
+
+  const step = (id, group, delta) => {
+    const next = stepCard(layout, group, id, delta);
+    if (next !== layout) refocus.current = { id, delta };
+    change(next);
   };
 
   const reset = () => change(mergeLayout(null, visible));
@@ -85,7 +103,7 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData(DRAG_TYPE, card.id);
     e.dataTransfer.setDragImage(slot, e.clientX - box.left, e.clientY - box.top);
-    drag.current = { id: card.id, group, start: layout, dropped: false, waitUntil: 0 };
+    drag.current = { id: card.id, group, start: layout, dropped: false, waitUntil: 0, lastTarget: null };
     // Changing the page inside dragstart can cancel the drag in Chrome.
     requestAnimationFrame(() => setDraggingId(card.id));
   };
@@ -101,10 +119,13 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     if (!d || d.group !== group) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    const target = e.target.closest?.("[data-card-id]")?.dataset.cardId;
-    if (!target || target === d.id || stillSliding(d)) return;
+    if (stillSliding(d)) return;
+    const over = e.target.closest?.("[data-card-id]")?.dataset.cardId;
+    const { move, lastTarget } = nextDragMove(d.lastTarget, over, d.id);
+    d.lastTarget = lastTarget;
+    if (!move) return;
     waitForSlide(d);
-    show(moveCard(layout, group, d.id, target));
+    show(moveCard(layout, group, d.id, move));
   };
 
   const onDrop = (e, group) => {
@@ -154,7 +175,7 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
                       card={card}
                       collapsed={layout.collapsed.includes(card.id)}
                       onToggle={() => change(toggleCollapsed(layout, card.id))}
-                      onMove={(delta) => change(stepCard(layout, group.id, card.id, delta))}
+                      onMove={(delta) => step(card.id, group.id, delta)}
                       first={i === 0}
                       last={i === cards.length - 1}
                       dragHandlers={{ draggable: true, onDragStart: (e) => startDrag(e, group.id, card), onDragEnd: endDrag }}

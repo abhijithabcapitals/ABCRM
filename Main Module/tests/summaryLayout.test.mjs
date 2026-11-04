@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   SUMMARY_CARDS, visibleCards, mergeLayout, readLayout, saveLayout,
-  moveCard, stepCard, toggleCollapsed, setGroupCollapsed,
+  moveCard, stepCard, toggleCollapsed, setGroupCollapsed, nextDragMove,
 } from "../../Dashboard Module/logic/summaryLayout.js";
 
 const mk = (id, group = "departments") => ({ id, group, title: id, tab: null, view: null });
@@ -92,4 +92,19 @@ test("setGroupCollapsed collapses or expands a set of cards", () => {
   const a = setGroupCollapsed({ ...base(), collapsed: ["tax"] }, ["bd", "hr"], true);
   assert.deepEqual(a.collapsed.sort(), ["bd", "hr", "tax"]);
   assert.deepEqual(setGroupCollapsed(a, ["bd", "hr"], false).collapsed, ["tax"]);
+});
+
+test("nextDragMove swaps once and ignores that card until the pointer leaves it", () => {
+  let step = nextDragMove(null, "b", "a");
+  assert.deepEqual(step, { move: "b", lastTarget: "b" });
+  step = nextDragMove(step.lastTarget, "b", "a");
+  assert.deepEqual(step, { move: null, lastTarget: "b" });
+  step = nextDragMove(step.lastTarget, "a", "a");
+  assert.deepEqual(step, { move: null, lastTarget: null });
+  assert.deepEqual(nextDragMove(step.lastTarget, "b", "a"), { move: "b", lastTarget: "b" });
+});
+
+test("nextDragMove clears the last card over a gap and moves on to a different card", () => {
+  assert.deepEqual(nextDragMove("b", undefined, "a"), { move: null, lastTarget: null });
+  assert.deepEqual(nextDragMove("b", "c", "a"), { move: "c", lastTarget: "c" });
 });
