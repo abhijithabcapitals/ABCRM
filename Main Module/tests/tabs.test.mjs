@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { barId, isTabBar } from "../src/jsx/DragTabs.js";
-import { GRANTABLE_TABS, moveTab, orderTabs, readTabOrder, toggleAllTabs } from "../src/tabs.js";
+import { GRANTABLE_TABS, moveTab, orderTabs, readTabOrder, resolveView, toggleAllTabs } from "../src/tabs.js";
 
 const every = GRANTABLE_TABS.map((t) => t.key);
 
@@ -38,4 +38,11 @@ test("a named bar keeps its identity when a tab is added; an unnamed one is know
   assert.equal(barId("HR", ["a", "b"]), barId("HR", ["a", "b", "c"]));
   assert.notEqual(barId("Status", ["a"]), barId("Status", ["z"]));
   assert.equal(barId(undefined, ["b", "a"]), "a,b");
+});
+
+test("ArdentTax (ASP) is a tab an admin can grant", () => assert.ok(GRANTABLE_TABS.some((t) => t.key === "ardentax" && t.label === "ArdentTax (ASP)")));
+test("a member without the ArdentTax tab cannot reach it", () => {
+  assert.notEqual(resolveView("ardentax", false, ["hr"]), "ardentax");
+  assert.equal(resolveView("ardentax", false, ["ardentax"]), "ardentax");
+  assert.equal(resolveView("ardentax", true, []), "ardentax");
 });

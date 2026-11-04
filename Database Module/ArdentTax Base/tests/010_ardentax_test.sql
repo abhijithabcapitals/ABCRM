@@ -46,6 +46,15 @@ begin
   perform at_check('a letter cannot come from a letter', at_refused(format($f$select ardentax_document_create(jsonb_build_object('request_id', gen_random_uuid(), 'doc_type', 'letter', 'source_quote_id', %L::uuid))$f$, l.id), 'Choose a quote'));
 end $$;
 
+do $$
+declare q ardentax_documents; v2 ardentax_documents;
+begin
+  q := ardentax_document_create(at_req('quote'));
+  v2 := ardentax_document_revise(q.id, at_req('quote'));
+  perform ardentax_document_create(jsonb_build_object('request_id', gen_random_uuid(), 'doc_type', 'letter', 'source_quote_id', q.id));
+  perform at_check('a revised quote cannot get a second letter', at_refused(format($f$select ardentax_document_create(jsonb_build_object('request_id', gen_random_uuid(), 'doc_type', 'letter', 'source_quote_id', %L::uuid))$f$, v2.id), 'already has its engagement letter'));
+end $$;
+
 -- ── Totals ───────────────────────────────────────────────────────────
 do $$
 declare f jsonb;

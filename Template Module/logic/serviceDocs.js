@@ -23,6 +23,8 @@ export function addLine(lines, name, fee) {
 }
 
 export const DEPARTMENTS = ["Business Setup", "Accounting", "Tax Compliance", "Business Banking"];
+// ArdentTax has its own tab, not a Service Desk tab, but its numbering is edited with the others.
+export const NUMBERING_DEPARTMENTS = [...DEPARTMENTS, "ArdentTax (ASP)"];
 
 export function serviceTotals(lines, mode = "inclusive", rate = 5) {
   const net = lines.reduce((s, l) => s + Number(l.amount || 0), 0);

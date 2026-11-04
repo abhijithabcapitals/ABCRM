@@ -150,7 +150,7 @@ begin
     select * into q from ardentax_documents where id = v_quote and doc_type = 'quote';
     if q.id is null then raise exception 'Choose a quote for this engagement letter'; end if;
     perform pg_advisory_xact_lock(hashtext('ardentax:' || q.document_number));
-    if exists (select 1 from ardentax_documents where doc_type = 'letter' and source_quote_id = q.id) then
+    if exists (select 1 from ardentax_documents l join ardentax_documents s on s.id = l.source_quote_id where l.doc_type = 'letter' and s.document_number = q.document_number) then
       raise exception 'Quote % already has its engagement letter', q.document_number;
     end if;
     if d is null then d := jsonb_set(q.details, '{docType}', '"letter"'); end if;

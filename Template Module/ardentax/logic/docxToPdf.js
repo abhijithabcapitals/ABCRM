@@ -149,6 +149,13 @@ export async function docxToPdf(docxBlob, opts = {}) {
       row.querySelectorAll("p").forEach((para) => { para.style.cssText += ";margin:0;font-size:0;line-height:0;min-height:0"; });
       row.querySelectorAll("td").forEach((cell) => { cell.style.padding = "0"; });
     });
+    // Aptos is not installed on most PCs, and without a fallback the browser would use a serif font.
+    host.querySelectorAll("[style*='font-family']").forEach((el) => {
+      const family = el.style.fontFamily.replace(/"/g, "");
+      if (/^(Aptos|Calibri)$/i.test(family)) el.style.fontFamily = `${family}, Calibri, Carlito, "Segoe UI", Arial, sans-serif`;
+    });
+    // Word aligns a cell's paragraph on its own, while a centred table would pass its alignment on in the browser.
+    host.querySelectorAll("td").forEach((cell) => { if (!cell.style.textAlign) cell.style.textAlign = "left"; });
     // The capture paints a wrapped span's background over its whole box, hiding text beside it. One span per word avoids that.
     host.querySelectorAll("span[style*='background-color']").forEach((span) => {
       if (span.children.length || !/\s/.test(span.textContent.trim())) return;

@@ -24,6 +24,7 @@ const ForcePasswordChange = lazy(() => import("./components/ForcePasswordChange"
 const Settings = lazy(() => import("./components/Settings"));
 const MyTasks = lazy(() => import("./components/MyTasks"));
 const TemplateHub = lazy(() => import("@template-hub/components/TemplateHub"));
+const ArdentTaxTab = lazy(() => import("@template-hub/ardentax/components/ArdentTaxTab"));
 const BusinessDevelopment = lazy(() => import("./components/BusinessDevelopment"));
 const TaxHub = lazy(() => import("@client-module/crm/TaxHub"));
 const ClientsHub = lazy(() => import("@client-module/crm/ClientsHub"));
@@ -545,6 +546,7 @@ export default function App() {
         )}
         {view === "mytasks" && <MyTasks profile={profile} />}
         {view === "quotations" && <TemplateHub profile={profile} />}
+        {view === "ardentax" && <ArdentTaxTab profile={profile} />}
         {view === "clients" && <ClientsHub profile={profile} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "business-banking" && <BusinessBanking profile={profile} />}

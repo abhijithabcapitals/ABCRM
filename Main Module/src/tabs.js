@@ -7,6 +7,7 @@ export const GRANTABLE_TABS = [
   { key: "business-banking", label: "Business Banking" },
   { key: "accounts", label: "Accounting" },
   { key: "quotations", label: "Template Hub" },
+  { key: "ardentax", label: "ArdentTax (ASP)" },
   { key: "clients", label: "Clients" },
   { key: "hr", label: "HR" },
   { key: "tax", label: "Tax Compliance" },
