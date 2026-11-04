@@ -35,19 +35,15 @@ Claude OAuth is not implemented.
 
 ## Bruno route
 
-Bruno calls the Edge Function `supabase/crm-agent/` (`index.ts`, `logic.js`, `tools.js`) for agent `AGT-14-CRM`. Claude answers
-with four tools: `list_my_tables`, `describe_table`, `read_rows` and `change_rows`. Every data call uses the person's own login, so
-row security applies, and `logic.js` adds a table-to-tab map, because the database does not check module tabs. A table not in
-the map is refused. Changes take effect at once, with no confirmation, and only on the tables in `CHANGEABLE` in `logic.js`.
+Bruno calls the Edge Function `supabase/crm-agent/` (`index.ts`, `logic.js`) for agent `AGT-14-CRM`. It reads lead numbers
+(`LD-YYYY-n`) from the newest message, up to 5, looks each up with the database function `crm_agent_lead_status_for_me` using
+the person's own login, and replies with stage, status, priority, owner, onboarding and dates (Dubai time). With no number, or
+no lead the person can see, it replies `NO_INFO`. No AI model, service role or secrets; `cost_usd` is always 0. Logs hold reason
+codes only. Tests: `node --test "Agent Module/14_CRM_Agent/tests/crmAgentChat.test.mjs"`. Deploy steps are in the Router
+Agent README.
 
-The model comes from Settings > Agents, and the key from Vault as `crm_cred:AGENT_KEY_AGT_14_CRM`, entered on that screen. When
-the data gives no answer, the reply is `NO_INFO`. Logs and `crm_agent_tool_calls` hold codes, tables and actions only, never
-inputs or results.
-
-Add a table to `CHANGEABLE` only after checking that its screens write to it directly, so a direct change respects its rules.
-
-Tests: `node --test "Agent Module/14_CRM_Agent/tests/crmAgentRules.test.mjs" "Agent Module/14_CRM_Agent/tests/crmAgentTools.test.mjs"`.
-Deploy steps are in the Router Agent README.
+A version that answers in plain words through Claude, using a Console API key, is at git `be5c18b`, with its design in
+`docs/2026-11-04-crm-agent-claude-design.md`. A Claude subscription cannot be called from the server.
 
 ## Claude plan usage
 

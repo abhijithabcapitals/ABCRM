@@ -1,6 +1,6 @@
 # CRM Agent through Claude: design
 
-Date: 2026-11-04. Status: awaiting user review. Branch: `router-agent`, worktree `D:\Abhijith Projects\CRM-router`.
+Date: 2026-11-04. Status: built and reviewed, not in use. The user chose fixed answers with no API key on 2026-11-04, so the code was replaced; this version is at git `be5c18b`. Branch: `router-agent`, worktree `D:\Abhijith Projects\CRM-router`.
 
 This replaces the no-AI design in `2026-11-04-crm-agent-in-bruno-design.md` and its plan. Bruno's own design stays in `Agent Module/00_Router_Agent/docs/2026-11-04-router-agent-design.md`.
 

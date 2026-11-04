@@ -25,3 +25,4 @@ test("ranking uses the CRM Agent's key", () => assert.match(src, /credential_get
 test("each agent gets its own history", () => assert.match(src, /agentHistory\(ctx\.recent, question, id\)/));
 test("each route has its own time limit", () => assert.match(src, /agentTimeoutMs\(id\)/));
 test("an agent that records its own usage is not recorded twice", () => assert.match(src, /usage_recorded/));
+test("a free agent adds no usage rows", () => assert.match(src, /body\.cost_usd > 0/));

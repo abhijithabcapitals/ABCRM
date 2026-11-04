@@ -1,6 +1,6 @@
 # CRM Agent in Bruno: design
 
-Date: 2026-11-04. Status: replaced by `2026-11-04-crm-agent-claude-design.md`. Kept for history; do not build from it. Branch: `router-agent`, worktree `D:Abhijith ProjectsCRM-router`.
+Date: 2026-11-04. Status: in use again, chosen by the user on 2026-11-04 over the Claude version. Differences: the migration is `014_crm_agent_chat.sql`, and only the newest message's lead numbers are read. Branch: `router-agent`, worktree `D:Abhijith ProjectsCRM-router`.
 
 ## Goal
 

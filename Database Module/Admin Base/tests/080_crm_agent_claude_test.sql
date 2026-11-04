@@ -43,8 +43,6 @@ select t8.fails('a person cannot write the log', $$select crm_agent_chat_log(nul
 reset role;
 
 select t8.ok('the agent is renamed', (select name = 'CRM Agent' from public.agents where id = 'AGT-14-CRM'));
-select t8.ok('the agent role describes it', (select role like 'Reads and changes CRM data%' from public.agents where id = 'AGT-14-CRM'));
-select t8.ok('the agent uses its settings', (select runtime = 'gateway' from public.agents where id = 'AGT-14-CRM'));
 
 drop table public.crm_test_rows;
 drop schema t8 cascade;

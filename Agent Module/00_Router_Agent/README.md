@@ -24,16 +24,17 @@ The function logs a short reason code for each fixed reply, such as `no_credit` 
 
 Each step needs approval. Keep this order. Run the commands from `Database Module/tools` in Git Bash, using the CLI set up in its README.
 
-> **Warning:** step 7 removes the Support chat from Hot Alerts. If it goes live before step 6, staff lose that chat and Bruno answers `Opps! I dont Know` to everyone without access.
+> **Warning:** step 6 removes the Support chat from Hot Alerts. If it goes live before step 5, staff lose that chat and Bruno answers `Opps! I dont Know` to everyone without access.
 
 > **Warning:** do not redeploy `ceo-agent` from the repo. That code reads `public.email_saved_facts` and `public.email_drafts`, which do not exist live. The live function is older code plus router mode.
 
-Already live from the first release: `Router Base/migrations/001_router.sql`, and `support-agent`, `bd-agent` and `ceo-agent` with router mode.
+Already live: `Router Base` migrations 001 and 002, `Admin Base/migrations/013_crm_agent_claude.sql`, and `support-agent`, `bd-agent` and `ceo-agent` with router mode.
 
-1. Apply `Database Module/Admin Base/migrations/013_crm_agent_claude.sql` and `Database Module/Router Base/migrations/002_recent_agent.sql` to project `pnnakrhfzyxudjaghoxx`.
+1. Apply `Database Module/Admin Base/migrations/014_crm_agent_chat.sql` to project `pnnakrhfzyxudjaghoxx`.
 2. Deploy `crm-agent`, then `router-agent`, with JWT verification on:
 
    ```bash
+   rm -rf supabase/functions/crm-agent supabase/functions/router-agent
    mkdir -p supabase/functions/crm-agent supabase/functions/router-agent
    cp "../../Agent Module/14_CRM_Agent/supabase/crm-agent/"* supabase/functions/crm-agent/
    cp "../../Agent Module/00_Router_Agent/supabase/router-agent/"* supabase/functions/router-agent/
@@ -41,10 +42,11 @@ Already live from the first release: `Router Base/migrations/001_router.sql`, an
    npx supabase functions deploy router-agent --project-ref pnnakrhfzyxudjaghoxx --use-api
    ```
 
-3. Enter a Console API key in Settings > Agents on the CRM Agent. Never paste it in chat.
-4. Give testers credit in Settings > Agents, and tick them for the CRM Agent. Admins need this too.
-5. Test through a local copy of these screens, with the real Messenger dock, because merging is otherwise their first real test. Use an admin and a non-admin. Try a permitted table, a table outside their tabs, a sensitive column, an instruction hidden in a test note, and a small change on test data.
-6. Switch agents on, tick staff and give them credit.
-7. Merge to `main`, push and run `npm run deploy:cloudflare` in `Main Module`. This removes the Support chat and Email Agent tab.
+3. Tick testers for the CRM Agent in Settings > Agents, and give them credit, which Bruno requires although this agent is free. Admins need this too.
+4. Test through a local copy of these screens, with the real Messenger dock, because merging is otherwise their first real test. Use an admin and a non-admin. Try a lead they may view, one they may not, and a question with no lead number.
+5. Switch agents on, tick staff and give them credit.
+6. Merge to `main`, push and run `npm run deploy:cloudflare` in `Main Module`. This removes the Support chat and Email Agent tab.
 
-To undo, restore the previous `router-agent`, then run the rollbacks: `Admin Base/migrations/rollback/013_crm_agent_claude_rollback.sql`, `Router Base/migrations/rollback/002_rollback.sql`. `Router Base/migrations/rollback/001_rollback.sql` also deletes all saved names and chats.
+Bruno's choice between several agents needs a key saved on the CRM Agent. With none, Bruno tries the person's first two agents in order. BD and CEO fail until the OpenRouter budget is fixed, and Support until its error is found.
+
+To undo, restore the previous `router-agent`, then run `Admin Base/migrations/rollback/014_crm_agent_chat_rollback.sql`. `Router Base/migrations/rollback/001_rollback.sql` also deletes all saved names and chats.

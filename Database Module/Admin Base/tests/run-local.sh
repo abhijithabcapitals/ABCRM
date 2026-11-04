@@ -12,7 +12,7 @@ trap '"$BIN/pg_ctl.exe" -D "$DATA" -m immediate stop >/dev/null; rm -rf "$DATA"'
 PSQL=("$BIN/psql.exe" -U postgres -p "$PORT" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -q)
 "${PSQL[@]}" -f "$HERE/000_stub.sql" >/dev/null || exit 1
 for pass in 1 2; do
-  for f in "$HERE"/../migrations/001_*.sql "$HERE"/../migrations/002_*.sql "$HERE"/../migrations/003_*.sql "$HERE"/../migrations/004_*.sql "$HERE"/../migrations/005_*.sql "$HERE"/../migrations/009_*.sql "$HERE"/../migrations/011_*.sql "$HERE"/../migrations/012_*.sql "$HERE"/../migrations/013_*.sql; do
+  for f in "$HERE"/../migrations/001_*.sql "$HERE"/../migrations/002_*.sql "$HERE"/../migrations/003_*.sql "$HERE"/../migrations/004_*.sql "$HERE"/../migrations/005_*.sql "$HERE"/../migrations/009_*.sql "$HERE"/../migrations/011_*.sql "$HERE"/../migrations/012_*.sql "$HERE"/../migrations/013_*.sql "$HERE"/../migrations/014_*.sql; do
     "${PSQL[@]}" -f "$f" >/dev/null 2>"$DATA/err" || { echo "FAILED pass $pass: $f"; cat "$DATA/err"; exit 1; }
   done
   echo "migrations pass $pass ok"
@@ -32,6 +32,9 @@ echo "$OUT070" | grep -E "ok |FAILED|ERROR|passed|error"
 OUT080="$("${PSQL[@]}" -t -f "$HERE/080_crm_agent_claude_test.sql" 2>&1)"; RC080=$?
 echo "$OUT080" | grep -E "ok |FAILED|ERROR|passed|error"
 [ "$RC080" -eq 0 ] || { echo "FAILED 080_crm_agent_claude_test.sql exit $RC080"; exit 1; }
+OUT090="$("${PSQL[@]}" -t -f "$HERE/090_crm_agent_chat_test.sql" 2>&1)"; RC090=$?
+echo "$OUT090" | grep -E "ok |FAILED|ERROR|passed|error"
+[ "$RC090" -eq 0 ] || { echo "FAILED 090_crm_agent_chat_test.sql exit $RC090"; exit 1; }
 # A migration pass must keep data: 050 wrote calls_used = 77, rerun 009 and check it survived. Lost data stops the run.
 "${PSQL[@]}" -f "$HERE/../migrations/009_zoho_finance.sql" >/dev/null 2>&1 || { echo "FAILED 009 rerun"; exit 1; }
 KEPT="$("${PSQL[@]}" -t -A -c "select case when (select calls_used from public.zoho_finance_snapshot) = 77 and (select count(*) from public.zoho_finance_snapshot) = 1 then 'ok 009 rerun keeps data' else 'FAILED 009 rerun lost data' end")" || { echo "FAILED 009 rerun check"; exit 1; }
@@ -76,3 +79,9 @@ OUT013D="$("${PSQL[@]}" -t -A -c "select case when name = 'CRM Manager' and role
 echo "$OUT013D"
 case "$OUT013D" in "ok "*) ;; *) exit 1 ;; esac
 "${PSQL[@]}" -f "$HERE/../migrations/013_crm_agent_claude.sql" && echo "ok 013 reapplies after rollback"
+# Rollback 014 twice, check the function is gone, then migrate again.
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../migrations/rollback/014_crm_agent_chat_rollback.sql" || { echo "FAILED rollback 014"; exit 1; }; done
+OUT014="$("${PSQL[@]}" -t -A -c "select case when to_regprocedure('public.crm_agent_lead_status_for_me(text)') is null then 'ok rollback 014 clean' else 'FAILED rollback 014 left the function' end")"
+echo "$OUT014"
+[ "$OUT014" = "ok rollback 014 clean" ] || exit 1
+"${PSQL[@]}" -f "$HERE/../migrations/014_crm_agent_chat.sql" && echo "ok 014 reapplies after rollback"
