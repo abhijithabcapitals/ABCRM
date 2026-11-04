@@ -1,23 +1,26 @@
 import { useState } from "react";
+import ChatList from "./ChatList.jsx";
+import Conversation from "./Conversation.jsx";
 
-// Two panes. Later screens fill the list and conversation panes; until then they hold plain placeholders.
+// Two panes: the list and the open chat. On phones only one shows at a time.
+// Drafts live here, so a half-typed message survives switching chats and closing the panel.
 export default function MessengerPanel({ profile, rows, reload, onMessage, visible, connected = true, error = "", onClose }) {
-  const [selected] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const row = rows.find((r) => r.id === selected);
 
   return (
-    <div className={`msgr-panel ${selected ? "msgr-show-chat" : "msgr-show-list"}`} hidden={!visible} role="dialog" aria-label="Team chat">
+    <div className={`msgr-panel ${row ? "msgr-show-chat" : "msgr-show-list"}`} hidden={!visible} role="dialog" aria-label="Team chat">
       {!connected && <div className="msgr-reconnect">Reconnecting…</div>}
       <div className="msgr-panes">
-        <section className="msgr-list-pane" aria-label="Chats">
-          <header className="msgr-pane-head">
-            <strong>Chats</strong>
-            <button type="button" className="msgr-close" onClick={onClose} aria-label="Close chat">×</button>
-          </header>
-          {error && <p className="msgr-note">{error}</p>}
-        </section>
-        <section className="msgr-chat-pane" aria-label="Conversation">
-          <p className="msgr-empty">Select a chat</p>
-        </section>
+        <ChatList rows={rows} selectedId={selected} myId={profile?.id} error={error} onSelect={setSelected} onRetry={reload} onClose={onClose} />
+        {row ? (
+          <Conversation key={row.id} row={row} profile={profile} visible={visible} connected={connected} onMessage={onMessage} reload={reload}
+            draft={drafts[row.id] || ""} onDraft={(text) => setDrafts((d) => ({ ...d, [row.id]: text }))}
+            onBack={() => setSelected(null)} onClose={onClose} />
+        ) : (
+          <section className="msgr-chat-pane" aria-label="Conversation"><p className="msgr-empty">Select a chat</p></section>
+        )}
       </div>
     </div>
   );

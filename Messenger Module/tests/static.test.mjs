@@ -156,3 +156,30 @@ test("useChat clears the previous person's chats when the profile changes, and i
   assert.match(src, /apply\(\[\]\);\s*setError\(""\);\s*setConnected\(true\);\s*if \(!profileId\) return undefined;/);
   assert.match(src, /try \{ fn\(message\); \} catch/);
 });
+
+test("Conversation uses the chat rules and checks visibility before markRead", () => {
+  const src = read("components/Conversation.jsx");
+  assert.match(src, /tickState\(/);
+  assert.match(src, /dayKey\(/);
+  assert.match(src, /senderName\(/);
+  assert.match(src, /visibilityState/);
+  const open = src.indexOf("visibilityState");
+  const mark = src.indexOf("markRead(");
+  assert.ok(open > -1 && mark > -1 && open < mark, "visibilityState must be checked before markRead");
+});
+
+test("Composer checks the body with checkBody", () => {
+  assert.match(read("components/Composer.jsx"), /checkBody\(/);
+});
+
+test("list, conversation and composer never render a raw error.message", () => {
+  for (const f of ["ChatList", "Conversation", "Composer", "Message"]) {
+    assert.doesNotMatch(read(`components/${f}.jsx`), /(e|err|error)\.message/, `${f} renders .message`);
+  }
+});
+
+test("web links open in a new tab with the opener cut", () => {
+  const src = read("components/Message.jsx");
+  assert.match(src, /target="_blank"/);
+  assert.match(src, /noopener/);
+});
