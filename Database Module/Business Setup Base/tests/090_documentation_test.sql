@@ -65,6 +65,24 @@ select public.bs_check('scope of work is kept on the line',
   (select lines -> 0 ->> 'scope' = 'Mainland licence' from public.hub_documents where id = pg_temp.fx('scope')::uuid));
 select public.bs_expect_error($$select pg_temp.mkq('Business Setup', '[{"description":"Neg","amount":-5}]')$$, 'Enter a fee');
 
+select public.bs_expect_error($$select pg_temp.mkq('Business Setup', '[{"description":"U","amount":10,"fee_item_id":"00000000-0000-0000-0000-0000000000ee"}]')$$, 'Unknown fee item');
+select public.bs_expect_error($$select pg_temp.mkq('Business Setup', '[{"description":"M","amount":10,"fee_item_id":"not-an-id"}]')$$, 'not valid');
+select pg_temp.mk('blankid', 'Business Setup', '[{"description":"B","amount":100,"fee_item_id":""}]');
+select public.bs_check('an empty fee item id counts as none and uses 5', (select vat_amount = 5 from public.hub_documents where id = pg_temp.fx('blankid')::uuid));
+
+-- ── paying a quote that carries VAT ──
+select public.bs_as(null);
+insert into public.client_master (client_id, legal_name, data) values ('CL990090', 'Pay Vat LLC', '{}') on conflict do nothing;
+insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL990090', 'Done') on conflict (client_id) do update set kyc_state = 'Done';
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select pg_temp.mk('payq', 'Business Setup', '[{"description":"Pay","amount":1000}]', '{"client_id":"CL990090"}');
+select public.business_setup_quote_accept(pg_temp.fx('payq')::uuid) as ignored \gset
+select public.bs_check('a 1000 line at 5% has total 1050', (select total_amount = 1050 from public.hub_documents where id = pg_temp.fx('payq')::uuid));
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('payq'), 'amount', 1051)), 'balance');
+select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.fx('payq'), 'amount', 1050)) as ignored \gset
+select public.bs_check('paying 1050 leaves the balance at 0', (business_setup_quote_balance(pg_temp.fx('payq')::uuid) ->> 'outstanding')::numeric = 0);
+
 -- ── a letter keeps the quote's stored amounts ──
 select public.bs_as(null);
 update public.hub_documents set status = 'accepted' where id = pg_temp.fx('mixed')::uuid;

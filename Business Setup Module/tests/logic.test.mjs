@@ -188,3 +188,32 @@ test("the fee list handles an empty amount and edits the VAT rate", () => {
   assert.doesNotMatch(fm, /name: "default_amount"[^}]*required: true/);
   assert.match(fm, /r\.default_amount === null/);
 });
+
+// ── Fix round 1: the screen rounds as the database does, in whole fils ──
+test("line VAT rounds half up exactly: 42.70 and 10.10 at 5%", () => {
+  assert.equal(lineTotals([{ amount: 42.7, vat_rate: 5 }]).vat, 2.14);
+  assert.equal(lineTotals([{ amount: 10.1, vat_rate: 5 }]).vat, 0.51);
+  assert.deepEqual(lineTotals([{ amount: 42.7, vat_rate: 5 }]), { net: 42.7, vat: 2.14, total: 44.84 });
+});
+
+test("line VAT matches an exact integer half-up calculation for every amount from 0.01 to 3000.00", () => {
+  for (let f = 1; f <= 300000; f++) {
+    const want = Math.floor((f * 5 + 50) / 100);   // integer fils, half up
+    const got = Math.round(lineTotals([{ amount: f / 100, vat_rate: 5 }]).vat * 100);
+    if (got !== want) assert.fail(`${f / 100}: showed ${got} fils, expected ${want}`);
+  }
+});
+
+test("a fee with more than two decimals is refused, two are fine, and the fee input steps by 0.01", () => {
+  assert.equal(lineError([{ service_name: "Visa", amount: "10.555" }]), "A fee can have at most two decimals.");
+  assert.equal(lineError([{ service_name: "Visa", amount: "33.33" }]), null);
+  assert.equal(lineError([{ service_name: "Visa", amount: 10.5 }]), null);
+  const flow = readFileSync(fileURLToPath(new URL("../components/NewServiceFlow.jsx", import.meta.url)), "utf8");
+  assert.match(flow, /step="0\.01"/);
+});
+
+test("revising a quote whose lines included VAT says that VAT is now added on top", () => {
+  const flow = readFileSync(fileURLToPath(new URL("../components/NewServiceFlow.jsx", import.meta.url)), "utf8");
+  assert.match(flow, /revises\.vat_mode !== "exclusive"/);
+  assert.match(flow, /This quote's lines included VAT\. Check each fee, as VAT is now added on top\./);
+});

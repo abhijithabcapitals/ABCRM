@@ -43,6 +43,7 @@ export default function NewServiceFlow({ w, clientId, caseId = null, revises, on
     <Modal wide title={revises ? `Revise ${revises.document_number}` : caseId ? "New quote" : "New service"} onClose={onClose}>
       <ErrorNote message={error || fees.error || templates.error} />
       <datalist id="bs-fee-items">{active.map((f) => <option key={f.id} value={f.name}>{f.grp}</option>)}</datalist>
+      {revises && revises.vat_mode && revises.vat_mode !== "exclusive" && <p><small>This quote's lines included VAT. Check each fee, as VAT is now added on top.</small></p>}
       <div className="bk-grid">
         <div className="bk-field"><label htmlFor="bs-tpl">Quote template <em>*</em></label>
           <select id="bs-tpl" value={template} onChange={(e) => setTemplate(e.target.value)}>{(templates.data || []).filter((t) => t.active).map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</select></div>
@@ -53,7 +54,7 @@ export default function NewServiceFlow({ w, clientId, caseId = null, revises, on
           <div className="bk-field"><label htmlFor={`bs-s${i}`}>Service <em>*</em></label><input id={`bs-s${i}`} list="bs-fee-items" value={r.service_name} onChange={(e) => pickName(i, e.target.value)} /></div>
           <div className="bk-field"><label htmlFor={`bs-a${i}`}>Action</label><select id={`bs-a${i}`} value={r.action} onChange={(e) => set(i, { action: e.target.value })}>{ACTIONS.map((a) => <option key={a}>{a}</option>)}</select></div>
           <div className="bk-field"><label htmlFor={`bs-f${i}`}>Fee (AED) <em>*</em></label>
-            <input id={`bs-f${i}`} type="number" step="any" min="0" value={r.amount} placeholder={r.stored_amount != null ? String(r.stored_amount) : ""} onChange={(e) => set(i, { amount: e.target.value })} />
+            <input id={`bs-f${i}`} type="number" step="0.01" min="0" value={r.amount} placeholder={r.stored_amount != null ? String(r.stored_amount) : ""} onChange={(e) => set(i, { amount: e.target.value })} />
             {r.amount === "" && r.stored_amount != null && <Button onClick={() => set(i, { amount: r.stored_amount })}>Use {money(r.stored_amount)}</Button>}</div>
           <div className="bk-field"><label htmlFor={`bs-c${i}`}>Scope of work</label><input id={`bs-c${i}`} value={r.scope || ""} onChange={(e) => set(i, { scope: e.target.value })} /></div>
           <div className="bk-field"><label htmlFor={`bs-r${i}`}>Remarks</label><input id={`bs-r${i}`} value={r.remarks || ""} onChange={(e) => set(i, { remarks: e.target.value })} /></div>

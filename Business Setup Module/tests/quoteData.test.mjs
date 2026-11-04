@@ -47,7 +47,7 @@ test("a missing or bad rate falls back to the default", () => {
 });
 
 test("net, VAT and total come from the stored amounts, with USD from the same rate", () => {
-  const c = quoteContext({ ...base, lines: [{ service_name: "A", amount: 1000 }, { service_name: "B", amount: 500 }], vat_amount: 50, total_amount: 1550 }, ifza, 3.6725);
+  const c = quoteContext({ ...base, lines: [{ service_name: "A", amount: 1000 }, { service_name: "B", amount: 500 }], vat_mode: "exclusive", vat_amount: 50, total_amount: 1550 }, ifza, 3.6725);
   assert.equal(c.net, "1,500");
   assert.equal(c.vat, "50");
   assert.equal(c.total, "1,550");
@@ -59,8 +59,9 @@ test("net, VAT and total come from the stored amounts, with USD from the same ra
 });
 
 test("a line's own VAT is listed for templates that show it", () => {
-  const c = quoteContext({ ...base, lines: [{ service_name: "A", amount: 1000, vat_rate: 5 }, { service_name: "B", amount: 500, vat_rate: 0 }], vat_amount: 50, total_amount: 1550 }, ifza, 3.6725);
+  const c = quoteContext({ ...base, lines: [{ service_name: "A", amount: 1000, vat_rate: 5 }, { service_name: "B", amount: 500, vat_rate: 0 }], vat_mode: "exclusive", vat_amount: 50, total_amount: 1550 }, ifza, 3.6725);
   assert.deepEqual(c.items.map((i) => [i.vat, i.vat_rate]), [["50", 5], ["0", 0]]);
+  assert.equal(quoteContext({ ...base, vat_mode: "exclusive", lines: [{ service_name: "A", amount: 42.7, vat_rate: 5 }], vat_amount: 2.14, total_amount: 44.84 }, ifza, 3.6725).items[0].vat, "2.14");
 });
 
 test("the built-in quote and letter get net and VAT and the lines say when a fee carries no VAT", async () => {
@@ -99,4 +100,10 @@ test("the built-in quote shows net, VAT and total for a Business Setup quote, an
 test("the built-in letter shows net, VAT and total with line VAT", () => {
   const t = renderBuiltIn("Service_Engagement_Template.docx", { ...letterData(bsDoc, {}, {}, []), ...lineVatData(bsDoc) });
   assert.match(t, /Net amount\s*1,500/); assert.match(t, /Total\s*1,550/);
+});
+
+test("an older quote (VAT inside the fee, or none) shows the sum of its lines as the net and no per-line VAT", () => {
+  const old = quoteContext({ ...base, vat_mode: "inclusive", lines: [{ service_name: "A", amount: 1000 }, { service_name: "B", amount: 500 }], vat_amount: 71.43, total_amount: 1500 }, ifza, 3.6725);
+  assert.equal(old.net, "1,500"); assert.equal(old.vat, "71.43"); assert.equal(old.total, "1,500");
+  assert.deepEqual(old.items.map((i) => [i.vat, i.vat_rate]), [["", null], ["", null]]);
 });

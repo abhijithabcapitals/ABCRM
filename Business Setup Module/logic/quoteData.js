@@ -13,26 +13,29 @@ const dubaiDate = (iso) => {
 export function quoteContext(quote, template, usdRate) {
   const rate = Number(usdRate) > 0 ? Number(usdRate) : DEFAULT_USD_RATE;
   const lines = quote.lines || [];
+  const exclusive = quote.vat_mode === "exclusive";
   const items = lines.map((l, i) => ({
     sl: i + 1,
     label: l.service_name || l.description || "",
     amount: aed(l.amount),
     amount_usd: usd(l.amount, rate),
     remarks: l.remarks || "",
-    vat: aed(Math.round(Number(l.amount || 0) * Number(l.vat_rate ?? 5)) / 100),
-    vat_rate: Number(l.vat_rate ?? 5),
+    // A line's own VAT is known only for a quote issued with line VAT (exclusive); older quotes had VAT inside the fee or none.
+    vat: exclusive ? aed(Math.floor((Math.round(Number(l.amount || 0) * 100) * Number(l.vat_rate ?? 5) + 50) / 100) / 100) : "",
+    vat_rate: exclusive ? Number(l.vat_rate ?? 5) : null,
   }));
-  // Net + VAT = total for every VAT mode: the database stores the VAT and the total, and the net is what is left.
   const vat = Number(quote.vat_amount || 0);
   const totalAmount = Number(quote.total_amount || 0);
+  // Exclusive: the total is net plus VAT. Any other mode: the lines already add up to the total, so the net is their sum.
+  const netAmount = exclusive ? totalAmount - vat : lines.reduce((n, l) => n + Number(l.amount || 0), 0);
   return {
     template: template?.key || null,
     date: quote.created_at ? dubaiDate(quote.created_at) : dubaiDate(new Date().toISOString()),
     business_name: quote.client_name || "",
     business_activity: quote.business_activity || "",
     items,
-    net: aed(totalAmount - vat),
-    net_usd: usd(totalAmount - vat, rate),
+    net: aed(netAmount),
+    net_usd: usd(netAmount, rate),
     vat: aed(vat),
     vat_usd: usd(vat, rate),
     total: aed(totalAmount),

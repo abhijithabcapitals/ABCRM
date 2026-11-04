@@ -97,12 +97,18 @@ def add_vat_rows(xml):
         row = m.group(0)
         if "{total}" not in row:
             return row
+        if not any(cell_text(c).lower() == "total" for c in CELL.findall(row)):
+            print("  WARNING: the row with {total} has no cell labelled Total, so the Net and VAT rows were not added")
+            return row
         added[0] += 2
         net = _copy_row(row, "Net amount", {"{total_usd}": "{net_usd}", "{total}": "{net}"})
         vat = _copy_row(row, "VAT", {"{total_usd}": "{vat_usd}", "{total}": "{vat}"})
         return net + vat + _label(row, "Total (incl. VAT)")
 
-    return ROW.sub(fix_row, xml), added[0]
+    xml = ROW.sub(fix_row, xml)
+    if not added[0]:
+        print("  WARNING: no table row holds {total}; add the Net and VAT rows by hand")
+    return xml, added[0]
 
 
 def fix_activity(xml):

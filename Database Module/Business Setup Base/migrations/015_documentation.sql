@@ -72,7 +72,7 @@ declare
   v_mode text := coalesce(p ->> 'vat_mode', 'inclusive'); v_number text; r hub_documents; it jsonb; q hub_documents; o hub_documents; v_id uuid := gen_random_uuid(); v_root uuid;
   v_client text := nullif(trim(p ->> 'client_id'), ''); v_revises uuid := nullif(p ->> 'revises_id', '')::uuid; v_template text := nullif(trim(p ->> 'template_key'), '');
   v_case uuid := nullif(p ->> 'case_id', '')::uuid; v_case_client text;
-  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric;
+  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   -- An engagement letter exists only as the next step of a generated quote, and takes everything from it.
@@ -117,7 +117,14 @@ begin
     v_net := v_net + (it ->> 'amount')::numeric;
     if v_bs_quote then
       -- The rate comes from the fee item on the server (5 when there is none); whatever the browser sent is replaced.
-      v_lr := trim_scale(coalesce((select vat_rate from business_setup_fee_items where id = nullif(it ->> 'fee_item_id', '')::uuid), 5));
+      v_fid := nullif(btrim(coalesce(it ->> 'fee_item_id', '')), '');
+      if v_fid is null then v_lr := 5;
+      else
+        if v_fid !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then raise exception 'The fee item on a line is not valid'; end if;
+        select vat_rate into v_lr from business_setup_fee_items where id = v_fid::uuid;
+        if not found then raise exception 'Unknown fee item'; end if;
+        v_lr := trim_scale(v_lr);
+      end if;
       v_vat := v_vat + round((it ->> 'amount')::numeric * v_lr / 100, 2);
       it := it || jsonb_build_object('vat_rate', v_lr);
     end if;

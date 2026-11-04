@@ -2,7 +2,9 @@
 export const ACTIONS = ["New", "Renewal", "Rectification", "Cancellation"];
 
 export const DEFAULT_VAT_RATE = 5;
-const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+// Money is counted in whole fils so a half rounds up exactly as the database does (round on numeric).
+const fils = (n) => Math.round(Number(n || 0) * 100);
+const lineVatFils = (amountFils, rate) => Math.floor((amountFils * rate + 50) / 100);
 const rateOf = (r) => (r.vat_rate === null || r.vat_rate === undefined || r.vat_rate === "" ? DEFAULT_VAT_RATE : Number(r.vat_rate));
 
 // The database reads each line's rate from its fee item and ignores what is sent here; the rate on a line is for the screen and the file.
@@ -25,14 +27,16 @@ export const withRates = (rows, fees) => rows.map((r) => {
 
 // Net, VAT and total, VAT rounded per line as the database does. A cell left empty counts as nothing.
 export function lineTotals(rows) {
-  const net = rows.reduce((n, r) => n + Number(r.amount || 0), 0);
-  const vat = rows.reduce((n, r) => n + round2((Number(r.amount || 0) * rateOf(r)) / 100), 0);
-  return { net: round2(net), vat: round2(vat), total: round2(net + vat) };
+  const net = rows.reduce((n, r) => n + fils(r.amount), 0);
+  const vat = rows.reduce((n, r) => n + lineVatFils(fils(r.amount), rateOf(r)), 0);
+  return { net: net / 100, vat: vat / 100, total: (net + vat) / 100 };
 }
 
 // The first problem that stops a quote from being issued, or null. The grey stored amount is not a fee: an empty cell is an error, a zero is not.
 export function lineError(rows) {
   if (!rows.length) return "Add at least one service.";
   const bad = rows.some((r) => !String(r.service_name || "").trim() || r.amount === "" || r.amount === null || r.amount === undefined || !Number.isFinite(Number(r.amount)) || Number(r.amount) < 0);
-  return bad ? "Each line needs a service and a fee." : null;
+  if (bad) return "Each line needs a service and a fee.";
+  if (rows.some((r) => Math.abs(Number(r.amount) * 100 - Math.round(Number(r.amount) * 100)) > 1e-6)) return "A fee can have at most two decimals.";
+  return null;
 }
