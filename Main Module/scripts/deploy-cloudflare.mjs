@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const app = fileURLToPath(new URL("..", import.meta.url));
 const WRANGLER = "npx --yes wrangler@4.151.2";
-const PROJECTS = ["abcrm", "final-crm"];
+const PROJECTS = ["abcrm"];
 const run = (command, env = {}) => execSync(command, { cwd: app, stdio: "inherit", env: { ...process.env, ...env } });
 
 let settings = "";
