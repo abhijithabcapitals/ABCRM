@@ -233,6 +233,8 @@ select pg_temp.casecount() as n0 \gset
 select pg_temp.casecount() as n1 \gset
 \ir ../migrations/013_cases.sql
 \ir ../migrations/013_cases.sql
+-- 013 replaced hub_document_create: put 014's version back, as a real re-run would.
+\ir ../migrations/014_leads_ownership.sql
 select public.bs_check('backfill: running 013 again makes no second case', pg_temp.casecount() = :n1, (:n1 - :n0)::text || ' new, ' || pg_temp.casecount() || ' now');
 select public.bs_check('backfill: the first run made cases', :n1 > :n0);
 select public.bs_check('backfill: one case per client', (select max(c) from (select count(*) c from public.business_setup_cases where client_id like 'CL9701%' group by client_id) x) = 1);

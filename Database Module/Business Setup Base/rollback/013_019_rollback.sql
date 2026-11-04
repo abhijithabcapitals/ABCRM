@@ -4,6 +4,25 @@
 -- WARNING: cases and everything stored only on them are lost. Quotes, letters, payments and forms keep their rows.
 begin;
 
+-- ── 014_leads_ownership.sql ──────────────────────────────────────────
+drop trigger if exists business_setup_case_service on public.business_setup_services;
+drop function if exists public.business_setup_case_service_trg();
+drop function if exists public.business_setup_case_new(jsonb);
+drop function if exists public.business_setup_case_take(uuid);
+drop function if exists public.business_setup_case_link_client(uuid, text, boolean);
+drop function if exists public.business_setup_case_shared(uuid);
+drop function if exists public.business_setup_case_lost(uuid, text);
+drop function if exists public.business_setup_case_confirm(uuid);
+drop function if exists public.business_setup_case_assign(uuid, uuid, text);
+drop function if exists public.business_setup_case_list(text);
+drop function if exists public.business_setup_reassign_request(uuid, uuid, text);
+drop function if exists public.business_setup_reassign_respond(uuid, boolean, text);
+drop function if exists public.business_setup_form_staff_save(uuid, jsonb);
+drop function if exists public.business_setup_form_doc_add(uuid, text, text);
+drop table if exists public.business_setup_reassign_requests;
+-- hub_document_create, as 013 defines it. The 013 section below then puts back the version before 013.
+\ir ../migrations/013_cases.sql
+
 -- ── 013_cases.sql ────────────────────────────────────────────────────
 drop trigger if exists business_setup_case_form on public.business_setup_onboarding_forms;
 drop trigger if exists business_setup_case_doc_ins on public.hub_documents;

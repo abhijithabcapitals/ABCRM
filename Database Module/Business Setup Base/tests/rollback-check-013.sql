@@ -5,12 +5,14 @@
 do $$
 declare bad text;
 begin
+  if to_regclass('public.business_setup_reassign_requests') is not null then raise exception 'business_setup_reassign_requests remains'; end if;
   if to_regclass('public.business_setup_cases') is not null then raise exception 'business_setup_cases remains'; end if;
   if to_regclass('public.business_setup_case_seq') is not null then raise exception 'the case number sequence remains'; end if;
   select string_agg(table_name || '.' || column_name, ', ') into bad from information_schema.columns
    where table_schema = 'public' and column_name = 'case_id' and table_name in ('hub_documents', 'business_setup_payments', 'business_setup_onboarding_forms');
   if bad is not null then raise exception 'case_id remains on: %', bad; end if;
-  select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'business_setup_case%';
+  select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
+     and (p.proname like 'business_setup_case%' or p.proname like 'business_setup_reassign%' or p.proname in ('business_setup_form_staff_save', 'business_setup_form_doc_add'));
   if bad is not null then raise exception 'case functions remain: %', bad; end if;
   select string_agg(t.tgname, ', ') into bad from pg_trigger t where not t.tgisinternal and t.tgname like 'business_setup_case%';
   if bad is not null then raise exception 'case triggers remain: %', bad; end if;
