@@ -20,6 +20,13 @@ drop function if exists public.business_setup_reassign_respond(uuid, boolean, te
 drop function if exists public.business_setup_form_staff_save(uuid, jsonb);
 drop function if exists public.business_setup_form_doc_add(uuid, text, text);
 drop table if exists public.business_setup_reassign_requests;
+-- Payments stop following their quote's case, and net paid goes back to a sum by quote (Business Setup Base 006).
+drop trigger if exists business_setup_payment_case_fill on public.business_setup_payments;
+drop function if exists public.business_setup_payment_case_fill();
+create or replace function public.business_setup_net_paid(p_quote uuid) returns numeric
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(sum(case when type = 'Payment' then amount else -amount end), 0) from business_setup_payments where quote_id = p_quote
+$$;
 -- The dashboard, as Business Setup Base 008 defines it (009 and 011 only replace its helpers, which 014 leaves alone).
 create or replace function public.business_setup_dashboard() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$

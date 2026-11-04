@@ -410,10 +410,37 @@ begin
   return r;
 end $$;
 
+-- ── Net paid by case ─────────────────────────────────────────────────
+-- A quote in a case is paid by every payment of that case: those with its case_id and those on any quote of the case, so a
+-- payment on a superseded revision, or one with no quote, still counts against the accepted quote. A quote with no case is summed
+-- by quote_id as before. Payment minus Refund and Reversal. (Assumes one accepted quote per case.)
+create or replace function public.business_setup_net_paid(p_quote uuid) returns numeric
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(sum(case when p.type = 'Payment' then p.amount else -p.amount end), 0)
+    from business_setup_payments p, (select case_id from hub_documents where id = p_quote) q
+   where case when q.case_id is null then p.quote_id = p_quote
+         else p.case_id = q.case_id or p.quote_id in (select id from hub_documents where case_id = q.case_id) end
+$$;
+revoke all on function public.business_setup_net_paid(uuid) from public, anon, authenticated;
+
+-- A payment on a quote that belongs to a case joins the case, so the case follows it (the sync trigger runs on case_id).
+create or replace function public.business_setup_payment_case_fill() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if new.case_id is null and new.quote_id is not null then
+    select case_id into new.case_id from hub_documents where id = new.quote_id;
+  end if;
+  return new;
+end $$;
+revoke all on function public.business_setup_payment_case_fill() from public, anon, authenticated;
+drop trigger if exists business_setup_payment_case_fill on public.business_setup_payments;
+create trigger business_setup_payment_case_fill before insert on public.business_setup_payments
+  for each row execute function public.business_setup_payment_case_fill();
+
 -- ── Dashboard figures (spec section 5) ───────────────────────────────
 -- Every key of the 008 dashboard stays, because Dashboard Module/services/summaryApi.js reads them. New keys are additions:
 --   processes_pending       services not Completed or Cancelled whose quote belongs to a case (imported and caseless services are left out)
---   receivables             per accepted Business Setup quote, total less net payments, never below zero (the same sum as outstanding)
+--   receivables             per accepted Business Setup quote, total less net payments, never below zero (the same value as outstanding)
 --   advances                net payments on a case that has no accepted quote
 --   cases_completed_month   cases at Completed whose completion fell in this calendar month, Asia/Dubai. A case has no completed-at column:
 --                           the time is the audit entry of its move to Completed, else its latest service completion, else its last update.
@@ -424,10 +451,13 @@ end $$;
 create or replace function public.business_setup_dashboard() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare v_exp jsonb; v_month timestamptz := date_trunc('month', now() at time zone 'Asia/Dubai') at time zone 'Asia/Dubai';
-        v_done_total int; v_done_month int;
+        v_done_total int; v_done_month int; v_recv numeric;
 begin
   perform business_setup_require('setup.access');
   v_exp := business_setup_expiries();
+  -- One expression for both outstanding and receivables.
+  select coalesce(sum(greatest(q.total_amount - business_setup_net_paid(q.id), 0)), 0) into v_recv from hub_documents q
+   where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted';
   select count(*), count(*) filter (where t.at >= v_month) into v_done_total, v_done_month
     from (select coalesce(
                    (select max(a.occurred_at) from business_setup_audit_log a
@@ -440,16 +470,14 @@ begin
     'open_quotes', (select count(*) from hub_documents where department = 'Business Setup' and doc_type = 'quote' and status = 'issued'),
     'accepted_without_letter', (select count(*) from hub_documents q where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'
                                    and not exists (select 1 from hub_documents l where l.parent_id = q.id and l.doc_type = 'letter')),
-    'outstanding', (select coalesce(sum(greatest(q.total_amount - business_setup_net_paid(q.id), 0)), 0) from hub_documents q
-                     where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'),
+    'outstanding', v_recv,
     'active_services', (select count(*) from business_setup_services where status not in ('Completed', 'Cancelled') and not historical),
     'expiries', jsonb_build_object('upcoming', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Upcoming'),
                                    'past', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Past date')),
     'processes_pending', (select count(*) from business_setup_services s
                            where s.status not in ('Completed', 'Cancelled') and not s.historical
                              and exists (select 1 from hub_documents q where q.id = s.quote_id and q.case_id is not null)),
-    'receivables', (select coalesce(sum(greatest(q.total_amount - business_setup_net_paid(q.id), 0)), 0) from hub_documents q
-                     where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'),
+    'receivables', v_recv,
     'advances', (select coalesce(sum(case when p.type = 'Payment' then p.amount else -p.amount end), 0) from business_setup_payments p
                   where p.case_id is not null
                     and not exists (select 1 from hub_documents q where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'

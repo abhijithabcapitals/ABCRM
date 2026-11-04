@@ -498,6 +498,60 @@ select public.bs_check('dash_history: a service with no case is left out of proc
 select public.bs_check('dash_history: active_services keeps its old meaning', pg_temp.dd('d2', 'active_services') = 2);
 select public.bs_as(null);
 
+-- ── Net paid by case (fix round 1) ──
+create function pg_temp.np(p_q uuid) returns numeric language sql security definer as $$ select public.business_setup_net_paid(p_q) $$;
+-- A: Q1 paid 400, then superseded by Q2 accepted at 1050 in the same case.
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 values ('e0', pg_temp.dash()::text);
+select public.bs_as(null);
+select pg_temp.mkclient('CL980070', false);
+select pg_temp.mkcase('f_a', 'CL980070', 'Documentation');
+select pg_temp.mkquote('fq_a1', 'FQ-1', 'CL980070', pg_temp.cid('f_a'));
+select pg_temp.mkpay('CL980070', pg_temp.cid('fq_a1'), pg_temp.cid('f_a'), 400);
+select pg_temp.mkquote('fq_a2', 'FQ-2', 'CL980070', pg_temp.cid('f_a'), 'accepted');
+update public.hub_documents set total_amount = 1050 where id = pg_temp.cid('fq_a2');
+update public.hub_documents set status = 'superseded' where id = pg_temp.cid('fq_a1');
+-- B: a case-linked payment with no quote, on a case with an accepted quote.
+select pg_temp.mkcase('f_b', 'CL980070', 'Documentation');
+select pg_temp.mkquote('fq_b', 'FQ-3', 'CL980070', pg_temp.cid('f_b'), 'accepted');
+select pg_temp.mkpay('CL980070', null, pg_temp.cid('f_b'), 100);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('net_paid: a payment on a superseded revision counts against the accepted quote', pg_temp.np(pg_temp.cid('fq_a2')) = 400);
+select public.bs_check('net_paid: a payment with no quote counts against the case accepted quote, once', pg_temp.np(pg_temp.cid('fq_b')) = 100);
+select public.bs_check('net_paid: Q1 paid 400, Q2 accepted 1050 and B accepted 1000 paid 100 give receivables 650 + 900, advances 0',
+  pg_temp.dd('e0', 'receivables') = 1550 and pg_temp.dd('e0', 'advances') = 0);
+-- C: a payment on a quote in a case with no accepted quote is an advance only. The case follows the quote when none is given.
+select public.bs_as(null);
+select pg_temp.mkcase('f_c', 'CL980070', 'Documentation');
+select pg_temp.mkquote('fq_c', 'FQ-4', 'CL980070', pg_temp.cid('f_c'));
+select pg_temp.mkpay('CL980070', pg_temp.cid('fq_c'), null, 200);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('payment_case: a payment fills its case_id from its quote', (select count(*) = 1 from public.business_setup_payments where quote_id = pg_temp.cid('fq_c') and case_id = pg_temp.cid('f_c')));
+select public.bs_check('advances: that payment is an advance and not a receivable', pg_temp.dd('e0', 'advances') = 200 and pg_temp.dd('e0', 'receivables') = 1550);
+-- D: a quote with no case sums by quote_id as before.
+select public.bs_as(null);
+select pg_temp.mkquote('fq_d', 'FQ-5', 'CL980070', null, 'accepted');
+select pg_temp.mkpay('CL980070', pg_temp.cid('fq_d'), null, 300);
+select pg_temp.mkpay('CL980070', pg_temp.cid('fq_d'), null, 50, 'Refund');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('net_paid: a quote with no case is summed by quote', pg_temp.np(pg_temp.cid('fq_d')) = 250 and (select case_id is null from public.business_setup_payments where quote_id = pg_temp.cid('fq_d') limit 1));
+-- E: a payment recorded through payment_add moves the case when the other items are met.
+select public.bs_as(null);
+select pg_temp.mkcase('f_e', 'CL980070', 'Documentation');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 select 'fq_e', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","client_id":"CL980070"}', pg_temp.fx('f_e'))::jsonb)).id::text;
+select public.bs_as(null);
+update public.hub_documents set status = 'accepted' where id = pg_temp.cid('fq_e');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.cid('fq_e')));
+select public.bs_check('payment_case: before the payment the case stays at Documentation', pg_temp.stage('f_e') = 'Documentation');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.cid('fq_e'), 'amount', 100)) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('payment_case: payment_add sets the case_id', (select count(*) = 1 from public.business_setup_payments where quote_id = pg_temp.cid('fq_e') and case_id = pg_temp.cid('f_e')));
+select public.bs_check('payment_case: and the case moves to Assignment', pg_temp.stage('f_e') = 'Assignment');
+select public.bs_as(null);
+
 -- ── Summary: raise when anything failed so psql exits non-zero ──
 do $$
 declare f int; t int;
