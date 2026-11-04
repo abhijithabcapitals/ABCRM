@@ -74,10 +74,9 @@ test("contact: a blank form keeps the master value, a difference asks staff to c
 
 test("the Zoho panel sits before the Banking handover button and blocks nothing", () => {
   const bank = readFileSync(fileURLToPath(new URL("../../Banking Module/components/BankProcess.jsx", import.meta.url)), "utf8");
-  const panel = readFileSync(fileURLToPath(new URL("../components/ZohoInvoicePanel.jsx", import.meta.url)), "utf8");
-  assert.ok(bank.indexOf("<ZohoInvoicePanel />") > 0 && bank.indexOf("<ZohoInvoicePanel />") < bank.indexOf('id="bk-complete"'));
-  assert.doesNotMatch(panel, /disabled|onClick|rpc\(/);
-  assert.match(panel, /You can still send this to Accounts/);
+  const panel = readFileSync(fileURLToPath(new URL("../../Integrations Module/components/ZohoPanel.jsx", import.meta.url)), "utf8");
+  assert.ok(bank.indexOf("<ZohoPanel") > 0 && bank.indexOf("<ZohoPanel") < bank.indexOf('id="bk-complete"'));
+  assert.doesNotMatch(panel, /Send to Accounts|bk-complete/);
 });
 
 test("the quote screen sends every contact field the database asks for", () => {

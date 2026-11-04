@@ -1,4 +1,5 @@
-import ZohoInvoicePanel from "@business-setup/components/ZohoInvoicePanel";
+import ZohoPanel from "@integrations/components/ZohoPanel";
+import { supabase } from "@app/supabase";
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FilePick, FormGrid, FormModal, KeyVals, Modal, Panel, Spinner, cleanValues, fmtDate, fmtDateTime, today, useAction, useBanking, useLoad } from "./shared-ext";
 import { openFile, rpc, run, table, uploadFile } from "../services/bankingApi";
@@ -85,20 +86,21 @@ export function Completion({ c, client, finance, gates, reload, onBack, renderSt
   const { can } = useBanking();
   const data = useLoad(async () => {
     const app = await loadApp(c.id);
-    const [history, account, kyc, lead, letter, checklist] = await Promise.all([
+    const [history, account, kyc, lead, letter, checklist, accepted] = await Promise.all([
       loadHistory(app?.id),
       run(table("banking_client_accounts").select("*").eq("case_id", c.id).maybeSingle()),
       can("kyc.view") ? run(table("banking_kyc_profiles").select("legal_name, completion_percent").eq("client_id", c.client_id).maybeSingle()) : null,
       c.lead_id ? run(table("banking_leads").select("contact_person, mobile, email").eq("id", c.lead_id).maybeSingle()) : null,
       can("agreements.view") ? run(table("banking_engagement_letters").select("letter_number, signed_at").eq("case_id", c.id).eq("status", "Signed").order("version", { ascending: false }).limit(1).maybeSingle()) : null,
       can("docs.view") ? run(table("banking_case_checklists").select("requirement_label, status").eq("case_id", c.id).eq("is_current", true).eq("is_mandatory", true).neq("status", "Not Applicable")) : null,
+      run(table("banking_quotations").select("id").eq("case_id", c.id).eq("status", "Accepted").maybeSingle()),
     ]);
-    return { app, history, account, kyc, lead, letter, checklist };
+    return { app, history, account, kyc, lead, letter, checklist, quoteId: accepted?.id };
   }, [c.id]);
   const [fill, setFill] = useState(null);
   if (data.loading && !data.data) return <Spinner />;
   if (!data.data) return <ErrorNote message={data.error} />;
-  const { app, history, account, kyc, lead, letter, checklist } = data.data;
+  const { app, history, account, kyc, lead, letter, checklist, quoteId } = data.data;
   if (app?.status !== "Account Opened") return <div className="bk-alert bk-alert-warn">Record "Account opened" in Bank follow-up first.</div>;
   const missingDocs = (checklist || []).filter((l) => ["Not Requested", "Requested", "Rejected", "Resubmission Required"].includes(l.status));
   const unverified = (checklist || []).filter((l) => ["Received", "Under Review"].includes(l.status));
@@ -131,14 +133,14 @@ export function Completion({ c, client, finance, gates, reload, onBack, renderSt
         {missing.map(([text, n]) => <div className="bk-row" key={text}><span>{text}</span>{can("cases.manage") && !["With Accounts", "Closed"].includes(c.accounts_status) && <Button onClick={() => setFill(n)}>Fill</Button>}</div>)}
         {!missing.length && <p className="bk-note">Nothing is missing.</p>}
       </Panel>
-      <AccountDetails c={c} app={app} account={account} kyc={kyc} client={client} history={history} missingCount={missing.length} onSaved={data.reload} reload={reload} onBack={onBack} />
+      <AccountDetails c={c} app={app} account={account} kyc={kyc} client={client} history={history} missingCount={missing.length} quoteId={quoteId} onSaved={data.reload} reload={reload} onBack={onBack} />
       <Panel title="Bank timeline"><BankTimeline rows={history} /></Panel>
       {fill && <Modal wide title="Fill missing details" onClose={closeFill}>{renderStep(fill)}</Modal>}
     </div>
   );
 }
 
-function AccountDetails({ c, app, account, kyc, client, history, missingCount, onSaved, reload, onBack }) {
+function AccountDetails({ c, app, account, kyc, client, history, missingCount, quoteId, onSaved, reload, onBack }) {
   const { can } = useBanking();
   const openedOn = history.find((h) => h.event_kind === "opened")?.event_date;
   const [values, setValues] = useState(() => ({ account_name: kyc?.legal_name || client.display_name, opened_on: openedOn, currency: "AED", relationship_manager: app.relationship_manager_text, ...Object.fromEntries(Object.entries(account || {}).filter(([, v]) => v !== null)) }));
@@ -173,7 +175,7 @@ function AccountDetails({ c, app, account, kyc, client, history, missingCount, o
         <FilePick label={letter ? `Welcome letter: ${letter.name}` : account?.welcome_letter_path ? "Replace welcome letter" : "Upload welcome letter"} busy={busy} onFile={setLetter} />
         {account?.welcome_letter_path && <button type="button" className="bk-link" onClick={() => fileAct(() => openFile(account.welcome_letter_path))}>{account.welcome_letter_name || "Open"}</button>}
       </div>
-      <ZohoInvoicePanel />
+      <ZohoPanel supabase={supabase} department="banking" sourceTable="banking_quotations" sourceId={quoteId} clientId={client.client_master_id} kinds={["estimate", "invoice"]} canCreate={can("cases.manage")} />
       <div className="bk-modal-actions">
         <Button busy={busy} onClick={() => act(persist)}>Save details</Button>
         <Button id="bk-complete" variant="primary" busy={busy} onClick={complete}>Mark complete and send to Accounts</Button>

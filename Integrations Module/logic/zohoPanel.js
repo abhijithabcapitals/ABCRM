@@ -1,0 +1,87 @@
+// Decisions for the Zoho panel. No React and no network, so the rules can be tested alone.
+
+export const NOT_CONNECTED = "Invoice: Zoho is not connected yet. You can still send this to Accounts.";
+export const NO_QUOTE = "No accepted quotation yet.";
+export const NO_MASTER = "This client is not linked to Client Master, so it cannot be linked to Zoho yet.";
+export const NO_MATCH = "No match. Add the contact in Zoho, then search again.";
+// The text the function sends when the credentials are not saved. The notice above already covers it.
+const CREDENTIALS_MISSING = "Zoho credentials are missing.";
+
+export const KIND_LABEL = { estimate: "Estimate", invoice: "Invoice" };
+
+// Which of the six modes one kind of document is in. A saved row wins over the connection state.
+// A link that is not known to exist counts as missing, so nothing can be created early.
+export function panelMode({ connected, linked, row } = {}) {
+  const s = row?.state;
+  if (s === "created" || s === "failed" || s === "gone") return s;
+  if (s === "unknown" || s === "creating") return "unknown";
+  if (connected === false) return "not_connected";
+  if (linked !== true) return "needs_contact";
+  return "ready";
+}
+
+// Accepts one flag, or a flag for each kind.
+export function createRights(canCreate) {
+  if (canCreate && typeof canCreate === "object") return { estimate: !!canCreate.estimate, invoice: !!canCreate.invoice };
+  return { estimate: !!canCreate, invoice: !!canCreate };
+}
+
+const CREATE_LABEL = { ready: "Create draft", failed: "Try again", gone: "Create again", unknown: "Check and try again" };
+
+// Which buttons and links one row shows.
+export function rowActions(mode, { canCreate, connected, linked, hasUrl } = {}) {
+  const retry = mode === "failed" || mode === "gone" || mode === "unknown";
+  const canMake = !!canCreate && connected !== false && linked === true && (mode === "ready" || retry);
+  return {
+    create: canMake ? CREATE_LABEL[mode] : null,
+    viewPdf: mode === "created",
+    openZoho: mode === "created" && !!hasUrl,
+  };
+}
+
+// Notes for one row, each as { tone: "warn" | "error", text }.
+export function rowNotes(row, mode) {
+  const notes = [];
+  if (!row) return notes;
+  if (row.total_warning) notes.push({ tone: "warn", text: "The total in Zoho does not match the CRM total. Check the draft in Zoho before using it." });
+  if (row.earlier_draft) notes.push({ tone: "warn", text: `An earlier draft, ${row.earlier_draft}, may still exist in Zoho. Check that it is not used by mistake.` });
+  if (row.error) notes.push({ tone: mode === "failed" ? "error" : "warn", text: String(row.error) });
+  if (row.read_error && row.read_error !== row.error) notes.push({ tone: "warn", text: String(row.read_error) });
+  if (row.adopted_count) notes.push({ tone: "warn", text: "An existing Zoho draft with this reference was found and linked instead of making a new one." });
+  return notes;
+}
+
+// Notes for the whole panel. A row's own read_error is shown on that row, not here.
+export function panelNotes({ connected, readError }) {
+  if (connected !== false) return [];
+  const notes = [{ tone: "warn", text: NOT_CONNECTED }];
+  if (readError && readError !== CREDENTIALS_MISSING) notes.push({ tone: "warn", text: String(readError) });
+  return notes;
+}
+
+// A contact in another currency cannot be used, because CRM amounts are in AED.
+export function contactLinkable(contact) {
+  return !contact?.currency_code || String(contact.currency_code).toUpperCase() === "AED";
+}
+
+export function contactLine(c) {
+  return [c.name, c.tax_reg_no ? `TRN ${c.tax_reg_no}` : "No TRN", c.currency_code || "No currency"].join(" · ");
+}
+
+export function replaceQuestion(currentName) {
+  return `This client is linked to ${currentName}. Replace it?`;
+}
+
+// What to do with the reply from document_pdf. A PDF arrives as a Blob. Anything else is an error reply.
+export function pdfReply(data) {
+  if (data && typeof data === "object" && typeof data.size === "number" && String(data.type).toLowerCase().startsWith("application/pdf")) {
+    return { ok: true };
+  }
+  const text = data && typeof data === "object" && typeof data.error === "string" ? data.error : "";
+  return { ok: false, message: text || "Zoho did not return a PDF." };
+}
+
+export function formatAmount(n) {
+  const v = Number(n);
+  return Number.isFinite(v) ? v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "";
+}

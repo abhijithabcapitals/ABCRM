@@ -3,12 +3,13 @@ import { useState } from "react";
 import { Badge, Button, ErrorNote, FilePick, FormModal, Panel, fmtDate, useAction, useLoad } from "@banking/components/shared";
 import { createDocument, openStored } from "@template-hub/services/hubApi";
 import { useSetup } from "../SetupContext";
-import ZohoInvoicePanel from "../ZohoInvoicePanel";
+import ZohoPanel from "@integrations/components/ZohoPanel";
 import NewServiceFlow from "../NewServiceFlow";
 import { acceptQuote, handoverState, rejectQuote, sendToAccounts, signLetter, uploadFile } from "../../services/businessSetupApi";
 import { fileLetter, fileQuote } from "../../services/documents";
 import { quoteTone } from "../../logic/statuses";
 import { money } from "@app/money";
+import { supabase } from "@app/supabase";
 
 
 export default function Quotes({ w, clientId, reload }) {
@@ -59,7 +60,7 @@ function Quote({ q, w, clientId, reload, can, onRevise }) {
       {q.status === "accepted" && h && !held && (
         <div className="bk-mt">
           {h.ready ? <>
-            <ZohoInvoicePanel />
+            <ZohoPanel supabase={supabase} department="business_setup" sourceTable="hub_documents" sourceId={q.id} clientId={clientId} kinds={["estimate", "invoice"]} canCreate={{ estimate: quotes, invoice: can("setup.services.manage") }} />
             {Number(h.outstanding) > 0 && <p className="bk-note">AED {money(h.outstanding)} is still outstanding on this quote.</p>}
             {Number(h.net_paid) > 0 && w.services.filter((s) => s.quote_id === q.id).every((s) => s.status === "Cancelled") && <p className="bk-note">Every line is cancelled and AED {money(h.net_paid)} is still held.</p>}
             {can("setup.services.manage") && <Button variant="primary" onClick={() => setDialog("send")}>Send to Accounts</Button>}
