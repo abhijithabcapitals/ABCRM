@@ -3,7 +3,7 @@ import "@banking/components/banking.css";
 import { supabase } from "../supabase";
 import { IconClose } from "./icons";
 import IntegrationsPanel, { AgentsPanel, EmailAccountsPanel } from "@integrations";
-import { ClaudeConnectionPanel } from "@crm-agent";
+import { ClaudeSubscriptionPanel } from "@crm-agent";
 import ClientPortalAdmin from "@client-login/admin/ClientPortalAdmin";
 import { AiUsagePanel, AuditPanel, AuditTrailPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
 
@@ -248,6 +248,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             { key: "email-accounts", label: "📧 Email Accounts" },
             { key: "integrations", label: "🔌 Integrations" },
             { key: "agents", label: "🧠 Agents" },
+            { key: "claude-subscription", label: "✴️ Claude Subscription" },
             { key: "client-portal", label: "🔑 Client Portal" },
             { key: "audit-trail", label: "🕵 Audit Trail" },
             { key: "audit", label: "📜 Admin Actions" },
@@ -513,12 +514,8 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
         {/* ── INTEGRATIONS TAB (admin only) ── */}
         {activeTab === "email-accounts" && profile?.role === "admin" && <EmailAccountsPanel supabase={supabase} />}
         {activeTab === "integrations" && profile?.role === "admin" && <IntegrationsPanel supabase={supabase} />}
-        {activeTab === "agents" && profile?.role === "admin" && (
-          <>
-            <ClaudeConnectionPanel />
-            <AgentsPanel supabase={supabase} />
-          </>
-        )}
+        {activeTab === "agents" && profile?.role === "admin" && <AgentsPanel supabase={supabase} />}
+        {activeTab === "claude-subscription" && profile?.role === "admin" && <ClaudeSubscriptionPanel supabase={supabase} />}
         {activeTab === "client-portal" && profile?.role === "admin" && <ClientPortalAdmin />}
 
         {/* ── USAGE TAB (admin only) ── */}

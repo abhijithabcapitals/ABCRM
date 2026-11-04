@@ -6,7 +6,8 @@ The main agent that handles the CRM (agent `AGT-14-CRM`). The CEO Agent is a sep
 | Path | Purpose |
 |---|---|
 | `src/index.ts` | Cloudflare Worker `crm-agent`: MCP Streamable HTTP endpoint at `/mcp` |
-| `components/ClaudeConnectionPanel.jsx` | Settings > Agents card with the endpoint address and connection notes |
+| `components/ClaudeSubscriptionPanel.jsx` | Settings > Claude Subscription tab: plan notes, connection details, token rotation, tool-call usage |
+| `components/mcpToken.js` | Creates a token and its SHA-256 hash in the browser; only the hash is sent to the database |
 | `index.js` | Exports the panel; `Main Module/vite.config.js` maps it as `@crm-agent` |
 
 ## MCP endpoint

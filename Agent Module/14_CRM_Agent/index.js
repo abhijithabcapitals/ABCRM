@@ -1,1 +1,1 @@
-export { default as ClaudeConnectionPanel } from "./components/ClaudeConnectionPanel";
+export { default as ClaudeSubscriptionPanel } from "./components/ClaudeSubscriptionPanel";
