@@ -8,6 +8,7 @@ import AssigneeTasksModal from "@app/components/AssigneeTasksModal";
 import SummaryBoard from "./SummaryBoard";
 import { useZohoFinance } from "./ZohoSection";
 import { SnapshotContext } from "./summaryCards/zohoContext";
+import { ZOHO_CARDS_LIVE } from "../logic/summaryLayout.js";
 import { summaryApi } from "../services/summaryApi";
 
 const ATTN_META = {
@@ -69,7 +70,7 @@ export default function Dashboard({ spaces, profile, tabs, onNavigate, onSpaceSe
   const [assigneeModal, setAssigneeModal] = useState(null); // assignee name being drilled into
   const [drill, setDrill] = useState(null);                 // { title, metric } KPI drill-down
   const isAdmin = profile?.role === "admin";
-  const { zoho, row: zohoRow } = useZohoFinance(isAdmin);
+  const { zoho, row: zohoRow } = useZohoFinance(isAdmin && ZOHO_CARDS_LIVE);
 
   const load = useCallback(async () => {
     setLoading(true); setErr("");

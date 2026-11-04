@@ -557,3 +557,69 @@ Deno.test("each converted document is rounded to cents, as Zoho does", () => {
 Deno.test("a malformed due date in plain input is an error, never current", () => {
   assertThrows(() => agingBuckets([{ name: "A", dueDate: "soon", amount: 5 }], today));
 });
+
+Deno.test("a document left out marks its section, the ratios and health as incomplete, once each", () => {
+  const ar = buildFigures(input({ receivables: [open(100), open(500, "EUR", null)] }), today);
+  assertEquals(ar.ar!.excluded, 1);
+  assertEquals(ar.partial, ["ar", "ratios", "health"]);
+  const ap = buildFigures(input({ payables: [open(null)] }), today);
+  assertEquals(ap.partial, ["ap", "ratios", "health"]);
+  const both = buildFigures(input({ receivables: [open(null)], payables: [open(null)], cash: null }), today);
+  assertEquals(both.partial, ["ar", "ap", "cash", "ratios", "health"]);
+});
+
+Deno.test("no document left out adds nothing to partial", () => {
+  assertEquals(buildFigures(input({ receivables: [open(100)], payables: [open(10, "USD", 3.67)] }), today).partial, []);
+});
+
+Deno.test("debt to equity counts other_liability as a liability", () => {
+  const f = buildFigures(input({
+    balances: [
+      { type: "accounts_payable", balance: 100 },
+      { type: "long_term_liability", balance: 300 },
+      { type: "other_liability", balance: 200 },
+      { type: "equity", balance: 300 },
+    ],
+  }), today);
+  assertEquals(f.ratios.debtToEquity, 2);
+  // Not a current liability: the current ratio does not move.
+  assertEquals(buildFigures(input({
+    balances: [{ type: "cash", balance: 100 }, { type: "accounts_payable", balance: 100 }, { type: "other_liability", balance: 500 }],
+  }), today).ratios.current, 1);
+  assertEquals(f.partial, []);
+  assertEquals(f.unmappedAccounts, 0);
+});
+
+Deno.test("an unknown other_liability makes debt to equity unknown", () => {
+  const f = buildFigures(input({ balances: [{ type: "other_liability", balance: null }, { type: "equity", balance: 300 }] }), today);
+  assertEquals(f.ratios.debtToEquity, null);
+});
+
+Deno.test("an unlisted type with a balance is counted, and marks ratios and health incomplete", () => {
+  const f = buildFigures(input({
+    balances: [
+      { type: "payment_clearing", balance: 50 },
+      { type: "intangible", balance: -5 },
+      { type: "prepaid_card", balance: null },
+      { type: "non_current_liability", balance: 0 },
+      { type: "overseas_tax_payable", balance: 0.001 },
+    ],
+  }), today);
+  assertEquals(f.unmappedAccounts, 3);
+  assertEquals(f.partial, ["ratios", "health"]);
+});
+
+Deno.test("income, expense and every listed type never count as unmapped", () => {
+  const types = [
+    "accounts_receivable", "cash", "bank", "stock", "other_current_asset", "fixed_asset", "other_asset",
+    "accounts_payable", "credit_card", "other_current_liability", "long_term_liability", "other_liability", "equity",
+    "income", "other_income", "expense", "other_expense", "cost_of_goods_sold",
+  ];
+  const f = buildFigures(input({ balances: types.map((type) => ({ type, balance: 7 })) }), today);
+  assertEquals(f.unmappedAccounts, 0);
+  assertEquals(f.partial, []);
+});
+
+Deno.test("an unfinished chart of accounts has no unmapped count", () => {
+  assertEquals(buildFigures(input({ balances: null }), today).unmappedAccounts, null);
+});

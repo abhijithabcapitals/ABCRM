@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  SUMMARY_CARDS, visibleCards, mergeLayout, readLayout, saveLayout,
+  SUMMARY_CARDS, ZOHO_CARDS_LIVE, visibleCards, mergeLayout, readLayout, saveLayout, clearLayout, canSaveLayout, layoutToStore,
   moveCard, stepCard, toggleCollapsed, setGroupCollapsed, nextDragMove,
 } from "../../Dashboard Module/logic/summaryLayout.js";
 
@@ -107,4 +107,73 @@ test("nextDragMove swaps once and ignores that card until the pointer leaves it"
 test("nextDragMove clears the last card over a gap and moves on to a different card", () => {
   assert.deepEqual(nextDragMove("b", undefined, "a"), { move: null, lastTarget: null });
   assert.deepEqual(nextDragMove("b", "c", "a"), { move: "c", lastTarget: "c" });
+});
+
+test("the Zoho cards stay off until the accuracy check passes", () => {
+  assert.equal(ZOHO_CARDS_LIVE, false);
+});
+
+test("canSaveLayout waits for a member's tabs, and never for an admin", () => {
+  assert.equal(canSaveLayout({ isAdmin: false, tabs: null }), false);
+  assert.equal(canSaveLayout({ isAdmin: false, tabs: undefined }), false);
+  assert.equal(canSaveLayout({ isAdmin: false, tabs: [] }), true);
+  assert.equal(canSaveLayout({ isAdmin: true, tabs: null }), true);
+});
+
+const memory = (start = {}) => {
+  const data = { ...start };
+  return { data, getItem: (k) => data[k] ?? null, setItem: (k, v) => { data[k] = v; }, removeItem: (k) => { delete data[k]; } };
+};
+
+test("layoutToStore keeps hidden cards in their slots while shown cards take the new order", () => {
+  const all = [mk("a"), mk("h"), mk("b"), mk("c")];
+  const stored = { order: { departments: ["a", "h", "b", "c"] }, collapsed: [] };
+  const layout = { order: { departments: ["c", "a", "b"], zoho: [] }, collapsed: [] };
+  assert.deepEqual(layoutToStore(stored, layout, all).order.departments, ["c", "h", "a", "b"]);
+});
+
+test("layoutToStore keeps a hidden card's collapsed state, and takes the shown cards' from the layout", () => {
+  const all = [mk("a"), mk("h"), mk("b")];
+  const stored = { order: { departments: ["a", "h", "b"] }, collapsed: ["h", "a"] };
+  const layout = { order: { departments: ["a", "b"], zoho: [] }, collapsed: ["b"] };
+  assert.deepEqual(layoutToStore(stored, layout, all).collapsed.sort(), ["b", "h"]);
+});
+
+test("layoutToStore with nothing stored places hidden cards in default order", () => {
+  const all = [mk("a"), mk("h"), mk("b")];
+  const layout = { order: { departments: ["b", "a"], zoho: [] }, collapsed: [] };
+  assert.deepEqual(layoutToStore(null, layout, all).order.departments, ["b", "h", "a"]);
+});
+
+test("a small card list saving does not lose the rest of the stored layout", () => {
+  const all = [mk("a"), mk("h"), mk("b")];
+  const ls = memory();
+  withStorage(ls, () => {
+    saveLayout("u", { order: { departments: ["b", "h", "a"], zoho: [] }, collapsed: ["h"] }, all);
+    // Only a and b show now. This is what used to wipe h.
+    const shown = [mk("a"), mk("b")];
+    const layout = readLayout("u", shown);
+    assert.deepEqual(layout.order.departments, ["b", "a"]);
+    saveLayout("u", { ...layout, order: { ...layout.order, departments: ["a", "b"] } }, all);
+    const back = readLayout("u", all);
+    assert.deepEqual(back.order.departments, ["a", "h", "b"]);
+    assert.deepEqual(back.collapsed, ["h"]);
+  });
+});
+
+test("saveLayout over unreadable stored data still saves", () => {
+  const all = [mk("a"), mk("b")];
+  const ls = memory({ "crm-dashboard-layout:u": "{oops" });
+  withStorage(ls, () => {
+    saveLayout("u", { order: { departments: ["b", "a"], zoho: [] }, collapsed: [] }, all);
+    assert.deepEqual(readLayout("u", all).order.departments, ["b", "a"]);
+  });
+});
+
+test("clearLayout forgets the layout, and does not throw when storage throws", () => {
+  const ls = memory({ "crm-dashboard-layout:u": "{}" });
+  withStorage(ls, () => clearLayout("u"));
+  assert.deepEqual(ls.data, {});
+  const throwing = { removeItem() { throw new Error("blocked"); } };
+  withStorage(throwing, () => assert.doesNotThrow(() => clearLayout("u")));
 });

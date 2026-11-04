@@ -9,6 +9,7 @@ import {
   readPayables,
   readReceivables,
   TRANSACTIONS_PATH,
+  UnfinishedRead,
 } from "./zohoSources.ts";
 import { assertAllowed } from "./zohoClient.ts";
 
@@ -23,7 +24,9 @@ function fake(fn: (path: string, q: Record<string, string>) => Json) {
     orgId: "ORG1",
     get: (path: string, q: Record<string, string> = {}) => {
       calls.push({ path, q });
-      return Promise.resolve(fn(path, q));
+      // A reply says it is the last page unless the test sets page_context itself. Set to undefined, it is left out.
+      const reply = fn(path, q);
+      return Promise.resolve(reply && typeof reply === "object" && !("page_context" in reply) ? { ...reply, page_context: { has_more_page: false } } : reply);
     },
   };
 }
@@ -91,11 +94,35 @@ Deno.test("readAccounts asks for balances, reads every page, and keeps an unknow
   for (const c of z.calls) assertEquals(c.q.showbalance, "true");
 });
 
-Deno.test("a page without pagination details but full of rows asks for the next", async () => {
+Deno.test("a reply that does not say whether more pages exist is an unfinished read, whatever its size", async () => {
   const row = { account_id: "1", account_name: "A", account_type: "bank", current_balance: 1 };
-  const z = fake((_p, q) => ({ chartofaccounts: q.page === "1" ? Array(200).fill(row) : [row] }));
-  assertEquals((await readAccounts(z)).length, 201);
-  assertEquals(z.calls.length, 2);
+  const replies: Json[] = [
+    { chartofaccounts: [row], page_context: undefined },
+    { chartofaccounts: Array(200).fill(row), page_context: undefined },
+    { chartofaccounts: [], page_context: undefined },
+    { chartofaccounts: [row], page_context: { page: 1 } },
+  ];
+  for (const reply of replies) {
+    const z = fake(() => reply);
+    await assertRejects(() => readAccounts(z), UnfinishedRead);
+    assertEquals(z.calls.length, 1);
+  }
+});
+
+Deno.test("a short page is not the end when page_context says more pages exist", async () => {
+  const row = { account_id: "1", account_name: "A", account_type: "bank", current_balance: 1 };
+  const z = fake((_p, q) => ({ chartofaccounts: [row], page_context: { has_more_page: q.page === "1" } }));
+  assertEquals((await readAccounts(z)).length, 2);
+});
+
+Deno.test("readLedger accepts both reply keys the probe accepts, and refuses any other", async () => {
+  const account = { id: "A", name: "A", type: "income", balance: 0, parentId: null };
+  const row = { transaction_date: "2026-10-01", credit_amount: 10 };
+  for (const key of ["transactions", "accounttransactions"]) {
+    const z = fake(() => ({ [key]: [row] }));
+    assertEquals((await readLedger(z, [account], "2026-01-01", "2026-11-04")).length, 1);
+  }
+  await assertRejects(() => readLedger(fake(() => ({ other: [row] })), [account], "2026-01-01", "2026-11-04"));
 });
 
 Deno.test("a response without the expected list is an error, not an empty list", async () => {

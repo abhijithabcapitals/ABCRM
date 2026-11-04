@@ -36,17 +36,31 @@ const dateOf = (v: unknown): string | null => {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
 };
 
+// A list whose end could not be seen. refresh.ts leaves that section unfinished, rather than failing the whole refresh.
+export class UnfinishedRead extends Error {}
+
+// The keys an account transactions reply may hold its rows under. handlers.ts reads this same list, so the probe and
+// readLedger cannot disagree. UNVERIFIED: which of them Zoho uses. The probe reports it.
+export const TRANSACTION_KEYS = ["transactions", "accounttransactions"];
+export const transactionKey = (res: Json): string | undefined => TRANSACTION_KEYS.find((k) => Array.isArray(res?.[k]));
+
+// True when the reply says whether more pages exist. Only then can its list be called complete.
+export const hasPageContext = (res: Json): boolean => typeof res?.page_context?.has_more_page === "boolean";
+
 // Reads every page of a list. A reply without the list is an error: an empty result would look like a real zero.
-async function readAll(zoho: ZohoReader, path: string, key: string, query: Record<string, string> = {}): Promise<Json[]> {
+// A reply that does not say whether more pages exist is an unfinished read: the server's page can be smaller than the
+// one asked for, so a short page does not prove the end. UNVERIFIED: the documented account transactions reply shows no
+// page_context. If Zoho really omits it, the ledger stays unfinished until this is changed. The probe's pageContext reports it.
+async function readAll(zoho: ZohoReader, path: string, keys: string | string[], query: Record<string, string> = {}): Promise<Json[]> {
+  const names = Array.isArray(keys) ? keys : [keys];
   const rows: Json[] = [];
   for (let page = 1;; page++) {
     const res = await zoho.get(path, { ...query, per_page: String(PER_PAGE), page: String(page) });
-    const list = res?.[key];
-    if (!Array.isArray(list)) throw new Error(`Zoho reply to ${path} had no ${key} list.`);
-    rows.push(...list);
-    // The documented account transactions reply shows no page_context, so a full page without one also means ask again.
-    const more = res?.page_context ? res.page_context.has_more_page === true : list.length === PER_PAGE;
-    if (!more) return rows;
+    const key = names.find((k) => Array.isArray(res?.[k]));
+    if (!key) throw new Error(`Zoho reply to ${path} had no ${names.join(" or ")} list.`);
+    rows.push(...res[key]);
+    if (!hasPageContext(res)) throw new UnfinishedRead(`Zoho reply to ${path} did not say whether more pages exist.`);
+    if (res.page_context.has_more_page !== true) return rows;
   }
 }
 
@@ -193,7 +207,7 @@ export async function readLedger(zoho: ZohoReader, accounts: SourceAccount[], fr
   for (const a of accounts) {
     const kind = KINDS[a.type];
     if (!kind) continue;
-    const rows = await readAll(zoho, TRANSACTIONS_PATH, "transactions", { account_id: a.id, date_start: from, date_end: to });
+    const rows = await readAll(zoho, TRANSACTIONS_PATH, TRANSACTION_KEYS, { account_id: a.id, date_start: from, date_end: to });
     for (const r of rows) {
       // A row that cannot be read fails the refresh. Dropping it would understate the totals without any sign.
       const date = dateOf(text(r?.transaction_date) ?? text(r?.date));

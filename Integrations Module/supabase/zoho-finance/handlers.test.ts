@@ -102,7 +102,7 @@ Deno.test("probe output holds no name, amount or id from the sample data", async
   assertEquals(out.otherCurrency, {
     invoices: { status: 200, count: 1, capped: false },
     bills: { status: 200, count: 0, capped: false },
-    listHasExchangeRate: true,
+    listHasExchangeRate: { invoices: true, bills: false },
   });
   assertEquals(out.openFilters.invoices.status_unpaid, { status: 200, count: 1, capped: false });
   assertEquals(out.dateParamsWorked, true);
@@ -170,7 +170,7 @@ Deno.test("failed document lists give no other-currency answer", async () => {
     return sample(p, q);
   })) as Json;
   assertEquals(out.otherCurrency.invoices, { status: 429, count: null, capped: false });
-  assertEquals(out.otherCurrency.listHasExchangeRate, "unknown");
+  assertEquals(out.otherCurrency.listHasExchangeRate, { invoices: "unknown", bills: "unknown" });
 });
 
 Deno.test("a page with more pages and no total is capped", async () => {
@@ -320,6 +320,125 @@ Deno.test("the new checks leak no amount, name or ID", async () => {
   assertEquals(out.cashMatchesChart, true);
   const text = JSON.stringify(out);
   for (const bad of [...NAMES, "987654", "123456", "9001001", "9001002", "9001003", "9001009"]) {
+    assert(!text.includes(bad), `probe output leaks ${bad}`);
+  }
+});
+
+const TX_A = "/chartofaccounts/transactions";
+const TX_B = "/chartofaccounts/accounttransactions";
+const txDeps = (transactions: (path: string, q: Record<string, string>) => Json) =>
+  makeDeps({
+    zoho: () =>
+      Promise.resolve({
+        orgId: "ORG1",
+        get: (p: string, q: Record<string, string> = {}) => Promise.resolve(p === TX_A || p === TX_B ? transactions(p, q) : sample(p, q)),
+      }),
+  });
+const txRow = (id: string) => ({ transaction_id: id, date: "2026-10-20", debit_amount: 424242.42 });
+
+Deno.test("account filter: different rows per account is true", async () => {
+  const out = await handle("probe", {}, txDeps((_p, q) => ({ transactions: [txRow(q.account_id)], page_context: { has_more_page: false } }))) as Json;
+  assertEquals(out.accountFilterWorked, true);
+  assertEquals(out.accountFilterByPath, { [TX_A]: true, [TX_B]: true });
+});
+
+Deno.test("account filter: the same rows for both accounts is false, in any order", async () => {
+  let turn = 0;
+  const out = await handle("probe", {}, txDeps(() => {
+    const rows = [txRow("1"), txRow("2")];
+    return { transactions: turn++ % 2 ? rows : rows.reverse() };
+  })) as Json;
+  assertEquals(out.accountFilterWorked, false);
+});
+
+Deno.test("account filter: one account dormant and one not is true", async () => {
+  const out = await handle("probe", {}, txDeps((_p, q) => ({ transactions: q.account_id === "9001001" ? [] : [txRow("1")] }))) as Json;
+  assertEquals(out.accountFilterWorked, true);
+});
+
+Deno.test("account filter: both empty, failed replies, or one sample account is unknown", async () => {
+  const empty = await handle("probe", {}, txDeps(() => ({ transactions: [] }))) as Json;
+  assertEquals(empty.accountFilterWorked, "unknown");
+  const failed = await handle("probe", {}, txDeps(() => Promise.reject(new ZohoHttpError(500, "x")))) as Json;
+  assertEquals(failed.accountFilterWorked, "unknown");
+  const one = await handle("probe", {}, makeDeps({
+    zoho: () =>
+      Promise.resolve({
+        orgId: "ORG1",
+        get: (p: string, q: Record<string, string> = {}) =>
+          Promise.resolve(
+            p === "/chartofaccounts"
+              ? { chartofaccounts: [{ account_id: "1", account_name: "A", account_type: "income", current_balance: 1 }] }
+              : sample(p, q),
+          ),
+      }),
+  })) as Json;
+  assertEquals(one.accountFilterWorked, "unknown");
+});
+
+Deno.test("account filter: a path that ignored it makes the answer false, and the path is named", async () => {
+  const out = await handle("probe", {}, txDeps((p, q) => ({ transactions: [txRow(p === TX_A ? "same" : q.account_id)] }))) as Json;
+  assertEquals(out.accountFilterWorked, false);
+  assertEquals(out.accountFilterByPath, { [TX_A]: false, [TX_B]: true });
+});
+
+Deno.test("the probe says which key held the rows on each path", async () => {
+  const out = await handle("probe", {}, txDeps((p) => (p === TX_A ? { transactions: [txRow("1")] } : { accounttransactions: [txRow("1")] }))) as Json;
+  assertEquals(out.transactionsReplyKey, { [TX_A]: "transactions", [TX_B]: "accounttransactions" });
+  assert(out.transactionFields.includes("debit_amount"));
+});
+
+Deno.test("the probe names another list key the refresh would refuse, and no key at all", async () => {
+  const out = await handle("probe", {}, txDeps((p) => (p === TX_A ? { account_lines: [txRow("1")], code: 0 } : { code: 0 }))) as Json;
+  assertEquals(out.transactionsReplyKey, { [TX_A]: "account_lines", [TX_B]: "none" });
+  assertEquals(out.transactionFields, []);
+});
+
+Deno.test("the probe's rows and readLedger agree: a non-array under the first key falls to the second", async () => {
+  const out = await handle("probe", {}, txDeps(() => ({ transactions: "odd", accounttransactions: [txRow("1")] }))) as Json;
+  assertEquals(out.transactionsReplyKey[TX_A], "accounttransactions");
+  assert(out.transactionFields.includes("debit_amount"));
+});
+
+Deno.test("a refused path has no reply key", async () => {
+  const out = await handle("probe", {}, txDeps((p) => (p === TX_A ? Promise.reject(new ZohoHttpError(404, "x")) : { transactions: [] }))) as Json;
+  assertEquals(out.transactionsReplyKey, { [TX_A]: "unknown", [TX_B]: "transactions" });
+});
+
+Deno.test("the exchange rate is reported separately for invoices and bills", async () => {
+  const withLists = (invoices: Json, bills: Json) =>
+    makeDeps({
+      zoho: () =>
+        Promise.resolve({
+          orgId: "ORG1",
+          get: (p: string, q: Record<string, string> = {}) =>
+            Promise.resolve(p === "/invoices" ? invoices : p === "/bills" ? bills : sample(p, q)),
+        }),
+    });
+  const rate = (over: Json = {}) => ({ currency_code: "AED", ...over });
+  const a = await handle("probe", {}, withLists({ invoices: [rate()] }, { bills: [rate({ exchange_rate: 1 })] })) as Json;
+  assertEquals(a.otherCurrency.listHasExchangeRate, { invoices: false, bills: true });
+  const b = await handle("probe", {}, withLists({ invoices: [] }, { bills: [rate({ exchange_rate: "" })] })) as Json;
+  assertEquals(b.otherCurrency.listHasExchangeRate, { invoices: "unknown", bills: false });
+});
+
+Deno.test("the probe reports which lists say whether more pages exist", async () => {
+  const plain = await handle("probe", {}, makeDeps()) as Json;
+  assertEquals(plain.pageContext, {
+    chartofaccounts: false,
+    bankaccounts: false,
+    invoices: false,
+    bills: false,
+    transactions: { [TX_A]: true, [TX_B]: true },
+  });
+  const none = await handle("probe", {}, txDeps(() => ({ transactions: [] }))) as Json;
+  assertEquals(none.pageContext.transactions, { [TX_A]: false, [TX_B]: false });
+});
+
+Deno.test("the new probe answers leak no amount, name or ID", async () => {
+  const out = await handle("probe", {}, txDeps((p, q) => (p === TX_A ? { transactions: [txRow(q.account_id)] } : { account_lines: [txRow("7001")] }))) as Json;
+  const text = JSON.stringify({ ...out, transactionFields: [] });
+  for (const bad of [...NAMES, ...AMOUNTS, "9001001", "9001002", "7001", "ORG1"]) {
     assert(!text.includes(bad), `probe output leaks ${bad}`);
   }
 });

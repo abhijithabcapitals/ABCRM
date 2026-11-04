@@ -86,7 +86,11 @@ function fakeZoho(accountCount = 2, over: (path: string, q: Record<string, strin
     orgId: "ORG1",
     get: (path: string, q: Record<string, string> = {}) => {
       calls.push({ path, q });
-      return Promise.resolve().then(() => answer(path, q));
+      // A reply says it is the last page unless the test sets page_context itself. Set to undefined, it is left out.
+      return Promise.resolve().then(() => {
+        const reply = answer(path, q);
+        return reply && typeof reply === "object" && !("page_context" in reply) ? { ...reply, page_context: { has_more_page: false } } : reply;
+      });
     },
   };
 }
@@ -345,6 +349,19 @@ Deno.test("the age condition is inside the claim, with no read first that could 
   db.beforeUpdate = () => Object.assign(db.row, { as_of: NOW.toISOString(), last_attempt_at: NOW.toISOString() });
   assertEquals((await refresh({ force: true }, deps(db))).status, "fresh");
   assertEquals(db.updates, []);
+});
+
+Deno.test("a list that does not say whether more pages exist leaves only its section unfinished", async () => {
+  const z = fakeZoho(2, (p) => (p === "/bills" ? { bills: [], page_context: undefined } : undefined));
+  const db = fakeDb();
+  assertEquals(await refresh({ force: false }, deps(db, z)), { status: "partial" });
+  assertEquals(db.row.data.ap, null);
+  assert(db.row.data.ar !== null);
+  assert(db.row.data.partial.includes("ap"));
+  assert(!db.row.data.partial.includes("ar"));
+  // Later sections are still read.
+  assert(z.calls.some((c) => c.path === "/bankaccounts"));
+  assert(z.calls.some((c) => c.path.startsWith("/chartofaccounts/")));
 });
 
 Deno.test("a live lock with recent figures is reported as busy", async () => {

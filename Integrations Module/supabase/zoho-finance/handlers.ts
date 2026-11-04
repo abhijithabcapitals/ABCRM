@@ -1,8 +1,10 @@
 // Actions for the zoho-finance Edge Function. Read-only. Kept free of Deno and Supabase imports so tests run offline.
 
 import { UserError } from "./errors.ts";
+import { LISTED_ACCOUNT_TYPES } from "./figures.ts";
 import { refresh } from "./refresh.ts";
 import { ZohoAccessError, ZohoHttpError } from "./zohoClient.ts";
+import { hasPageContext, transactionKey } from "./zohoSources.ts";
 
 export { browserMessage, UserError } from "./errors.ts";
 
@@ -112,10 +114,21 @@ function sign(values: (number | null)[]): "pos" | "neg" | "mixed" | "zero" | Unk
   return "mixed";
 }
 
+// Reads the same keys as readLedger, so the probe cannot pass a reply that the refresh would refuse.
 const rowsOf = (data: Json): Json[] => {
-  const r = data?.transactions ?? data?.accounttransactions ?? [];
-  return Array.isArray(r) ? r : [];
+  const key = transactionKey(data);
+  return key ? data[key] : [];
 };
+// Which key the reply held its rows under. Any other list is named, since the refresh would refuse that reply and this
+// probe runs once. A key name is structure, not data; it is only reported if it looks like a plain name.
+const replyKey = (data: Json): string => {
+  const known = transactionKey(data);
+  if (known) return known;
+  const other = Object.keys(data && typeof data === "object" ? data : {}).find((k) => Array.isArray(data[k]) && TOKEN.test(k) && !/^cf_/i.test(k));
+  return other ?? "none";
+};
+// Only a yes or no leaves. Rows are compared whole and in any order, inside this function.
+const sameRows = (a: Json[], b: Json[]) => JSON.stringify(a.map((r) => JSON.stringify(r)).sort()) === JSON.stringify(b.map((r) => JSON.stringify(r)).sort());
 const rowDate = (r: Json): string | null => {
   const d = r?.date ?? r?.transaction_date;
   return typeof d === "string" && /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : null;
@@ -169,9 +182,8 @@ function parentChecks(accounts: Json[]): { parentsWithBalance: number | Unknown;
 
 // false can mean equity leaves out this year's earnings, or a type's sign is reversed.
 function equation(accounts: Json[]): Check {
-  const known = (a: Json) => ASSET_TYPES.has(a?.account_type) || LIABILITY_TYPES.has(a?.account_type) || a?.account_type === "equity" || IE_TYPES.has(a?.account_type);
   // An unlisted type holding a balance could belong on either side.
-  if (accounts.some((a) => !known(a) && balanceOf(a) !== 0)) return "unknown";
+  if (accounts.some((a) => !LISTED_ACCOUNT_TYPES.has(a?.account_type) && balanceOf(a) !== 0)) return "unknown";
   const sum = (types: (t: string) => boolean) => total(accounts.filter((a) => types(a?.account_type)).map(balanceOf));
   const assets = sum((t) => ASSET_TYPES.has(t));
   const liabilities = sum((t) => LIABILITY_TYPES.has(t));
@@ -190,6 +202,19 @@ function cashCheck(accounts: Json[], bank: Call, baseCurrency: string | null): C
   const listTotal = total(rows.map((a) => read(a?.bcy_balance) ?? (a?.currency_code === baseCurrency ? read(a?.balance) : null)));
   const chartTotal = total(inChart.map(balanceOf));
   return listTotal === null || chartTotal === null ? "unknown" : sameCents(listTotal, chartTotal);
+}
+
+// perStyle: each date style's rows for the sample accounts, with null for a failed call. If Zoho ignored account_id, both
+// accounts would get the same rows. Different rows prove it was obeyed, and the same rows on two non-empty replies prove
+// it was not. Empty, failed or single replies prove nothing. Only this answer leaves, never a row.
+function accountFilter(perStyle: (Json[] | null)[][]): Check {
+  let same = false;
+  for (const [a, b] of perStyle) {
+    if (!a || !b) continue;
+    if (!sameRows(a, b)) return true;
+    if (a.length > 0) same = true;
+  }
+  return same ? false : "unknown";
 }
 
 async function probe(zoho: ZohoLike, now: Date): Promise<object> {
@@ -239,16 +264,32 @@ async function probe(zoho: ZohoLike, now: Date): Promise<object> {
   let violated = false;
   let styleWorked: string = "unknown";
   let goodPath: (typeof TX_PATHS)[number] | undefined;
+  // Per path: the key that held the rows, whether the reply says if more pages exist, and whether account_id was obeyed.
+  const transactionsReplyKey: Record<string, string> = {};
+  const transactionsPageContext: Record<string, Check> = {};
+  const accountFilterByPath: Record<string, Check> = {};
   for (const p of TX_PATHS) {
     transactionsPath[p] = 0; // 0 means not tried
+    transactionsReplyKey[p] = "unknown";
+    transactionsPageContext[p] = "unknown";
+    // Each style's rows for each sample account, so the two accounts can be compared on the same request.
+    const rowsByStyle = new Map<string, (Json[] | null)[]>(STYLES.map((st) => [st.name, []]));
     for (const a of samples) {
       const id = String(a.account_id);
       for (const st of STYLES) {
         const wideCall = await attempt(zoho, p, { account_id: id, ...win(start12, st), per_page: "200" });
         if (st === STYLES[0] && transactionsPath[p] !== 200) transactionsPath[p] = wideCall.status;
-        if (wideCall.status !== 200) continue;
+        const seen = rowsByStyle.get(st.name) as (Json[] | null)[];
+        if (wideCall.status !== 200) {
+          seen.push(null);
+          continue;
+        }
         goodPath ??= p;
         const wideRows = rowsOf(wideCall.data);
+        seen.push(wideRows);
+        const replied = replyKey(wideCall.data);
+        if (transactionsReplyKey[p] === "unknown" || transactionsReplyKey[p] === "none") transactionsReplyKey[p] = replied;
+        if (transactionsPageContext[p] !== true) transactionsPageContext[p] = hasPageContext(wideCall.data);
         for (const r of wideRows.slice(0, 1)) {
           if (r && typeof r === "object") {
             for (const k of Object.keys(r)) if (TOKEN.test(k) && !/^cf_/i.test(k)) fields.add(k);
@@ -266,7 +307,11 @@ async function probe(zoho: ZohoLike, now: Date): Promise<object> {
         }
       }
     }
+    accountFilterByPath[p] = accountFilter([...rowsByStyle.values()]);
   }
+  // Any path that ignored the filter makes this false. accountFilterByPath shows which, as readLedger reads only one path.
+  const answers = Object.values(accountFilterByPath);
+  const accountFilterWorked: Check = answers.includes(false) ? false : answers.includes(true) ? true : "unknown";
   const dateParamsWorked: boolean | Unknown = worked ? true : violated ? false : "unknown";
 
   // Does an income or expense balance move when the date range moves? Only a boolean leaves.
@@ -313,16 +358,26 @@ async function probe(zoho: ZohoLike, now: Date): Promise<object> {
       capped: c.data?.page_context?.has_more_page === true,
     };
   };
-  const allRows: Json[] = [
-    ...(Array.isArray(invAll.data?.invoices) ? invAll.data.invoices : []),
-    ...(Array.isArray(billAll.data?.bills) ? billAll.data.bills : []),
-  ];
+  // Told apart: the refresh needs the rate on both lists, and only the bills reply documents it.
+  const hasRate = (c: Call, key: string): Check => {
+    const list: Json[] = Array.isArray(c.data?.[key]) ? c.data[key] : [];
+    if (c.status !== 200 || list.length === 0) return "unknown";
+    return list.some((x) => x?.exchange_rate !== undefined && x?.exchange_rate !== null && x?.exchange_rate !== "");
+  };
   const otherCurrency = {
     invoices: foreignCount(invAll, "invoices"),
     bills: foreignCount(billAll, "bills"),
-    listHasExchangeRate: allRows.length === 0
-      ? "unknown"
-      : allRows.some((x) => x?.exchange_rate !== undefined && x?.exchange_rate !== null),
+    listHasExchangeRate: { invoices: hasRate(invAll, "invoices"), bills: hasRate(billAll, "bills") },
+  };
+
+  // Does each list say whether more pages exist? The refresh leaves a list unfinished if it does not.
+  const saysMore = (c: Call): Check => (c.status === 200 ? hasPageContext(c.data) : "unknown");
+  const pageContext = {
+    chartofaccounts: saysMore(coa),
+    bankaccounts: saysMore(bank),
+    invoices: saysMore(invAll),
+    bills: saysMore(billAll),
+    transactions: transactionsPageContext,
   };
 
   // Calls for 12 months: pages seen on up to two sample accounts, scaled to every income, expense and cost
@@ -352,6 +407,10 @@ async function probe(zoho: ZohoLike, now: Date): Promise<object> {
   return {
     transactionsPath,
     transactionFields: [...fields].sort(),
+    transactionsReplyKey,
+    accountFilterWorked,
+    accountFilterByPath,
+    pageContext,
     dateParamsWorked,
     dateParamStyle: styleWorked,
     fiscalStartMonth,

@@ -12,6 +12,9 @@ const monthName = (m) => new Date(`${m}-01T00:00:00Z`).toLocaleString("en-GB", {
 
 const Note = ({ children }) => <div className="sum-note">{children}</div>;
 const Unfinished = () => <Note>Not finished in the last refresh. Refresh to try again.</Note>;
+const Unmapped = ({ count }) => (count > 0
+  ? <div className="sum-foot">{count} account{count === 1 ? " has a type" : "s have types"} these figures do not count.</div>
+  : null);
 
 function Figure({ label, value, format, auto }) {
   const bad = auto && known(value) && value < 0;
@@ -117,6 +120,7 @@ export function HealthBody({ data }) {
             ))}
           </ul>
           {d.health.missing.length > 0 && <div className="sum-foot">Left out, not enough data: {d.health.missing.join(", ")}</div>}
+          <Unmapped count={d.unmappedAccounts} />
         </>
       )}
     </Zoho>
@@ -143,7 +147,7 @@ function Documents({ data, id, noun, who }) {
                 Open documents differ from the Zoho ledger by {amount(Math.abs(s.difference), d.currency)} ({s.difference > 0 ? "documents higher" : "ledger higher"}).
               </div>
             )}
-            {s.excluded > 0 && <div className="sum-foot">{s.excluded} document{s.excluded === 1 ? "" : "s"} left out: no exchange rate.</div>}
+            {s.excluded > 0 && <div className="sum-foot">{s.excluded} document{s.excluded === 1 ? "" : "s"} left out of this total: the balance or exchange rate could not be read.</div>}
           </>
         );
       }}
@@ -163,9 +167,12 @@ export function RatiosBody({ data }) {
   return (
     <Zoho data={data} keys={["ratios"]}>
       {(d) => (
-        <ul className="sum-list">
-          {RATIOS.map(([key, label, fmt]) => <li key={key}><span>{label}</span><strong>{fmt(d.ratios[key])}</strong></li>)}
-        </ul>
+        <>
+          <ul className="sum-list">
+            {RATIOS.map(([key, label, fmt]) => <li key={key}><span>{label}</span><strong>{fmt(d.ratios[key])}</strong></li>)}
+          </ul>
+          <Unmapped count={d.unmappedAccounts} />
+        </>
       )}
     </Zoho>
   );

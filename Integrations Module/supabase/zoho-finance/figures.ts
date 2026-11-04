@@ -76,7 +76,30 @@ export type SnapshotData = {
   };
   health: Health;
   partial: string[];
+  // Accounts of a type outside LISTED_ACCOUNT_TYPES that hold a balance, or an unknown one. No ratio counts them.
+  // Null when the chart of accounts was not finished.
+  unmappedAccounts: number | null;
 };
+
+// Every account type these figures know how to place. The balance sheet ratios use the asset, liability and equity
+// types. Income and expense types belong in the ledger, so they are known but are in no balance sheet sum.
+const CURRENT_ASSET_TYPES = ["accounts_receivable", "cash", "bank", "stock", "other_current_asset"];
+const CURRENT_LIABILITY_TYPES = ["accounts_payable", "credit_card", "other_current_liability"];
+// Debt to equity counts other_liability too. This is a ruling on the design's "current plus long-term".
+const OTHER_DEBT_TYPES = ["long_term_liability", "other_liability"];
+export const LISTED_ACCOUNT_TYPES: ReadonlySet<string> = new Set([
+  ...CURRENT_ASSET_TYPES,
+  "fixed_asset",
+  "other_asset",
+  ...CURRENT_LIABILITY_TYPES,
+  ...OTHER_DEBT_TYPES,
+  "equity",
+  "income",
+  "other_income",
+  "expense",
+  "other_expense",
+  "cost_of_goods_sold",
+]);
 
 const DAY = 86_400_000;
 const money = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100 + 0; // + 0 turns -0 into 0.
@@ -175,6 +198,12 @@ function docSection(docs: OpenDoc[], currency: string, today: string, balances: 
     difference: Math.abs(gap) > 1 ? gap : null,
     excluded: base.excluded,
   };
+}
+
+// An unknown balance could be non-zero, so it counts. Null means the chart of accounts was not finished.
+function countUnmapped(balances: Balance[] | null): number | null {
+  if (balances === null) return null;
+  return balances.filter((b) => !LISTED_ACCOUNT_TYPES.has(b.type) && (b.balance === null || money(b.balance) !== 0)).length;
 }
 
 const overdueShare = (s: DocSection | null) => (s === null ? null : percentOf(money(s.total - s.aging.current), s.total));
@@ -279,25 +308,28 @@ export function buildFigures(input: FiguresInput, today: string): SnapshotData {
   const cashKnown = cash !== null && cash.every((a) => a.balance !== null);
   const cashTotal = cashKnown ? money(cash.reduce((s, a) => s + (a.balance as number), 0)) : null;
 
-  const currentAssets = sumTypes(balances, ["accounts_receivable", "cash", "bank", "stock", "other_current_asset"]);
+  const currentAssets = sumTypes(balances, CURRENT_ASSET_TYPES);
   const stock = sumTypes(balances, ["stock"]);
-  const currentLiabilities = sumTypes(balances, ["accounts_payable", "credit_card", "other_current_liability"]);
-  const longTerm = sumTypes(balances, ["long_term_liability"]);
+  const currentLiabilities = sumTypes(balances, CURRENT_LIABILITY_TYPES);
+  const otherDebt = sumTypes(balances, OTHER_DEBT_TYPES);
   const equity = sumTypes(balances, ["equity"]);
   const quickAssets = currentAssets === null || stock === null ? null : money(currentAssets - stock);
-  const allLiabilities = currentLiabilities === null || longTerm === null ? null : money(currentLiabilities + longTerm);
+  const allLiabilities = currentLiabilities === null || otherDebt === null ? null : money(currentLiabilities + otherDebt);
+  const unmappedAccounts = countUnmapped(balances);
 
   const current = ratioOf(currentAssets, currentLiabilities);
   const dso = ar && led ? ratioOf(ar.total, led.revenue90) : null;
   const dpo = ap && led ? ratioOf(ap.total, led.cost90) : null;
 
   const partial: string[] = [];
-  if (!ar) partial.push("ar");
-  if (!ap) partial.push("ap");
+  // A document left out makes the section incomplete: its total, DSO or DPO, and overdue share are all too low.
+  const leftOut = (ar?.excluded ?? 0) > 0 || (ap?.excluded ?? 0) > 0;
+  if (!ar || ar.excluded > 0) partial.push("ar");
+  if (!ap || ap.excluded > 0) partial.push("ap");
   if (!cashKnown) partial.push("cash");
   if (!led) partial.push("monthly", "ytd", "topCosts");
   // Ratios and health draw on every source. Each keeps what could be worked out, and is marked incomplete.
-  const unfinished = !ar || !ap || !cashKnown || !led || balances === null;
+  const unfinished = !ar || !ap || !cashKnown || !led || balances === null || leftOut || (unmappedAccounts ?? 0) > 0;
   if (unfinished) partial.push("ratios", "health");
 
   return {
@@ -326,6 +358,7 @@ export function buildFigures(input: FiguresInput, today: string): SnapshotData {
       apOverdueShare: overdueShare(ap),
     }),
     partial,
+    unmappedAccounts,
   };
 }
 

@@ -4,6 +4,9 @@ import { snapshotState } from "../logic/summaryFigures.js";
 import ZohoHeader from "./summaryCards/ZohoHeader";
 import { HealthBody, ArBody, ApBody, RatiosBody, RevenueBody, CostBody, CashBody } from "./summaryCards/ZohoBodies";
 
+// How long to wait before reading the row again, when another refresh held the lock.
+const BUSY_REREAD_MS = 30_000;
+
 const ZOHO_BODIES = { health: HealthBody, ar: ArBody, ap: ApBody, ratios: RatiosBody, revenue: RevenueBody, cost: CostBody, cash: CashBody };
 
 // `now` only moves when the row is read or refreshed. The header keeps its own clock, so the Dashboard is not redrawn every few seconds.
@@ -19,6 +22,9 @@ export function useZohoFinance(isAdmin) {
   const read = useRef(null);
   const readFailed = useRef(false);
   const opened = useRef(false);
+  const reread = useRef(null);
+
+  useEffect(() => () => clearTimeout(reread.current), []);
 
   // One read, shared by every card. A failure clears it so Retry reads again.
   const load = useCallback(() => {
@@ -26,7 +32,6 @@ export function useZohoFinance(isAdmin) {
       read.current = readSnapshot().then((r) => {
         setRow(r);
         setNow(Date.now());
-        if (r.error === "not_connected") setNotConnected(true);
         return r;
       }).catch((e) => {
         read.current = null;
@@ -44,7 +49,17 @@ export function useZohoFinance(isAdmin) {
       const result = await refreshSnapshot(force);
       const failedLogin = result?.error === "not_connected";
       setNotConnected(failedLogin);
-      if (result?.status === "busy") setNotice("Another refresh is already running. Try again in a minute.");
+      if (result?.status === "busy") {
+        setNotice("Another refresh is already running. Try again in a minute.");
+        // The other refresh will change the row. One read later picks that up: it only reads, so it cannot start a loop.
+        clearTimeout(reread.current);
+        reread.current = setTimeout(() => {
+          readSnapshot().then((later) => {
+            setRow(later);
+            setNow(Date.now());
+          }).catch(() => {});
+        }, BUSY_REREAD_MS);
+      }
       // A failure that is skipped later comes back as "fresh": the row holds the error, so read it again.
       const next = await readSnapshot();
       setRow(next);
@@ -54,7 +69,6 @@ export function useZohoFinance(isAdmin) {
         read.current = Promise.resolve(next);
         setEpoch((n) => n + 1);
       }
-      if (next.error === "not_connected") setNotConnected(true);
       if (result?.status === "failed" && !failedLogin && next.status !== "failed") setNotice(result.error || "The refresh failed.");
     } catch (e) {
       setNotice(e?.message || "Could not refresh.");

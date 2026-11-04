@@ -4,7 +4,7 @@
 import { browserMessage, UserError } from "./errors.ts";
 import { buildFigures, ledgerStart } from "./figures.ts";
 import type { Deps, ZohoLike } from "./handlers.ts";
-import { ledgerAccountCount, readAccounts, readCash, readLedger, readOrganization, readPayables, readReceivables } from "./zohoSources.ts";
+import { ledgerAccountCount, readAccounts, readCash, readLedger, readOrganization, readPayables, readReceivables, UnfinishedRead } from "./zohoSources.ts";
 
 export const MAX_CALLS = 90;
 const LOCK_MINUTES = 5;
@@ -95,6 +95,8 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
       try {
         return await read();
       } catch (e) {
+        // Only this section is unfinished. The others can still be read.
+        if (e instanceof UnfinishedRead) return null;
         if (!(e instanceof CallLimitReached)) throw e;
         stopped = true;
         return null;
