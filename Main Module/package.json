@@ -8,8 +8,11 @@
     "dev": "vite",
     "prebuild": "node scripts/copy-ocr-assets.mjs",
     "build": "vite build",
+    "build:desktop": "vite build --config vite.desktop.config.js",
+    "dev:desktop": "vite --config vite.desktop.config.js",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:cloudflare": "node scripts/deploy-cloudflare.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
@@ -30,6 +33,7 @@
     "dompurify": "^3.4.17",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
+    "livekit-client": "^2.23.0",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "4.10.38",
     "pizzip": "^3.2.0",

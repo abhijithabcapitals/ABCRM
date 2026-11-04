@@ -11,7 +11,6 @@ export const GRANTABLE_TABS = [
   { key: "hr", label: "HR" },
   { key: "tax", label: "Tax Compliance" },
   { key: "knowledge", label: "Knowledge" },
-  { key: "messenger", label: "Messenger" },
   { key: "spaces", label: "Spaces, Tasks and Documents" },
 ];
 const KEYS = new Set(GRANTABLE_TABS.map((t) => t.key));
@@ -28,17 +27,27 @@ export const DATA_ROLES = ["READ_ONLY", "SALES_EXECUTIVE", "DOCUMENT_EXECUTIVE",
 const tabOf = (view) => (KEYS.has(view) ? view : "spaces");
 
 // The page a person actually sees. Admins go anywhere; members only where they were given access.
+// The full Messenger page needs no grant, as every member already has the chat dock.
 export function resolveView(view, isAdmin, tabs) {
-  if (isAdmin || view === "profile") return view;
+  if (isAdmin || view === "profile" || view === "team-messenger") return view;
   if (!ADMIN_ONLY.has(view) && (tabs || []).includes(tabOf(view))) return view;
   return (tabs || []).find((t) => t !== "spaces") || "profile";
 }
 
-// The page asked for in the address (the installed app opens with ?view=messenger), else the saved one.
+// The page asked for in the address (a link can open ?view=settings), else the saved one.
+// A retired page falls through to the default.
 const RETIRED_VIEWS = new Set(["email-agent"]);
 export function startView(search, saved) {
   const view = new URLSearchParams(search).get("view") || saved;
   return RETIRED_VIEWS.has(view) ? null : view;
+}
+
+// The page to open at start. "accounting" was the old name of the Clients page; the Wiki and Messenger
+// tabs were removed. `write` says the saved value in abc_view must be set again.
+export function initialView(search, stored) {
+  const saved = startView(search, stored);
+  const view = saved === "accounting" ? "clients" : saved === "wiki" || saved === "messenger" ? "dashboard" : saved || "dashboard";
+  return { view, write: new URLSearchParams(search).has("view") || stored === "messenger" };
 }
 
 // Each person's own sidebar order, kept in this browser. Tabs not in the saved order go last.

@@ -25,3 +25,17 @@ It runs the migration twice, the access tests, then `migrations/rollback/001_rol
 Browser users have `select` only. Every write goes through the service role (Edge Functions). Refresh tokens are unreachable from the browser: no grant on the functions, none on `vault`.
 `migrations/schedule_prune.sql` holds the daily cron schedule. It is not part of the migration, the runner never runs it, and it needs separate approval before it runs live.
 The runner also runs `002` twice, `tests/020_connection_test.sql`, and `migrations/rollback/002_rollback.sql` (which deletes `ms_rt:%` secrets) before the rollback of `001`.
+
+## Team chat (`migrations/003_chat.sql`)
+
+| Object | Purpose |
+|---|---|
+| `messenger_conversations` | One row per chat: `kind` (direct, group), `title` (groups), `direct_key` (the two profile IDs sorted, unique, so a pair has one chat), `last_message_at` |
+| `messenger_members` | Who is in a chat: `role` (owner, member), `last_read_at`, `joined_at`. Cascades with the chat or the profile |
+| `messenger_messages` | `body` 1 to 4000 characters, optional link (`client`, `lead`, `task`, `web`; `web` must start `https://`). The browser may supply `id` so a retry cannot send twice. `created_at` is always the server time. `sender_id` is set null if the profile is deleted |
+| `messenger_is_member`, `messenger_start_direct`, `messenger_create_group`, `messenger_add_members`, `messenger_remove_member`, `messenger_rename_group`, `messenger_leave`, `messenger_mark_read` | Security definer functions for `authenticated`; they check the caller. Only owners add, remove and rename; leaving a one-to-one chat is refused |
+| `messenger_chat_list()`, `messenger_read_state(chat)` | The caller's chats with preview and unread count (one query); the earliest `last_read_at` of the other members, for read ticks |
+| `messenger_prune_messages()` | Deletes messages older than 365 days. `service_role` only. `migrations/schedule_chat_prune.sql` holds the daily cron schedule; it is not part of the migration, the runner never runs it, and it needs separate approval before it runs live |
+
+Row security on all three tables: members read only their own chats, and there is no admin exception. The browser can read the tables and insert its own messages; nothing else is granted, so every change to chats and members goes through the functions. `messenger_messages` joins the `supabase_realtime` publication (rollback removes it first). Messages are plain text in the database, not end-to-end encrypted.
+`tests/030_chat_test.sql` runs after the migration twice; `migrations/rollback/003_rollback.sql` runs first in the rollback order.

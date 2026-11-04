@@ -24,6 +24,8 @@ export const bytes = (n) => { if (n == null) return "–"; const u = ["B", "KB",
 const num = (n) => Number(n || 0).toLocaleString("en-AE");
 const usd = (n) => `$${Number(n || 0).toFixed(Number(n) < 1 ? 4 : 2)}`;
 const when = (d) => (d ? new Date(d).toLocaleString("en-AE", { timeZone: "Asia/Dubai", dateStyle: "medium", timeStyle: "short" }) : "–");
+// One-line tables: the year shows only when it is not this year.
+const whenShort = (d) => (d ? new Date(d).toLocaleString("en-AE", { timeZone: "Asia/Dubai", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", ...(new Date(d).getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }) }) : "–");
 const minutesAgo = (d) => (d ? (Date.now() - new Date(d)) / 60000 : Infinity);
 
 function Stat({ label, value, sub }) {
@@ -180,10 +182,10 @@ export function AuditPanel() {
         </select>
       </div>
       {log.loading && !log.data ? <Spinner /> : <div className="bk-oneline"><DataTable search="Search…" rows={shown} empty="No admin actions match." columns={[
-        { key: "at", label: "When", render: (r) => when(r.at) },
-        { key: "whoText", label: "Done by" },
-        { key: "actionText", label: "Action" },
-        { key: "targetText", label: "Target", render: (r) => <Clip text={r.targetText} /> },
+        { key: "at", label: "When", width: 140, render: (r) => whenShort(r.at) },
+        { key: "whoText", label: "Done by", width: 140, render: (r) => <Clip text={r.whoText} /> },
+        { key: "actionText", label: "Action", width: 210, render: (r) => <Clip text={r.actionText} /> },
+        { key: "targetText", label: "Target", width: "18%", render: (r) => <Clip text={r.targetText} /> },
         { key: "detailText", label: "Detail", render: (r) => <Clip text={r.detailText} /> },
       ]} /></div>}
     </div>
@@ -242,7 +244,7 @@ export function AuditTrailPanel() {
 
 const HEADINGS = { "employee code": "employee_code", "emp code": "employee_code", code: "employee_code", "full name": "full_name", name: "full_name", email: "work_email", "work email": "work_email", phone: "phone", mobile: "phone", department: "department", designation: "designation", "join date": "join_date", status: "status" };
 
-const EMPLOYEE_COLUMNS = [{ key: "employee_code", label: "Code" }, { key: "full_name", label: "Name" }, { key: "department", label: "Department" }, { key: "designation", label: "Designation" }, { key: "work_email", label: "Email" }, { key: "status", label: "Status", render: (e) => <Badge tone={e.status === "Active" ? "good" : "warn"}>{e.status}</Badge> }, { key: "profile_id", label: "CRM login", render: (e) => (e.profile_id ? <Badge tone="good">Has login</Badge> : "–") }];
+const EMPLOYEE_COLUMNS = [{ key: "employee_code", label: "Code", width: 110 }, { key: "full_name", label: "Name", width: "20%", render: (e) => <Clip text={e.full_name} /> }, { key: "department", label: "Department", width: "14%", render: (e) => <Clip text={e.department || "–"} /> }, { key: "designation", label: "Designation", width: "14%", render: (e) => <Clip text={e.designation || "–"} /> }, { key: "work_email", label: "Email", render: (e) => <Clip text={e.work_email || "–"} /> }, { key: "status", label: "Status", width: 86, render: (e) => <Badge tone={e.status === "Active" ? "good" : "warn"}>{e.status}</Badge> }, { key: "profile_id", label: "CRM login", width: 104, render: (e) => (e.profile_id ? <Badge tone="good">Has login</Badge> : "–") }];
 
 export function EmployeesPanel() {
   const list = useLoad(async () => check(await supabase.from("hr_employees").select("*").order("employee_code")), []);
@@ -396,11 +398,11 @@ export function MembersPanel({ currentUser }) {
       <ErrorNote message={list.error} />
       <div className="bk-actions bk-mb"><Button variant="primary" onClick={() => setAdding(true)}>+ Onboard member</Button></div>
       {list.loading && !list.data ? <Spinner /> : <div className="bk-oneline"><DataTable search="Search name, code or email…" rows={list.data || []} onRow={(m) => setOpenId(m.id)} empty="No members." columns={[
-        { key: "employee_code", label: "Code" }, { key: "full_name", label: "Member" }, { key: "email", label: "Username" }, { key: "department", label: "Department" },
-        { key: "role", label: "Type", render: (m) => <Badge tone={m.role === "admin" ? "good" : undefined}>{m.role}</Badge> },
+        { key: "employee_code", label: "Code", width: 72 }, { key: "full_name", label: "Member", width: "14%", render: (m) => <Clip text={m.full_name} /> }, { key: "email", label: "Username", width: "19%", render: (m) => <Clip text={m.email} /> }, { key: "department", label: "Department", width: "7%", render: (m) => <Clip text={m.department || "–"} /> },
+        { key: "role", label: "Type", width: 80, render: (m) => <Badge tone={m.role === "admin" ? "good" : undefined}>{m.role}</Badge> },
         { key: "tabs", label: "Tabs", render: (m) => (m.role === "admin" ? "All" : (m.tabs || []).length ? <Clip text={m.tabs.map((t) => label[t] || t).join(", ")} /> : <Badge tone="warn">None</Badge>) },
-        { key: "data_role", label: "Data role", render: (m) => (m.data_role || "–").replace(/_/g, " ") }, { key: "last_sign_in_at", label: "Last sign-in", render: (m) => when(m.last_sign_in_at) },
-        { key: "suspended", label: "Login", render: (m) => <Badge tone={m.suspended ? "bad" : "good"}>{m.suspended ? "Suspended" : "Active"}</Badge> },
+        { key: "data_role", label: "Data role", width: 90, render: (m) => <Clip text={(m.data_role || "–").replace(/_/g, " ")} /> }, { key: "last_sign_in_at", label: "Last sign-in", width: 110, render: (m) => whenShort(m.last_sign_in_at) },
+        { key: "suspended", label: "Login", width: 86, render: (m) => <Badge tone={m.suspended ? "bad" : "good"}>{m.suspended ? "Suspended" : "Active"}</Badge> },
       ]} /></div>}
       {adding && <Onboard onClose={() => setAdding(false)} onDone={list.reload} />}
       {open && <EditMember member={open} currentUser={currentUser} onClose={() => setOpenId(null)} onDone={list.reload} />}

@@ -35,3 +35,6 @@ create function net.http_post(url text, body jsonb, params jsonb default '{}', h
 
 create table public.client_master (client_id text primary key);
 alter role service_role bypassrls; -- as on Supabase
+create table public.crm_agent_access (id boolean primary key default true check (id), read_token_sha256 text not null, updated_at timestamptz not null default now());
+alter table public.crm_agent_access enable row level security;
+revoke all on public.crm_agent_access from public, anon, authenticated;

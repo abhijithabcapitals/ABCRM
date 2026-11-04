@@ -2,7 +2,7 @@
   "name": "AB Capital Workspace",
   "short_name": "AB Capital",
   "scope": "./",
-  "start_url": "./?view=messenger",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",

@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import registry from "../registry.json";
 import ZohoConnection from "./ZohoConnection.jsx";
+import ZohoFinanceConnection from "./ZohoFinanceConnection.jsx";
+import ChatBoundary from "@messenger/components/ChatBoundary";
+
+// The Microsoft screens belong to the Messenger Module and load only when the microsoft row is open.
+const MicrosoftConnection = lazy(() => import("@messenger/components/MicrosoftConnection"));
+const InboxConnections = lazy(() => import("@messenger/components/InboxConnections"));
 
 // Settings > Integrations: every app the CRM can connect to, plus any custom app. Values are
 // encrypted in Supabase Vault and write-only: this screen shows whether one is saved, never what it is.
@@ -24,11 +30,12 @@ export default function IntegrationsPanel({ supabase }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(() => (new URLSearchParams(location.search).has("ms") ? "microsoft" : null));
   const [drafts, setDrafts] = useState({});
   const [busy, setBusy] = useState("");
   const [customName, setCustomName] = useState("");
   const [addedCustom, setAddedCustom] = useState([]);
+  const [activeTabs, setActiveTabs] = useState({});
 
   const registryNames = useMemo(() => registry.groups.flatMap((g) => g.integrations.flatMap((i) => i.secrets.map((s) => s.name))), []);
 
@@ -92,6 +99,9 @@ export default function IntegrationsPanel({ supabase }) {
     const st = STATUS[i.status] || STATUS.planned;
     const done = i.secrets.filter((s) => where(s.name)).length;
     const isOpen = open === i.id;
+    // A card with sub tabs shows only the values that belong to the chosen tab.
+    const tab = i.subTabs?.find((t) => t.id === activeTabs[i.id]) || i.subTabs?.[0];
+    const shown = tab ? tab.secrets.map((n) => i.secrets.find((s) => s.name === n)) : i.secrets;
     return (
       <div key={i.id} style={{ background: "#fff", border: `1px solid ${isOpen ? "#0d7d82" : "#e8e8e8"}`, borderRadius: 8 }}>
         <button type="button" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i.id)}
@@ -105,8 +115,22 @@ export default function IntegrationsPanel({ supabase }) {
         {isOpen && (
           <div style={{ padding: "0 14px 12px", display: "grid", gap: 8 }}>
             {i.status === "planned" && <p style={{ margin: 0, fontSize: 12, color: "#92400e" }}>Saved here for later: nothing in the CRM uses this app yet.</p>}
-            {(i.usedBy || i.notes) && <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{i.usedBy || i.notes}</p>}
-            {i.secrets.map((s) => {
+            {i.subTabs && (
+              <div role="tablist" aria-label={`${i.name} functions`} style={{ display: "flex", gap: 4, flexWrap: "wrap", borderBottom: "1px solid #e8e8e8" }}>
+                {i.subTabs.map((t) => {
+                  const selected = t.id === tab.id;
+                  const saved = t.secrets.filter(where).length;
+                  return (
+                    <button key={t.id} type="button" role="tab" aria-selected={selected} onClick={() => setActiveTabs((a) => ({ ...a, [i.id]: t.id }))}
+                      style={{ background: "none", border: "none", borderBottom: `2px solid ${selected ? "#0d7d82" : "transparent"}`, marginBottom: -1, padding: "6px 10px", cursor: "pointer", font: "inherit", fontSize: 12.5, fontWeight: selected ? 600 : 400, color: selected ? "#0d7d82" : "#6b7280" }}>
+                      {t.label}{data ? ` (${saved} of ${t.secrets.length})` : ""}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {(tab?.note || i.usedBy || i.notes) && <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tab?.note || i.usedBy || i.notes}</p>}
+            {shown.map((s) => {
               const place = where(s.name);
               const hidden = s.secret !== false && !/_URL$|_ID$|_HOST$|_COMPANY$|_DB$|_USERNAME$|_SENDER$|FROM_EMAIL|_NUMBER$|_ENVIRONMENT$/.test(s.name);
               return (
@@ -132,7 +156,18 @@ export default function IntegrationsPanel({ supabase }) {
                 </div>
               );
             })}
-            {i.id === "zoho-books" && <ZohoConnection supabase={supabase} onSaved={load} />}
+            {i.id === "microsoft" && (
+              <ChatBoundary fallback={<p style={{ fontSize: 12.5, color: "#b91c1c", margin: "8px 0 0" }}>The Microsoft screens could not load. Please reload the page.</p>}>
+                <Suspense fallback={null}><MicrosoftConnection /></Suspense>
+              </ChatBoundary>
+            )}
+            {i.id === "messenger-inbox" && (
+              <ChatBoundary fallback={<p style={{ fontSize: 12.5, color: "#b91c1c", margin: "8px 0 0" }}>The connection screen could not load. Please reload the page.</p>}>
+                <Suspense fallback={null}><InboxConnections /></Suspense>
+              </ChatBoundary>
+            )}
+            {i.id === "zoho-books" && tab?.id === "invoices" && <ZohoConnection supabase={supabase} onSaved={load} />}
+            {i.id === "zoho-books" && tab?.id === "financials" && <ZohoFinanceConnection supabase={supabase} />}
           </div>
         )}
       </div>

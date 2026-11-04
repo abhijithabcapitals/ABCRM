@@ -1,7 +1,7 @@
 // The sentence shown after Microsoft sends the person back to the CRM.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectionLine, connectionMessage, daysUntil, secretExpiryNote } from "../logic/connectionText.js";
+import { connectionMessage, daysUntil, secretExpiryNote } from "../logic/connectionText.js";
 
 test("nothing in the address gives no message", () => {
   assert.equal(connectionMessage(null, null), null);
@@ -62,13 +62,4 @@ test("secret expiry warns from 30 days ahead", () => {
   assert.match(secretExpiryNote("2026-11-05", now).text, /in 1 day./);
   assert.equal(secretExpiryNote("2026-11-04", now).tone, "error");
   assert.match(secretExpiryNote("2026-11-03", now).text, /expired/);
-});
-
-test("overview line follows the person's link", () => {
-  assert.match(connectionLine(null), /Not connected/);
-  assert.match(connectionLine({ status: "not_connected", link: null }), /admin must connect/i);
-  assert.match(connectionLine({ status: "active", link: null, needs_connect: true }), /Settings/);
-  assert.match(connectionLine({ status: "active", link: { status: "review", upn: "a@b.c" }, needs_connect: true }), /review/i);
-  assert.match(connectionLine({ status: "active", link: { status: "active", upn: "a@b.c" }, needs_connect: true }), /not connected/i);
-  assert.equal(connectionLine({ status: "active", link: { status: "active", upn: "a@b.c" }, needs_connect: false }), "Connected as a@b.c");
 });

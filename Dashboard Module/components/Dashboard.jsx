@@ -5,6 +5,11 @@ import { statusColor, PALETTE } from "@app/chartUtils";
 import { fmtDate } from "@app/dateFormat";
 import DrilldownModal from "@app/components/DrilldownModal";
 import AssigneeTasksModal from "@app/components/AssigneeTasksModal";
+import SummaryBoard from "./SummaryBoard";
+import { useZohoFinance } from "./ZohoSection";
+import { SnapshotContext } from "./summaryCards/zohoContext";
+import { ZOHO_CARDS_LIVE } from "../logic/summaryLayout.js";
+import { summaryApi } from "../services/summaryApi";
 
 const ATTN_META = {
   overdue: {
@@ -57,7 +62,7 @@ function AttentionPanel({ items, kind, onOpenScope, spaceName, empty }) {
   );
 }
 
-export default function Dashboard({ spaces, profile, onNavigate, onSpaceSelect, onOpenScope }) {
+export default function Dashboard({ spaces, profile, tabs, onNavigate, onSpaceSelect, onOpenScope }) {
   const [data, setData] = useState(null);
   const [ceo, setCeo] = useState(null);           // executive summary (admins)
   const [loading, setLoading] = useState(true);
@@ -65,6 +70,7 @@ export default function Dashboard({ spaces, profile, onNavigate, onSpaceSelect, 
   const [assigneeModal, setAssigneeModal] = useState(null); // assignee name being drilled into
   const [drill, setDrill] = useState(null);                 // { title, metric } KPI drill-down
   const isAdmin = profile?.role === "admin";
+  const { zoho, row: zohoRow } = useZohoFinance(isAdmin && ZOHO_CARDS_LIVE);
 
   const load = useCallback(async () => {
     setLoading(true); setErr("");
@@ -100,9 +106,7 @@ export default function Dashboard({ spaces, profile, onNavigate, onSpaceSelect, 
         )}
         {loading && !data ? (
           <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading analytics…</div>
-        ) : total === 0 ? (
-          <EmptyState />
-        ) : data ? (
+        ) : total === 0 ? null : data ? (
           <>
             {isAdmin && ceo && (() => {
               const leads = ceo.leads || {};
@@ -300,6 +304,9 @@ export default function Dashboard({ spaces, profile, onNavigate, onSpaceSelect, 
             </div>
           </>
         ) : null}
+        <SnapshotContext.Provider value={zohoRow}>
+          <SummaryBoard profile={profile} tabs={tabs} onNavigate={onNavigate} api={summaryApi} zoho={zoho} />
+        </SnapshotContext.Provider>
       </div>
 
       {assigneeModal && (
@@ -320,15 +327,6 @@ export default function Dashboard({ spaces, profile, onNavigate, onSpaceSelect, 
           onClose={() => setDrill(null)}
         />
       )}
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div style={{ textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 10, border: "1px solid #e8e8e8" }}>
-      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Welcome to AB Capital Workspace</div>
-      <div style={{ fontSize: 13, color: "#888", lineHeight: 1.8 }}>Create a space, add folders and lists, then create tasks — your analytics will appear here.</div>
     </div>
   );
 }

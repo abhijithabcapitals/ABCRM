@@ -140,10 +140,17 @@
       "label": "Messaging",
       "integrations": [
         {
+          "id": "messenger-inbox",
+          "name": "Messenger Inbox (WhatsApp, Telegram, Instagram)",
+          "status": "ready",
+          "usedBy": "Inbox section of Messenger. Connect accounts here; each account has its own encrypted token and its own list of people",
+          "secrets": []
+        },
+        {
           "id": "whatsapp",
           "name": "WhatsApp Cloud API",
           "status": "planned",
-          "usedBy": "",
+          "usedBy": "Not used by the Messenger Inbox: connect its accounts under Messenger Inbox",
           "secrets": [
             {
               "name": "WHATSAPP_ACCESS_TOKEN",
@@ -171,7 +178,7 @@
           "id": "telegram",
           "name": "Telegram",
           "status": "planned",
-          "usedBy": "",
+          "usedBy": "Not used by the Messenger Inbox: connect its accounts under Messenger Inbox",
           "secrets": [
             {
               "name": "TELEGRAM_BOT_TOKEN",
@@ -236,7 +243,7 @@
           "id": "meta",
           "name": "Facebook and Instagram (Meta Graph API)",
           "status": "planned",
-          "usedBy": "",
+          "usedBy": "Not used by the Messenger Inbox: connect its accounts under Messenger Inbox",
           "secrets": [
             {
               "name": "META_APP_ID",
@@ -274,7 +281,7 @@
           "id": "linkedin",
           "name": "LinkedIn",
           "status": "planned",
-          "usedBy": "",
+          "usedBy": "Inbox messages need LinkedIn partner approval, so the Messenger Inbox only links to LinkedIn",
           "secrets": [
             {
               "name": "LINKEDIN_CLIENT_ID",
@@ -571,6 +578,46 @@
               "name": "ZOHO_VAT_TAX_ID",
               "use": "Zoho's 5% VAT code",
               "source": "Picked under Zoho connection on this card"
+            },
+            {
+              "name": "ZOHO_FINANCE_CLIENT_ID",
+              "use": "OAuth app for the read-only login",
+              "source": "api-console.zoho.com -> Self Client -> Client Secret"
+            },
+            {
+              "name": "ZOHO_FINANCE_CLIENT_SECRET",
+              "use": "Same app",
+              "source": "Same"
+            },
+            {
+              "name": "ZOHO_FINANCE_REFRESH_TOKEN",
+              "use": "Long-lived read-only access",
+              "source": "Created once with READ scopes only"
+            }
+          ],
+          "subTabs": [
+            {
+              "id": "invoices",
+              "label": "Invoices and Quotes",
+              "note": "Used by the zoho-books function to create draft invoices and quotes.",
+              "secrets": [
+                "ZOHO_CLIENT_ID",
+                "ZOHO_CLIENT_SECRET",
+                "ZOHO_REFRESH_TOKEN",
+                "ZOHO_BOOKS_ORG_ID",
+                "ZOHO_DC",
+                "ZOHO_VAT_TAX_ID"
+              ]
+            },
+            {
+              "id": "financials",
+              "label": "Financial Dashboard",
+              "note": "A separate read-only login for the Dashboard's financial cards. Saving here does not change Invoices and Quotes. Nothing uses these values until the zoho-finance function is built. Organisation and data centre come from Invoices and Quotes.",
+              "secrets": [
+                "ZOHO_FINANCE_CLIENT_ID",
+                "ZOHO_FINANCE_CLIENT_SECRET",
+                "ZOHO_FINANCE_REFRESH_TOKEN"
+              ]
             }
           ]
         },
@@ -756,11 +803,27 @@
       "id": "hr",
       "label": "HR",
       "integrations": [
-        { "id": "etimeoffice", "name": "e-timeoffice (biometric attendance)", "status": "in_use", "usedBy": "HR > Attendance, punches every 15 minutes (hr-biometric-sync)",
+        {
+          "id": "etimeoffice",
+          "name": "e-timeoffice (biometric attendance)",
+          "status": "in_use",
+          "usedBy": "HR > Attendance, punches every 15 minutes (hr-biometric-sync)",
           "secrets": [
-            { "name": "ETIMEOFFICE_CORPORATE_ID", "use": "Corporate ID for the API login", "source": "Your e-timeoffice account or vendor support" },
-            { "name": "ETIMEOFFICE_USERNAME", "use": "API login username", "source": "Your e-timeoffice account or vendor support" },
-            { "name": "ETIMEOFFICE_PASSWORD", "use": "API login password", "source": "Your e-timeoffice account or vendor support" }
+            {
+              "name": "ETIMEOFFICE_CORPORATE_ID",
+              "use": "Corporate ID for the API login",
+              "source": "Your e-timeoffice account or vendor support"
+            },
+            {
+              "name": "ETIMEOFFICE_USERNAME",
+              "use": "API login username",
+              "source": "Your e-timeoffice account or vendor support"
+            },
+            {
+              "name": "ETIMEOFFICE_PASSWORD",
+              "use": "API login password",
+              "source": "Your e-timeoffice account or vendor support"
+            }
           ]
         }
       ]

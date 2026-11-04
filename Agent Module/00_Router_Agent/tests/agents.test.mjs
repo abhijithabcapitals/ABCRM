@@ -10,7 +10,7 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 
 const support = read("Hot Alerts Module/supabase/support-agent/index.ts");
 const bd = read("Business Development Module/supabase/bd-agent/index.ts");
-const ceo = read("CEO Agent Module/supabase/ceo-agent/index.ts");
+const ceo = read("Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ceo-agent/index.ts");
 
 for (const [name, src] of [["Support", support], ["BD", bd], ["CEO", ceo]]) {
   test(`${name} has a router mode`, () => assert.match(src, /body\.router === true/));

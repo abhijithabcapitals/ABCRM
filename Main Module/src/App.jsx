@@ -3,12 +3,16 @@ import { supabase } from "./supabase";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import { BrandFooter } from "./components/Brand";
+import NewsTicker from "./components/NewsTicker";
 import { setUsageUser } from "./jsx/selectUsage";
-import { resolveView, startView } from "./tabs";
+import { initialView, resolveView } from "./tabs";
 import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
 import { BrunoPet } from "@router-agent";
+// Static, so a failed chunk load cannot crash the app; the bubble loads its panel lazily itself.
+import MessengerDock from "@messenger/components/MessengerDock";
+import CallHost from "@messenger/components/CallHost";
 import "./App.css";
 
 // Code-split the heavy views so the initial load only downloads the one in use
@@ -29,7 +33,7 @@ const HR = lazy(() => import("@hr"));
 const AccountingPage = lazy(() => import("@accounting"));
 const BusinessSetup = lazy(() => import("@business-setup"));
 const Knowledge = lazy(() => import("@knowledge"));
-const Messenger = lazy(() => import("@messenger"));
+const MessengerApp = lazy(() => import("@messenger/components/MessengerApp"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
 const Profile = lazy(() => import("./components/Profile"));
 
@@ -39,13 +43,13 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [tabs, setTabs] = useState(null);
   const [requestedView, setView] = useState(
-    // "accounting" was the old name of the Clients page; the Knowledge Base tab was removed
     () => {
-      const saved = startView(location.search, localStorage.getItem("abc_view"));
+      const start = initialView(location.search, localStorage.getItem("abc_view"));
       // Only "view" goes; other params such as ms and reason are read later.
       const q = new URLSearchParams(location.search);
-      if (q.has("view")) { if (saved) localStorage.setItem("abc_view", saved); q.delete("view"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); }
-      return saved === "accounting" ? "clients" : saved === "wiki" ? "dashboard" : saved || "dashboard";
+      if (start.write) localStorage.setItem("abc_view", start.view);
+      if (q.has("view")) { q.delete("view"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); }
+      return start.view;
     },
   );
   // A member only reaches the tabs they were given, however the page was asked for.
@@ -493,12 +497,14 @@ export default function App() {
         title="Drag to resize sidebar"
       />
       <div className="app-body">
+      <NewsTicker />
       <main className="app-main">
         <Suspense fallback={<div style={{ padding: 24, fontSize: 13, color: "#9ca3af" }}>Loading…</div>}>
         {view === "dashboard" && (
           <Dashboard
             spaces={spaces}
             profile={profile}
+            tabs={tabs}
             onNavigate={handleNavigate}
             onSpaceSelect={handleSpaceSelect}
             onOpenScope={(scope, taskId) => handleOpenTaskFromNotification({ link_scope: scope, task_id: taskId || null })}
@@ -547,7 +553,7 @@ export default function App() {
         {view === "accounts" && <AccountingPage profile={profile} />}
         {view === "business-setup" && <BusinessSetup profile={profile} />}
         {view === "knowledge" && <Knowledge profile={profile} />}
-        {view === "messenger" && <Messenger profile={profile} />}
+        {view === "team-messenger" && <MessengerApp profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
         {view === "tax" && (
           <TaxHub profile={profile} />
@@ -560,6 +566,8 @@ export default function App() {
       </main>
       <BrandFooter />
       </div>
+      <CallHost profile={profile} />
+      {view !== "team-messenger" && <MessengerDock profile={profile} onOpenMail={profile?.role === "admin" ? () => handleNavigate("ceo") : undefined} />}
     </div>
   );
 }

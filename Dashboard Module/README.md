@@ -1,11 +1,18 @@
 # Dashboard Module
 
 Source of the CRM's **Dashboard** page: task KPIs, status and priority charts, overdue ageing, due-soon
-counts, and (for admins) the CEO overview.
+counts, (for admins) the CEO overview, and the summary cards for each department.
 
 | Path | Purpose |
 |---|---|
-| `components/Dashboard.jsx` | The page. Props: `spaces`, `profile`, `onNavigate`, `onSpaceSelect`, `onOpenScope` |
+| `components/Dashboard.jsx` | The page. Props: `spaces`, `profile`, `tabs`, `onNavigate`, `onSpaceSelect`, `onOpenScope` |
+| `components/SummaryBoard.jsx` | Card groups, saved layout, drag and reset. Props: `profile`, `tabs`, `onNavigate`, `api`, `zoho` |
+| `components/SummaryCard.jsx` | Title bar, collapse, load on first expand; loading, error and no-access states |
+| `components/AnimatedNumber.jsx` | Count-up number; shows the value at once under reduced motion or for text such as `500+` |
+| `components/summaryCards/DepartmentBodies.jsx` | One body per department card |
+| `components/summary.css` | Summary card layout and animation; no animation or drag library |
+| `logic/summaryLayout.js`, `logic/summaryFigures.js` | Pure layout and figure functions |
+| `services/summaryApi.js` | One fetcher per department card |
 | `index.js` | Default export of the page |
 
 ## How it is connected

@@ -1,1 +1,1 @@
-export { default } from "./components/MessengerModule";
+export { default, default as MessengerDock } from "./components/MessengerDock";

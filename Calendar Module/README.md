@@ -31,4 +31,4 @@ import CalendarPanel from "@calendar";
 Other props: `timezone`, `weekStart` (0 Sunday, 1 Monday), `upcomingDays` (14), `maxUpcoming` (25), `title`,
 `emptyText`.
 
-Used by: CEO Agent tab (`CEO Agent Module`) for meetings, reminders and task due dates.
+Used by: CEO Agent tab (`Agent Module/11_Personal_Agent/CEO Agent Module`) for meetings, reminders and task due dates.

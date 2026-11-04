@@ -33,7 +33,7 @@ Each step needs approval. Keep this order.
    mkdir -p supabase/functions/support-agent supabase/functions/bd-agent supabase/functions/ceo-agent
    cp "../../Hot Alerts Module/supabase/support-agent/"* supabase/functions/support-agent/
    cp "../../Business Development Module/supabase/bd-agent/"* supabase/functions/bd-agent/
-   cp "../../CEO Agent Module/supabase/ceo-agent/"* supabase/functions/ceo-agent/
+   cp "../../Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ceo-agent/"* supabase/functions/ceo-agent/
    npx supabase functions deploy support-agent --project-ref pnnakrhfzyxudjaghoxx
    npx supabase functions deploy bd-agent --project-ref pnnakrhfzyxudjaghoxx
    npx supabase functions deploy ceo-agent --project-ref pnnakrhfzyxudjaghoxx

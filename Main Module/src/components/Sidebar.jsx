@@ -4,7 +4,7 @@ import Notifications from "./Notifications";
 import { BrandLogo } from "./Brand";
 import { BASE_TEMPLATES } from "./sidebarParts";
 import { moveTab, orderTabs, readTabOrder, saveTabOrder } from "../tabs";
-import { IconDashboard, IconMyTasks, IconSettings, IconTrash, IconEdit, IconPalette, IconFolderPlus, IconFile, IconClients, IconList, IconPlus, IconCheck, IconBoard, IconSparkles, IconMail } from "./icons";
+import { IconDashboard, IconMyTasks, IconSettings, IconTrash, IconEdit, IconPalette, IconFolderPlus, IconFile, IconClients, IconList, IconPlus, IconCheck, IconBoard, IconSparkles, IconMail, IconChat } from "./icons";
 
 // Map the emoji used in context-menu configs to the shared SVG icon set.
 // Unmapped values fall back to the original glyph so nothing breaks.
@@ -852,6 +852,7 @@ export default function Sidebar({
         {orderTabs([
           { key: "mytasks", Icon: IconMyTasks, label: "Hot Alerts" },
           { key: "dashboard", Icon: IconDashboard, label: "Dashboard" },
+          { key: "team-messenger", Icon: IconChat, label: "Messenger" },
           { key: "business-development", Icon: IconBoard, label: "Business Development" },
           { key: "business-setup", Icon: IconBoard, label: "Business Setup" },
           { key: "business-banking", Icon: IconClients, label: "Business Banking" },
@@ -861,14 +862,13 @@ export default function Sidebar({
           { key: "hr", Icon: IconClients, label: "HR" },
           { key: "tax", Icon: IconCheck, label: "Tax Compliance" },
           { key: "knowledge", Icon: IconFile, label: "Knowledge" },
-          { key: "messenger", Icon: IconMail, label: "Messenger" },
           ...(profile?.role === "admin"
             ? [
                 { key: "ceo", Icon: IconSparkles, label: "CEO Agent" },
                 { key: "settings", Icon: IconSettings, label: "Settings" },
               ]
             : []),
-        ].filter((item) => profile?.role === "admin" || (allowedTabs || []).includes(item.key)), tabOrder ?? readTabOrder(profile?.id)).map((item, index, items) => (
+        ].filter((item) => profile?.role === "admin" || item.key === "team-messenger" || (allowedTabs || []).includes(item.key)), tabOrder ?? readTabOrder(profile?.id)).map((item, index, items) => (
           <div
             key={item.key}
             className={`nav-item ${view === item.key ? "active" : ""}`}
