@@ -26,8 +26,25 @@ test("no usable email throws", () => {
 });
 test("referenceText", () => {
   assert.equal(referenceText({ recordType: "client", id: "ABC-001", label: "ABC Trading LLC" }), "Client ABC-001: ABC Trading LLC");
-  assert.equal(referenceText({ recordType: "lead", id: "LD-9", label: "Noor" }), "Lead LD-9: Noor");
+  assert.equal(referenceText({ recordType: "lead", id: "LD-9" }), "Lead LD-9");
+  assert.equal(referenceText({ recordType: "lead", id: "LD-9", label: "  " }), "Lead LD-9");
 });
 test("participantsKey ignores order and case", () => {
   assert.equal(participantsKey(["B@x.ae", "a@x.ae"]), participantsKey(["a@x.ae", "b@x.ae"]));
+});
+test("link has no plus signs: spaces are %20", () => {
+  const link = buildChatLink({ emails: ["a@x.ae", "b@x.ae"], topic: "VAT filing", message: "Client ABC-001: Al Noor Trading" });
+  assert.ok(!link.includes("+"), link);
+  assert.ok(link.includes("topicName=VAT%20filing"));
+  assert.ok(link.includes("message=Client%20ABC-001"));
+});
+test("users are separated by literal commas", () => {
+  const link = buildChatLink({ emails: ["a@x.ae", "b@x.ae"] });
+  assert.ok(link.includes("?users=a%40x.ae,b%40x.ae") || link.includes("?users=a@x.ae,b@x.ae"), link);
+  assert.ok(!link.includes("%2C"));
+});
+test("a real plus sign in text survives as %2B", () => {
+  const link = buildChatLink({ emails: ["a@x.ae"], message: "A+B" });
+  assert.ok(link.includes("message=A%2BB"));
+  assert.equal(new URL(link).searchParams.get("message"), "A+B");
 });

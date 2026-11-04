@@ -70,3 +70,33 @@ test("the sign-in return keeps ms and reason out of the address after reading", 
   assert.match(shell, /q\.delete\("ms"\)/);
   assert.match(shell, /q\.delete\("reason"\)/);
 });
+
+test("the admin-users edge function lets admins grant the messenger tab", () => {
+  const edge = main("db/edge-function-admin-users.ts");
+  const tabs = edge.match(/const TABS = \[([^\]]*)\]/);
+  assert.ok(tabs, "TABS list not found");
+  assert.ok(tabs[1].includes('"messenger"'), "messenger missing from TABS");
+});
+
+test("the lead page passes no prospect name to the Teams panel", () => {
+  const src = readFileSync(join(here, "..", "Business Development Module/components/BusinessDevelopment.jsx"), "utf8");
+  const tag = src.match(/<TeamsPanel[^>]*>/);
+  assert.ok(tag, "TeamsPanel not found");
+  assert.doesNotMatch(tag[0], /label=/);
+});
+
+test("Remove tells the person when nothing was deleted", () => {
+  const src = read("services/messengerApi.js");
+  assert.match(src, /\.delete\(\)\.eq\("id", id\)\.select\("id"\)/);
+});
+
+test("the module no longer relies on the missing bk-list class", () => {
+  assert.doesNotMatch(readAll("components"), /bk-list/);
+});
+
+test("App.jsx keeps view in abc_view and does not use URLSearchParams.size", () => {
+  const app = main("src/App.jsx");
+  assert.match(app, /localStorage\.setItem\("abc_view"/);
+  assert.doesNotMatch(app, /q\.size/);
+  assert.doesNotMatch(read("components/MessengerModule.jsx"), /q\.size/);
+});

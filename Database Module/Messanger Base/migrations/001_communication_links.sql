@@ -11,7 +11,7 @@ create table if not exists public.crm_communication_links (
   link_type text not null check (link_type in ('chat', 'meeting', 'channel')),
   reference text not null,                                        -- the deep link or meeting ID, no KYC data
   label text,
-  created_by uuid default auth.uid() references public.profiles(id),
+  created_by uuid default auth.uid() references public.profiles(id) on delete set null,   -- deleting a login keeps the saved chat
   created_at timestamptz not null default now(),
   unique (record_type, record_id, link_type, reference)
 );

@@ -2,14 +2,15 @@
 
 Nothing in this guide has been run on the live system. **Every live step needs the user's separate approval, given for that step.** Do not chain them.
 
-Order of the whole rollout:
-1. Push and merge `messenger-module`.
-2. Checks A to D below (read-only), then report.
-3. Migration `001`, then migration `002`, each approved on its own.
-4. Deploy `ms365`.
-5. Entra setup by the tenant admin (`entra-setup.md`) and settings saved.
-6. Run `tests/browser-check.md` on the tenant.
-7. Only then, and only if approved: `schedule_prune.sql`.
+Order of the whole rollout. **Merging to `main` means live**: `.github/workflows/deploy-pages.yml` deploys every push to `main`, and until migration `001` has run the Teams panel on client and lead pages cannot load its saved chats. So the database comes first.
+1. Checks A, B and D below (read-only), then report. Check C waits for migration `002`.
+2. Migration `001`, then migration `002`, each approved on its own. Then check C.
+3. Push and merge `messenger-module` (this deploys the screens).
+4. Redeploy the `admin-users` Edge Function from `Main Module/db/edge-function-admin-users.ts` (its own approval). Until then, admins cannot grant the Messenger tab to members, because the old function drops the `messenger` key.
+5. Deploy `ms365`.
+6. Entra setup by the tenant admin (`entra-setup.md`) and settings saved.
+7. Run `tests/browser-check.md` on the tenant.
+8. Only then, and only if approved: `schedule_prune.sql`.
 
 ## Checks before any live change (read-only)
 
@@ -51,11 +52,14 @@ Folder: `Database Module/Messanger Base/migrations/`. Both are idempotent (run t
 | 1 | `001_communication_links.sql` | `rollback/001_rollback.sql` |
 | 2 | `002_microsoft_connection.sql` (needs `profiles`, `admin_is()`, Vault and the `service_role` role; independent of 001) | `rollback/002_rollback.sql` |
 
-Run `001` before the Phase 1 panels work. Run `002` before deploying `ms365`.
+Run `001` before the merge, so the Phase 1 panels have their table. Run `002` before deploying `ms365`.
 Local rehearsal (a throwaway Postgres, nothing live): `bash "Database Module/Messanger Base/tests/run-local.sh"`.
 
 ### `schedule_prune.sql`
 Not a migration. It schedules `ms365_prune_logs()` daily at 03:00 UTC with pg_cron, deleting log rows older than 90 days. The test runner never runs it. It needs pg_cron enabled on the live database and **its own approval**.
+
+## Redeploying `admin-users`
+`Main Module/db/edge-function-admin-users.ts` now lists `messenger` among the allowed tabs. The repo copy is edited only; the deployed function is unchanged until this step is approved and run. Deploy it as the project does for this function (same project ref and flags as before; check the earlier deploy of the Knowledge tab, commit fcd79d2). After it, an admin can tick Messenger for a member and the grant is kept.
 
 ## Deploying `ms365`
 
@@ -77,7 +81,7 @@ Then, in Messenger > Settings, an admin records the client secret expiry date.
 ## Rollback
 1. Undeploy or stop using the function: `supabase functions delete ms365 --project-ref pnnakrhfzyxudjaghoxx` (approval needed). The Settings tab then shows an error; Chats keep working.
 2. If scheduled, remove the prune job: `select cron.unschedule('ms365-prune-logs');`.
-3. `rollback/002_rollback.sql`. **It deletes every stored Microsoft sign-in (`ms_rt:%` in Vault)**, the connection, the links and the log. People connect again after a redeploy.
+3. `rollback/002_rollback.sql` (also drops the token clean-up trigger). **It deletes every stored Microsoft sign-in (`ms_rt:%` in Vault)**, the connection, the links and the log. People connect again after a redeploy.
 4. `rollback/001_rollback.sql` only if the chat links must go too; it deletes the saved chat links.
 5. Revert the merge on `main` if the screens must go.
 6. In Entra, delete the app registration or the secret if access must end entirely.

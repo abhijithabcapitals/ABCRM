@@ -77,7 +77,7 @@ In the CRM: **Settings > Integrations > Teams, OneDrive, Outlook and SharePoint 
 | `MICROSOFT_STATE_SECRET` | A long random value you make up (at least 32 characters). Not from Microsoft |
 | `MESSENGER_APP_URL` | The address of the live CRM, for example the GitHub Pages address ending in `/ABCRM/` |
 
-Saved values go to Supabase Vault and are never shown again. The tenant ID must be the real tenant ID or domain: the words `common`, `organizations` and `consumers` are refused.
+Saved values go to Supabase Vault and are never shown again. The tenant ID must be the Directory (tenant) ID, the GUID, not a domain name: the function compares the GUID Microsoft returns, so a domain would always give `wrong_tenant`. The words `common`, `organizations` and `consumers` are refused.
 
 ## 5. First connection
 

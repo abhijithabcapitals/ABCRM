@@ -1,0 +1,8 @@
+/* Messenger lists and the Teams panel on record pages (outside .bk-root, so the banking input rules do not reach it). */
+.msg-list { list-style: none; margin: 6px 0 12px; padding: 0; }
+.msg-list li { padding: 5px 0; }
+.msg-picker { max-height: 220px; overflow-y: auto; border: 1px solid #e6ebed; border-radius: 7px; padding: 4px 10px; }
+.msg-teams { margin-top: 14px; font-size: 13px; color: #172f35; }
+.msg-teams input, .msg-teams textarea { padding: 7px 9px; border: 1px solid #d5dee1; border-radius: 7px; color: #172f35; background: #fff; font: inherit; max-width: 100%; box-sizing: border-box; }
+.msg-teams input[type="search"], .msg-teams textarea, .msg-teams .bk-field input:not([type="checkbox"]) { width: 100%; }
+.msg-teams input[type="checkbox"] { width: auto; padding: 0; }

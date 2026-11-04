@@ -1,6 +1,7 @@
 // Staff picker and "Open in Teams" button. Shared by the record panel and the Chats tab.
 import { useImperativeHandle, useState } from "react";
 import "@banking/components/banking.css";
+import "./messenger.css";
 import { Button, ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import { buildChatLink } from "../logic/deepLink.js";
 import { splitStaff } from "../logic/people.js";
@@ -47,7 +48,7 @@ export default function ChatStarter({ message: initialMessage = "", onOpened, cu
       {staff.loading ? <Spinner /> : (
         <>
           <input type="search" aria-label="Search staff" placeholder="Search staff" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <ul className="bk-list">
+          <ul className="msg-list msg-picker">
             {available.filter(match).map((p) => (
               <li key={p.id}>
                 <label><input type="checkbox" checked={chosen.includes(p.email)} onChange={() => toggle(p.email)} /> {p.full_name} <small>{p.email}</small></label>

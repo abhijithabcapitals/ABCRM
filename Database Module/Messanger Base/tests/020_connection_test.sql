@@ -86,6 +86,29 @@ select ms_token_delete('00000000-0000-0000-0000-000000000022');
 select t.ok('delete removes the token', ms_token_get('00000000-0000-0000-0000-000000000022') is null);
 select ms_token_set('00000000-0000-0000-0000-000000000023', 'rt-three');   -- left for the rollback to remove
 
+-- Guard
+select t.fails('ms_token_set refuses a null token', $$select ms_token_set('00000000-0000-0000-0000-000000000022', null)$$, 'needs a profile and a token');
+select t.fails('ms_token_set refuses an empty token', $$select ms_token_set('00000000-0000-0000-0000-000000000022', '')$$, 'needs a profile and a token');
+select t.fails('ms_token_set refuses a null profile', $$select ms_token_set(null, 'x')$$, 'needs a profile and a token');
+select t.ok('refused set stored nothing', ms_token_get('00000000-0000-0000-0000-000000000022') is null);
+
+-- Removing a link, or deleting the login, removes the stored token
+reset role;
+insert into profiles values ('00000000-0000-0000-0000-000000000024', 'member'), ('00000000-0000-0000-0000-000000000025', 'member');
+insert into microsoft_user_links (profile_id, microsoft_user_id, upn, status) values ('00000000-0000-0000-0000-000000000024', 'ms-24', 'd@example.test', 'active'), ('00000000-0000-0000-0000-000000000025', 'ms-25', 'e@example.test', 'active');
+set role service_role;
+select ms_token_set('00000000-0000-0000-0000-000000000024', 'rt-24');
+select ms_token_set('00000000-0000-0000-0000-000000000025', 'rt-25');
+delete from microsoft_user_links where profile_id = '00000000-0000-0000-0000-000000000024';
+select t.ok('deleting a link removes its token', ms_token_get('00000000-0000-0000-0000-000000000024') is null);
+reset role;
+delete from profiles where id = '00000000-0000-0000-0000-000000000025';
+select t.ok('deleting a login removes its token', (select count(*) from vault.secrets where name = 'ms_rt:00000000-0000-0000-0000-000000000025') = 0);
+select t.ok('other tokens untouched', (select count(*) from vault.secrets where name = 'ms_rt:00000000-0000-0000-0000-000000000023') = 1);
+select t.fails('authenticated cannot run the cleanup function', 'set role authenticated; select ms_token_cleanup_on_link_delete()', 'permission denied');
+reset role;
+set role service_role;
+
 -- Prune
 select ms365_prune_logs();
 reset role;

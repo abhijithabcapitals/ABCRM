@@ -76,6 +76,14 @@ set role authenticated;
 with d as (delete from crm_communication_links where reference = 'ref-2' returning 1)
   select t.ok('person can delete own row', (select count(*) from d) = 1);
 
+-- Deleting a login keeps the saved chat
+reset role;
+insert into profiles values ('00000000-0000-0000-0000-00000000000e', 'member');
+insert into crm_communication_links (record_type, record_id, link_type, reference, label, created_by)
+  values ('client', 'C2', 'chat', 'ref-gone', 'Leaver', '00000000-0000-0000-0000-00000000000e');
+delete from profiles where id = '00000000-0000-0000-0000-00000000000e';
+select t.ok('deleting a login keeps the chat with created_by null', t.n($$select * from crm_communication_links where reference = 'ref-gone' and created_by is null$$) = 1);
+
 -- anon
 reset role;
 select set_config('test.uid', '', false);

@@ -24,8 +24,10 @@ export async function saveChatLink({ recordType, recordId, reference, label }) {
   if (error && error.code !== "23505") throw new Error(error.message);
 }
 
+// Row security turns a delete that is not allowed into 0 rows, not an error, so an empty answer means it was refused.
 export async function deleteLink(id) {
-  check(await supabase.from("crm_communication_links").delete().eq("id", id));
+  const rows = check(await supabase.from("crm_communication_links").delete().eq("id", id).select("id"));
+  if (!rows || rows.length === 0) throw new Error("This chat was not removed. Only the person who saved it, or an admin, can remove it.");
 }
 
 export async function currentUserId() {

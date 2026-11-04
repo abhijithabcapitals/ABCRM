@@ -52,28 +52,40 @@ create policy ms_log_select on public.microsoft_sync_log for select to authentic
 
 -- Token storage. security definer reads Vault for the caller, so only service_role may execute.
 create or replace function public.ms_token_set(p_profile uuid, p_token text) returns void
-language plpgsql security definer set search_path = public, vault, pg_temp as $$
+language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_name text := 'ms_rt:' || p_profile::text; v_id uuid;
 begin
+  if p_profile is null or p_token is null or p_token = '' then raise exception 'ms_token_set needs a profile and a token'; end if;
   select id into v_id from vault.secrets where name = v_name;
   if v_id is null then perform vault.create_secret(p_token, v_name, 'Microsoft refresh token');
   else perform vault.update_secret(v_id, p_token); end if;
 end $$;
 
 create or replace function public.ms_token_get(p_profile uuid) returns text
-language sql stable security definer set search_path = public, vault, pg_temp as $$
+language sql stable security definer set search_path = public, pg_temp as $$
   select decrypted_secret from vault.decrypted_secrets where name = 'ms_rt:' || p_profile::text limit 1
 $$;
 
 create or replace function public.ms_token_delete(p_profile uuid) returns void
-language sql security definer set search_path = public, vault, pg_temp as $$
+language sql security definer set search_path = public, pg_temp as $$
   delete from vault.secrets where name = 'ms_rt:' || p_profile::text
 $$;
+
+-- A removed link (including a deleted login) must not leave a valid refresh token in Vault.
+create or replace function public.ms_token_cleanup_on_link_delete() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  delete from vault.secrets where name = 'ms_rt:' || old.profile_id::text;
+  return old;
+end $$;
+drop trigger if exists ms_links_token_cleanup on public.microsoft_user_links;
+create trigger ms_links_token_cleanup after delete on public.microsoft_user_links
+  for each row execute function public.ms_token_cleanup_on_link_delete();
 
 create or replace function public.ms365_prune_logs() returns void
 language sql security definer set search_path = public, pg_temp as $$
   delete from public.microsoft_sync_log where created_at < now() - interval '90 days'
 $$;
 
-revoke all on function public.ms_token_set(uuid, text), public.ms_token_get(uuid), public.ms_token_delete(uuid), public.ms365_prune_logs() from public, anon, authenticated;
+revoke all on function public.ms_token_set(uuid, text), public.ms_token_get(uuid), public.ms_token_delete(uuid), public.ms_token_cleanup_on_link_delete(), public.ms365_prune_logs() from public, anon, authenticated;
 grant execute on function public.ms_token_set(uuid, text), public.ms_token_get(uuid), public.ms_token_delete(uuid), public.ms365_prune_logs() to service_role;

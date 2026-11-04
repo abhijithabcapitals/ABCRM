@@ -23,7 +23,7 @@ export default function MessengerModule({ profile }) {
     if (q.has("ms") || q.has("reason")) {
       q.delete("ms");
       q.delete("reason");
-      history.replaceState(null, "", location.pathname + (q.size ? "?" + q : "") + location.hash);
+      history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash);
     }
   }, []);
   const isAdmin = profile?.role === "admin";

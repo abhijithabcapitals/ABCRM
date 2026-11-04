@@ -44,7 +44,7 @@ export default function App() {
       const saved = startView(location.search, localStorage.getItem("abc_view"));
       // Only "view" goes; other params such as ms and reason are read later.
       const q = new URLSearchParams(location.search);
-      if (q.has("view")) { q.delete("view"); history.replaceState(null, "", location.pathname + (q.size ? "?" + q : "") + location.hash); }
+      if (q.has("view")) { localStorage.setItem("abc_view", saved); q.delete("view"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); }
       return saved === "accounting" ? "clients" : saved === "wiki" ? "dashboard" : saved || "dashboard";
     },
   );

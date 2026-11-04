@@ -27,7 +27,6 @@ export function buildChatLink({ emails, topic, message } = {}) {
   }
 
   const params = new URLSearchParams();
-  params.set("users", users.join(","));
 
   // A topic only applies to group chats.
   if (users.length > 1 && topic && String(topic).trim()) {
@@ -38,7 +37,9 @@ export function buildChatLink({ emails, topic, message } = {}) {
     params.set("message", String(message).slice(0, MAX_MESSAGE));
   }
 
-  return `${TEAMS_CHAT_URL}?${params.toString()}`;
+  // Microsoft's form: spaces as %20 and users separated by literal commas.
+  const query = params.toString().replace(/\+/g, "%20");
+  return `${TEAMS_CHAT_URL}?users=${users.map(encodeURIComponent).join(",")}${query ? "&" + query : ""}`;
 }
 
 export function referenceText({ recordType, id, label }) {
@@ -46,7 +47,8 @@ export function referenceText({ recordType, id, label }) {
   if (!name) {
     throw new Error(`Unknown record type: ${recordType}`);
   }
-  return `${name} ${id}: ${label}`;
+  const text = String(label ?? "").trim();
+  return text ? `${name} ${id}: ${text}` : `${name} ${id}`;
 }
 
 export function participantsKey(emails) {
