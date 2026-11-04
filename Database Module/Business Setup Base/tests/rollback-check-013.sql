@@ -29,5 +29,8 @@ begin
   exception when others then
     if sqlerrm not ilike '%append-only%' then raise; end if;
   end;
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_fee_items' and column_name = 'vat_rate') then raise exception 'vat_rate remains'; end if;
+  if (select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_fee_items' and column_name = 'default_amount') <> 'NO' then raise exception 'default_amount is nullable again'; end if;
+  if exists (select 1 from public.business_setup_fee_items where default_amount is null) then raise exception 'a fee item has no amount'; end if;
   raise notice 'rollback 013 check ok';
 end $$;

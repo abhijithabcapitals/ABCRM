@@ -4,6 +4,18 @@
 -- WARNING: cases and everything stored only on them are lost. Quotes, letters, payments and forms keep their rows.
 begin;
 
+-- ── 015_documentation.sql ────────────────────────────────────────────
+-- hub_document_create goes back to 014's, and fee_item_save to 005's, by running those files again. Quotes keep their rows: the
+-- vat_rate and scope stored on their lines stay in the JSON, where nothing reads them, and a quote issued with line VAT keeps its amounts.
+-- The three company items go unless a service uses them (then they stay, at 0), and every other empty amount becomes 0.
+\ir ../migrations/014_leads_ownership.sql
+\ir ../migrations/005_kyc_fees.sql
+delete from public.business_setup_fee_items f where f.grp = 'Company' and f.name in ('Company registration', 'Company renewal', 'Visa') and f.default_amount is null
+   and not exists (select 1 from public.business_setup_services s where s.fee_item_id = f.id);
+update public.business_setup_fee_items set default_amount = 0 where default_amount is null;
+alter table public.business_setup_fee_items alter column default_amount set not null;
+alter table public.business_setup_fee_items drop column if exists vat_rate;
+
 -- ── 014_leads_ownership.sql ──────────────────────────────────────────
 drop policy if exists business_setup_staff_upload on storage.objects;
 drop function if exists public.business_setup_staff_upload_ok(text, text);

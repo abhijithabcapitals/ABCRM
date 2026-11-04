@@ -244,6 +244,9 @@ insert into public.business_setup_staff (user_id, role) values
 -- ── Test data (as table owner) ──
 insert into public.client_master (client_id, legal_name, data) values ('CL900001', 'Test Client LLC', '{}');
 insert into public.business_setup_fee_items (grp, name, default_amount) values ('Test', 'Item A', 100);
+-- Business Setup quotes now add 5% VAT on top (015). The payment and balance checks below are about payments, so their lines use a zero-rated item and keep round totals.
+insert into public.business_setup_fee_items (grp, name, default_amount, vat_rate) values ('Test', 'Zero VAT', 0, 0);
+create function pg_temp.zerofee() returns uuid language sql as $$ select id from public.business_setup_fee_items where grp = 'Test' and name = 'Zero VAT' $$;
 insert into public.business_setup_services (client_id, name) values ('CL900001', 'Test service');
 insert into public.business_setup_service_history (service_id, to_status) select id, 'Not started' from public.business_setup_services;
 insert into public.business_setup_payments (client_id, paid_on, amount, type) values ('CL900001', current_date, 100, 'Payment');
@@ -432,7 +435,7 @@ select public.bs_as(null);
 do $$
 declare n int;
 begin
-  select count(*) into n from public.business_setup_fee_items where grp not in ('Test', 'Other');
+  select count(*) into n from public.business_setup_fee_items where grp not in ('Test', 'Other', 'Company');
   if n = 0 then
     raise notice 'skip fee seed count: private/007 seed not loaded';
   else
@@ -754,7 +757,7 @@ select public.bs_as('00000000-0000-0000-0000-00000000000a');
 select public.hub_numbering_save('Business Setup','receipt','ABC/{YYYY}/{MM}/BSR{SERIAL}',3,'never',1);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into bs_fx values ('q_pay', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(
-    jsonb_build_object('service_name','Pay one','amount',500), jsonb_build_object('service_name','Pay two','amount',500))))::text);
+    jsonb_build_object('service_name','Pay one','amount',500,'fee_item_id',pg_temp.zerofee()), jsonb_build_object('service_name','Pay two','amount',500,'fee_item_id',pg_temp.zerofee()))))::text);
 select public.business_setup_quote_accept(pg_temp.fx('q_pay')::uuid) as ignored \gset
 insert into bs_fx values ('pay1', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_pay')::uuid and name = 'Pay one')),
   ('pay2', (select id::text from public.business_setup_services where quote_id = pg_temp.fx('q_pay')::uuid and name = 'Pay two')),
@@ -837,7 +840,7 @@ select public.bs_as(null);
 update public.business_setup_services set locked = false where id = pg_temp.fx('pay1')::uuid;
 -- overpayment: the override right and a reason
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-insert into bs_fx values ('q_pay3', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(jsonb_build_object('service_name','Small job','amount',100))))::text);
+insert into bs_fx values ('q_pay3', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(jsonb_build_object('service_name','Small job','amount',100,'fee_item_id',pg_temp.zerofee()))))::text);
 select public.business_setup_quote_accept(pg_temp.fx('q_pay3')::uuid) as ignored \gset
 insert into bs_fx values ('too_much', jsonb_build_object('quote_id', pg_temp.fx('q_pay3'), 'amount', 130)::text),
   ('too_much_why', jsonb_build_object('quote_id', pg_temp.fx('q_pay3'), 'amount', 130, 'override_reason', 'Client prepaid the renewal')::text),
@@ -853,7 +856,7 @@ select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, pg_temp.fx('one_more')), 'balance');
 -- an exact payment needs no override
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-insert into bs_fx values ('q_pay4', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(jsonb_build_object('service_name','Exact job','amount',100))))::text);
+insert into bs_fx values ('q_pay4', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900002','lines', jsonb_build_array(jsonb_build_object('service_name','Exact job','amount',100,'fee_item_id',pg_temp.zerofee()))))::text);
 select public.business_setup_quote_accept(pg_temp.fx('q_pay4')::uuid) as ignored \gset
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.fx('q_pay4'), 'amount', 100)) as ignored \gset
@@ -895,7 +898,7 @@ insert into public.business_setup_visas (client_id, person_name, occupation, exp
   ('CL900040', 'no date visa', 'PARTNER', null, 'Active');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into bs_fx values ('q_ws', pg_temp.bs_quote('Business Setup', jsonb_build_object('client_id','CL900040','lines', jsonb_build_array(
-    jsonb_build_object('service_name','WS one','amount',300), jsonb_build_object('service_name','WS two','amount',200))))::text);
+    jsonb_build_object('service_name','WS one','amount',300,'fee_item_id',pg_temp.zerofee()), jsonb_build_object('service_name','WS two','amount',200,'fee_item_id',pg_temp.zerofee()))))::text);
 select public.business_setup_quote_accept(pg_temp.fx('q_ws')::uuid) as ignored \gset
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.fx('q_ws'), 'amount', 100)) as ignored \gset
