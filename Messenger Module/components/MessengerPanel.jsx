@@ -8,7 +8,7 @@ import chatApi from "../services/chatClient.js";
 
 // The open pane beside the rail: a chat, or the new chat, group info or settings screen on top of it.
 // Drafts live here, so a half-typed message survives switching chats and closing the panel.
-export default function MessengerPanel({ profile, rows, reload, onMessage, visible, connected = true, selected, onSelect, screen, onScreen, onClose, keepOpen, onKeepOpen, statusOf }) {
+export default function MessengerPanel({ profile, rows, reload, onMessage, visible, connected = true, selected, onSelect, screen, onScreen, onClose, keepOpen, onKeepOpen, statusOf, name, isAdmin }) {
   const [drafts, setDrafts] = useState({});
   const row = rows.find((r) => r.id === selected);
   const back = () => onScreen(null);
@@ -43,7 +43,7 @@ export default function MessengerPanel({ profile, rows, reload, onMessage, visib
         )}
       </div>
       {screen === "new" && <NewChat me={profile?.id} onOpened={opened} onBack={back} onClose={onClose} />}
-      {screen === "settings" && <ChatSettings keepOpen={keepOpen} onKeepOpen={onKeepOpen} onBack={back} onClose={onClose} />}
+      {screen === "settings" && <ChatSettings keepOpen={keepOpen} onKeepOpen={onKeepOpen} onBack={back} onClose={onClose} name={name} isAdmin={isAdmin} />}
       {screen === "info" && row && row.kind === "group" && (
         <GroupInfo key={row.id} row={row} me={profile?.id} reload={reload} onBack={back} onClose={onClose}
           onLeft={() => { onSelect(null); onScreen(null); }} />

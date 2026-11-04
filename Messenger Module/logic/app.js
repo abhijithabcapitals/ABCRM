@@ -41,3 +41,9 @@ export function rowTime(iso, now = new Date()) {
     ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : at.toLocaleDateString([], { day: "numeric", month: "short" });
 }
+
+// Where a result from Activity or search opens: a channel or its thread in Teams, anything else in Chats.
+export function routeResult(row) {
+  if (row.conversation_kind === "channel") return { section: "teams", target: { conversationId: row.conversation_id, threadId: row.parent_id || null } };
+  return { section: "chats", conversationId: row.conversation_id };
+}

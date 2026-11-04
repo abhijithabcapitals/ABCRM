@@ -4,6 +4,7 @@ import "./index.css";
 import "./App.css";
 import chatApi from "@messenger/services/chatClient.js";
 import MessengerApp from "@messenger/components/MessengerApp.jsx";
+import MessengerDock from "@messenger/components/MessengerDock.jsx";
 import CallHost from "@messenger/components/CallHost.jsx";
 import callRoom from "@messenger/services/callRoom.js";
 import inboxApi from "@messenger/services/inboxClient.js";
@@ -164,11 +165,13 @@ chatApi.markRead = async () => null;
 chatApi.members = async () => [{ profile_id: "me", full_name: me.full_name }, { profile_id: "p1", full_name: "Sample Colleague" }, { profile_id: "p2", full_name: "Sample Two" }];
 chatApi.staff = async () => [{ id: "p1", full_name: "Sample Colleague" }];
 
+const dock = new URLSearchParams(location.search).has("dock");
 createRoot(document.getElementById("root")).render(
   <div className="app-layout">
     <CallHost profile={me} />
     <div className="app-body">
-      <main className="app-main"><MessengerApp profile={me} /></main>
+      <main className="app-main">{dock ? <p style={{ padding: 24 }}>CRM page (preview, fake data)</p> : <MessengerApp profile={me} />}</main>
     </div>
+    {dock && <MessengerDock profile={me} onOpenPage={() => { window.__openedPage = true; }} />}
   </div>,
 );

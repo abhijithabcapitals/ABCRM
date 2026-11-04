@@ -1,16 +1,20 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import ChatBoundary from "./ChatBoundary.jsx";
 import ChatRail from "./ChatRail.jsx";
+import useActivity from "./useActivity.js";
 import useChat from "./useChat.js";
 import usePresence from "./usePresence.js";
-import chatApi from "../services/chatClient.js";
+import useTeams from "./useTeams.js";
+import inboxApi from "../services/inboxClient.js";
 import { shouldCollapse } from "../logic/chat.js";
+import { routeResult, saveSection } from "../logic/app.js";
+import { teamsUnread } from "../logic/teams.js";
 import "./chat.css";
 
-const MessengerPanel = lazy(() => import("./MessengerPanel.jsx"));
+const DockSections = lazy(() => import("./DockSections.jsx"));
 
 const KEEP_OPEN = "msgr-keep-open";
-const MAIL_REFRESH_MS = 5 * 60 * 1000;
+const MAIL_REFRESH_MS = 2 * 60 * 1000; // the mail store syncs every two minutes
 const readKeepOpen = () => {
   try { return localStorage.getItem(KEEP_OPEN) === "1"; } catch { return false; }
 };
@@ -31,17 +35,21 @@ function PanelNote({ text, onClose }) {
   );
 }
 
-function Inner({ profile, onOpenMail }) {
+function Inner({ profile, onOpenPage }) {
   const { rows, error, connected, reload, onMessage } = useChat(profile?.id);
   const { label: statusOf } = usePresence(profile?.id);
+  const activity = useActivity(profile?.id, onMessage);
+  const teamsData = useTeams(profile?.id, onMessage);
   const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState(false); // the pane loads on first open, then stays mounted so drafts survive
+  const [section, setSection] = useState("chats");
+  const [inboxChannel, setInboxChannel] = useState("email");
+  const [target, setTarget] = useState(null); // the channel or thread Activity asked to open
   const [selected, setSelected] = useState(null);
   const [screen, setScreen] = useState(null); // "new", "info", "settings", or null
   const [keepOpen, setKeepOpen] = useState(readKeepOpen);
-  const [mailCount, setMailCount] = useState(null);
+  const [inboxCount, setInboxCount] = useState(0);
   const dock = useRef(null);
-  const canReadMail = !!onOpenMail;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -65,39 +73,61 @@ function Inner({ profile, onOpenMail }) {
     return () => { watcher.disconnect(); root.style.removeProperty("--msgr-dock-offset"); };
   }, []);
 
+  const countInbox = useCallback(() => Promise.all([inboxApi.newCount(), inboxApi.channelUnread()]).then(([mail, other]) => setInboxCount(mail + other), () => {}), []);
   useEffect(() => {
-    if (!canReadMail) { setMailCount(null); return undefined; }
-    let live = true;
-    const check = () => chatApi.mailNewCount().then((n) => { if (live) setMailCount(n); }, () => {});
-    check();
-    const timer = setInterval(check, MAIL_REFRESH_MS);
-    window.addEventListener("focus", check);
-    return () => { live = false; clearInterval(timer); window.removeEventListener("focus", check); };
-  }, [canReadMail]);
+    const first = setTimeout(countInbox, 0);
+    const timer = setInterval(countInbox, MAIL_REFRESH_MS);
+    window.addEventListener("focus", countInbox);
+    return () => { clearTimeout(first); clearInterval(timer); window.removeEventListener("focus", countInbox); };
+  }, [countInbox]);
 
-  const show = () => { setOpened(true); setOpen(true); };
-  const showScreen = (name) => { setScreen(name); show(); };
   const close = () => setOpen(false);
-  // Clicking the open chat again collapses it.
-  const pick = (id) => {
-    if (open && id === selected && !screen) { close(); return; }
-    setSelected(id);
+  const show = (name) => {
+    setSection(name);
     setScreen(null);
-    show();
+    setOpened(true);
+    setOpen(true);
+  };
+  const showScreen = (name) => { show("chats"); setScreen(name); };
+  // Clicking what is already open collapses it.
+  const toggleSection = (name) => { if (open && section === name && !screen) close(); else show(name); };
+  const pick = (id) => {
+    if (open && section === "chats" && id === selected && !screen) { close(); return; }
+    setSelected(id);
+    show("chats");
+  };
+  const openInbox = (channel) => {
+    if (open && section === "inbox" && inboxChannel === channel) { close(); return; }
+    setInboxChannel(channel);
+    show("inbox");
+  };
+  const openActivity = (row) => {
+    if (!row.read_at) activity.markRead(row.id);
+    const to = routeResult(row);
+    if (to.target) setTarget(to.target); else setSelected(to.conversationId);
+    show(to.section);
+  };
+  const openPage = onOpenPage ? () => { saveSection(section); onOpenPage(); } : undefined;
+
+  const chat = {
+    rows, reload, onMessage, visible: open, connected, selected, onSelect: setSelected, screen, onScreen: setScreen, onClose: close,
+    keepOpen, onKeepOpen: (on) => { setKeepOpen(on); saveKeepOpen(on); }, statusOf,
+    name: profile?.full_name, isAdmin: profile?.role === "admin",
   };
 
   return (
     <aside ref={dock} className={`msgr-dock${open ? " msgr-dock-open" : ""}`}>
-      <ChatRail rows={rows} myId={profile?.id} selectedId={selected} open={open} error={error} mailCount={mailCount}
-        onSettings={() => showScreen("settings")} onNew={() => showScreen("new")} onSelect={pick} onRetry={reload} onOpenMail={onOpenMail} />
+      <ChatRail rows={rows} myId={profile?.id} selectedId={section === "chats" && !screen ? selected : null} open={open} error={error}
+        section={open ? section : null} inboxChannel={inboxChannel} screen={open ? screen : null}
+        counts={{ activity: activity.unread, teams: teamsData.error ? 0 : teamsUnread(teamsData.rows), inbox: inboxCount }}
+        onSettings={() => showScreen("settings")} onNew={() => showScreen("new")} onSelect={pick} onRetry={reload} onSection={toggleSection} onInbox={openInbox} />
       <div className="msgr-dock-pane" inert={!open}>
         {opened && (
           <div className="msgr-dock-pane-in">
             <ChatBoundary fallback={<PanelNote text="Chat is not available right now. Please reload the page." onClose={close} />}>
               <Suspense fallback={<PanelNote text="Loading chat…" onClose={close} />}>
-                <MessengerPanel profile={profile} rows={rows} reload={reload} onMessage={onMessage} visible={open} connected={connected}
-                  selected={selected} onSelect={setSelected} screen={screen} onScreen={setScreen} onClose={close}
-                  keepOpen={keepOpen} onKeepOpen={(on) => { setKeepOpen(on); saveKeepOpen(on); }} statusOf={statusOf} />
+                <DockSections section={section} profile={profile} chat={chat} teamsData={teamsData} activity={activity} target={target} inboxChannel={inboxChannel}
+                  onActivityOpen={openActivity} onCountChanged={countInbox} onOpenSettings={() => showScreen("settings")} onOpenPage={openPage} onClose={close} />
               </Suspense>
             </ChatBoundary>
           </div>
@@ -108,10 +138,10 @@ function Inner({ profile, onOpenMail }) {
 }
 
 // If chat fails to render, the page around it carries on without the dock.
-export default function MessengerDock({ profile, onOpenMail }) {
+export default function MessengerDock({ profile, onOpenPage }) {
   return (
     <ChatBoundary fallback={null}>
-      <Inner profile={profile} onOpenMail={onOpenMail} />
+      <Inner profile={profile} onOpenPage={onOpenPage} />
     </ChatBoundary>
   );
 }

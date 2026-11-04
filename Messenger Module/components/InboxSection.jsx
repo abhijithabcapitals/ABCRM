@@ -100,8 +100,8 @@ function MailThread({ thread, people, onClose, onStatus }) {
 }
 
 // One list for every channel. Email is live; the other channels say plainly what they can do today.
-export default function InboxSection({ me, isAdmin, onCountChanged, onOpenSettings }) {
-  const [channel, setChannel] = useState("email");
+export default function InboxSection({ me, isAdmin, onCountChanged, onOpenSettings, initialChannel }) {
+  const [channel, setChannel] = useState(initialChannel || "email");
   const [mailboxes, setMailboxes] = useState(null);
   const [mailboxId, setMailboxId] = useState("");
   const [archived, setArchived] = useState(false);

@@ -1,8 +1,8 @@
 /* The full Messenger page. Values come only from replica/design/tokens.css. */
 .abm-app { display: grid; grid-template: var(--abm-top-h) minmax(0, 1fr) / var(--abm-bar-w) minmax(0, 1fr); grid-template-areas: "top top" "bar work"; height: 100%; min-height: 0; background: var(--abm-bg); color: var(--abm-text); font-family: var(--abm-font); font-size: var(--abm-sm); line-height: var(--abm-sm-line); }
-.abm-app [hidden] { display: none !important; }
-.abm-app :is(button, input, a):focus-visible { outline: var(--abm-ring) solid var(--abm-accent); outline-offset: calc(-1 * var(--abm-ring)); }
-.abm-app h2 { font-size: var(--abm-lg); line-height: var(--abm-lg-line); font-weight: var(--abm-lg-weight); }
+:is(.abm-app, .msgr-sections) [hidden] { display: none !important; }
+:is(.abm-app, .msgr-sections) :is(button, input, a):focus-visible { outline: var(--abm-ring) solid var(--abm-accent); outline-offset: calc(-1 * var(--abm-ring)); }
+:is(.abm-app, .msgr-sections) h2 { font-size: var(--abm-lg); line-height: var(--abm-lg-line); font-weight: var(--abm-lg-weight); }
 
 .abm-top { grid-area: top; display: flex; align-items: center; gap: var(--abm-space-3); padding: 0 var(--abm-space-4); background: var(--abm-bg); border-bottom: 1px solid var(--abm-border); }
 .abm-logo { height: var(--abm-logo-h); width: auto; flex: none; }
@@ -182,3 +182,16 @@
 .abi-account { padding-top: var(--abm-space-1); border-top: 1px solid var(--abm-border); }
 .abi-account-last { display: block; }
 .abi-steps { margin: 0; padding-left: var(--abm-space-4); color: var(--abm-text-muted); }
+
+/* The same sections inside the docked panel: one column at a time, whatever the window size. */
+.msgr-sections { display: flex; flex-direction: column; width: 100%; height: 100%; background: var(--abm-bg); color: var(--abm-text); font-family: var(--abm-font); font-size: var(--abm-sm); line-height: var(--abm-sm-line); }
+.msgr-sections .abm-side { width: 100%; border-right: 0; }
+.msgr-sections .abm-pane-empty { display: none; }
+.msgr-sections .abm-teams-channel .abm-side, .msgr-sections .abm-teams-form .abm-side, .msgr-sections .abm-teams-thread .abm-side, .msgr-sections .abm-teams-thread .abm-posts { display: none; }
+.msgr-sections .abm-thread { flex: 1; width: auto; border-left: 0; }
+.msgr-sections .abi-side { width: 100%; }
+.msgr-sections .abi-open .abi-side { display: none; }
+.msgr-sections .abi-link-out { flex-direction: column; }
+.msgr-sections .abi-link-out .abi-side { flex: none; border-bottom: 1px solid var(--abm-border); }
+.msgr-sections .abi-link-out .abi-out { align-self: stretch; }
+.msgr-sections .abi .abm-pane-empty { display: none; }

@@ -3,6 +3,8 @@
 The CRM's docked chat **panel** and the Teams panel on client and lead records: start a Microsoft Teams chat from the CRM. The Microsoft connection screens are in Settings > Integrations.
 Data lives in `Database Module/Messanger Base` (`crm_communication_links`). Design and plan: `docs/`.
 
+The docked panel (`MessengerDock`, `DockSections`) shows the full page's own sections, one column at a time: Chats, Activity, Teams, Calls, Files and Inbox. The two share the same components and data.
+
 The full page (`MessengerApp`, view `team-messenger`) has Chats, Activity and Files; Teams, Calendar and Calls say which phase they arrive in. The plan is in `replica/`, file setup in `docs/files-setup.md`. To see the page without a login, run the dev server and open `/messenger-preview.html`, which uses fake data.
 
 ## Layout

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { DEFAULT_SECTION, SECTIONS, filterChats, rowTime, validSection } from "../logic/app.js";
+import { DEFAULT_SECTION, SECTIONS, filterChats, rowTime, validSection, routeResult } from "../logic/app.js";
 
 const here = fileURLToPath(new URL("..", import.meta.url));
 const main = (p) => readFileSync(join(here, "..", "Main Module", p), "utf8");
@@ -295,4 +295,10 @@ test("the dock leaves while the full page is open, and the page is reachable", (
   assert.match(app, /view === "team-messenger" && <MessengerApp/);
   assert.match(app, /view !== "team-messenger" && <MessengerDock/);
   assert.match(main("src/components/Sidebar.jsx"), /key: "team-messenger"/);
+});
+
+test("routeResult opens a channel or thread in Teams, and anything else in Chats", () => {
+  assert.deepEqual(routeResult({ conversation_kind: "channel", conversation_id: "c1", parent_id: "m1" }), { section: "teams", target: { conversationId: "c1", threadId: "m1" } });
+  assert.deepEqual(routeResult({ conversation_kind: "channel", conversation_id: "c1" }), { section: "teams", target: { conversationId: "c1", threadId: null } });
+  assert.deepEqual(routeResult({ conversation_kind: "group", conversation_id: "c2" }), { section: "chats", conversationId: "c2" });
 });
