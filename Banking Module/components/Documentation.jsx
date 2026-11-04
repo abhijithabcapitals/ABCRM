@@ -1,6 +1,6 @@
 // Quotations, payments with their vouchers, and agreements in one place. A document always belongs to a banking
 // case, so New Document picks the type and the case, then opens that case at the step that creates it.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "@app/supabase";
 import ZohoPanel from "@integrations/components/ZohoPanel";
 import { Button, DataTable, ErrorNote, Modal, PageHead, Spinner, useBanking, useLoad } from "./shared";
@@ -43,23 +43,27 @@ export default function Documentation({ initialTab }) {
 function ZohoInvoices() {
   const { can } = useBanking();
   const [picked, setPicked] = useState(null);
-  const list = useLoad(() => run(table("banking_quotations").select("id, quotation_number, version, total_amount, banking_cases(case_ref, banking_clients(display_name, client_master_id))").eq("status", "Accepted").order("created_at", { ascending: false }).limit(2000)), []);
+  const list = useLoad(() => run(table("banking_quotations").select("id, quotation_number, version, total_amount, banking_cases(case_ref, accounts_status, banking_clients(display_name, client_master_id))").eq("status", "Accepted").order("created_at", { ascending: false }).limit(2000)), []);
   const client = (q) => q.banking_cases?.banking_clients;
+  // The same lock as the case process: once the case is With Accounts or Closed, nothing new is made here.
+  const locked = (q) => ["With Accounts", "Closed"].includes(q.banking_cases?.accounts_status);
+  const panelRef = useRef(null);
+  const pick = (q) => { setPicked(q); setTimeout(() => panelRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }), 0); };
   return (
     <div>
       <ErrorNote message={list.error} />
+      {picked && (
+        <div className="bk-mb" ref={panelRef}>
+          <p className="bk-note"><strong>{picked.quotation_number} v{picked.version}</strong>{client(picked)?.display_name ? `, ${client(picked).display_name}` : ""}</p>
+          <ZohoPanel key={`${picked.id}:${client(picked)?.client_master_id}`} supabase={supabase} department="banking" sourceTable="banking_quotations" sourceId={picked.id} clientId={client(picked)?.client_master_id} kinds={["estimate", "invoice"]} canCreate={can("cases.manage") && !locked(picked)} noAccess={!(can("cases.view") || can("accounts.review"))} />
+        </div>
+      )}
       {list.loading && !list.data ? <Spinner /> : (
-        <DataTable search="Search…" rows={list.data || []} onRow={setPicked} empty="No accepted quotations yet." columns={[
+        <DataTable search="Search…" rows={list.data || []} onRow={pick} activeId={picked?.id} empty="No accepted quotations yet." columns={[
           { key: "n", label: "Number", render: (q) => `${q.quotation_number} v${q.version}` },
           { key: "cl", label: "Client", render: (q) => client(q)?.display_name },
           { key: "total_amount", label: "Total", right: true, render: (q) => money(q.total_amount) },
         ]} />
-      )}
-      {picked && (
-        <div className="bk-mt">
-          <p className="bk-note"><strong>{picked.quotation_number} v{picked.version}</strong>{client(picked)?.display_name ? `, ${client(picked).display_name}` : ""}</p>
-          <ZohoPanel key={`${picked.id}:${client(picked)?.client_master_id}`} supabase={supabase} department="banking" sourceTable="banking_quotations" sourceId={picked.id} clientId={client(picked)?.client_master_id} kinds={["estimate", "invoice"]} canCreate={can("cases.manage")} />
-        </div>
       )}
     </div>
   );

@@ -1692,7 +1692,7 @@ const jobDoc = (over: Row = {}) => ({
   created_by: "u-press",
   ...over,
 });
-const VOIDED = "This invoice was voided in Zoho. Clear it on the job if that's right.";
+const VOIDED = "This invoice was voided in Zoho. Clear it on the job if that's right, then press Refresh.";
 
 Deno.test("permissionCheck sends accounting to banking_can", async () => {
   const calls: string[] = [];
@@ -2007,6 +2007,8 @@ Deno.test("a voided job invoice can be made again only after its number is clear
   seed(m.db, jobDoc({ kind: "invoice", zoho_status: "void" }));
   const held = ref(await handle("document_create", JOB, m.deps));
   assertEquals([held.state, m.posts.length], ["created", 0]);
+  // The row still says it is void and why Create did nothing.
+  assertEquals([held.zoho_status, held.error], ["void", "This invoice is voided in Zoho and its number is still on the job. Clear it on the job first."]);
   // Staff clear the number on the job.
   m.db.accounting_jobs[0].invoice_number = null;
   // Zoho still lists the void one, and it must not be adopted.

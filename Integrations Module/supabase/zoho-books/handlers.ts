@@ -383,7 +383,11 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
       const job = await readRow(deps, table, "id", sourceId, "invoice_number");
       reissue = !!job && !String(job.invoice_number ?? "").trim();
     }
-    if (old.state === "created" && !reissue) return await shape(old);
+    if (old.state === "created" && !reissue) {
+      // A voided job invoice whose number is still on the job keeps its status and a reason, so Create is not silent.
+      const voided = table === "accounting_jobs" && String(old.zoho_status ?? "").toLowerCase() === "void";
+      return await shape(old, voided ? { zoho_status: old.zoho_status, error: STILL_ON_JOB } : {});
+    }
     // created_at is when the last attempt started or timed out, so this is a real wait.
     const recent = now.getTime() - Date.parse(old.created_at) < STUCK_MS;
     if (old.state === "creating" && recent) throw new UserError(BUSY);
@@ -543,7 +547,8 @@ const NOT_READY = "This draft isn't available yet.";
 const NO_LONGER = "Zoho no longer has this document.";
 const OTHER_CONTACT = "This invoice is billed to a different Zoho contact, so Client Login won't show it.";
 const NO_MASTER = "This client has no Client Master record, so Client Login cannot show this invoice.";
-const VOIDED = "This invoice was voided in Zoho. Clear it on the job if that's right.";
+const VOIDED = "This invoice was voided in Zoho. Clear it on the job if that's right, then press Refresh.";
+const STILL_ON_JOB = "This invoice is voided in Zoho and its number is still on the job. Clear it on the job first.";
 const NOT_SENT = "This invoice is no longer sent in Zoho. Clear it on the job if that's right.";
 const CLEARED = "This invoice was cleared on the job but is live in Zoho.";
 const SAME_DIFFERS = "Zoho's invoice differs from the amount or date on this job.";

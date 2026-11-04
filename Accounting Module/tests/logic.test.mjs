@@ -1,7 +1,7 @@
 // node --test "Accounting Module/tests/"   (no extra packages)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canCreateZohoInvoice, clientEmail, followUpFormError, lastContactByJob, mailtoLink, assigneeText, sameClientName, feeConflict, feeLabel, feeWithVat, hasUnreversedPayment, paymentRowState, clientIdFromLookup, departmentOf, dubaiToday, findLookupRow, followUpMail, isStaleSave, needsRemarks, nextFollowUpDefault, parseFileNames, serviceGroups, splitJobs, statusCounts, toInvoiceCount } from "../logic/jobs.js";
+import { canCreateZohoInvoice, zohoReadyNote, clientEmail, followUpFormError, lastContactByJob, mailtoLink, assigneeText, sameClientName, feeConflict, feeLabel, feeWithVat, hasUnreversedPayment, paymentRowState, clientIdFromLookup, departmentOf, dubaiToday, findLookupRow, followUpMail, isStaleSave, needsRemarks, nextFollowUpDefault, parseFileNames, serviceGroups, splitJobs, statusCounts, toInvoiceCount } from "../logic/jobs.js";
 import { needsPcCopy } from "../../Template Module/logic/helpers.js";
 
 test("parseFileNames trims, drops blanks and repeats", () => {
@@ -170,4 +170,9 @@ test("canCreateZohoInvoice only for a Completed job", () => {
   assert.equal(canCreateZohoInvoice({ work_status: "Completed" }), true);
   for (const w of ["To Do", "In Progress", "Pending", "Client Cancelled"]) assert.equal(canCreateZohoInvoice({ work_status: w }), false);
   assert.equal(canCreateZohoInvoice(null), false);
+});
+
+test("zohoReadyNote explains an unfinished job", () => {
+  assert.equal(zohoReadyNote({ work_status: "Pending" }), "The job must be completed first.");
+  assert.equal(zohoReadyNote({ work_status: "Completed" }), null);
 });

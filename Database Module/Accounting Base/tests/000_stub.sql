@@ -20,6 +20,10 @@ language sql immutable set search_path = pg_catalog as $$
    where coalesce(v, '') not in ('Not Provided', 'N/A', 'None', 'Provided – Verification Required')
 $$;
 create table public.hub_documents (id uuid primary key default gen_random_uuid(), doc_type text not null check (doc_type in ('quote','letter','mail')), document_number text, total_amount numeric, vat_mode text, vat_rate numeric);
+-- Banking tables only so the Zoho function's read grants in Admin Base 013 have something to grant on.
+create table public.banking_clients (id uuid primary key default gen_random_uuid());
+create table public.banking_cases (id uuid primary key default gen_random_uuid());
+create table public.banking_quotations (id uuid primary key default gen_random_uuid());
 create table public.hub_settings (key text primary key, value jsonb);
 insert into public.hub_settings values ('document_numbering',
   '{"Accounting":{"quote":{"digits":3,"format":"ABC/{YYYY}/{MM}/ACQ{SERIAL}","restart":"never"}}}');

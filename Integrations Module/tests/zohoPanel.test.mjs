@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  NOT_CONNECTED, POPUP_BLOCKED, callZoho, canReissue, contactLinkable, linkContact, makeGuard, openPdf, readInvokeError, safeZohoUrl, contactLine, createRights, formatAmount, panelMode, panelNotes, pdfReply, replaceQuestion, rowActions, rowNotes,
+  NOT_CONNECTED, POPUP_BLOCKED, callZoho, NO_ACCESS, canReissue, contactLinkable, linkContact, makeGuard, openPdf, readInvokeError, safeZohoUrl, contactLine, createRights, formatAmount, panelMode, panelNotes, pdfReply, replaceQuestion, rowActions, rowNotes,
 } from "../logic/zohoPanel.js";
 
 const file = (rel) => fileURLToPath(new URL(rel, import.meta.url));
@@ -261,8 +261,8 @@ test("a voided job invoice may be created again once it is off the job", () => {
   assert.equal(canReissue("banking_quotations", void1), false);
   assert.equal(canReissue("accounting_jobs", { ...void1, zoho_status: "sent" }), false);
   assert.equal(canReissue("accounting_jobs", { ...void1, state: "gone" }), false);
-  assert.equal(canReissue("accounting_jobs", { ...void1, error: "This invoice was voided in Zoho. Clear it on the job if that's right." }), false);
-  assert.equal(canReissue("accounting_jobs", { ...void1, read_error: "This invoice was voided in Zoho. Clear it on the job if that's right." }), false);
+  assert.equal(canReissue("accounting_jobs", { ...void1, error: "This invoice was voided in Zoho. Clear it on the job if that's right, then press Refresh." }), false);
+  assert.equal(canReissue("accounting_jobs", { ...void1, read_error: "This invoice was voided in Zoho. Clear it on the job if that's right, then press Refresh." }), false);
   assert.equal(canReissue("accounting_jobs", undefined), false);
   const a = rowActions("created", { ...ok, reissue: true });
   assert.equal(a.create, "Create invoice");
@@ -274,7 +274,7 @@ test("a voided job invoice may be created again once it is off the job", () => {
 });
 
 test("a voided row keeps its own warning as the note", () => {
-  const text = "This invoice was voided in Zoho. Clear it on the job if that's right.";
+  const text = "This invoice was voided in Zoho. Clear it on the job if that's right, then press Refresh.";
   const notes = rowNotes({ state: "created", zoho_status: "void", error: text, read_error: text }, "created");
   assert.deepEqual(notes.map((n) => n.text), [text]);
 });
@@ -288,7 +288,7 @@ test("Banking Documentation has a Zoho invoices tab that is not a document type"
   assert.match(doc, /\{picked && \(/);
   assert.match(doc, /<ZohoPanel key=\{`\$\{picked\.id\}:\$\{client\(picked\)\?\.client_master_id\}`\}/);
   assert.match(doc, /department="banking" sourceTable="banking_quotations" sourceId=\{picked\.id\}/);
-  assert.match(doc, /canCreate=\{can\("cases\.manage"\)\}/);
+  assert.match(doc, /canCreate=\{can\("cases\.manage"\) && /);
   assert.match(doc, /client_master_id/);
 });
 
@@ -307,4 +307,27 @@ test("the Accounting job shows the invoice panel and reloads when the job change
   assert.match(panel, /out\.job_changed === true/);
   assert.match(panel, /reissue: canReissue\(sourceTable, row\)/);
   assert.match(read("../supabase/zoho-books/handlers.ts"), /accounting: "accounts\.review"/);
+});
+
+test("the reason Create did nothing still blocks reissue", () => {
+  const text = "This invoice is voided in Zoho and its number is still on the job. Clear it on the job first.";
+  assert.equal(canReissue("accounting_jobs", { state: "created", zoho_status: "void", error: text }), false);
+});
+
+test("Documentation locks, selects and gates the panel", () => {
+  const doc = read("../../Banking Module/components/Documentation.jsx");
+  assert.match(doc, /accounts_status, banking_clients/);
+  assert.match(doc, /canCreate=\{can\("cases\.manage"\) && !locked\(picked\)\}/);
+  assert.match(doc, /\["With Accounts", "Closed"\]\.includes\(q\.banking_cases\?\.accounts_status\)/);
+  assert.match(doc, /noAccess=\{!\(can\("cases\.view"\) \|\| can\("accounts\.review"\)\)\}/);
+  assert.match(doc, /activeId=\{picked\?\.id\}/);
+  assert.ok(doc.indexOf("<ZohoPanel") < doc.indexOf("<DataTable"), "panel is above the table");
+  assert.match(read("../../Banking Module/components/shared.jsx"), /activeId != null && r\.id === activeId/);
+  assert.equal(NO_ACCESS, "You don't have access to Zoho details here.");
+  assert.match(read("../components/ZohoPanel.jsx"), /if \(noAccess\) return/);
+});
+
+test("a job that is not Completed says why there is no Create", () => {
+  assert.match(read("../../Accounting Module/components/JobWorkspace.jsx"), /readyNote=\{zohoReadyNote\(job\)\}/);
+  assert.match(read("../components/ZohoPanel.jsx"), /mode === "ready" && readyNote/);
 });

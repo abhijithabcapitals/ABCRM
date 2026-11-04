@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, ErrorNote } from "@banking/components/shared";
 import {
-  KIND_LABEL, LINK_READ_FAILED, NO_MASTER, NO_MATCH, NO_QUOTE, callZoho, canReissue, contactLine, contactLinkable, createRights, formatAmount, linkContact,
+  KIND_LABEL, LINK_READ_FAILED, NO_ACCESS, NO_MASTER, NO_MATCH, NO_QUOTE, callZoho, canReissue, contactLine, contactLinkable, createRights, formatAmount, linkContact,
   makeGuard, openPdf, panelMode, panelNotes, replaceQuestion, rowActions, rowNotes, safeZohoUrl,
 } from "../logic/zohoPanel";
 
@@ -10,7 +10,7 @@ import {
 // Nothing is read from Zoho until staff press Show Zoho details.
 const Note = ({ tone, children }) => <div className={`bk-alert bk-alert-${tone}`} role="note">{children}</div>;
 
-export default function ZohoPanel({ supabase, department, sourceTable, sourceId, clientId, kinds = ["estimate", "invoice"], canCreate, noSourceNote, onChanged }) {
+export default function ZohoPanel({ supabase, department, sourceTable, sourceId, clientId, kinds = ["estimate", "invoice"], canCreate, noSourceNote, onChanged, noAccess, readyNote }) {
   const rights = createRights(canCreate);
   const [opened, setOpened] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -126,6 +126,7 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
   if (!sourceId) return <div className="bk-note">{noSourceNote || NO_QUOTE}</div>;
 
   if (!opened) {
+    if (noAccess) return <div className="bk-note">{NO_ACCESS}</div>;
     return (
       <div className="bk-note bk-actions bk-wrap">
         <strong>Zoho draft</strong>
@@ -195,6 +196,7 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
               {mode === "created" && row.zoho_status && <span className="bk-muted">{row.zoho_status}</span>}
               {mode === "created" && kind === "invoice" && row.balance != null && <span className="bk-muted">Balance AED {formatAmount(row.balance)}</span>}
               {mode === "ready" && <span className="bk-muted">No draft yet</span>}
+              {mode === "ready" && readyNote && <span className="bk-muted">{readyNote}</span>}
               {mode === "failed" && <span className="bk-muted">Not created</span>}
               {mode === "unknown" && <span className="bk-muted">Not confirmed</span>}
               {mode === "gone" && <span className="bk-muted">No longer in Zoho</span>}

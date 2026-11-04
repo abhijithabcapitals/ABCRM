@@ -165,3 +165,6 @@ export const mailtoLink = (to, subject, body) => `mailto:${encodeURIComponent(to
 
 // The Zoho draft invoice is for a Completed job. The server also checks the fee and any typed invoice and answers in plain words.
 export const canCreateZohoInvoice = (job) => job?.work_status === "Completed";
+
+// Why Create is not offered yet, or null when it is.
+export const zohoReadyNote = (job) => (canCreateZohoInvoice(job) ? null : "The job must be completed first.");

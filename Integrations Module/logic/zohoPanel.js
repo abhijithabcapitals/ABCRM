@@ -96,6 +96,7 @@ export function formatAmount(n) {
   return Number.isFinite(v) ? v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "";
 }
 
+export const NO_ACCESS = "You don't have access to Zoho details here.";
 export const NO_VIEW = "You can't view quotations here.";
 export const QUOTE_READ_FAILED = "Could not read the quotation.";
 export const LINK_READ_FAILED = "Could not read the Zoho contact link. Press Refresh to try again.";

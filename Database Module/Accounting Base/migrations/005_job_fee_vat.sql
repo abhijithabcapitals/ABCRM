@@ -10,6 +10,8 @@
 -- Idempotent. Undo: rollback/005_rollback.sql. Re-running 003 puts its older view back; run this file after it.
 -- =====================================================================
 
+begin;
+
 create or replace function public.accounting_fee_with_vat(p_fee numeric, p_quote uuid) returns numeric
 language sql immutable set search_path = pg_catalog, pg_temp as $$
   select case when p_fee is null then null when p_quote is null then p_fee + round(p_fee * 5 / 100, 2) else p_fee end $$;
@@ -115,3 +117,5 @@ revoke all on function public.accounting_fee_with_vat(numeric, uuid), public.acc
 grant execute on function public.accounting_fee_with_vat(numeric, uuid), public.accounting_quote_vat_mode(uuid) to authenticated;
 revoke all on function public.accounting_payment_add(jsonb), public.accounting_job_link_document(uuid, text, uuid, boolean) from public, anon;
 grant execute on function public.accounting_payment_add(jsonb), public.accounting_job_link_document(uuid, text, uuid, boolean) to authenticated;
+
+commit;

@@ -49,3 +49,6 @@ end $$;
 
 revoke all on function public.accounting_zoho_invoice_fill(uuid, text, date, numeric, uuid) from public, anon, authenticated;
 grant execute on function public.accounting_zoho_invoice_fill(uuid, text, date, numeric, uuid) to service_role;
+
+-- zoho-books reads these tables with the service role to build and read back job invoices and quote drafts.
+grant select on public.accounting_jobs, public.hub_documents, public.banking_quotations, public.banking_cases, public.banking_clients, public.client_master to service_role;

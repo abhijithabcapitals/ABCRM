@@ -6,7 +6,7 @@ import ZohoPanel from "@integrations/components/ZohoPanel";
 import { flagMissing } from "@banking/components/Attention";
 import { profiles } from "@banking/services/bankingApi";
 import ServiceDesk from "@template-hub/components/ServiceDesk";
-import { RECEIPT_MODES, STALE_MESSAGE, WORK_STATUSES, assigneeText, canCreateZohoInvoice, dubaiToday, feeConflict, feeLabel, feeWithVat, findLookupRow, hasUnreversedPayment, isStaleSave, needsRemarks, parseFileNames, sameClientName } from "../logic/jobs";
+import { RECEIPT_MODES, STALE_MESSAGE, WORK_STATUSES, assigneeText, canCreateZohoInvoice, zohoReadyNote, dubaiToday, feeConflict, feeLabel, feeWithVat, findLookupRow, hasUnreversedPayment, isStaleSave, needsRemarks, parseFileNames, sameClientName } from "../logic/jobs";
 import { addBatch, clearInvoice, clientOptions, getJob, linkClient, linkDocument, setBatchSaved, setFee, setInvoice, setStatus } from "../services/jobsApi";
 import { FollowUpLog } from "./FollowUps";
 import JobForm from "./JobForm";
@@ -161,7 +161,7 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
 
       <Panel title="Zoho invoice">
         {/* The contact link needs only the first flag; a draft needs a Completed job. */}
-        <ZohoPanel key={`${job.id}:${job.client_id}`} supabase={supabase} department="accounting" sourceTable="accounting_jobs" sourceId={job.id} clientId={job.client_id} kinds={["invoice"]} canCreate={{ estimate: true, invoice: canCreateZohoInvoice(job) }} onChanged={loaded.reload} />
+        <ZohoPanel key={`${job.id}:${job.client_id}`} supabase={supabase} department="accounting" sourceTable="accounting_jobs" sourceId={job.id} clientId={job.client_id} kinds={["invoice"]} canCreate={{ estimate: true, invoice: canCreateZohoInvoice(job) }} onChanged={loaded.reload} readyNote={zohoReadyNote(job)} />
       </Panel>
 
       <FollowUpLog job={job} profile={profile} onChange={loaded.reload} />

@@ -15,7 +15,7 @@ Database for the `Accounting Module`, in the CRM Supabase project. This folder h
 | `tests/030_payments_test.sql` | Who may call what, payments and receipts, follow-ups, the job list view, direct-edit refusal |
 | `tests/040_legacy_test.sql` | Legacy staging rows, apply, repeat runs, who may call and read |
 | `tests/test_legacy_load.py` | Python unit tests for `scripts/legacy_load.py` |
-| `tests/run-local.sh` | Runs migrations 002 to 004 twice on a throwaway local PostgreSQL, then every SQL test. Nothing touches Supabase |
+| `tests/run-local.sh` | Runs migrations 002 to 005 twice on a throwaway local PostgreSQL, then every SQL test. Nothing touches Supabase |
 
 Run it after `Banking Base/migrations/011`. Banking Base holds the case itself, including its status and the lock.
 
@@ -27,8 +27,9 @@ Run after Banking Base 011, Voucher Base, Template Hub Base and Business Setup B
 2. `migrations/002_jobs.sql`
 3. `migrations/003_payments_followups.sql`
 4. `migrations/004_legacy_import.sql`
+5. `migrations/005_job_fee_vat.sql` (fee VAT; undo with `rollback/005_rollback.sql`)
 
-Undo in reverse order: 004, then 003, then 002, each with its rollback script. Roll back anything built on 003 before 003.
+Undo in reverse order: 005, then 004, then 003, then 002, each with its rollback script. Roll back anything built on 003 before 003.
 
 ## Tests
 
