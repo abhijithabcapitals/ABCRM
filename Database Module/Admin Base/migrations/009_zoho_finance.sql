@@ -12,7 +12,7 @@
 -- the newest definition, only the exclusion list changed) and removes the trigger if the hourly job already attached it.
 -- Prerequisites: 001 (admin_is) and 003 (audit_trail_capture, and the audit_trail_attach_all this replaces).
 -- After applying, run: notify pgrst, 'reload schema';  so PostgREST can see the new table.
--- NOT APPLIED to the live database. Idempotent. Undo: rollback/009_zoho_finance_rollback.sql
+-- Applied live 2026-11-04 as admin_009_zoho_finance. Idempotent. Undo: rollback/009_zoho_finance_rollback.sql
 -- =====================================================================
 
 begin;
