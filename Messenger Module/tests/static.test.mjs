@@ -142,3 +142,17 @@ test("chat.css holds the bubble position and every selector is scoped under .msg
     for (const part of s.split(",")) assert.match(part.trim(), /^\.msgr-/, `unscoped selector: ${part.trim()}`);
   }
 });
+
+test("the panel's loading and failure notes each carry a close button", () => {
+  const src = read("components/MessengerBubble.jsx");
+  assert.match(src, /function PanelNote/);
+  assert.match(src, /msgr-close/);
+  assert.match(src, /<Suspense fallback=\{<PanelNote/);
+  assert.match(src, /<ChatBoundary fallback=\{<PanelNote/);
+});
+
+test("useChat clears the previous person's chats when the profile changes, and isolates listeners", () => {
+  const src = read("components/useChat.js");
+  assert.match(src, /apply\(\[\]\);\s*setError\(""\);\s*setConnected\(true\);\s*if \(!profileId\) return undefined;/);
+  assert.match(src, /try \{ fn\(message\); \} catch/);
+});

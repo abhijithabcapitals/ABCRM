@@ -12,6 +12,19 @@ const ICON = (
   </svg>
 );
 
+// Shown while the panel loads or if it fails. Always has a close button, since touch has no Esc and the bubble is hidden on phones.
+function PanelNote({ text, onClose }) {
+  return (
+    <div className="msgr-panel">
+      <header className="msgr-pane-head">
+        <strong>Chats</strong>
+        <button type="button" className="msgr-close" onClick={onClose} aria-label="Close chat">×</button>
+      </header>
+      <p className="msgr-note">{text}</p>
+    </div>
+  );
+}
+
 function Inner({ profile }) {
   const { rows, total, error, connected, reload, onMessage } = useChat(profile?.id);
   const [open, setOpen] = useState(false);
@@ -47,8 +60,8 @@ function Inner({ profile }) {
       </button>
       {opened && (
         <div ref={panelRef} className="msgr-panel-wrap" hidden={!open}>
-          <ChatBoundary fallback={<div className="msgr-panel"><p className="msgr-note">Chat is not available right now. Please reload the page.</p></div>}>
-            <Suspense fallback={null}>
+          <ChatBoundary fallback={<PanelNote text="Chat is not available right now. Please reload the page." onClose={() => setOpen(false)} />}>
+            <Suspense fallback={<PanelNote text="Loading chat…" onClose={() => setOpen(false)} />}>
               <MessengerPanel profile={profile} rows={rows} reload={reload} onMessage={onMessage} visible={open}
                 connected={connected} error={error} onClose={() => setOpen(false)} />
             </Suspense>

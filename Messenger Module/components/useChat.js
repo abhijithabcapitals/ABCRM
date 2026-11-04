@@ -12,7 +12,7 @@ export default function useChat(profileId) {
   const listeners = useRef(new Set());
   const running = useRef(false);
   const again = useRef(false);
-  const alive = useRef(true);
+  const gen = useRef(0); // bumps when the person changes, so a slow answer for the old person is dropped
 
   const apply = useCallback((next) => {
     rowsRef.current = next;
@@ -23,20 +23,21 @@ export default function useChat(profileId) {
   const reload = useCallback(async () => {
     if (running.current) { again.current = true; return; }
     running.current = true;
+    const g = gen.current;
     try {
       do {
         again.current = false;
         try {
           const next = await chatApi.chatList();
-          if (!alive.current) return;
+          if (g !== gen.current) return;
           apply(next || []);
           setError("");
         } catch (e) {
-          if (alive.current) setError(e.message || "Could not load your chats. Please try again.");
+          if (g === gen.current) setError(e.message || "Could not load your chats. Please try again.");
         }
-      } while (again.current && alive.current);
+      } while (again.current && g === gen.current);
     } finally {
-      running.current = false;
+      if (g === gen.current) running.current = false;
     }
   }, [apply]);
 
@@ -46,8 +47,13 @@ export default function useChat(profileId) {
   }, []);
 
   useEffect(() => {
+    gen.current += 1;
+    running.current = false;
+    again.current = false;
+    apply([]);
+    setError("");
+    setConnected(true);
     if (!profileId) return undefined;
-    alive.current = true;
     reload();
     const stop = chatApi.subscribe(
       (message) => {
@@ -58,13 +64,13 @@ export default function useChat(profileId) {
           const patched = { ...mine, last_body: message.body, last_link_label: message.link_label || null, last_sender_id: message.sender_id, last_message_at: message.created_at };
           apply([patched, ...rowsRef.current.filter((r) => r.id !== mine.id)]);
         }
-        listeners.current.forEach((fn) => fn(message));
+        listeners.current.forEach((fn) => { try { fn(message); } catch (e) { console.error("Messenger listener failed", e); } });
       },
       reload,
       (status) => setConnected(status === "up"),
     );
     return () => {
-      alive.current = false;
+      gen.current += 1;
       stop();
     };
   }, [profileId, reload, apply]);
