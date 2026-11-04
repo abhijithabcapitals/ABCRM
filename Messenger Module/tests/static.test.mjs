@@ -1,0 +1,102 @@
+// Checks that need no browser: no token words in browser code, and the blocked pop-up fallback exists.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+
+const here = fileURLToPath(new URL("..", import.meta.url));
+const read = (p) => readFileSync(join(here, p), "utf8");
+function readAll(...dirs) {
+  return dirs.flatMap((d) => {
+    const full = join(here, d);
+    return existsSync(full) ? readdirSync(full).filter((f) => /\.(jsx?|mjs)$/.test(f)).map((f) => read(`${d}/${f}`)) : [];
+  }).join("\n");
+}
+
+test("browser code holds no token words", () => {
+  const src = readAll("components", "services", "logic");
+  assert.ok(src.length > 0);
+  assert.doesNotMatch(src, /refresh_token|client_secret|MICROSOFT_CLIENT_SECRET/);
+});
+
+test("panel falls back to a visible link when the pop-up is blocked", () => {
+  const src = read("components/ChatStarter.jsx");
+  assert.match(src, /window\.open\(/);
+  assert.match(src, /blocked/i);
+});
+
+test("window.open does not use noopener, which would make a opened window look blocked", () => {
+  const src = read("components/ChatStarter.jsx");
+  assert.doesNotMatch(src, /window\.open\([^)]*noopener/);
+});
+
+const main = (p) => readFileSync(join(here, "..", "Main Module", p), "utf8");
+
+test("Messenger is wired into the Main Module", () => {
+  assert.match(main("vite.config.js"), /'@messenger'/);
+  assert.match(main("src/App.jsx"), /lazy\(\(\) => import\("@messenger"\)\)/);
+  assert.match(main("src/tabs.js"), /key: "messenger"/);
+  assert.match(main("src/components/Sidebar.jsx"), /key: "messenger"/);
+});
+
+test("every link_type in messengerApi.js is a value the database accepts", () => {
+  const src = read("services/messengerApi.js");
+  const found = [...src.matchAll(/link_type["']?\s*[:,]\s*["']([^"']+)["']/g)].map((m) => m[1]);
+  assert.ok(found.length > 0, "no link_type values found in services/messengerApi.js");
+  const allowed = ["chat", "meeting", "channel"];
+  assert.deepEqual(found.filter((v) => !allowed.includes(v)), []);
+});
+
+test("Settings and Logs sit inside the lazy module, and Logs is admin only", () => {
+  assert.match(main("src/App.jsx"), /lazy\(\(\) => import\("@messenger"\)\)/);
+  assert.ok(existsSync(join(here, "components/Settings.jsx")));
+  assert.ok(existsSync(join(here, "components/SyncLogs.jsx")));
+  const shell = read("components/MessengerModule.jsx");
+  assert.match(shell, /import Settings from/);
+  assert.match(shell, /import SyncLogs from/);
+  assert.match(shell, /\["logs", "Logs", SyncLogs, true\]/);
+  assert.match(shell, /profile\?\.role === "admin"/);
+});
+
+test("browser code asks for no message-reading scope", () => {
+  const src = readAll("components", "services", "logic");
+  assert.doesNotMatch(src, /Chat\.Read|ChatMessage\.Read|Mail\.Read|Channel(Message)?\.Read\.All/);
+});
+
+test("the sign-in return keeps ms and reason out of the address after reading", () => {
+  const shell = read("components/MessengerModule.jsx");
+  assert.match(shell, /history\.replaceState/);
+  assert.match(shell, /q\.delete\("ms"\)/);
+  assert.match(shell, /q\.delete\("reason"\)/);
+});
+
+test("the admin-users edge function lets admins grant the messenger tab", () => {
+  const edge = main("db/edge-function-admin-users.ts");
+  const tabs = edge.match(/const TABS = \[([^\]]*)\]/);
+  assert.ok(tabs, "TABS list not found");
+  assert.ok(tabs[1].includes('"messenger"'), "messenger missing from TABS");
+});
+
+test("the lead page passes no prospect name to the Teams panel", () => {
+  const src = readFileSync(join(here, "..", "Business Development Module/components/BusinessDevelopment.jsx"), "utf8");
+  const tag = src.match(/<TeamsPanel[^>]*>/);
+  assert.ok(tag, "TeamsPanel not found");
+  assert.doesNotMatch(tag[0], /label=/);
+});
+
+test("Remove tells the person when nothing was deleted", () => {
+  const src = read("services/messengerApi.js");
+  assert.match(src, /\.delete\(\)\.eq\("id", id\)\.select\("id"\)/);
+});
+
+test("the module no longer relies on the missing bk-list class", () => {
+  assert.doesNotMatch(readAll("components"), /bk-list/);
+});
+
+test("App.jsx keeps view in abc_view and does not use URLSearchParams.size", () => {
+  const app = main("src/App.jsx");
+  assert.match(app, /localStorage\.setItem\("abc_view"/);
+  assert.doesNotMatch(app, /q\.size/);
+  assert.doesNotMatch(read("components/MessengerModule.jsx"), /q\.size/);
+});

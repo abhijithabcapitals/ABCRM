@@ -2,6 +2,7 @@
 // Documents are read in the browser, so all of this works from anywhere.
 import { useMemo, useRef, useState } from "react";
 import { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
+import TeamsPanel from "@messenger/components/TeamsPanel";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, useLoad } from "@banking/components/shared";
 import { readDocuments, rpc, run, table } from "@banking/services/bankingApi";
@@ -135,6 +136,7 @@ function ClientForm({ row, canEdit, onClose }) {
           </div>
         </Panel>
       )}
+      {row.client_id && <TeamsPanel recordType="client" recordId={row.client_id} displayId={row.client_id} label={plain(rec["Client Legal Name"])} />}
       {row.client_id && <ClientAccess clientMasterId={row.client_id} />}
       {row.client_id && (
         <Panel title="History"><DataTable rows={history.data || []} empty="No changes." columns={[{ key: "changed_at", label: "When", render: (h) => new Date(h.changed_at).toLocaleString("en-AE", { timeZone: "Asia/Dubai" }) }, { key: "action", label: "Action" }, { key: "field", label: "Field" }, { key: "old_value", label: "Old" }, { key: "new_value", label: "New" }]} /></Panel>

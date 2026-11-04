@@ -388,9 +388,9 @@
         },
         {
           "id": "microsoft",
-          "name": "OneDrive, Outlook and SharePoint (Microsoft Graph)",
-          "status": "planned",
-          "usedBy": "",
+          "name": "Teams, OneDrive, Outlook and SharePoint (Microsoft Graph)",
+          "status": "in_progress",
+          "usedBy": "Messenger Module",
           "secrets": [
             {
               "name": "MICROSOFT_TENANT_ID",
@@ -406,6 +406,16 @@
               "name": "MICROSOFT_CLIENT_SECRET",
               "use": "App secret",
               "source": "App -> Certificates & secrets"
+            },
+            {
+              "name": "MICROSOFT_STATE_SECRET",
+              "use": "Signs the Microsoft sign-in state",
+              "source": "A long random value you generate; not from Microsoft"
+            },
+            {
+              "name": "MESSENGER_APP_URL",
+              "use": "CRM address people return to after Microsoft sign-in",
+              "source": "The address of the live CRM"
             },
             {
               "name": "ONEDRIVE_DRIVE_ID",

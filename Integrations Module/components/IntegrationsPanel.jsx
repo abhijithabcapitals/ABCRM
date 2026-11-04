@@ -7,6 +7,7 @@ import ZohoConnection from "./ZohoConnection.jsx";
 const STATUS = {
   in_use: { label: "In use", bg: "#dcfce7", color: "#15803d" },
   ready: { label: "Code ready", bg: "#e0f2fe", color: "#075985" },
+  in_progress: { label: "In progress", bg: "#fef3c7", color: "#92400e" },
   planned: { label: "Not built yet", bg: "#f3f4f6", color: "#4b5563" },
   custom: { label: "Custom", bg: "#ede9fe", color: "#5b21b6" },
 };

@@ -4,7 +4,7 @@ import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import { BrandFooter } from "./components/Brand";
 import { setUsageUser } from "./jsx/selectUsage";
-import { resolveView } from "./tabs";
+import { resolveView, startView } from "./tabs";
 import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
@@ -28,6 +28,7 @@ const HR = lazy(() => import("@hr"));
 const AccountingPage = lazy(() => import("@accounting"));
 const BusinessSetup = lazy(() => import("@business-setup"));
 const Knowledge = lazy(() => import("@knowledge"));
+const Messenger = lazy(() => import("@messenger"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
 const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
@@ -40,7 +41,10 @@ export default function App() {
   const [requestedView, setView] = useState(
     // "accounting" was the old name of the Clients page; the Knowledge Base tab was removed
     () => {
-      const saved = localStorage.getItem("abc_view");
+      const saved = startView(location.search, localStorage.getItem("abc_view"));
+      // Only "view" goes; other params such as ms and reason are read later.
+      const q = new URLSearchParams(location.search);
+      if (q.has("view")) { localStorage.setItem("abc_view", saved); q.delete("view"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); }
       return saved === "accounting" ? "clients" : saved === "wiki" ? "dashboard" : saved || "dashboard";
     },
   );
@@ -542,6 +546,7 @@ export default function App() {
         {view === "accounts" && <AccountingPage profile={profile} />}
         {view === "business-setup" && <BusinessSetup profile={profile} />}
         {view === "knowledge" && <Knowledge profile={profile} />}
+        {view === "messenger" && <Messenger profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
         {view === "email-agent" && profile?.role === "admin" && <EmailAgent />}
         {view === "tax" && (

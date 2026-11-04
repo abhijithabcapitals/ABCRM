@@ -11,6 +11,7 @@ export const GRANTABLE_TABS = [
   { key: "hr", label: "HR" },
   { key: "tax", label: "Tax Compliance" },
   { key: "knowledge", label: "Knowledge" },
+  { key: "messenger", label: "Messenger" },
   { key: "spaces", label: "Spaces, Tasks and Documents" },
 ];
 const KEYS = new Set(GRANTABLE_TABS.map((t) => t.key));
@@ -32,6 +33,9 @@ export function resolveView(view, isAdmin, tabs) {
   if (!ADMIN_ONLY.has(view) && (tabs || []).includes(tabOf(view))) return view;
   return (tabs || []).find((t) => t !== "spaces") || "profile";
 }
+
+// The page asked for in the address (the installed app opens with ?view=messenger), else the saved one.
+export const startView = (search, saved) => new URLSearchParams(search).get("view") || saved;
 
 // Each person's own sidebar order, kept in this browser. Tabs not in the saved order go last.
 const orderKey = (userId) => `crm-tab-order:${userId}`;
