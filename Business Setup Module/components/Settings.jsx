@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, DataTable, ErrorNote, FormModal, PageHead, Panel, fmtDate, useAction, useLoad } from "@banking/components/shared";
 import { listSettings, listStaff, removeStaff, saveSetting, saveStaff } from "../services/businessSetupApi";
 import { useSetup } from "./SetupContext";
+import Import from "./Import";
 
 const ROLES = [["ADMIN", "Admin"], ["MANAGER", "Manager"], ["SALES_EXECUTIVE", "Sales executive"], ["DOCUMENT_EXECUTIVE", "Document executive"], ["FINANCE", "Finance"], ["BANKING_EXECUTIVE", "Banking executive"], ["READ_ONLY", "Read only"]];
 
@@ -13,6 +14,7 @@ export default function Settings() {
       <PageHead title="Settings" />
       {manage ? <Staff /> : <p className="bk-note">Only an administrator can change staff and settings. You can see the current values.</p>}
       <Values manage={manage} />
+      {can("setup.import.manage") && <Import />}
     </div>
   );
 }

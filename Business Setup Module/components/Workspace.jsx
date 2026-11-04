@@ -5,6 +5,7 @@ import { useSetup } from "./SetupContext";
 import { workspace } from "../services/businessSetupApi";
 import Overview from "./workspace/Overview";
 import Kyc from "./workspace/Kyc";
+import ClientCases from "./workspace/ClientCases";
 import Services from "./workspace/Services";
 import Visas from "./workspace/Visas";
 import Quotes from "./workspace/Quotes";
@@ -13,7 +14,7 @@ import Files from "./workspace/Files";
 import Activity from "./workspace/Activity";
 import ClientLogin from "./workspace/ClientLogin";
 
-const TABS = [["overview", "Overview", Overview, "setup.access"], ["kyc", "KYC", Kyc, "setup.access"], ["services", "Services", Services, "setup.access"], ["visas", "Visas", Visas, "setup.access"], ["quotes", "Quotes & Agreements", Quotes, "setup.access"],
+const TABS = [["overview", "Overview", Overview, "setup.access"], ["kyc", "KYC", Kyc, "setup.access"], ["cases", "Cases", ClientCases, "setup.access"], ["services", "Services", Services, "setup.access"], ["visas", "Visas", Visas, "setup.access"], ["quotes", "Quotes & Agreements", Quotes, "setup.access"],
   ["payments", "Payments", Payments, "setup.access"], ["documents", "Documents", Files, "setup.access"], ["activity", "Tasks & Activity", Activity, "setup.access"], ["login", "Client Login", ClientLogin, "setup.portal.manage"]];
 
 export default function Workspace({ clientId, onBack }) {

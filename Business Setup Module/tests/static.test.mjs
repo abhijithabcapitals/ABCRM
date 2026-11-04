@@ -16,7 +16,8 @@ const fns = {};
 for (const m of sql.matchAll(/create or replace function public\.(business_setup_\w+)\(([^)]*)\)/g)) {
   fns[m[1]] = m[2].split(",").map((a) => a.trim().split(/\s+/)[0]).filter(Boolean);
 }
-const known = new Set([...(sql.match(/array\[\s*('setup\.[\w.]+'|'kyc\.\w+'|,|\s)+\]/)?.[0] || "").matchAll(/'([\w.]+)'/g)].map((m) => m[1]));
+// Every permission list in the migrations (001 first, 013 adds setup.leads.manage and setup.cases.approve).
+const known = new Set([...sql.matchAll(/array\[\s*(?:'(?:setup|kyc)\.[\w.]+'|,|\s)+\]/g)].flatMap((a) => [...a[0].matchAll(/'([\w.]+)'/g)].map((m) => m[1])));
 
 test("rpc calls match database functions", () => {
   const bad = [];
@@ -46,17 +47,19 @@ test("the navigation asks only for permissions the database knows", () => {
 });
 
 test("navigation follows the spec and is filtered by permission", () => {
-  assert.deepEqual(NAV.map(([k]) => k), ["dashboard", "onboarding", "clients", "services", "documents", "tasks", "import", "settings"]);
+  assert.deepEqual(NAV.map(([k]) => k), ["dashboard", "leads", "review", "documentation", "cases", "clients", "services", "tasks", "settings"]);
   assert.deepEqual(visibleNav(() => false), []);
+  assert.ok(!visibleNav((p) => p === "setup.access").some(([k]) => k === "review"));
   const readOnly = new Set(["setup.access"]);
-  assert.deepEqual(visibleNav((p) => readOnly.has(p)).map(([k]) => k), ["dashboard", "clients", "services", "documents", "tasks", "settings"]);
-  const importer = new Set(["setup.access", "setup.import.manage"]);
-  assert.ok(visibleNav((p) => importer.has(p)).some(([k]) => k === "import"));
+  assert.deepEqual(visibleNav((p) => readOnly.has(p)).map(([k]) => k), ["dashboard", "leads", "documentation", "cases", "clients", "services", "tasks", "settings"]);
+  assert.ok(visibleNav((p) => p === "setup.access" || p === "setup.kyc.manage").some(([k]) => k === "review"));
 });
 
 test("the shell opens each page of the spec", () => {
   const shell = readFileSync(join(here, "components/BusinessSetup.jsx"), "utf8");
-  for (const c of ["Dashboard", "Onboarding", "Clients", "FeeMaster", "Documents", "Tasks", "Import", "Settings"]) assert.match(shell, new RegExp(`<${c} />`));
+  for (const c of ["Dashboard", "Leads", "Onboarding", "DocumentationPage", "Cases", "Clients", "FeeMaster", "Tasks", "Settings"]) assert.match(shell, new RegExp(`<${c} />`));
+  assert.doesNotMatch(shell, /<Import \/>/);
+  assert.match(readFileSync(join(here, "components/Settings.jsx"), "utf8"), /<Import \/>/);
   assert.match(shell, /myAccess\(\)/);
   assert.match(readFileSync(join(here, "services/businessSetupApi.js"), "utf8"), /rpc\("business_setup_my_access"\)/);
 });
@@ -66,7 +69,32 @@ test("the dashboard shows the six planned figures, each opening its list", () =>
   const block = src.slice(src.indexOf("export const FIGURES"), src.indexOf("const STAGES"));
   const rows = [...block.matchAll(/\["(\w+)", "([^"]+)", "(\w+)"\]/g)].map((m) => m.slice(1));
   assert.deepEqual(rows.map((r) => r[0]), ["processes_pending", "receivables", "cases_completed_month", "pipeline_total", "forms_to_review", "pending_after_kyc"]);
-  // Planned targets: leads, review, documentation and cases are screens of the case pipeline (Task 4); NAV does not list them yet.
+  // Targets: leads, review, documentation and cases are screens of the case pipeline, all in NAV.
+  for (const k of ["cases", "clients", "leads", "review", "documentation"]) assert.ok(NAV.some(([n]) => n === k), k);
   assert.deepEqual(rows.map((r) => r[2]), ["cases", "clients", "cases", "leads", "review", "documentation"]);
   assert.match(src, /Cases by stage/);
+});
+
+test("the new pages call the case functions with the right parameters", () => {
+  const api = readFileSync(join(here, "services/businessSetupApi.js"), "utf8");
+  for (const f of ["case_new", "case_take", "case_link_client", "case_shared", "case_lost", "case_confirm", "case_assign", "reassign_request", "reassign_respond", "case_list", "form_staff_save", "form_doc_add"]) assert.ok(api.includes(`rpc("business_setup_${f}"`), f);
+  for (const c of ["Leads", "DocumentationPage", "Cases", "ShareLink"]) assert.ok(readFileSync(join(here, `components/${c}.jsx`), "utf8").length > 200, c);
+  const flow = readFileSync(join(here, "components/NewServiceFlow.jsx"), "utf8");
+  assert.match(flow, /caseId/);
+  assert.match(flow, /case_id: caseId/);
+});
+
+test("staff uploads for a form go under staff/<client_id>/ in the portal bucket", () => {
+  const api = readFileSync(join(here, "services/businessSetupApi.js"), "utf8");
+  assert.match(api, /`staff\/\$\{[^}]+\}\//);
+  assert.match(api, /from\("client-portal"\)/);
+});
+
+test("Resend reuses the login and never saves a new one", () => {
+  const share = readFileSync(join(here, "components/ShareLink.jsx"), "utf8");
+  const part = (from, to) => share.slice(share.indexOf(from), share.indexOf(to));
+  assert.match(part("const send =", "const issue"), /emailLogin\(/);
+  assert.doesNotMatch(part("const send =", "const issue"), /loginSave/);
+  assert.doesNotMatch(part("const resend", "return ("), /loginSave/);
+  assert.match(part("const issue", "const resend"), /loginSave/);
 });
