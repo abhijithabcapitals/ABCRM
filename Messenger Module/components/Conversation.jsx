@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import chatApi from "../services/chatClient.js";
-import { chatTitle, dayKey, mergeMessage, senderName, tickState } from "../logic/chat.js";
+import { catchUp, chatTitle, dayKey, mergeMessage, personLeft, senderName, tickState } from "../logic/chat.js";
 import Composer from "./Composer.jsx";
 import Message from "./Message.jsx";
 
@@ -17,6 +17,8 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   const cid = row.id;
   const me = profile?.id;
   const [messages, setMessages] = useState([]);
+  const latest = useRef([]); // the messages on screen, for catch-up to compare with
+  latest.current = messages;
   const [members, setMembers] = useState([]);
   const [readAt, setReadAt] = useState(null);
   const [error, setError] = useState("");
@@ -48,9 +50,11 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   const refresh = useCallback(async (first) => {
     try {
       const [page, state] = await Promise.all([chatApi.messages(cid, { limit: PAGE }), chatApi.readState(cid).catch(() => undefined)]);
-      const stick = first || atBottom();
-      setMessages((cur) => addAll(cur, page));
-      if (first) setHasMore(page.length === PAGE);
+      // A page with no message in common with the loaded ones means a gap: it replaces them.
+      const { replaced } = catchUp(latest.current, page);
+      const stick = first || replaced || atBottom();
+      setMessages((cur) => catchUp(cur, page).messages);
+      if (first || replaced) setHasMore(page.length === PAGE);
       loadMembers();
       if (state !== undefined) setReadAt(state);
       if (stick) scrollTo.current = "bottom";
@@ -184,7 +188,9 @@ export default function Conversation({ row, profile, visible, connected, onMessa
         {items}
       </div>
       {fresh && <button type="button" className="msgr-fresh" onClick={() => { scrollTo.current = "bottom"; setMessages((c) => [...c]); }}>New messages</button>}
-      <Composer conversationId={cid} draft={draft} onDraft={onDraft} onSend={send} attachSlot={attachSlot} />
+      {personLeft(row)
+        ? <p className="msgr-note">This person has left</p>
+        : <Composer conversationId={cid} draft={draft} onDraft={onDraft} onSend={send} attachSlot={attachSlot} />}
     </section>
   );
 }

@@ -36,6 +36,14 @@ export function resolveView(view, isAdmin, tabs) {
 // The page asked for in the address (a link can open ?view=settings), else the saved one.
 export const startView = (search, saved) => new URLSearchParams(search).get("view") || saved;
 
+// The page to open at start. "accounting" was the old name of the Clients page; the Wiki and Messenger
+// tabs were removed. `write` says the saved value in abc_view must be set again.
+export function initialView(search, stored) {
+  const saved = startView(search, stored);
+  const view = saved === "accounting" ? "clients" : saved === "wiki" || saved === "messenger" ? "dashboard" : saved || "dashboard";
+  return { view, write: new URLSearchParams(search).has("view") || stored === "messenger" };
+}
+
 // Each person's own sidebar order, kept in this browser. Tabs not in the saved order go last.
 const orderKey = (userId) => `crm-tab-order:${userId}`;
 export function readTabOrder(userId) {

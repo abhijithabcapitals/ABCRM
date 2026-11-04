@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import chatApi from "../services/chatClient.js";
 import { checkWebLink } from "../logic/chat.js";
 
@@ -19,15 +19,26 @@ export default function AttachPicker({ link, setLink }) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const [url, setUrl] = useState("");
+  const clients = useRef(null); // one copy of the client list per opening of the picker
 
   // Search as the person types; an older answer arriving late is ignored.
   useEffect(() => {
-    if (!open || kind === "web") return undefined;
+    if (!open) { clients.current = null; return undefined; }
+    if (kind === "web") return undefined;
     let stale = false;
     setBusy(true);
     setProblem("");
     const t = setTimeout(() => {
-      chatApi.searchRecords(kind, query).then(
+      let copy = Promise.resolve(undefined);
+      if (kind === "client") {
+        if (!clients.current) {
+          const fetched = chatApi.clientLookup();
+          clients.current = fetched;
+          fetched.catch(() => { if (clients.current === fetched) clients.current = null; });
+        }
+        copy = clients.current;
+      }
+      copy.then((list) => chatApi.searchRecords(kind, query, list)).then(
         (list) => { if (!stale) { setResults(list); setBusy(false); } },
         () => { if (!stale) { setResults([]); setBusy(false); setProblem("Could not search. Please try again."); } },
       );

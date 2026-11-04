@@ -17,27 +17,32 @@ function rows(res, sentence) {
 export function createChatApi(client) {
   const call = async (fn, args, sentence) => rows(await client.rpc(fn, args), sentence);
 
-  async function searchRecords(type, query) {
+  // One copy of the people the caller may see. The picker fetches it once per opening and filters it as the person types.
+  async function clientLookup() {
+    return rows(await client.rpc("client_lookup"), "Could not search clients. Please try again.") || [];
+  }
+
+  // `clients` is the copy from clientLookup(); a client search filters it without calling the database.
+  async function searchRecords(type, query, clients) {
     const q = String(query || "").trim();
     if (type === "client") {
-      const all = rows(await client.rpc("client_lookup"), "Could not search clients. Please try again.") || [];
       const needle = q.toLowerCase();
       const fields = ["name", "legal_name", "trade_name", "trn", "license", "email", "phone"];
       // Leads and unlinked banking clients have no ref; a client can appear at two ranks. Keep the first of each ref.
       const seen = new Set();
-      return all
+      return (clients || [])
         .filter((r) => r.ref && (!needle || fields.some((f) => String(r[f] || "").toLowerCase().includes(needle))))
         .filter((r) => !seen.has(r.ref) && seen.add(r.ref))
         .slice(0, PICK_LIMIT)
         .map((r) => ({ ref: r.ref, label: r.name }));
     }
     if (type === "lead") {
-      const data = rows(await client.from("bd_leads").select("id, lead_number").ilike("lead_number", `%${q}%`).limit(PICK_LIMIT),
+      const data = rows(await client.from("bd_leads").select("id, lead_number").is("archived_at", null).ilike("lead_number", `%${q}%`).limit(PICK_LIMIT),
         "Could not search leads. Please try again.");
       return (data || []).map((r) => ({ ref: r.id, label: r.lead_number }));
     }
     if (type === "task") {
-      const data = rows(await client.from("tasks").select("id, title").ilike("title", `%${q}%`).limit(PICK_LIMIT),
+      const data = rows(await client.from("tasks").select("id, title").is("deleted_at", null).ilike("title", `%${q}%`).limit(PICK_LIMIT),
         "Could not search tasks. Please try again.");
       return (data || []).map((r) => ({ ref: r.id, label: r.title }));
     }
@@ -105,6 +110,7 @@ export function createChatApi(client) {
     async staff() {
       return rows(await client.from("profiles").select("id, full_name").order("full_name"), "Could not load the staff list. Please try again.");
     },
+    clientLookup,
     searchRecords,
     subscribe,
   };

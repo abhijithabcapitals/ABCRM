@@ -10,7 +10,7 @@ function fakeClient(result = { data: [], error: null }) {
   const removed = [];
   const query = (table) => {
     const q = { then: (res, rej) => Promise.resolve(result).then(res, rej) };
-    for (const m of ["select", "insert", "eq", "lt", "order", "limit", "ilike", "in"]) {
+    for (const m of ["select", "insert", "eq", "lt", "order", "limit", "ilike", "in", "is"]) {
       q[m] = (...args) => { calls.push({ table, m, args }); return q; };
     }
     return q;
@@ -127,17 +127,25 @@ test("staff reads profiles id and full_name", async () => {
   assert.equal(rows.length, 1);
 });
 
-test("searchRecords clients filters client_lookup rows in the browser, limit 20", async () => {
+test("clientLookup calls client_lookup once; searchRecords filters the copy it is given, limit 20", async () => {
   const rows = Array.from({ length: 30 }, (_, i) => ({ ref: `r${i}`, name: `Acme ${i}`, trade_name: null }));
   rows.push({ ref: "z", name: "Other", trade_name: "Zed" });
   const c = fakeClient({ data: rows, error: null });
   const api = createChatApi(c);
-  const out = await api.searchRecords("client", "acme");
+  const copy = await api.clientLookup();
+  assert.equal(c.calls.filter((x) => x.rpc).length, 1);
   assert.equal(c.calls.find((x) => x.rpc).rpc, "client_lookup");
+  const out = await api.searchRecords("client", "acme", copy);
   assert.equal(out.length, 20);
   assert.deepEqual(out[0], { ref: "r0", label: "Acme 0" });
-  const z = await api.searchRecords("client", "zed");
+  const z = await api.searchRecords("client", "zed", copy);
   assert.deepEqual(z, [{ ref: "z", label: "Other" }]);
+  assert.equal(c.calls.filter((x) => x.rpc).length, 1, "typing must not call client_lookup again");
+});
+
+test("clientLookup gives a plain sentence when the call fails", async () => {
+  const c = fakeClient({ data: null, error: { message: "relation boom" } });
+  await assert.rejects(createChatApi(c).clientLookup(), (e) => e.message === "Could not search clients. Please try again.");
 });
 
 test("searchRecords leads uses lead_number as label only", async () => {
@@ -146,6 +154,7 @@ test("searchRecords leads uses lead_number as label only", async () => {
   assert.equal(c.calls.find((x) => x.from).from, "bd_leads");
   assert.deepEqual(c.calls.find((x) => x.m === "ilike").args, ["lead_number", "%LD-2026%"]);
   assert.deepEqual(c.calls.find((x) => x.m === "limit").args, [20]);
+  assert.deepEqual(c.calls.find((x) => x.m === "is").args, ["archived_at", null]);
   assert.deepEqual(out, [{ ref: "L1", label: "LD-2026-000001" }]);
 });
 
@@ -154,6 +163,7 @@ test("searchRecords tasks searches title", async () => {
   const out = await createChatApi(c).searchRecords("task", "call");
   assert.equal(c.calls.find((x) => x.from).from, "tasks");
   assert.deepEqual(c.calls.find((x) => x.m === "ilike").args, ["title", "%call%"]);
+  assert.deepEqual(c.calls.find((x) => x.m === "is").args, ["deleted_at", null]);
   assert.deepEqual(out, [{ ref: "T1", label: "Call back" }]);
 });
 
@@ -232,7 +242,7 @@ test("searchRecords clients drops null refs and dedupes by ref before the limit"
     { ref: "a", name: "Acme One (banking)" },
     { ref: "b", name: "Acme Two" },
   ];
-  const out = await createChatApi(fakeClient({ data, error: null })).searchRecords("client", "acme");
+  const out = await createChatApi(fakeClient()).searchRecords("client", "acme", data);
   assert.deepEqual(out, [{ ref: "a", label: "Acme One" }, { ref: "b", label: "Acme Two" }]);
 });
 

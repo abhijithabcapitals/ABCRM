@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import registry from "../registry.json";
 import ZohoConnection from "./ZohoConnection.jsx";
+import ChatBoundary from "@messenger/components/ChatBoundary";
 
 // The Microsoft screens belong to the Messenger Module and load only when the microsoft row is open.
 const MicrosoftConnection = lazy(() => import("@messenger/components/MicrosoftConnection"));
@@ -135,7 +136,11 @@ export default function IntegrationsPanel({ supabase }) {
                 </div>
               );
             })}
-            {i.id === "microsoft" && <Suspense fallback={null}><MicrosoftConnection /></Suspense>}
+            {i.id === "microsoft" && (
+              <ChatBoundary fallback={<p style={{ fontSize: 12.5, color: "#b91c1c", margin: "8px 0 0" }}>The Microsoft screens could not load. Please reload the page.</p>}>
+                <Suspense fallback={null}><MicrosoftConnection /></Suspense>
+              </ChatBoundary>
+            )}
             {i.id === "zoho-books" && <ZohoConnection supabase={supabase} onSaved={load} />}
           </div>
         )}

@@ -69,3 +69,19 @@ export function shouldCollapse(target, panelEl, bubbleEl) {
   if (bubbleEl && bubbleEl.contains(target)) return false;
   return true;
 }
+
+// Catch-up with the newest page (newest first from the service). When the page shares no message with
+// the loaded ones, a gap lies between them, so the page replaces the loaded messages; sending and failed
+// ones are kept because the database does not have them yet.
+export function catchUp(current, page) {
+  const ids = new Set(current.map((m) => m.id));
+  const replaced = current.length > 0 && page.length > 0 && !page.some((m) => ids.has(m.id));
+  const base = replaced ? current.filter((m) => m.status === "sending" || m.status === "failed") : current;
+  const messages = [...page].reverse().reduce((acc, m) => mergeMessage(acc, m), base);
+  return { messages, replaced };
+}
+
+// A direct chat whose other person was deleted: nobody is left to write to.
+export function personLeft(row) {
+  return row.kind === "direct" && !row.other_id;
+}

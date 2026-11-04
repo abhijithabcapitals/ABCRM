@@ -35,15 +35,6 @@ export async function currentUserId() {
   return data?.user?.id || null;
 }
 
-// The person's own saved chats, newest first.
-export async function listMyChats(limit = 20) {
-  const me = await currentUserId();
-  if (!me) return [];
-  return check(await supabase.from("crm_communication_links").select("*")
-    .eq("link_type", "chat").eq("created_by", me)
-    .order("created_at", { ascending: false }).limit(limit));
-}
-
 // ---------------------------------------------------------------- Microsoft connection (Edge Function ms365)
 
 // The function answers { error } with status 400 for a message meant for the person.

@@ -4,10 +4,12 @@ import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import { BrandFooter } from "./components/Brand";
 import { setUsageUser } from "./jsx/selectUsage";
-import { resolveView, startView } from "./tabs";
+import { initialView, resolveView } from "./tabs";
 import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
+// Static, so a failed chunk load cannot crash the app; the bubble loads its panel lazily itself.
+import MessengerBubble from "@messenger/components/MessengerBubble";
 import "./App.css";
 
 // Code-split the heavy views so the initial load only downloads the one in use
@@ -28,7 +30,6 @@ const HR = lazy(() => import("@hr"));
 const AccountingPage = lazy(() => import("@accounting"));
 const BusinessSetup = lazy(() => import("@business-setup"));
 const Knowledge = lazy(() => import("@knowledge"));
-const MessengerBubble = lazy(() => import("@messenger/components/MessengerBubble"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
 const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
@@ -39,13 +40,13 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [tabs, setTabs] = useState(null);
   const [requestedView, setView] = useState(
-    // "accounting" was the old name of the Clients page; the Knowledge Base tab was removed
     () => {
-      const saved = startView(location.search, localStorage.getItem("abc_view"));
+      const start = initialView(location.search, localStorage.getItem("abc_view"));
       // Only "view" goes; other params such as ms and reason are read later.
       const q = new URLSearchParams(location.search);
-      if (q.has("view")) { localStorage.setItem("abc_view", saved); q.delete("view"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); }
-      return saved === "accounting" ? "clients" : saved === "wiki" ? "dashboard" : saved || "dashboard";
+      if (start.write) localStorage.setItem("abc_view", start.view);
+      if (q.has("view")) { q.delete("view"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); }
+      return start.view;
     },
   );
   // A member only reaches the tabs they were given, however the page was asked for.
@@ -556,7 +557,7 @@ export default function App() {
           <Settings currentUser={user} profile={profile} spaces={spaces} onAccessChanged={() => fetchAccessRules(profile)} />
         )}
         </Suspense>
-        <Suspense fallback={null}><MessengerBubble profile={profile} /></Suspense>
+        <MessengerBubble profile={profile} />
       </main>
       <BrandFooter />
       </div>

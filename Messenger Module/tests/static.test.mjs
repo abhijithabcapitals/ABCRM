@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
 
 const here = fileURLToPath(new URL("..", import.meta.url));
@@ -114,10 +114,52 @@ test("App.jsx keeps view in abc_view and does not use URLSearchParams.size", () 
   assert.doesNotMatch(read("components/MicrosoftConnection.jsx"), /q\.size/);
 });
 
-test("the bubble is mounted once in App.jsx, lazily, by path", () => {
+test("the bubble is mounted once in App.jsx, imported statically so a failed chunk cannot crash the app", () => {
   const app = main("src/App.jsx");
-  assert.match(app, /lazy\(\(\) => import\("@messenger\/components\/MessengerBubble"\)\)/);
+  assert.match(app, /^import MessengerBubble from "@messenger\/components\/MessengerBubble";$/m);
+  assert.doesNotMatch(app, /lazy\(\(\) => import\("@messenger/);
   assert.equal((app.match(/<MessengerBubble /g) || []).length, 1);
+  assert.doesNotMatch(app, /<Suspense[^>]*><MessengerBubble/);
+});
+
+test("a saved or requested view of messenger or wiki opens the dashboard, and the saved value is fixed", async () => {
+  const { initialView } = await import(pathToFileURL(join(here, "..", "Main Module/src/tabs.js")).href);
+  assert.deepEqual(initialView("", "messenger"), { view: "dashboard", write: true });
+  assert.deepEqual(initialView("?view=messenger", null), { view: "dashboard", write: true });
+  assert.deepEqual(initialView("", "wiki"), { view: "dashboard", write: false });
+  assert.deepEqual(initialView("", "accounting"), { view: "clients", write: false });
+  assert.deepEqual(initialView("", null), { view: "dashboard", write: false });
+  assert.deepEqual(initialView("", "settings"), { view: "settings", write: false });
+  assert.deepEqual(initialView("?view=settings", "tasks"), { view: "settings", write: true });
+  assert.match(main("src/App.jsx"), /initialView\(location\.search, localStorage\.getItem\("abc_view"\)\)/);
+});
+
+test("the Microsoft row in Integrations is wrapped so a failed load shows a sentence", () => {
+  const panel = readFileSync(join(here, "..", "Integrations Module/components/IntegrationsPanel.jsx"), "utf8");
+  assert.match(panel, /import ChatBoundary from "@messenger\/components\/ChatBoundary"/);
+  assert.match(panel, /<ChatBoundary fallback=\{<p [\s\S]*?<\/p>\}>\s*<Suspense fallback=\{null\}><MicrosoftConnection \/><\/Suspense>\s*<\/ChatBoundary>/);
+});
+
+test("a direct chat with a person who left shows a note in place of the composer", () => {
+  const src = read("components/Conversation.jsx");
+  assert.match(src, /personLeft\(row\)/);
+  assert.match(src, /This person has left/);
+});
+
+test("Conversation catch-up uses catchUp and sets hasMore from the page size when it replaces", () => {
+  const src = read("components/Conversation.jsx");
+  assert.match(src, /catchUp\(/);
+  assert.match(src, /replaced/);
+});
+
+test("messengerApi no longer holds the unused listMyChats", () => {
+  assert.doesNotMatch(read("services/messengerApi.js"), /listMyChats/);
+});
+
+test("AttachPicker keeps one client copy per opening and passes it to searchRecords", () => {
+  const src = read("components/AttachPicker.jsx");
+  assert.match(src, /chatApi\.clientLookup\(\)/);
+  assert.match(src, /chatApi\.searchRecords\(kind, query, /);
 });
 
 test("the bubble loads the panel lazily and wraps it in the error boundary", () => {

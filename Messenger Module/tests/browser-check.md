@@ -90,3 +90,5 @@ Needs two real staff logins (A and B) and a third (C) who is in neither chat, af
 10. Group: the title accepts 80 characters and no more.
 11. Mobile width: the bubble and panel fit the screen, and the composer is usable.
 12. The bubble does not cover the reading widget or any button in the CRM at the usual window sizes.
+13. Re-subscribing after a drop: switch the network off for a minute, then on. The status returns to connected without a reload, and a message sent meanwhile appears. Do this again after leaving the tab idle long enough for the channel to report CLOSED.
+14. Stacking order: with the panel open, open a CRM modal, a dropdown and the reading widget. The bubble (z-index 8900) must not sit above a modal and must not be hidden behind the page's own controls.

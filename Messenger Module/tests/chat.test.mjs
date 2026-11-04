@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   MAX_BODY, badgeText, totalUnread, checkBody, checkWebLink, mergeMessage,
-  tickState, dayKey, previewText, senderName, chatTitle, shouldCollapse,
+  tickState, dayKey, previewText, senderName, chatTitle, shouldCollapse, catchUp, personLeft,
 } from "../logic/chat.js";
 
 test("badge", () => {
@@ -73,4 +73,38 @@ test("chat title: group, direct, former staff", () => {
   assert.equal(chatTitle({ kind: "group", title: "VAT team", other_name: null }), "VAT team");
   assert.equal(chatTitle({ kind: "direct", title: null, other_name: "Sara" }), "Sara");
   assert.equal(chatTitle({ kind: "direct", title: null, other_name: null }), "Former staff");
+});
+
+const msg = (id, t, extra = {}) => ({ id, created_at: `2026-11-04T10:00:${t}Z`, ...extra });
+// A page comes newest first, as the service returns it.
+test("catch-up with an overlapping page only merges", () => {
+  const cur = [msg("a", "01"), msg("b", "02")];
+  const r = catchUp(cur, [msg("c", "03"), msg("b", "02")]);
+  assert.deepEqual(r.messages.map((m) => m.id), ["a", "b", "c"]);
+  assert.equal(r.replaced, false);
+});
+test("catch-up with no overlap replaces the loaded messages with the page", () => {
+  const cur = [msg("a", "01"), msg("b", "02")];
+  const page = [msg("z", "59"), msg("y", "58")];
+  const r = catchUp(cur, page);
+  assert.deepEqual(r.messages.map((m) => m.id), ["y", "z"]);
+  assert.equal(r.replaced, true);
+});
+test("catch-up with no overlap keeps messages still sending or failed", () => {
+  const cur = [msg("a", "01"), msg("s", "02", { status: "sending" }), msg("f", "03", { status: "failed" })];
+  const r = catchUp(cur, [msg("z", "59")]);
+  assert.deepEqual(r.messages.map((m) => m.id), ["s", "f", "z"]);
+  assert.equal(r.replaced, true);
+});
+test("catch-up on an empty list or an empty page is not a replacement", () => {
+  assert.equal(catchUp([], [msg("a", "01")]).replaced, false);
+  const cur = [msg("a", "01")];
+  const r = catchUp(cur, []);
+  assert.equal(r.replaced, false);
+  assert.deepEqual(r.messages, cur);
+});
+test("a direct chat whose other person is gone is marked as left", () => {
+  assert.equal(personLeft({ kind: "direct", other_id: null }), true);
+  assert.equal(personLeft({ kind: "direct", other_id: "u2" }), false);
+  assert.equal(personLeft({ kind: "group", other_id: null }), false);
 });
