@@ -2,7 +2,12 @@
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role bypassrls; end if;
 end $$;
+-- Real Supabase grants ALL on every new public table, function and sequence to these roles. Copied here so the migrations' own revokes are what the tests exercise.
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 create schema auth;
 grant usage on schema public, auth to anon, authenticated;
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
@@ -25,11 +30,11 @@ alter table public.tasks enable row level security;
 create policy stub_read on public.client_master for select to authenticated using (owner_id = (select auth.uid()) or admin_is());
 create policy stub_read on public.bd_leads for select to authenticated using (owner_id = (select auth.uid()) or admin_is());
 create policy stub_read on public.tasks for select to authenticated using (owner_id = (select auth.uid()) or admin_is());
+-- Stub-owned tables keep their intended access: profiles is reached only through admin_is() and the migrations' foreign keys; parents are select-only for authenticated.
+revoke all on public.profiles, public.client_master, public.bd_leads, public.tasks from anon, authenticated;
+grant select on public.client_master, public.bd_leads, public.tasks to authenticated;
 
--- Supabase Vault and service_role, only what 002_microsoft_connection.sql calls. No grants to anon or authenticated, as on Supabase.
-do $$ begin
-  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role bypassrls; end if;
-end $$;
+-- Supabase Vault, only what 002_microsoft_connection.sql calls. The vault schema is outside public, so the default privileges above do not reach it; anon and authenticated get no usage, as on Supabase.
 grant usage on schema public to service_role;
 create schema vault;
 create table vault.secrets (id uuid primary key default gen_random_uuid(), name text unique, description text not null default '', secret text not null, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
