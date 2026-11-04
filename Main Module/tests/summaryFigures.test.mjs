@@ -1,0 +1,78 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, isNoAccess,
+} from "../../Dashboard Module/logic/summaryFigures.js";
+
+const rows = (n, stage = "New") => Array.from({ length: n }, () => ({ stage }));
+
+test("bdFigures caps the total at 500", () => {
+  assert.equal(bdFigures(rows(500), ["New"]).total, "500+");
+  assert.equal(bdFigures(rows(3), ["New"]).total, 3);
+});
+test("bdFigures counts per stage and puts unknown stages under Other", () => {
+  const r = bdFigures([{ stage: "New" }, { stage: "New" }, { stage: "Odd" }], ["New", "Won"]);
+  assert.deepEqual(r.stages, [{ label: "New", value: 2 }, { label: "Won", value: 0 }, { label: "Other", value: 1 }]);
+});
+
+test("bankingFigures uses the banking dashboard labels", () => {
+  const r = bankingFigures({ cards: { total_leads: 4, documents_pending: 2, submitted: 1, approved: 0 }, alerts: { lead_followups: 3 }, finance: { collected: 9 } });
+  assert.deepEqual(r.cards, [
+    { label: "Total Leads Received", value: 4 }, { label: "Documents Pending", value: 2 },
+    { label: "Applications Submitted", value: 1 }, { label: "Accounts Approved", value: 0 },
+  ]);
+  assert.equal(r.alerts.length, 10);
+  assert.deepEqual(r.alerts[0], { label: "Leads requiring follow-up", value: 3 });
+  assert.deepEqual(r.finance, { collected: 9 });
+});
+
+test("setupFigures reads the setup dashboard", () => {
+  const r = setupFigures({ forms_waiting: 2, open_quotes: 3, accepted_without_letter: 1, outstanding: 50, active_services: 7, expiries: { upcoming: 4, past: 5 } });
+  assert.deepEqual(r, { forms: 2, openQuotes: 3, noLetter: 1, outstanding: 50, activeServices: 7, expiringUpcoming: 4, expiringPast: 5 });
+});
+
+test("accountingFigures sums only positive balances", () => {
+  const r = accountingFigures([
+    { work_status: "Open", balance: 100, follow_up_due: true, needs_invoice: false },
+    { work_status: "Open", balance: -20, follow_up_due: false, needs_invoice: true },
+    { work_status: "Done", balance: null },
+  ]);
+  assert.equal(r.balanceDue, 100);
+  assert.equal(r.followUpsDue, 1);
+  assert.equal(r.needInvoice, 1);
+  assert.deepEqual(r.byStatus, [{ label: "Open", value: 2 }, { label: "Done", value: 1 }]);
+});
+
+test("hrFigures reads the hr dashboard", () => {
+  assert.deepEqual(hrFigures({ headcount: 12, pending_leave: 2, expiring_documents: 3 }), { headcount: 12, pendingLeave: 2, expiringDocuments: 3 });
+});
+
+test("taxFigures maps the compliance summary", () => {
+  const r = taxFigures({ clientsChecked: 9, summary: { overdue: 1, due_14: 2, due_30: 3, missing: 4 } });
+  assert.deepEqual(r, { overdue: 1, due14: 2, due30: 3, missing: 4, clients: 9 });
+});
+
+test("notificationFigures counts unread and keeps the first five", () => {
+  const list = Array.from({ length: 7 }, (_, i) => ({ id: i, read: i >= 2 }));
+  const r = notificationFigures(list);
+  assert.equal(r.unread, 2);
+  assert.equal(r.latest.length, 5);
+});
+
+test("isNoAccess is true only for permission denied", () => {
+  assert.equal(isNoAccess({ code: "42501" }), true);
+  assert.equal(isNoAccess({ code: "PGRST116" }), false);
+  assert.equal(isNoAccess(null), false);
+});
+
+test("empty input gives zeros, not a throw", () => {
+  assert.deepEqual(bdFigures([], ["New"]), { total: 0, stages: [{ label: "New", value: 0 }] });
+  assert.deepEqual(bdFigures(null, null), { total: 0, stages: [] });
+  assert.equal(bankingFigures(null).cards.every((c) => c.value === 0), true);
+  assert.equal(bankingFigures(null).finance, null);
+  assert.deepEqual(setupFigures(null), { forms: 0, openQuotes: 0, noLetter: 0, outstanding: 0, activeServices: 0, expiringUpcoming: 0, expiringPast: 0 });
+  assert.deepEqual(accountingFigures(null), { byStatus: [], followUpsDue: 0, needInvoice: 0, balanceDue: 0 });
+  assert.deepEqual(hrFigures(null), { headcount: 0, pendingLeave: 0, expiringDocuments: 0 });
+  assert.deepEqual(taxFigures(null), { overdue: 0, due14: 0, due30: 0, missing: 0, clients: 0 });
+  assert.deepEqual(notificationFigures(null), { unread: 0, latest: [] });
+});
