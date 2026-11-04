@@ -14,7 +14,7 @@ create function auth.uid() returns uuid language sql stable as $$ select nullif(
 grant execute on function auth.uid() to anon, authenticated;
 
 -- Admin Base: profiles and admin_is() (live in HR Base 001)
-create table public.profiles (id uuid primary key, role text);
+create table public.profiles (id uuid primary key, role text, full_name text);
 create function public.admin_is() returns boolean language sql stable security definer set search_path = public, pg_temp as $$
   select exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin') $$;
 grant execute on function public.admin_is() to authenticated;
@@ -33,6 +33,9 @@ create policy stub_read on public.tasks for select to authenticated using (owner
 -- Stub-owned tables keep their intended access: profiles is reached only through admin_is() and the migrations' foreign keys; parents are select-only for authenticated.
 revoke all on public.profiles, public.client_master, public.bd_leads, public.tasks from anon, authenticated;
 grant select on public.client_master, public.bd_leads, public.tasks to authenticated;
+
+-- Supabase Realtime publication, which 003_chat.sql adds messenger_messages to.
+create publication supabase_realtime;
 
 -- Supabase Vault, only what 002_microsoft_connection.sql calls. The vault schema is outside public, so the default privileges above do not reach it; anon and authenticated get no usage, as on Supabase.
 grant usage on schema public to service_role;
