@@ -865,7 +865,6 @@ export default function Sidebar({
           ...(profile?.role === "admin"
             ? [
                 { key: "ceo", Icon: IconSparkles, label: "CEO Agent" },
-                { key: "email-agent", Icon: IconMail, label: "Email Agent" },
                 { key: "settings", Icon: IconSettings, label: "Settings" },
               ]
             : []),

@@ -31,7 +31,6 @@ const BusinessSetup = lazy(() => import("@business-setup"));
 const Knowledge = lazy(() => import("@knowledge"));
 const Messenger = lazy(() => import("@messenger"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
-const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
 
 export default function App() {
@@ -45,7 +44,7 @@ export default function App() {
       const saved = startView(location.search, localStorage.getItem("abc_view"));
       // Only "view" goes; other params such as ms and reason are read later.
       const q = new URLSearchParams(location.search);
-      if (q.has("view")) { localStorage.setItem("abc_view", saved); q.delete("view"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); }
+      if (q.has("view")) { if (saved) localStorage.setItem("abc_view", saved); q.delete("view"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); }
       return saved === "accounting" ? "clients" : saved === "wiki" ? "dashboard" : saved || "dashboard";
     },
   );
@@ -550,7 +549,6 @@ export default function App() {
         {view === "knowledge" && <Knowledge profile={profile} />}
         {view === "messenger" && <Messenger profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
-        {view === "email-agent" && profile?.role === "admin" && <EmailAgent />}
         {view === "tax" && (
           <TaxHub profile={profile} />
         )}
