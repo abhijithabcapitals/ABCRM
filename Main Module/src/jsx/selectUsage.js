@@ -4,6 +4,7 @@ let user = "anon";
 let cache = null;
 
 export const setUsageUser = (id) => { if ((id || "anon") !== user) { user = id || "anon"; cache = null; } };
+export const usageUser = () => (user === "anon" ? null : user);
 const storageKey = () => `crm.selectUsage.${user}`;
 
 function load() {

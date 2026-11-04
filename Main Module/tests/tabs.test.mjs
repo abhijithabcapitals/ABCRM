@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { barId, isTabBar } from "../src/jsx/DragTabs.js";
 import { GRANTABLE_TABS, moveTab, orderTabs, readTabOrder, toggleAllTabs } from "../src/tabs.js";
 
 const every = GRANTABLE_TABS.map((t) => t.key);
@@ -23,3 +24,18 @@ test("saved order applies; tabs not in it stay last in their usual order", () =>
   assert.deepEqual(orderTabs(items, ["gone", "d"]).map((i) => i.key), ["d", "a", "b", "c"]);
 });
 test("no browser storage reads as no saved order", () => assert.deepEqual(readTabOrder("u"), []));
+
+test("tab bars are found by their class; onboarding stages stay fixed", () => {
+  assert.equal(isTabBar("nav", { className: "bk-nav" }), true);
+  assert.equal(isTabBar("div", { className: "x bk-tabs" }), true);
+  assert.equal(isTabBar("div", { className: "bk-tabs bk-cm-stages" }), false);
+  assert.equal(isTabBar("button", { className: "bk-tabs" }), false);
+  assert.equal(isTabBar("div", { className: "bk-tabset" }), false);
+  assert.equal(isTabBar("div", { className: "tabs" }), true);
+  assert.equal(isTabBar("div", {}), false);
+});
+test("a named bar keeps its identity when a tab is added; an unnamed one is known by its tabs", () => {
+  assert.equal(barId("HR", ["a", "b"]), barId("HR", ["a", "b", "c"]));
+  assert.notEqual(barId("Status", ["a"]), barId("Status", ["z"]));
+  assert.equal(barId(undefined, ["b", "a"]), "a,b");
+});

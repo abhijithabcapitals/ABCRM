@@ -4264,7 +4264,7 @@ export default function Tasks({
 
         {/* Toolbar */}
         <div className="toolbar-row">
-          <div className="tabs" style={{ border: "none", padding: 0 }}>
+          <div className="tabs" style={{ border: "none", padding: 0 }} aria-label="Task view">
             {activeSpace && (
               <div
                 className={`tab ${viewMode === "overview" ? "active" : ""}`}
