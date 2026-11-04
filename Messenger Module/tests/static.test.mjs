@@ -39,3 +39,11 @@ test("Messenger is wired into the Main Module", () => {
   assert.match(main("src/tabs.js"), /key: "messenger"/);
   assert.match(main("src/components/Sidebar.jsx"), /key: "messenger"/);
 });
+
+test("every link_type in messengerApi.js is a value the database accepts", () => {
+  const src = read("services/messengerApi.js");
+  const found = [...src.matchAll(/link_type["']?\s*[:,]\s*["']([^"']+)["']/g)].map((m) => m[1]);
+  assert.ok(found.length > 0, "no link_type values found in services/messengerApi.js");
+  const allowed = ["chat", "meeting", "channel"];
+  assert.deepEqual(found.filter((v) => !allowed.includes(v)), []);
+});
