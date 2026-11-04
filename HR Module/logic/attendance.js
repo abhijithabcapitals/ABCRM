@@ -226,6 +226,9 @@ export function parseTime(v) {
   return `${pad(Number(m[1]))}:${m[2]}`;
 }
 
+// What someone not on the HR list sees after pressing Sync now.
+export const staffSyncNote = (r) => (r?.skipped ? "The device was read moments ago. Showing the latest punches." : "Up to date with the biometric device.");
+
 // One line for a hr-biometric-sync result.
 export function syncSummary(stats) {
   const d = stats?.days || {};
