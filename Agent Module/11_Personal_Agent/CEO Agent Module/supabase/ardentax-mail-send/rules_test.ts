@@ -1,6 +1,6 @@
 // deno test "Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ardentax-mail-send/"
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { htmlBody, isDocumentPath, parseRecipients, sendRefusal, totalAttachmentBytes, MAX_ATTACHMENT_BYTES } from "./rules.ts";
+import { chooseLogin, htmlBody, isDocumentPath, parseRecipients, sendRefusal, totalAttachmentBytes, MAX_ATTACHMENT_BYTES } from "./rules.ts";
 
 const ready = { pdf_path: "a.pdf", word_path: "a.docx", mail_to: "pat@sample.example", mail_subject: "S", mail_body: "B", mail_sent_at: null };
 
@@ -46,4 +46,14 @@ Deno.test("only this document's own stored files may be mailed", () => {
   assert(!isDocumentPath(ID, `ArdentTax (ASP)/${ID}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/../y.pdf`));
   assert(!isDocumentPath("99999999-2222-3333-4444-555555555555", GOOD));
   assert(!isDocumentPath(ID, null));
+});
+
+Deno.test("the mailbox login comes from the same places as ceo-mail-reply, in the same order", () => {
+  const address = "bharat@ardentaxit.tax";
+  assertEquals(chooseLogin({ saved: "a", named: "b", legacyUser: address, legacyPass: "c" }, address), { user: address, pass: "a" });
+  assertEquals(chooseLogin({ named: "b", legacyUser: address, legacyPass: "c" }, address), { user: address, pass: "b" });
+  assertEquals(chooseLogin({ legacyUser: " Bharat@ArdentaxIT.tax ", legacyPass: "c" }, address), { user: "Bharat@ArdentaxIT.tax", pass: "c" });
+  assertEquals(chooseLogin({ saved: "a" }, address, "login@x.example"), { user: "login@x.example", pass: "a" });
+  assertEquals(chooseLogin({ legacyUser: "other@x.example", legacyPass: "c" }, address), null);
+  assertEquals(chooseLogin({}, address), null);
 });

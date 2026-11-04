@@ -8,7 +8,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail, type MailPart } from "./mime.ts";
-import { htmlBody, isDocumentPath, MAX_ATTACHMENT_BYTES, parseRecipients, sendRefusal, totalAttachmentBytes } from "./rules.ts";
+import { chooseLogin, htmlBody, isDocumentPath, MAX_ATTACHMENT_BYTES, parseRecipients, sendRefusal, totalAttachmentBytes } from "./rules.ts";
 
 const SENDER = "bharat@ardentaxit.tax";
 const SENDER_NAME = "Bharat Bajaj";
@@ -27,9 +27,7 @@ const passwordSecretName = (address: string) => `MAIL_PASSWORD_${address.toUpper
 // deno-lint-ignore no-explicit-any
 async function mailboxLogin(admin: any, address: string, loginUser?: string | null) {
   const { data: saved } = await admin.rpc("credential_get", { p_name: passwordSecretName(address) });
-  if (typeof saved === "string" && saved) return { user: loginUser || address, pass: saved };
-  const pass = Deno.env.get(passwordSecretName(address));
-  return pass ? { user: loginUser || address, pass } : null;
+  return chooseLogin({ saved, named: Deno.env.get(passwordSecretName(address)), legacyUser: Deno.env.get("MAIL_IMAP_USER"), legacyPass: Deno.env.get("MAIL_IMAP_PASSWORD") }, address, loginUser);
 }
 
 // deno-lint-ignore no-explicit-any

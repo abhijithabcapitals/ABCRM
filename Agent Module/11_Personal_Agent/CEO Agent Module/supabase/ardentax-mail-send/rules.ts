@@ -31,3 +31,12 @@ export function isDocumentPath(id: string, path: string | null | undefined): boo
   const prefix = `ArdentTax (ASP)/${id}/`;
   return path.startsWith(prefix) && /^[0-9a-f-]{36}\/[A-Za-z0-9 _.-]+$/.test(path.slice(prefix.length));
 }
+
+// A password saved in Settings > Email Accounts wins, then the mailbox's own secret, then the older MAIL_IMAP pair.
+export function chooseLogin(c: { saved?: unknown; named?: string; legacyUser?: string; legacyPass?: string }, address: string, loginUser?: string | null) {
+  if (typeof c.saved === "string" && c.saved) return { user: loginUser || address, pass: c.saved };
+  if (c.named) return { user: loginUser || address, pass: c.named };
+  const legacyUser = c.legacyUser?.trim();
+  if (legacyUser && c.legacyPass && legacyUser.toLowerCase() === address.toLowerCase()) return { user: legacyUser, pass: c.legacyPass };
+  return null;
+}
