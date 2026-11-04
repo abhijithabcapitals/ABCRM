@@ -3,11 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import { Button, ErrorNote, Modal, fmtDateTime } from "@banking/components/shared";
 
 const signatureText = (html) => new DOMParser().parseFromString(html || "", "text/html").body.textContent.replace(/\s+/g, " ").trim();
+const BANNER_PATH = "ArdentTax (ASP)/assets/banner.png";
 const fileOf = (path) => String(path || "").split("/").pop();
 
 export default function MailPanel({ doc, api, onClose, onChanged }) {
   const [mail, setMail] = useState({ to: doc.mail_to || "", cc: doc.mail_cc || "", subject: doc.mail_subject || "", body: doc.mail_body || "", attachWord: !!doc.mail_attach_word });
   const [signature, setSignature] = useState("");
+  const [banner, setBanner] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
@@ -20,6 +22,7 @@ export default function MailPanel({ doc, api, onClose, onChanged }) {
   useEffect(() => {
     let live = true;
     api.mailSettings().then((s) => { if (live) setSignature(signatureText(s?.signature_html)); }).catch(() => {});
+    api.signedUrl(BANNER_PATH).then((url) => { if (live) setBanner(url); }).catch(() => {});
     return () => { live = false; };
   }, [api]);
 
@@ -58,7 +61,11 @@ export default function MailPanel({ doc, api, onClose, onChanged }) {
         <div className="bk-field at-wide"><label htmlFor="at-m-body">Email text</label><textarea id="at-m-body" rows={12} value={mail.body} onChange={set("body")} /></div>
       </div>
       <label className="at-check"><input type="checkbox" checked={mail.attachWord} onChange={set("attachWord")} /> Also attach the Word file</label>
-      <p className="bk-muted"><small>Attached: {attachments.filter(Boolean).join(", ") || "nothing yet"}. Signature added when sent: {signature || "none"}.</small></p>
+      <p className="bk-muted"><small>Attached: {attachments.filter(Boolean).join(", ") || "nothing yet"}. Added below the text when sent:</small></p>
+      <div className="at-signature">
+        {signature && <p>{signature}</p>}
+        {banner && <img src={banner} alt="Ardentax email signature" />}
+      </div>
       <div className="at-actions at-go">
         <Button busy={busy === "save"} disabled={!!busy} onClick={save}>Save draft</Button>
         <Button variant="primary" disabled={!!busy || pending} onClick={() => setConfirming(true)}>{sentAt ? "Send again" : "Send"}</Button>

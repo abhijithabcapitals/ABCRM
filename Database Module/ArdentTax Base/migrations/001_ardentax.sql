@@ -25,11 +25,6 @@ As the UAE e-invoicing mandate requires every business to appoint an Accredited 
 Please review the proposal and let us know if you have any questions. Once you are happy to proceed, kindly sign and return a copy and we will begin onboarding.$ardentax$,
   'signature_html', $ardentax$<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1f2937">
 <p style="margin:16px 0 0">Regards</p>
-<p style="margin:12px 0 0;line-height:1.35"><b>Bharat Bajaj</b><br>
-CEO<br>
-AB Capital Services FZC<br>
-FTA Approved Tax Agency | TAAN 20053252<br>
-<a href="https://www.abcapital.ae" style="color:#1f3a5f">www.abcapital.ae</a> | <a href="mailto:info@abcapital.ae" style="color:#1f3a5f">info@abcapital.ae</a></p>
 <p style="margin:14px 0 0"><img src="cid:ardentax-banner" width="640" height="213" alt="Bharat Bajaj, Co-Founder, Ardentax IT Solutions" style="display:block;border:0;width:640px;max-width:100%;height:auto"></p>
 </div>$ardentax$
 )) on conflict (key) do nothing;

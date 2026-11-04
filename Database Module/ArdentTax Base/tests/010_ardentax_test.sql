@@ -134,6 +134,7 @@ select at_as(null);
 select at_check('numbering formats stored', (select value -> 'ArdentTax (ASP)' -> 'quote' ->> 'format' = 'Ardentax/{YYYY}/{MM}/ADTQ{SERIAL}' and value -> 'ArdentTax (ASP)' -> 'letter' ->> 'format' = 'Ardentax/{YYYY}/{MM}/ADTE{SERIAL}' and (value -> 'ArdentTax (ASP)' -> 'quote' ->> 'digits')::int = 3 and value -> 'ArdentTax (ASP)' -> 'quote' ->> 'restart' = 'never' from hub_settings where key = 'document_numbering'));
 select at_check('numbering page lists the department', hub_numbering_status() ? 'ArdentTax (ASP)');
 select at_check('numbering page next quote', (hub_numbering_status() -> 'ArdentTax (ASP)' -> 'quote' ->> 'preview') like '%/ADTQ%');
+select at_check('the signature is Ardentax only', (select value ->> 'signature_html' like '%Regards%' and value ->> 'signature_html' not like '%AB Capital%' and value ->> 'signature_html' not like '%abcapital%' from hub_settings where key = 'ardentax_mail'));
 select at_check('mail defaults stored', (select value ->> 'subject' = 'Ardentax E-Invoicing (ASP) Proposal - {CLIENT}' and value ->> 'body' like 'Dear {POC_FIRST},%' and value ->> 'signature_html' like '%cid:ardentax-banner%' from hub_settings where key = 'ardentax_mail'));
 
 -- ── Storage ──────────────────────────────────────────────────────────

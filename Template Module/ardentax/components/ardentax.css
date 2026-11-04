@@ -20,3 +20,6 @@
 .at-confirm { grid-template-columns: 1fr; }
 .at-confirm dd { word-break: break-word; }
 .at-field-wide textarea, .bk-field textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.at-signature { margin: 4px 0 8px; font-size: 13px; }
+.at-signature p { margin: 0 0 8px; }
+.at-signature img { display: block; width: 100%; max-width: 480px; height: auto; border: 1px solid #ebebeb; }
