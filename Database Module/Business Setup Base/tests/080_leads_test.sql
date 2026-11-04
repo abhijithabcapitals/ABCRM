@@ -586,6 +586,18 @@ select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('gq_x1')), 'Another quote of this case is already accepted');
 select public.bs_as(null);
 
+-- ── Revising a quote that has no case (fix round 3) ──
+select public.bs_as(null);
+select pg_temp.mkcase('h_case', 'CL980070', 'Services');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 select 'hq_nocase', (pg_temp.hq('{"department":"Business Setup","client_id":"CL980070"}'::jsonb)).id::text;
+select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","client_id":"CL980070","case_id":"%s","revises_id":"%s"}')$$, pg_temp.fx('h_case'), pg_temp.fx('hq_nocase')), 'not in a case');
+select public.bs_check('revise_nocase: the refused revision left the old quote issued and the case empty', (select status = 'issued' from public.hub_documents where id = pg_temp.cid('hq_nocase'))
+  and not exists (select 1 from public.hub_documents where case_id = pg_temp.cid('h_case')));
+select public.bs_check('revise_nocase: a revision of a case-less quote with no case is still allowed', (select case_id is null and revises_id = pg_temp.cid('hq_nocase')
+  from pg_temp.hq(format('{"department":"Business Setup","client_id":"CL980070","revises_id":"%s"}', pg_temp.fx('hq_nocase'))::jsonb)));
+select public.bs_as(null);
+
 -- ── Summary: raise when anything failed so psql exits non-zero ──
 do $$
 declare f int; t int;

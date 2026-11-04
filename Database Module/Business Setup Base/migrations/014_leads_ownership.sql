@@ -397,6 +397,8 @@ begin
       if v_client is null then v_client := o.client_id;
       elsif v_client <> o.client_id then raise exception 'A revision must keep the client of the quote it replaces'; end if;
     end if;
+    -- A quote outside every case cannot bring its revision into one: that would start a second chain in the case.
+    if o.case_id is null and v_case is not null then raise exception 'This quote is not in a case, so its revision cannot be put in one'; end if;
     -- It also stays in the old quote's case.
     if o.case_id is not null then
       if v_case is null then v_case := o.case_id;
