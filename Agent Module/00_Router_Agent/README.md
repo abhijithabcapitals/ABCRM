@@ -22,38 +22,29 @@ The function logs a short reason code for each fixed reply, such as `no_credit` 
 
 ## Go-live order
 
-Each step needs approval. Keep this order.
+Each step needs approval. Keep this order. Run the commands from `Database Module/tools` in Git Bash, using the CLI set up in its README.
 
-> **Warning:** step 6 removes the Support chat from Hot Alerts. If it goes live before step 4, staff lose that chat and Bruno answers `Opps! I dont Know` to everyone, because nobody has access or credit yet.
+> **Warning:** step 7 removes the Support chat from Hot Alerts. If it goes live before step 6, staff lose that chat and Bruno answers `Opps! I dont Know` to everyone without access.
 
-1. Apply `Database Module/Router Base/migrations/001_router.sql` to project `pnnakrhfzyxudjaghoxx`.
-2. Deploy the agents with their `router` mode, from `Database Module/tools` in Git Bash, using the CLI set up in its README. Copy each from its module folder first:
+> **Warning:** do not redeploy `ceo-agent` from the repo. That code reads `public.email_saved_facts` and `public.email_drafts`, which do not exist live. The live function is older code plus router mode.
+
+Already live from the first release: `Router Base/migrations/001_router.sql`, and `support-agent`, `bd-agent` and `ceo-agent` with router mode.
+
+1. Apply `Database Module/Admin Base/migrations/013_crm_agent_claude.sql` and `Database Module/Router Base/migrations/002_recent_agent.sql` to project `pnnakrhfzyxudjaghoxx`.
+2. Deploy `crm-agent`, then `router-agent`, with JWT verification on:
 
    ```bash
-   mkdir -p supabase/functions/support-agent supabase/functions/bd-agent supabase/functions/ceo-agent
-   cp "../../Hot Alerts Module/supabase/support-agent/"* supabase/functions/support-agent/
-   cp "../../Business Development Module/supabase/bd-agent/"* supabase/functions/bd-agent/
-   cp "../../Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ceo-agent/"* supabase/functions/ceo-agent/
-   npx supabase functions deploy support-agent --project-ref pnnakrhfzyxudjaghoxx
-   npx supabase functions deploy bd-agent --project-ref pnnakrhfzyxudjaghoxx
-   npx supabase functions deploy ceo-agent --project-ref pnnakrhfzyxudjaghoxx
-   mkdir -p supabase/functions/crm-agent
+   mkdir -p supabase/functions/crm-agent supabase/functions/router-agent
    cp "../../Agent Module/14_CRM_Agent/supabase/crm-agent/"* supabase/functions/crm-agent/
-   npx supabase functions deploy crm-agent --project-ref pnnakrhfzyxudjaghoxx
-   ```
-
-   Do not deploy `ceo-agent` from `main` or this branch. That code reads `public.email_saved_facts` and `public.email_drafts`, which do not exist live. The live `ceo-agent` is the old live code plus router mode.
-
-3. Deploy `router-agent` with JWT verification on. It needs the `OPENROUTER_API_KEY` secret, which the project already has:
-
-   ```bash
-   mkdir -p supabase/functions/router-agent
    cp "../../Agent Module/00_Router_Agent/supabase/router-agent/"* supabase/functions/router-agent/
-   npx supabase functions deploy router-agent --project-ref pnnakrhfzyxudjaghoxx
+   npx supabase functions deploy crm-agent --project-ref pnnakrhfzyxudjaghoxx --use-api
+   npx supabase functions deploy router-agent --project-ref pnnakrhfzyxudjaghoxx --use-api
    ```
 
-4. In Settings > Agents, switch agents on, tick people and give them credit.
-5. Try each agent through Bruno, including a question it cannot answer. The no-information rule is an instruction to a model, so check that the agent replies `Opps! I dont Know` and does not answer from general knowledge.
-6. Merge to `main`, which deploys the screens and removes the Support chat and Email Agent tab.
+3. Enter a Console API key in Settings > Agents on the CRM Agent. Never paste it in chat.
+4. Give testers credit in Settings > Agents, and tick them for the CRM Agent. Admins need this too.
+5. Test through a local copy of these screens, with the real Messenger dock, because merging is otherwise their first real test. Use an admin and a non-admin. Try a permitted table, a table outside their tabs, a sensitive column, an instruction hidden in a test note, and a small change on test data.
+6. Switch agents on, tick staff and give them credit.
+7. Merge to `main`, push and run `npm run deploy:cloudflare` in `Main Module`. This removes the Support chat and Email Agent tab.
 
-To undo the database part, `Database Module/Router Base/migrations/rollback/001_rollback.sql` removes all saved names and chats.
+To undo, restore the previous `router-agent`, then run the rollbacks: `Admin Base/migrations/rollback/013_crm_agent_claude_rollback.sql`, `Router Base/migrations/rollback/002_rollback.sql`. `Router Base/migrations/rollback/001_rollback.sql` also deletes all saved names and chats.

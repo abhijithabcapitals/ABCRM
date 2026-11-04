@@ -1,8 +1,22 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useState } from "react";
 import { DEFAULT_NAME, NAME_CHANGED } from "../logic/agentName.js";
 import "./Bruno.css";
 
 const BrunoPanel = lazy(() => import("./BrunoPanel.jsx"));
+
+// After a release, a tab left open can fail to load the panel's file. The pet collapses and the page keeps working.
+class PanelBoundary extends Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch() {
+    this.props.onFail();
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 const OPEN_KEY = "bruno_open";
 function readOpen() {
@@ -58,9 +72,11 @@ export default function BrunoPet({ supabase }) {
 
   if (open) {
     return (
-      <Suspense fallback={null}>
-        <BrunoPanel supabase={supabase} name={name} onCollapse={() => toggle(false)} />
-      </Suspense>
+      <PanelBoundary onFail={() => toggle(false)}>
+        <Suspense fallback={null}>
+          <BrunoPanel supabase={supabase} name={name} onCollapse={() => toggle(false)} />
+        </Suspense>
+      </PanelBoundary>
     );
   }
   return (

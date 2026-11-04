@@ -1,5 +1,7 @@
 # CRM Agent in Bruno Implementation Plan
 
+Replaced by `2026-11-04-crm-agent-claude-plan.md`. Kept for history; do not build from it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let staff read a Business Development lead's status through Bruno, and release Bruno.

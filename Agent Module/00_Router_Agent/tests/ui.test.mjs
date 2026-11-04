@@ -37,3 +37,7 @@ test("the panel guards double sends with a ref", () => assert.match(read("compon
 test("the panel uses the keep-or-clear rule", () => assert.match(read("components/BrunoPanel.jsx"), /inputAfterSend\(/));
 test("the browser sends only the message", () => assert.match(read("components/BrunoPanel.jsx"), /body: \{ message: input \}/));
 test("the Profile page has the rename field", () => assert.match(profilePage, /<AgentNameField supabase=\{supabase\} \/>/));
+
+test("the panel has an error boundary", () => assert.match(read("components/BrunoPet.jsx"), /getDerivedStateFromError/));
+test("the README's deploy steps never deploy ceo-agent", () => assert.doesNotMatch(read("README.md"), /functions deploy ceo-agent/));
+test("the README names both migrations", () => { assert.match(read("README.md"), /013_crm_agent_claude\.sql/); assert.match(read("README.md"), /002_recent_agent\.sql/); });
