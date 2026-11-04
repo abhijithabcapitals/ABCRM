@@ -222,6 +222,7 @@ begin
   perform business_setup_require('setup.cases.approve');
   select * into r from business_setup_reassign_requests where id = p_id for update;
   if r.id is null or r.status <> 'Pending' then raise exception 'This reassignment is no longer waiting'; end if;
+  if p_approve and (select stage from business_setup_cases where id = r.case_id) in ('Completed', 'Cancelled', 'Lost') then raise exception 'This case is closed: the reassignment cannot be approved'; end if;
   if p_approve and r.created_by is not distinct from auth.uid() then raise exception 'You cannot approve your own request: ask another manager'; end if;
   update business_setup_reassign_requests set status = case when p_approve then 'Approved' else 'Refused' end, responded_at = now(), responded_by = auth.uid(), response_note = v_note where id = p_id;
   if p_approve then
@@ -255,12 +256,19 @@ declare f business_setup_onboarding_forms; v_kind text := nullif(btrim(coalesce(
 begin
   perform business_setup_require('setup.kyc.manage');
   if v_kind is null then raise exception 'Choose the document kind'; end if;
-  if v_path is null or v_path like '/%' or v_path like '%..%' then raise exception 'The file path is not valid'; end if;
+  if v_path is null then raise exception 'Enter the file path'; end if;
   select * into f from business_setup_onboarding_forms where id = p_id for update;
   if f.id is null then raise exception 'Form not found'; end if;
   if f.status <> 'In review' then raise exception 'Staff can add documents only while the form is In review'; end if;
-  insert into client_portal_documents (account_id, doc_type, note, file_name, storage_path, upload_complete, status, reviewed_by, reviewed_at, form_id)
-  values (f.account_id, v_kind, 'Added by staff', regexp_replace(v_path, '^.*/', ''), v_path, true, 'validated', auth.uid(), now(), p_id) returning id into v_id;
+  -- Only this client's own folders, so a file of another client can never be attached to this form (the portal signs whatever path a row holds).
+  if not (v_path like 'staff/' || f.client_id || '/%' or v_path like 'incoming/' || f.account_id || '/%') or '..' = any (string_to_array(v_path, '/')) then
+    raise exception 'The file path must be under staff/%/ or incoming/%/ and cannot contain ..', f.client_id, f.account_id;
+  end if;
+  begin
+    insert into client_portal_documents (account_id, doc_type, note, file_name, storage_path, upload_complete, status, reviewed_by, reviewed_at, form_id)
+    values (f.account_id, v_kind, 'Added by staff', regexp_replace(v_path, '^.*/', ''), v_path, true, 'validated', auth.uid(), now(), p_id) returning id into v_id;
+  exception when unique_violation then raise exception 'A document is already stored at that path';
+  end;
   perform business_setup_audit('business_setup_onboarding_forms', p_id::text, 'form_doc_add', null, jsonb_build_object('document_id', v_id, 'doc_type', v_kind));
   return v_id;
 end $$;

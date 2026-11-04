@@ -40,6 +40,7 @@ create function pg_temp.login_status(p_client text) returns text language sql se
 create function pg_temp.accounts(p_client text) returns bigint language sql security definer as $$ select count(*) from public.client_portal_accounts where client_master_id = p_client $$;
 -- Portal documents are closed to staff by row access; the test reads them as the table owner.
 create function pg_temp.pdocs() returns setof public.client_portal_documents language sql security definer as $$ select * from public.client_portal_documents $$;
+create function pg_temp.acct(p_client text) returns uuid language sql security definer as $$ select id from public.client_portal_accounts where client_master_id = p_client $$;
 create function pg_temp.forms(p_client text) returns bigint language sql as $$ select count(*) from public.business_setup_onboarding_forms where client_id = p_client $$;
 create function pg_temp.hq(p_extra jsonb) returns public.hub_documents language sql as $$
   select public.hub_document_create(jsonb_build_object('doc_type', 'quote', 'client_name', 'Case Quote LLC', 'contact_name', 'C', 'contact_email', 'c@x.ae', 'contact_phone', '1', 'client_address', 'Dubai',
@@ -265,6 +266,16 @@ select public.bs_check('a refusal keeps the owner and frees the case for a new r
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('req2', public.business_setup_reassign_request(pg_temp.cid('re'), '00000000-0000-0000-0000-00000000000e', 'Try again')::text);
 select public.bs_check('one pending request per case, by index', (select count(*) from public.business_setup_reassign_requests where case_id = pg_temp.cid('re') and status = 'Pending') = 1);
+-- a request on a case that has since closed cannot be approved
+select public.bs_as(null);
+select pg_temp.mkcase('re_closed', null, 'In service', '00000000-0000-0000-0000-00000000000c');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 values ('req_closed', public.business_setup_reassign_request(pg_temp.cid('re_closed'), '00000000-0000-0000-0000-00000000000d', 'Away')::text);
+select public.bs_as(null);
+update public.business_setup_cases set stage = 'Lost' where id = pg_temp.cid('re_closed');
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_expect_error(format($$select business_setup_reassign_respond('%s', true, null)$$, pg_temp.fx('req_closed')), 'closed');
+select public.bs_check('the closed case keeps its owner', pg_temp.owner('re_closed') = '00000000-0000-0000-0000-00000000000c');
 -- direct change by an approver
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error(format($$select business_setup_case_assign('%s', '00000000-0000-0000-0000-00000000000d', 'mine')$$, pg_temp.fx('re')), 'permission');
@@ -297,9 +308,16 @@ select public.bs_check('staff_completes_form: the answer is merged, the rest kep
 select public.bs_check('the change is audited with old and new', public.bs_audit_count('form_staff_save', pg_temp.fx('sform'), '{"answers":{"phone":"0509998888"}}') = 1);
 select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', 'Passport', '../etc/passwd')$$, pg_temp.fx('sform')), 'path');
 select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', ' ', 'staff/a.pdf')$$, pg_temp.fx('sform')), 'kind');
+select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', 'Passport', 'staff/CL980001/x.pdf')$$, pg_temp.fx('sform')), 'path');
+select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', 'Passport', 'incoming/%s/x/y.pdf')$$, pg_temp.fx('sform'), gen_random_uuid()), 'path');
+select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', 'Passport', 'staff/CL980020/../CL980001/x.pdf')$$, pg_temp.fx('sform')), 'path');
+select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', 'Passport', 'elsewhere/CL980020/x.pdf')$$, pg_temp.fx('sform')), 'path');
+select public.bs_check('a name with two dots is allowed', public.business_setup_form_doc_add(pg_temp.cid('sform'), 'Utility bill', 'staff/CL980020/a..b.pdf') is not null);
+select public.bs_check('the client''s own incoming folder is allowed', public.business_setup_form_doc_add(pg_temp.cid('sform'), 'Utility bill', 'incoming/' || pg_temp.acct('CL980020') || '/d1/x.pdf') is not null);
+select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', 'Utility bill', 'staff/CL980020/a..b.pdf')$$, pg_temp.fx('sform')), 'already stored');
 insert into f80 values ('sdoc', public.business_setup_form_doc_add(pg_temp.cid('sform'), 'Passport', 'staff/CL980020/passport.pdf')::text);
 select public.business_setup_form_doc_add(pg_temp.cid('sform'), 'Ejari', 'staff/CL980020/ejari.pdf');
-select public.bs_check('the added documents belong to the client and the form', (select count(*) = 2 and bool_and(form_id = pg_temp.cid('sform') and account_id = (select account_id from public.business_setup_onboarding_forms where id = pg_temp.cid('sform')) and upload_complete)
+select public.bs_check('the added documents belong to the client and the form', (select count(*) = 4 and bool_and(form_id = pg_temp.cid('sform') and account_id = (select account_id from public.business_setup_onboarding_forms where id = pg_temp.cid('sform')) and upload_complete)
   from pg_temp.pdocs() where form_id = pg_temp.cid('sform')));
 select public.bs_check('a staff-added document says so', (select note ilike '%staff%' and reviewed_by = '00000000-0000-0000-0000-00000000000d' and file_name = 'passport.pdf' from pg_temp.pdocs() where id = pg_temp.cid('sdoc')));
 select public.bs_check('staff_completes_form: validation now finds nothing missing', cardinality(public.business_setup_form_missing(pg_temp.cid('sform'))) = 0);
