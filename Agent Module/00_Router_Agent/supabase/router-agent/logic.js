@@ -78,3 +78,15 @@ export function agentHistory(recent, question) {
     .map((m) => ({ role: m.role, content: m.content }));
   return [...kept, { role: "user", content: question }];
 }
+
+// When the ranking call itself fails, Bruno still asks the person's first two agents.
+export const fallbackAgents = (agents) => agents.slice(0, 2).map((a) => a.id);
+
+// OpenRouter's own reason for a failed ranking call, safe to log: its message only, never its metadata,
+// and nothing that repeats the person's question.
+export function rankingFailureReason(data, question) {
+  const message = data?.error?.message;
+  if (typeof message !== "string") return "";
+  const reason = message.replace(/\s+/g, " ").trim().slice(0, 120);
+  return question && message.includes(question) ? "" : reason;
+}

@@ -16,7 +16,7 @@
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
-  agentHistory, agentRequest, canAfford, eligibleAgents, FIXED_REPLY, MAX_MESSAGE, parseRanking, rankingPrompt, readAgentReply, ROUTES,
+  agentHistory, agentRequest, canAfford, eligibleAgents, fallbackAgents, FIXED_REPLY, MAX_MESSAGE, parseRanking, rankingFailureReason, rankingPrompt, readAgentReply, ROUTES,
 } from "./logic.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -57,7 +57,7 @@ async function rankAgents({ admin, uid, question }: Turn, agents: Agent[]) {
   const apiKey = Deno.env.get("OPENROUTER_API_KEY");
   if (!apiKey) {
     note("ranking_no_key");
-    return { ids: [] as string[], cost: 0 };
+    return { ids: [] as string[], cost: 0, failed: true };
   }
   const res = await fetch(OPENROUTER_URL, {
     method: "POST",
@@ -85,9 +85,11 @@ async function rankAgents({ admin, uid, question }: Turn, agents: Agent[]) {
   const cost = typeof u?.cost === "number" ? u.cost : 0;
   if (!res.ok) {
     note(`ranking_${res.status}`);
-    return { ids: [] as string[], cost };
+    const reason = rankingFailureReason(data, question);
+    if (reason) note(`ranking_reason: ${reason}`);
+    return { ids: [] as string[], cost, failed: true };
   }
-  return { ids: parseRanking(data?.choices?.[0]?.message?.content, agents.map((a) => a.id)) as string[], cost };
+  return { ids: parseRanking(data?.choices?.[0]?.message?.content, agents.map((a) => a.id)) as string[], cost, failed: false };
 }
 
 async function route(turn: Turn, authHeader: string) {
@@ -110,13 +112,13 @@ async function route(turn: Turn, authHeader: string) {
   if (agents.length > 1) {
     const ranked = await rankAgents(turn, agents).catch(() => {
       note("ranking_failed");
-      return { ids: [] as string[], cost: 0 };
+      return { ids: [] as string[], cost: 0, failed: true };
     });
     if (ranked.cost > 0) {
       spent += ranked.cost;
       await recordUsage(admin, ORCHESTRATOR_ID, uid, ranked.cost);
     }
-    order = ranked.ids;
+    order = ranked.failed ? fallbackAgents(agents) : ranked.ids;
     if (!order.length) return await fixed("no_ranking");
   }
 

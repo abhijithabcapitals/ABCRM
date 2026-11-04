@@ -19,3 +19,4 @@ test("the audit job does not cover the router schema", () => {
   assert.match(sql, /n\.nspname in \('public', 'acct', 'ceo', 'email_base', 'email_agent'\)/);
   assert.doesNotMatch(sql, /'router'/);
 });
+test("a failed ranking still tries agents", () => assert.match(src, /ranked\.failed \? fallbackAgents\(agents\) : ranked\.ids/));

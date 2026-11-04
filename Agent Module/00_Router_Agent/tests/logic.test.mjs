@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   FIXED_REPLY, NO_INFO, MAX_MESSAGE, ROUTES,
   eligibleAgents, canAfford, parseRanking, rankingPrompt,
-  agentRequest, readAgentReply, agentHistory,
+  agentRequest, readAgentReply, agentHistory, fallbackAgents, rankingFailureReason,
 } from "../supabase/router-agent/logic.js";
 
 test("the fixed reply keeps the user's spelling", () => assert.equal(FIXED_REPLY, "Opps! I dont Know"));
@@ -60,3 +60,10 @@ test("ranking prompt lists agents and question", () => {
   assert.equal(m[1].content, "my q");
   assert.match(m[0].content, /"a"/);
 });
+
+test("a failed ranking falls back to the first two agents", () => assert.deepEqual(fallbackAgents([{ id: "a" }, { id: "b" }, { id: "c" }]), ["a", "b"]));
+test("the ranking failure reason is short and on one line", () => assert.equal(rankingFailureReason({ error: { message: "Key\nlimit exceeded" } }, "hi"), "Key limit exceeded"));
+test("the ranking failure reason is cut at 120 characters", () => assert.equal(rankingFailureReason({ error: { message: "x".repeat(200) } }, "hi").length, 120));
+test("a reason quoting the question is not logged", () => assert.equal(rankingFailureReason({ error: { message: "Flagged: my private question" } }, "my private question"), ""));
+test("provider metadata is never used as the reason", () => assert.equal(rankingFailureReason({ error: { metadata: { flagged_input: "secret" } } }, "q"), ""));
+test("no error body gives no reason", () => assert.equal(rankingFailureReason(null, "q"), ""));
