@@ -499,6 +499,7 @@ export default function App() {
           <Dashboard
             spaces={spaces}
             profile={profile}
+            tabs={tabs}
             onNavigate={handleNavigate}
             onSpaceSelect={handleSpaceSelect}
             onOpenScope={(scope, taskId) => handleOpenTaskFromNotification({ link_scope: scope, task_id: taskId || null })}

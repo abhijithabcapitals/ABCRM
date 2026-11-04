@@ -5,6 +5,8 @@ import { statusColor, PALETTE } from "@app/chartUtils";
 import { fmtDate } from "@app/dateFormat";
 import DrilldownModal from "@app/components/DrilldownModal";
 import AssigneeTasksModal from "@app/components/AssigneeTasksModal";
+import SummaryBoard from "./SummaryBoard";
+import { summaryApi } from "../services/summaryApi";
 
 const ATTN_META = {
   overdue: {
@@ -57,7 +59,7 @@ function AttentionPanel({ items, kind, onOpenScope, spaceName, empty }) {
   );
 }
 
-export default function Dashboard({ spaces, profile, onNavigate, onSpaceSelect, onOpenScope }) {
+export default function Dashboard({ spaces, profile, tabs, onNavigate, onSpaceSelect, onOpenScope }) {
   const [data, setData] = useState(null);
   const [ceo, setCeo] = useState(null);           // executive summary (admins)
   const [loading, setLoading] = useState(true);
@@ -300,6 +302,7 @@ export default function Dashboard({ spaces, profile, onNavigate, onSpaceSelect, 
             </div>
           </>
         ) : null}
+        <SummaryBoard profile={profile} tabs={tabs} onNavigate={onNavigate} api={summaryApi} zoho={null} />
       </div>
 
       {assigneeModal && (
