@@ -1,16 +1,16 @@
 // Documentation: one row per case in Services or Documentation, with its checklist. Opening a case shows its quote, letter and payments.
 // A second view is the register of every quote and letter.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, PageHead, Panel, Spinner, useLoad } from "@banking/components/shared";
+import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, useLoad } from "@banking/components/shared";
+import { LostDialog, ReassignActions } from "./CaseActions";
 import { useSetup } from "./SetupContext";
 import Documents from "./Documents";
 import Quotes from "./workspace/Quotes";
 import Payments from "./workspace/Payments";
-import { caseList, workspace } from "../services/businessSetupApi";
+import { caseLinkClient, caseList, workspace } from "../services/businessSetupApi";
 import { caseWorkspace } from "../logic/caseWorkspace";
+import { CHECKLIST, itemState, itemTone } from "../logic/checklist";
 
-const CHECKLIST = [["services", "Services"], ["quote", "Quote"], ["signed", "Signed"], ["paid", "Paid"], ["letter", "Letter"], ["invoice", "Invoice"]];
-export const checklist = (c) => ({ ...(c.docs || {}), services: c.stage !== "Services" || !!c.docs?.quote });
 
 export default function DocumentationPage() {
   const [view, setView] = useState("cases");
@@ -28,27 +28,35 @@ export default function DocumentationPage() {
         {list.loading && !list.data ? <Spinner /> : (
           <DataTable rows={list.data || []} search="Search case or client…" empty="No cases in Services or Documentation." onRow={(c) => setOpen(c.id)} columns={[
             { key: "case_number", label: "Case" }, { key: "client_name", label: "Client", render: (c) => c.client_name || c.lead_name || "–" }, { key: "stage", label: "Stage" }, { key: "owner_name", label: "Owner", render: (c) => c.owner_name || "–" },
-            ...CHECKLIST.map(([k, label]) => ({ key: k, label, render: (c) => { const ok = checklist(c)[k]; return <Badge tone={ok ? "good" : "warn"}>{ok ? "Done" : "Open"}</Badge>; } })),
+            ...CHECKLIST.map(([k, label]) => ({ key: k, label, render: (c) => { const st = itemState(c, k); return <Badge tone={itemTone(st)}>{st}</Badge>; } })),
+            { key: "x", label: "", render: (c) => <ReassignActions c={c} onChanged={list.reload} /> },
           ]} />
         )}
       </>}
+      {dialog === "lost" && <LostDialog c={c} onClose={() => setDialog(null)} onDone={onBack} />}
+      {dialog === "link" && <FormModal title={`Link a client to ${c.case_number}`} submitLabel="Link client" onClose={() => setDialog(null)}
+        note="Leave the client ID empty to create the client from the lead details. The case's quote and letter then use that client."
+        fields={[{ name: "client", label: "Existing client ID (CL000001)" }]} onSubmit={async (v) => { await caseLinkClient(c.id, (v.client || "").trim() || null); await onBack(); }} />}
     </div>
   );
 }
 
 function CaseDocs({ c, onBack }) {
-  const { goTo } = useSetup();
+  const { goTo, can } = useSetup();
+  const [dialog, setDialog] = useState(null);
   const ws = useLoad(() => (c.client_id ? workspace(c.client_id) : Promise.resolve(null)), [c.client_id]);
   const w = ws.data ? caseWorkspace(ws.data, c.id) : null;
   return (
     <div>
       <PageHead title={`${c.case_number || "Case"} · ${c.client_name || c.lead_name || ""}`} sub={`${c.stage || ""}${c.owner_name ? ` · ${c.owner_name}` : ""}`}>
         <Button onClick={onBack}>Back</Button>
+        {can("setup.leads.manage") && !["Completed", "Cancelled", "Lost"].includes(c.stage) && <Button onClick={() => setDialog("lost")}>Mark lost</Button>}
         {c.client_id && <Button onClick={() => goTo("clients", { client: c.client_id })}>Open client</Button>}
       </PageHead>
       <ErrorNote message={ws.error} />
-      <div className="bk-actions bk-wrap bk-mb">{CHECKLIST.map(([k, label]) => <Badge key={k} tone={checklist(c)[k] ? "good" : "warn"}>{label}: {checklist(c)[k] ? "Done" : "Open"}</Badge>)}</div>
-      {!c.client_id ? <p className="bk-note">This case has no client yet. Share the link from Leads first.</p> : ws.loading && !w ? <Spinner /> : w && <>
+      <div className="bk-mb"><ReassignActions c={c} onChanged={onBack} /></div>
+      <div className="bk-actions bk-wrap bk-mb">{CHECKLIST.map(([k, label]) => <Badge key={k} tone={itemTone(itemState(c, k))}>{label}: {itemState(c, k)}</Badge>)}</div>
+      {!c.client_id ? <div className="bk-note">This case has no client yet. {can("setup.leads.manage") ? <Button onClick={() => setDialog("link")}>Link client</Button> : "Ask someone with lead rights to link one."}</div> : ws.loading && !w ? <Spinner /> : w && <>
         <Panel title="Quote and letter"><Quotes w={w} clientId={c.client_id} caseId={c.id} reload={ws.reload} /></Panel>
         <Panel title="Payments"><Payments w={w} reload={ws.reload} /></Panel>
       </>}

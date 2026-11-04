@@ -5,11 +5,10 @@ import { readDocuments, rpc } from "@banking/services/bankingApi";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { addStaffFormDocument, formDetail, formStaffSave, listForms, returnForm, takeForm, validateForm } from "../services/businessSetupApi";
 import { contactChoice } from "../logic/contact";
+import { DOC_KINDS, FIELDS, PARTNER_FIELDS, SERVICES_FIELD, changedAnswers, formValues } from "../logic/staffForm";
 
 const TONE = { Submitted: "warn", "In review": "warn", Returned: "bad", Validated: "good", Draft: undefined };
 const DOC = { pending: "Waiting", in_review: "In review", validated: "Validated", rejected: "Rejected" };
-const KINDS = ["Passport", "Emirates ID", "Visa", "Trade licence", "Other"];
-const FIELDS = [["client_name", "Client name"], ["phone", "Phone"], ["email", "Email"], ["company_status", "Company status"], ["activity", "Activity"], ["zone", "Preferred zone"], ["licence_number", "Licence number"], ["issuing_authority", "Issuing authority"]];
 const VIEWS = ["Submitted", "In review", "Returned", "Validated", "Draft"];
 
 export default function Onboarding() {
@@ -85,15 +84,15 @@ function Review({ id, onBack }) {
       </Panel>
       {read && <Panel title={`Read from ${read.file}`} sub="For checking against the answers. Nothing here is saved." actions={<Button onClick={() => setRead(null)}>Close</Button>}><KeyVals items={Object.entries(read.fields).map(([k, v]) => [k, String(v)])} /></Panel>}
       {reject && <FormModal title={`Reject ${reject.file_name}`} fields={[{ name: "note", label: "Tell the client why", type: "textarea", required: true, full: true }]} onClose={() => setReject(null)} onSubmit={async (v) => { await decide(reject, "rejected", v.note); }} />}
-      {dialog === "complete" && <FormModal title="Complete the client's answers" submitLabel="Save answers" note="Only the fields you change are saved. The old values stay in the audit trail." onClose={() => setDialog(null)} initial={Object.fromEntries(FIELDS.map(([k]) => [k, a[k] ?? ""]))}
-        fields={FIELDS.map(([name, label]) => ({ name, label }))}
+      {dialog === "complete" && <FormModal title="Complete the client's answers" submitLabel="Save answers" note="Only the fields you change are saved. The old values stay in the audit trail." onClose={() => setDialog(null)} initial={formValues(a)}
+        fields={[...FIELDS.map(([name, label]) => (name === "company_status" ? { name, label, type: "select", options: ["New", "Existing"] } : name === "licence_expiry" ? { name, label, type: "date" } : { name, label })), { name: SERVICES_FIELD, label: "Services wanted (separate with commas)", full: true }, { name: PARTNER_FIELDS[0], label: "First partner name" }, { name: PARTNER_FIELDS[1], label: "First partner nationality" }]}
         onSubmit={async (v) => {
-          const changed = Object.fromEntries(FIELDS.map(([k]) => k).filter((k) => String(v[k] ?? "") !== String(a[k] ?? "")).map((k) => [k, v[k]]));
+          const changed = changedAnswers(v, a);
           if (!Object.keys(changed).length) throw new Error("Nothing was changed");
           await formStaffSave(id, changed); await f.reload();
         }} />}
       {dialog === "upload" && <FormModal title="Upload a document for the client" submitLabel="Upload" onClose={() => { setDialog(null); setFile(null); }} note={<FilePick label={file ? file.name : "Choose file"} onFile={setFile} />}
-        fields={[{ name: "kind", label: "Kind", type: "select", options: KINDS, required: true }]}
+        fields={[{ name: "kind", label: "Kind", type: "select", options: DOC_KINDS, required: true }]}
         onSubmit={async (v) => { if (!file) throw new Error("Choose the file to upload"); await addStaffFormDocument(id, d.client_id, v.kind, file); setFile(null); await f.reload(); }} />}
       {dialog === "return" && <FormModal title="Return to client" submitLabel="Return" fields={[{ name: "note", label: "What the client must fix", type: "textarea", required: true, full: true }]} onClose={() => setDialog(null)} onSubmit={async (v) => { await returnForm(id, v.note); onBack(); }} />}
       {dialog === "validate" && <FormModal title="Validate form" submitLabel="Validate: KYC done" note="This writes email and phone to Client Master, and the company and partners to KYC." onClose={() => setDialog(null)}

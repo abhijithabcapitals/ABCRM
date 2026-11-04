@@ -2,6 +2,7 @@
 // A service's own detail stays on the client's Services tab for now.
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, useAction, useLoad } from "@banking/components/shared";
+import { LostDialog, ReassignActions } from "./CaseActions";
 import { useSetup } from "./SetupContext";
 import { STAGE_TONE } from "./Leads";
 import { caseAssign, caseConfirm, caseList, caseTake, workspace } from "../services/businessSetupApi";
@@ -13,6 +14,7 @@ export default function Cases() {
   const list = useLoad(() => caseList("cases"), []);
   const { error, setError, busy, act } = useAction(list.reload);
   const [assigning, setAssigning] = useState(null);
+  const [losing, setLosing] = useState(null);
   const [open, setOpen] = useState(null);
   const me = profile?.id;
   const approve = can("setup.cases.approve");
@@ -28,13 +30,16 @@ export default function Cases() {
           { key: "owner_name", label: "Owner", render: (c) => c.owner_name || "–" },
           { key: "x", label: "", render: (c) => (
             <span className="bk-actions bk-wrap" onClick={(e) => e.stopPropagation()}>
+              <ReassignActions c={c} onChanged={list.reload} />
               {c.stage === "Assignment" && !c.owner_id && can("setup.leads.manage") && <Button busy={busy} onClick={() => act(() => caseTake(c.id))}>Take</Button>}
               {c.stage === "Assignment" && c.owner_id && (c.owner_id === me || approve) && <Button variant="primary" busy={busy} onClick={() => act(() => caseConfirm(c.id))}>Confirm</Button>}
+              {c.stage === "Assignment" && can("setup.leads.manage") && <Button onClick={() => setLosing(c)}>Mark lost</Button>}
               {approve && !["Completed", "Cancelled"].includes(c.stage) && <Button onClick={() => setAssigning(c)}>{c.owner_id ? "Reassign" : "Assign"}</Button>}
             </span>
           ) },
         ]} />
       )}
+      {losing && <LostDialog c={losing} onClose={() => setLosing(null)} onDone={list.reload} />}
       {assigning && <FormModal title={`Assign ${assigning.case_number}`} submitLabel="Assign" onClose={() => setAssigning(null)} initial={{ to: assigning.owner_id || "" }}
         fields={[{ name: "to", label: "Owner", type: "select", options: personOptions, required: true }, { name: "note", label: "Note", type: "textarea", full: true }]}
         onSubmit={async (v) => { await caseAssign(assigning.id, v.to, v.note || null); await list.reload(); }} />}

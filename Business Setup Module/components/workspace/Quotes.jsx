@@ -16,7 +16,7 @@ export default function Quotes({ w, clientId, reload, caseId = null }) {
   const [revising, setRevising] = useState(null);
   const [adding, setAdding] = useState(false);
   // One quote chain per case: while a quote is live (not rejected), the way to change it is Revise. The database refuses a second one with its own sentence.
-  const live = w.quotes.some((q) => q.status !== "rejected");
+  const live = w.quotes.some((q) => !["rejected", "superseded"].includes(q.status));
   return (
     <div>
       {caseId && can("setup.quotes.manage") && !live && <div className="bk-actions bk-mb"><Button variant="primary" onClick={() => setAdding(true)}>New quote</Button></div>}
