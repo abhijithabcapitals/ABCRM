@@ -17,17 +17,19 @@ export default function Register({ docs, busy, onOpen, onAgain, onLetter, onRevi
         { key: "doc_type", label: "Type", render: (d) => <Badge>{d.doc_type === "quote" ? "Quotation" : "Engagement Letter"}</Badge> },
         { key: "client_name", label: "Client" },
         { key: "selected_package", label: "Package" },
+        { key: "volume", label: "Invoices", right: true, render: (d) => aed(d.volume) },
         { key: "annual", label: "Annual", right: true, render: (d) => aed(d.annual) },
         { key: "year1_total", label: "Year 1", right: true, render: (d) => aed(d.year1_total) },
         { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
+        { key: "created_by_name", label: "Created by", render: (d) => d.created_by_name || "–" },
         { key: "files", label: "Files", render: (d) => (d.word_path
           ? <span className="at-actions"><button type="button" className="bk-link" onClick={() => onOpen(d.word_path)}>Word</button><button type="button" className="bk-link" onClick={() => onOpen(d.pdf_path)}>PDF</button></span>
-          : <span className="at-actions"><Badge tone="warn">File pending</Badge><Button busy={busy === `again-${d.id}`} onClick={() => onAgain(d)}>Generate again</Button></span>) },
+          : <span className="at-actions"><Badge tone="warn">File pending</Badge><Button busy={busy === `again-${d.id}`} disabled={!!busy} onClick={() => onAgain(d)}>Generate again</Button></span>) },
         { key: "mail", label: "Email", render: (d) => (d.mail_sent_at ? <button type="button" className="bk-link" onClick={() => onMail(d)}>Sent {fmtDate(d.mail_sent_at)}</button> : <button type="button" className="bk-link" onClick={() => onMail(d)}>Draft</button>) },
         { key: "next", label: "Next", render: (d) => (
           <span className="at-actions">
-            {d.doc_type === "quote" && !hasLetter(d) && latestOf(d) && <Button busy={busy === `letter-${d.id}`} onClick={() => onLetter(d)}>Make Engagement Letter</Button>}
-            {latestOf(d) && <Button onClick={() => onRevise(d)}>Revise</Button>}
+            {d.doc_type === "quote" && d.word_path && !hasLetter(d) && latestOf(d) && <Button busy={busy === `letter-${d.id}`} disabled={!!busy} onClick={() => onLetter(d)}>Make Engagement Letter</Button>}
+            {latestOf(d) && <Button disabled={!!busy} onClick={() => onRevise(d)}>Revise</Button>}
           </span>
         ) },
       ]}

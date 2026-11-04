@@ -24,3 +24,10 @@ export function htmlBody(text: string, signatureHtml: string) {
 }
 
 export const totalAttachmentBytes = (parts: { bytes: Uint8Array }[]) => parts.reduce((n, p) => n + p.bytes.length, 0);
+
+// Files are read with the service role, which ignores storage rules. The same shape as ardentax_document_attach checks.
+export function isDocumentPath(id: string, path: string | null | undefined): boolean {
+  if (!path || path.includes("..")) return false;
+  const prefix = `ArdentTax (ASP)/${id}/`;
+  return path.startsWith(prefix) && /^[0-9a-f-]{36}\/[A-Za-z0-9 _.-]+$/.test(path.slice(prefix.length));
+}

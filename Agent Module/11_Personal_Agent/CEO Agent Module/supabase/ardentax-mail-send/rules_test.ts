@@ -1,6 +1,6 @@
 // deno test "Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ardentax-mail-send/"
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { htmlBody, parseRecipients, sendRefusal, totalAttachmentBytes, MAX_ATTACHMENT_BYTES } from "./rules.ts";
+import { htmlBody, isDocumentPath, parseRecipients, sendRefusal, totalAttachmentBytes, MAX_ATTACHMENT_BYTES } from "./rules.ts";
 
 const ready = { pdf_path: "a.pdf", word_path: "a.docx", mail_to: "pat@sample.example", mail_subject: "S", mail_body: "B", mail_sent_at: null };
 
@@ -35,4 +35,15 @@ Deno.test("mail text becomes safe HTML with the signature after it", () => {
 Deno.test("attachment size is limited", () => {
   assertEquals(totalAttachmentBytes([{ bytes: new Uint8Array(10) }, { bytes: new Uint8Array(5) }]), 15);
   assert(MAX_ATTACHMENT_BYTES <= 25 * 1024 * 1024);
+});
+
+const ID = "11111111-2222-3333-4444-555555555555";
+const GOOD = `ArdentTax (ASP)/${ID}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/Ardentax-2026-11-ADTQ001 Sample v2.pdf`;
+Deno.test("only this document's own stored files may be mailed", () => {
+  assert(isDocumentPath(ID, GOOD));
+  assert(!isDocumentPath(ID, `ArdentTax (ASP)/${ID}/../../Accounting/receipts/x.docx`));
+  assert(!isDocumentPath(ID, `ArdentTax (ASP)/${ID}/x/%2e%2e/%2e%2e/y.pdf`));
+  assert(!isDocumentPath(ID, `ArdentTax (ASP)/${ID}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/../y.pdf`));
+  assert(!isDocumentPath("99999999-2222-3333-4444-555555555555", GOOD));
+  assert(!isDocumentPath(ID, null));
 });

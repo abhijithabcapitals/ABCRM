@@ -8,7 +8,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail, type MailPart } from "./mime.ts";
-import { htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients, sendRefusal, totalAttachmentBytes } from "./rules.ts";
+import { htmlBody, isDocumentPath, MAX_ATTACHMENT_BYTES, parseRecipients, sendRefusal, totalAttachmentBytes } from "./rules.ts";
 
 const SENDER = "bharat@ardentaxit.tax";
 const SENDER_NAME = "Bharat Bajaj";
@@ -59,6 +59,7 @@ Deno.serve(async (req) => {
 
     const refusal = sendRefusal(doc, { resend: !!resend });
     if (refusal) return json({ error: refusal }, doc.mail_sent_at && !resend ? 409 : 400);
+    if (!isDocumentPath(doc.id, doc.pdf_path) || (doc.word_path && !isDocumentPath(doc.id, doc.word_path))) return json({ error: "This document's file path is not valid." }, 400);
     let to: string[];
     let cc: string[];
     try { to = parseRecipients(doc.mail_to); cc = parseRecipients(doc.mail_cc); } catch (e) { return json({ error: (e as Error).message }, 400); }

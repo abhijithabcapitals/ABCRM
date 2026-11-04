@@ -60,6 +60,7 @@ create table if not exists public.ardentax_documents (
   mail_sent_by uuid,
   created_at timestamptz not null default now(),
   created_by uuid default auth.uid(),
+  created_by_name text,
   unique (document_number, version)
 );
 create index if not exists ardentax_documents_created_idx on public.ardentax_documents (created_at desc);
@@ -77,12 +78,18 @@ grant execute on function public.ardentax_can() to authenticated;
 drop policy if exists ardentax_documents_read on public.ardentax_documents;
 create policy ardentax_documents_read on public.ardentax_documents for select to authenticated using (public.ardentax_can());
 
--- A number, or 0 for blank or text such as "Free".
+-- The same spaces as strip in quoteModel.js, including the non-breaking space that pasted text carries.
+create or replace function public.ardentax_strip(v text) returns text
+language sql immutable set search_path = public, pg_temp as $$
+  select regexp_replace(v, E'^[ \\t\\r\\n\\f\\v\u00a0]+|[ \\t\\r\\n\\f\\v\u00a0]+$', '', 'g')
+$$;
+
+-- A number, or 0 for blank or text such as "Free". Thousands commas are allowed, as in quoteModel.js.
 create or replace function public.ardentax_num(v jsonb) returns numeric
 language sql immutable set search_path = public, pg_temp as $$
   select case
     when jsonb_typeof(v) = 'number' then (v #>> '{}')::numeric
-    when jsonb_typeof(v) = 'string' and btrim(v #>> '{}') ~ '^-?[0-9]+(\.[0-9]+)?$' then btrim(v #>> '{}')::numeric
+    when jsonb_typeof(v) = 'string' and ardentax_strip(v #>> '{}') ~ '^-?[0-9][0-9,]*(\.[0-9]+)?$' then replace(ardentax_strip(v #>> '{}'), ',', '')::numeric
     else 0 end
 $$;
 
@@ -96,7 +103,7 @@ declare
 begin
   if d ->> 'quoteType' = 'Custom' then
     for it in select * from jsonb_array_elements(coalesce(d -> 'custom' -> 'items', '[]')) loop
-      if btrim(coalesce(it ->> 'title', '')) = '' then continue; end if;
+      if ardentax_strip(coalesce(it ->> 'title', '')) = '' then continue; end if;
       if it ->> 'type' = 'One-time' then v_one := v_one + ardentax_num(it -> 'fee'); end if;
       if it ->> 'type' = 'Annual' then v_annual := v_annual + ardentax_num(it -> 'fee'); end if;
     end loop;
@@ -105,7 +112,7 @@ begin
       r := d -> 'rows' -> k;
       if r is null or not coalesce((r ->> 'inc')::boolean, false) then continue; end if;
       v_fee := ardentax_num(r -> 'fee');
-      if k = 'ANN' and btrim(coalesce(r ->> 'fee', '')) = '' then v_fee := ardentax_num(d -> 'tiers' -> v_tier -> 'year'); end if;
+      if k = 'ANN' and ardentax_strip(coalesce(r ->> 'fee', '')) = '' then v_fee := ardentax_num(d -> 'tiers' -> v_tier -> 'year'); end if;
       if r ->> 'type' = 'One-time' and not (v_options and k in ('SUP','FULL')) then v_one := v_one + v_fee; end if;
       if r ->> 'type' = 'Annual' then v_annual := v_annual + v_fee; end if;
     end loop;
@@ -121,10 +128,10 @@ declare t jsonb := ardentax_totals(d); k text;
   v_tier text := case d ->> 'selected' when 'Emerging' then 'E' when 'Established' then 'S' when 'Corporate' then 'C' end;
   v_custom boolean := d ->> 'quoteType' = 'Custom';
 begin
-  if btrim(coalesce(d -> 'client' ->> 'legal', '')) = '' then raise exception 'Enter the client name'; end if;
+  if ardentax_strip(coalesce(d -> 'client' ->> 'legal', '')) = '' then raise exception 'Enter the client name'; end if;
   if p_totals is not null then
     foreach k in array array['one_time','annual','year1'] loop
-      if abs(ardentax_num(p_totals -> k) - ardentax_num(t -> k)) >= 0.005 then raise exception 'The totals do not match: % is % on screen and % here', k, p_totals ->> k, t ->> k; end if;
+      if abs(ardentax_num(p_totals -> k) - ardentax_num(t -> k)) >= 0.005 then raise exception 'The totals do not match: % is % on screen and % here. Check the fee boxes, then try again.', k, p_totals ->> k, t ->> k; end if;
     end loop;
   end if;
   return t || jsonb_build_object(
@@ -158,9 +165,9 @@ begin
   if d is null then raise exception 'The document details are missing'; end if;
   t := ardentax_prepare(d, p -> 'totals');
   v_number := hub_next_number('ArdentTax (ASP)', v_type);
-  insert into ardentax_documents (request_id, doc_type, document_number, document_serial, source_quote_id, quote_type, client_name, selected_package, volume, one_time, annual, year1_total, details, mail_to, mail_cc, mail_subject, mail_body)
-  values (v_request, v_type, v_number, hub_serial_of('ArdentTax (ASP)', v_type, v_number), v_quote, t ->> 'quote_type', btrim(d -> 'client' ->> 'legal'), t ->> 'selected_package', (t ->> 'volume')::numeric,
-          (t ->> 'one_time')::numeric, (t ->> 'annual')::numeric, (t ->> 'year1')::numeric, d, p ->> 'mail_to', p ->> 'mail_cc', p ->> 'mail_subject', p ->> 'mail_body')
+  insert into ardentax_documents (request_id, doc_type, document_number, document_serial, source_quote_id, quote_type, client_name, selected_package, volume, one_time, annual, year1_total, details, mail_to, mail_cc, mail_subject, mail_body, created_by_name)
+  values (v_request, v_type, v_number, hub_serial_of('ArdentTax (ASP)', v_type, v_number), v_quote, t ->> 'quote_type', ardentax_strip(d -> 'client' ->> 'legal'), t ->> 'selected_package', (t ->> 'volume')::numeric,
+          (t ->> 'one_time')::numeric, (t ->> 'annual')::numeric, (t ->> 'year1')::numeric, d, p ->> 'mail_to', p ->> 'mail_cc', p ->> 'mail_subject', p ->> 'mail_body', (select full_name from profiles where id = auth.uid()))
   returning * into r;
   return r;
 end $$;
@@ -182,19 +189,22 @@ begin
   if d is null then raise exception 'The document details are missing'; end if;
   t := ardentax_prepare(d, p -> 'totals');
   select max(version) + 1 into v_version from ardentax_documents where document_number = b.document_number;
-  insert into ardentax_documents (request_id, doc_type, document_number, document_serial, version, revision_of, source_quote_id, quote_type, client_name, selected_package, volume, one_time, annual, year1_total, details, mail_to, mail_cc, mail_subject, mail_body)
-  values (v_request, b.doc_type, b.document_number, b.document_serial, v_version, b.id, b.source_quote_id, t ->> 'quote_type', btrim(d -> 'client' ->> 'legal'), t ->> 'selected_package', (t ->> 'volume')::numeric,
-          (t ->> 'one_time')::numeric, (t ->> 'annual')::numeric, (t ->> 'year1')::numeric, d, p ->> 'mail_to', p ->> 'mail_cc', p ->> 'mail_subject', p ->> 'mail_body')
+  insert into ardentax_documents (request_id, doc_type, document_number, document_serial, version, revision_of, source_quote_id, quote_type, client_name, selected_package, volume, one_time, annual, year1_total, details, mail_to, mail_cc, mail_subject, mail_body, created_by_name)
+  values (v_request, b.doc_type, b.document_number, b.document_serial, v_version, b.id, b.source_quote_id, t ->> 'quote_type', ardentax_strip(d -> 'client' ->> 'legal'), t ->> 'selected_package', (t ->> 'volume')::numeric,
+          (t ->> 'one_time')::numeric, (t ->> 'annual')::numeric, (t ->> 'year1')::numeric, d, p ->> 'mail_to', p ->> 'mail_cc', p ->> 'mail_subject', p ->> 'mail_body', (select full_name from profiles where id = auth.uid()))
   returning * into r;
   return r;
 end $$;
 
 create or replace function public.ardentax_document_attach(p_id uuid, p_word text, p_pdf text) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_prefix text := 'ArdentTax (ASP)/' || p_id::text || '/';
+-- A path of any other shape could point at another document's file, or another bucket's, when the mail function reads it.
+declare v_pattern text := '^ArdentTax \(ASP\)/' || p_id::text || '/[0-9a-f-]{36}/[A-Za-z0-9 _.-]+$';
 begin
   if auth.uid() is null or not ardentax_can() then raise exception 'No access to the ArdentTax tab'; end if;
-  if left(p_word, length(v_prefix)) <> v_prefix or left(p_pdf, length(v_prefix)) <> v_prefix then raise exception 'That file path does not belong to this document'; end if;
+  if p_word is null or p_pdf is null or p_word !~ v_pattern or p_pdf !~ v_pattern or position('..' in p_word) > 0 or position('..' in p_pdf) > 0 then
+    raise exception 'That file path does not belong to this document';
+  end if;
   update ardentax_documents set word_path = p_word, pdf_path = p_pdf where id = p_id;
   if not found then raise exception 'Document not found'; end if;
 end $$;
@@ -217,6 +227,8 @@ begin
   return v_at;
 end $$;
 
+revoke all on function public.ardentax_strip(text) from public, anon;
+grant execute on function public.ardentax_strip(text) to authenticated;
 revoke all on function public.ardentax_num(jsonb) from public, anon;
 revoke all on function public.ardentax_prepare(jsonb, jsonb) from public, anon, authenticated;
 revoke all on function public.ardentax_document_create(jsonb) from public, anon;

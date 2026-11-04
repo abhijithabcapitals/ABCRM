@@ -209,3 +209,44 @@ for (const f of fixtures) {
     assert.deepEqual({ one_time: t.oneTime, annual: t.annualTotal, year1: t.year1 }, f.expect);
   });
 }
+
+test("a fee typed with commas is a number, as it was in Excel", () => {
+  assert.equal(feeLabel("1,500", "One-time"), "1,500 AED");
+  const d = workbookCase();
+  d.rows.ONB.fee = "1,500";
+  const t = computeQuote(d);
+  assert.equal(t.oneTime, 1500);
+  assert.equal(t.totalText, "5,699 AED");
+});
+
+test("a pasted non-breaking space does not change a fee", () => {
+  const d = workbookCase();
+  d.rows.ONB.fee = "1500 ";
+  assert.equal(computeQuote(d).oneTime, 1500);
+});
+
+test("a fee that holds digits but is text gets a warning", () => {
+  const d = workbookCase();
+  d.rows.ONB.fee = "AED 1500";
+  const t = computeQuote(d);
+  assert.equal(t.oneTime, 0);
+  assert.ok(quoteChecks(d, t).includes('Fee "AED 1500" on Onboarding & Setup is text, so it is not in the total.'));
+  d.rows.ONB.fee = "Free";
+  assert.ok(!quoteChecks(d, computeQuote(d)).some((c) => c.includes("is text")));
+});
+
+test("custom fee text gets the same warning", () => {
+  const d = workbookCase();
+  d.quoteType = "Custom";
+  d.custom.volume = 1000;
+  d.custom.items[3].fee = "2000 AED";
+  assert.ok(quoteChecks(d, computeQuote(d)).includes('Fee "2000 AED" on Scope is text, so it is not in the total.'));
+});
+
+test("options mode takes only one-time integration fees out of the total", () => {
+  const d = workbookCase();
+  d.options.showOptions = true;
+  d.rows.SUP.inc = true; d.rows.SUP.fee = 1000; d.rows.SUP.type = "Included";
+  d.rows.FULL.inc = true; d.rows.FULL.fee = 5000; d.rows.FULL.type = "Per invoice";
+  assert.equal(computeQuote(d).oneTime, 1500);
+});

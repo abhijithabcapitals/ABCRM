@@ -258,3 +258,25 @@ test("a placeholder that cannot be filled stops the document", async () => {
   const d = details();
   await assert.rejects(fillDocx(bytes, d, computeQuote(d), REF, deps), /Template fields not filled: \{\{UNKNOWN_FIELD\}\}/);
 });
+
+test("a control character in pasted text does not corrupt the Word file", async () => {
+  const { doc, xml, zip } = await fill(details((d) => { d.client.legal = "Sample\x0B Trading\x01 LLC"; }));
+  assert.ok(textOf(doc).includes("Sample Trading LLC"));
+  assert.ok(!/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(xml));
+  assert.ok(!/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(await zip.file("docProps/core.xml").async("string")));
+});
+
+test("a cleared date prints today, as in the macro", async () => {
+  const { doc } = await fill(details((d) => { d.date = ""; }));
+  const [y, m, day] = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date()).split("-");
+  assert.ok(textOf(doc).includes(`[${day}/${m}/${y}]`));
+});
+
+for (const name of [QUOTE, LETTER]) {
+  test(`${name}: the file served to browsers holds no past client's address`, async () => {
+    const zip = await JSZip.loadAsync(templateBytes(name));
+    for (const part of Object.keys(zip.files)) {
+      if (/\.(xml|rels)$/.test(part)) assert.ok(!(await zip.file(part).async("string")).includes("maktechnology"), part);
+    }
+  });
+}

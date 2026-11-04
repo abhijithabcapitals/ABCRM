@@ -41,29 +41,38 @@ export default function ArdentTaxView({ api, clients = [] }) {
   const missing = quoteBlockers(details, totals);
 
   const startOver = () => { setRevising(null); setDetails(defaultDetails(dubaiToday())); };
-  const run = async (key, work) => {
+  // formJob: this job came from the form, so the form clears when it is done. Register buttons leave the form alone.
+  const run = async (key, work, formJob = false) => {
     // A ref, because a second click can arrive before the page redraws with busy set.
     if (running.current) return;
     running.current = true;
     setBusy(key); setError(null); setNote(null);
+    let created = null;
     try {
-      const { doc } = await work(await browserDeps());
+      const { doc } = await work(await browserDeps(), (d) => { created = d; });
       setNote({ ok: true, text: `${doc.document_number}${doc.version > 1 ? ` v${doc.version}` : ""} is ready. Open its Word file, PDF or email in the register below.` });
-      startOver();
+      if (formJob) startOver();
     } catch (e) {
-      setError(e.message);
+      // The number is issued and the details are saved. Clearing the form stops an edit from taking a second number.
+      if (formJob && created) {
+        setError(`${created.document_number} was issued, but its files could not be made: ${e.message} Use Generate again on its row in the list below.`);
+        startOver();
+      } else {
+        setError(e.message);
+      }
     }
     await docs.reload();
     running.current = false;
     setBusy(null);
   };
 
-  const generate = () => run("generate", (deps) => (revising
-    ? reviseDocument(api, revising, details, requestId.current, deps)
-    : generateDocument(api, { details, requestId: requestId.current }, deps)));
+  const generate = () => run("generate", (deps, onCreated) => (revising
+    ? reviseDocument(api, revising, details, requestId.current, deps, onCreated)
+    : generateDocument(api, { details, requestId: requestId.current, onCreated }, deps)), true);
   const again = (d) => run(`again-${d.id}`, (deps) => regenerate(api, d, deps));
   const letter = (q) => run(`letter-${q.id}`, (deps) => makeLetter(api, q, crypto.randomUUID(), deps));
   const revise = (d) => {
+    if ((revising || details.client.legal.trim()) && !window.confirm("Replace what is in the form with this document's details?")) return;
     setRevising(d); setDetails(d.details); setNote(null); setError(null);
     top.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   };

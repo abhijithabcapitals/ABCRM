@@ -11,7 +11,7 @@ Generates Ardentax e-invoicing quotations and engagement letters as Word, PDF an
 | `services/ardentaxApi.js` | Database and storage access |
 | `services/fakeApi.js` | Same functions in memory, for the development page only |
 | `components/` | `ArdentTaxTab` (as mounted), `ArdentTaxView`, `QuoteForm`, `Register`, `MailPanel` |
-| `templates/` | The two Word templates, byte copies from `D:\Abhijith Projects\Quote Generator` |
+| `templates/` | The two Word templates from `D:\Abhijith Projects\Quote Generator`, with a past client's address removed from the email link, because these files are served to browsers |
 
 Database: `Database Module/ArdentTax Base`. Mail: Edge Function `ardentax-mail-send` in `Agent Module/11_Personal_Agent/CEO Agent Module/supabase`.
 

@@ -1,6 +1,6 @@
 // Fills the Ardentax Word templates by editing their XML, one step for each step of the workbook's MakeQuote macro.
 // deps: { JSZip, parse(string) -> document, serialize(document) -> string }, so this runs in the browser and in tests.
-import { ROW_KEYS, TIERS, feeLabel, money } from "./quoteModel.js";
+import { ROW_KEYS, TIERS, feeLabel, money, num as toNum } from "./quoteModel.js";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const RPR_ORDER = ["w:rStyle", "w:rFonts", "w:b", "w:bCs", "w:i", "w:iCs", "w:caps", "w:smallCaps", "w:strike", "w:dstrike", "w:outline", "w:shadow", "w:emboss", "w:imprint", "w:noProof", "w:snapToGrid", "w:vanish", "w:webHidden", "w:color", "w:spacing", "w:w", "w:kern", "w:position", "w:sz", "w:szCs", "w:highlight", "w:u", "w:effect", "w:bdr", "w:shd", "w:fitText", "w:vertAlign", "w:rtl", "w:cs", "w:em", "w:lang", "w:eastAsianLayout", "w:specVanish", "w:oMath"];
@@ -22,10 +22,12 @@ const textOf = (el) => tags(el, "w:t").map((t) => t.textContent).join("");
 const remove = (el) => el.parentNode.removeChild(el);
 const up = (el, name) => { let n = el.parentNode; while (n && n.nodeName !== name) n = n.parentNode; return n; };
 const dmy = (iso) => { const [y, m, d] = String(iso || "").slice(0, 10).split("-"); return d ? `${d}/${m}/${y}` : ""; };
-const blankNum = (v) => v === null || v === undefined || String(v).trim() === "" || !Number.isFinite(Number(v));
-const toNum = (v) => (blankNum(v) ? 0 : Number(v));
+// Characters XML cannot hold. Pasted text can carry them, and Word rejects the whole file if one gets in.
+const clean = (s) => String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, "");
+const dubaiToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date());
 
-function setText(t, value) {
+function setText(t, raw) {
+  const value = clean(raw);
   t.textContent = value;
   if (/^\s|\s$/.test(value)) t.setAttribute("xml:space", "preserve");
 }
@@ -244,7 +246,7 @@ function setExclusions(doc, pricing) {
 }
 
 const withDeclaration = (xml) => (xml.startsWith("<?xml") ? xml : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${xml}`);
-const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const attr = (s) => clean(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 export async function fillDocx(templateBytes, d, t, reference, deps) {
   const zip = await deps.JSZip.loadAsync(templateBytes);
@@ -260,7 +262,7 @@ export async function fillDocx(templateBytes, d, t, reference, deps) {
   fillOrDrop(doc, "{{ADDRESS}}", String(c.address || "").replace(/\r?\n|\r/g, ", "));
   replaceAll(doc, "{{CITY}}", c.city || "Dubai");
   replaceAll(doc, "{{REF}}", reference);
-  replaceAll(doc, "{{DATE}}", dmy(d.date));
+  replaceAll(doc, "{{DATE}}", dmy(d.date) || dmy(dubaiToday()));
   replaceAll(doc, "{{ERP}}", c.erp || "Ardentax web application");
   replaceAll(doc, "{{SIGNATORY_NAME}}", c.signName || "");
   replaceAll(doc, "{{SIGNATORY_DESIGNATION}}", c.signDesig || "");
@@ -301,7 +303,7 @@ export async function fillDocx(templateBytes, d, t, reference, deps) {
   zip.file("word/document.xml", withDeclaration(deps.serialize(doc)));
 
   const core = deps.parse(await zip.file("docProps/core.xml").async("string"));
-  const setCore = (name, value) => { const el = tags(core, name)[0]; if (el) el.textContent = value; };
+  const setCore = (name, value) => { const el = tags(core, name)[0]; if (el) el.textContent = clean(value); };
   setCore("dc:creator", COMPANY);
   setCore("cp:lastModifiedBy", COMPANY);
   setCore("dc:title", `Ardentax E-Invoicing Proposal – ${c.legal}`);

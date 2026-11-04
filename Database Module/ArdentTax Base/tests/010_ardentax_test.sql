@@ -73,7 +73,7 @@ declare q ardentax_documents; r ardentax_documents;
 begin
   q := ardentax_document_create(at_req('quote'));
   perform at_check('a new document has no file yet', q.word_path is null and q.pdf_path is null);
-  perform ardentax_document_attach(q.id, 'ArdentTax (ASP)/' || q.id || '/a.docx', 'ArdentTax (ASP)/' || q.id || '/a.pdf');
+  perform ardentax_document_attach(q.id, 'ArdentTax (ASP)/' || q.id || '/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/a.docx', 'ArdentTax (ASP)/' || q.id || '/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/a.pdf');
   select * into r from ardentax_documents where id = q.id;
   perform at_check('attach records the files', r.word_path like '%a.docx' and r.pdf_path like '%a.pdf');
   perform at_check('attach refuses a path outside the document', at_refused(format($f$select ardentax_document_attach(%L::uuid, 'Accounting/receipts/a.docx', 'x.pdf')$f$, q.id), 'path'));
@@ -83,6 +83,24 @@ begin
   perform at_check('a user cannot mark mail sent', at_refused(format($f$select ardentax_mail_sent(%L::uuid, %L::uuid)$f$, q.id, q.created_by), 'permission denied'));
   perform at_check('a user cannot write the table directly', at_refused(format($f$update ardentax_documents set mail_sent_at = now() where id = %L::uuid$f$, q.id), 'permission denied'));
 end $$;
+
+do $$
+declare q ardentax_documents; r ardentax_documents; good text;
+begin
+  q := ardentax_document_create(at_req('quote'));
+  good := 'ArdentTax (ASP)/' || q.id || '/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/Ardentax-2026-11-ADTQ001 Sample v2.';
+  perform ardentax_document_attach(q.id, good || 'docx', good || 'pdf');
+  perform at_check('attach accepts a normal generated path', true);
+  perform at_check('attach refuses dots in a path', at_refused(format($f$select ardentax_document_attach(%L::uuid, %L, %L)$f$, q.id, 'ArdentTax (ASP)/' || q.id || '/../../Accounting/receipts/x.docx', good || 'pdf'), 'path'));
+  perform at_check('attach refuses an encoded path', at_refused(format($f$select ardentax_document_attach(%L::uuid, %L, %L)$f$, q.id, 'ArdentTax (ASP)/' || q.id || '/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/%2e%2e.docx', good || 'pdf'), 'path'));
+  perform at_check('attach refuses clearing a path', at_refused(format($f$select ardentax_document_attach(%L::uuid, NULL, NULL)$f$, q.id), 'path'));
+  select * into r from ardentax_documents where id = q.id;
+  perform at_check('a refused attach changes nothing', r.word_path = good || 'docx');
+  perform at_check('the creator name is recorded', r.created_by_name = 'AT Member');
+  r := ardentax_document_revise(q.id, at_req('quote'));
+  perform at_check('a revision records the creator name', r.created_by_name = 'AT Member');
+end $$;
+select at_check('a fee with commas is accepted', (select one_time = 1500 from ardentax_document_create(at_req('quote') || jsonb_build_object('details', jsonb_set(at_req('quote') -> 'details', '{rows,ONB,fee}', '"1,500"')))));
 
 -- ── Voucher Register ─────────────────────────────────────────────────
 select at_check('voucher row written', (select count(*) = 1 and bool_and(v.source = 'ardentax' and v.company = 'Ardentax' and v.department = 'ArdentTax (ASP)' and v.voucher_type = 'Quotation' and v.amount = 5699 and v.client_name = 'Sample Trading LLC') from voucher_register v where v.voucher_number like '%/ADTQ001'));

@@ -5,9 +5,11 @@ export const CHARGE_TYPES = ["One-time", "Annual", "Per invoice", "Included"];
 export const COVERAGE = ["Sales invoices", "Sales and purchase invoices"];
 export const ERP_LIST = ["Zoho Books", "Odoo", "SAP Business One", "QuickBooks", "Tally Prime", "Microsoft Dynamics", "Prime Plus", "VIBS", "Titan", "Wafeq", "Oracle NetSuite"];
 
-const isBlank = (v) => v === null || v === undefined || String(v).trim() === "";
-const isNumeric = (v) => !isBlank(v) && Number.isFinite(Number(v));
-const num = (v) => (isNumeric(v) ? Number(v) : 0);
+// One grammar here and in the database (ardentax_strip, ardentax_num): plain digits, thousands commas, an optional decimal part.
+const strip = (v) => String(v).replace(/^[ \t\r\n\f\v\u00a0]+|[ \t\r\n\f\v\u00a0]+$/g, "");
+const isBlank = (v) => v === null || v === undefined || strip(v) === "";
+const isNumeric = (v) => (typeof v === "number" ? Number.isFinite(v) : !isBlank(v) && /^-?[0-9][0-9,]*(\.[0-9]+)?$/.test(strip(v)));
+export const num = (v) => (isNumeric(v) ? Number(strip(v).replace(/,/g, "")) : 0);
 const whole = (n) => Math.round(n).toLocaleString("en-US");
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -20,8 +22,8 @@ export function money(x) {
 export function feeLabel(fee, type) {
   if (String(type || "").toLowerCase() === "included") return "Included";
   if (isBlank(fee)) return "";
-  if (isNumeric(fee)) return Number(fee) === 0 ? "Included" : `${money(fee)} AED`;
-  return String(fee).trim();
+  if (isNumeric(fee)) return num(fee) === 0 ? "Included" : `${money(num(fee))} AED`;
+  return strip(fee);
 }
 
 export function defaultDetails(today) {
@@ -105,8 +107,10 @@ export function computeQuote(d) {
   const rowSum = (type) => included.filter((r) => r.type === type).reduce((s, r) => s + num(r.fee), 0);
 
   const oneTimeAll = custom ? sumOf("One-time") : rowSum("One-time");
-  const supFee = rows.SUP.inc ? num(rows.SUP.fee) : 0;
-  const fullFee = rows.FULL.inc ? num(rows.FULL.fee) : 0;
+  // Only a one-time fee is in oneTimeAll, so only that can come out of it.
+  const oneTimeFee = (r) => (r.inc && r.type === "One-time" ? num(r.fee) : 0);
+  const supFee = oneTimeFee(rows.SUP);
+  const fullFee = oneTimeFee(rows.FULL);
   const oneTime = oneTimeAll - (showOptions ? supFee + fullFee : 0);
   const annualTotal = custom ? customAnnual : rowSum("Annual");
   const year1 = oneTime + annualTotal;
@@ -153,6 +157,10 @@ export function quoteChecks(d, t) {
     if (t.volume <= 0) out.push("Enter the invoices included per year.");
     if (!t.items.some((i) => !isBlank(i.title) && i.type === "Per invoice")) out.push("No per-invoice rate: the additional invoices sentence is left out of the quote.");
   }
+  const feeLines = t.custom ? t.items.filter((i) => !isBlank(i.title)) : ROW_KEYS.map((k) => r[k]).filter((x) => x.inc);
+  for (const x of feeLines) {
+    if (x.type !== "Included" && !isBlank(x.fee) && !isNumeric(x.fee) && /[0-9]/.test(String(x.fee))) out.push(`Fee "${strip(x.fee)}" on ${x.title} is text, so it is not in the total.`);
+  }
   if (!String(d.client?.email || "").includes("@")) out.push("POC email looks incomplete.");
   if ((!t.custom || t.overage > 0) && (t.overage <= 0 || t.overage > 5)) out.push("Overage rate looks unusual (normally 0.25 to 4 AED).");
   return out;
@@ -191,6 +199,6 @@ export function mailTokens(text, d, t) {
 
 export function fileNameFor(number, short, version = 1, ext = "docx") {
   const safe = String(short || "").replace(/[^A-Za-z0-9 _-]+/g, "").replace(/\s+/g, " ").trim();
-  const base = [String(number).replace(/[/\\]+/g, "-"), safe, version > 1 ? `v${version}` : ""].filter(Boolean).join(" ");
+  const base = [String(number).replace(/[/\\]+/g, "-").replace(/[^A-Za-z0-9 _.-]+/g, ""), safe, version > 1 ? `v${version}` : ""].filter(Boolean).join(" ");
   return `${base}.${ext}`;
 }

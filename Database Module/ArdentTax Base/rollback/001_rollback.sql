@@ -26,6 +26,7 @@ drop function if exists public.ardentax_document_create(jsonb);
 drop function if exists public.ardentax_prepare(jsonb, jsonb);
 drop function if exists public.ardentax_totals(jsonb);
 drop function if exists public.ardentax_num(jsonb);
+drop function if exists public.ardentax_strip(text);
 drop policy if exists ardentax_documents_read on public.ardentax_documents;
 drop table if exists public.ardentax_documents;
 drop function if exists public.ardentax_can();
