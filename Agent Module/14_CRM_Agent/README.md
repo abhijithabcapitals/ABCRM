@@ -23,7 +23,14 @@ and follow-up dates only. Contact details, tax numbers, budgets and notes are no
 not change CRM data or start workflows. Real handlers still have to be connected through the router and authorized
 CRM procedures.
 
-Claude OAuth, subscription usage and tool activity reporting are not implemented.
+Every request needs a Bearer token. The Worker checks it with the database function `crm_agent_check_mcp_token`
+(valid, invalid or unset). `MCP_AUTH_TOKEN` is only the fallback: it is used while no token has been generated in
+Settings (`unset`). If the database cannot be reached, the endpoint answers 503 and does not use the fallback.
+
+Each tool call is logged through `crm_agent_log_call`: tool name, success, error code and duration. Lead numbers,
+tool inputs and results are never stored. A logging failure never changes the tool result.
+
+Claude OAuth and subscription usage reporting are not implemented.
 
 ## Deploy
 
@@ -36,9 +43,13 @@ npx wrangler secret put CRM_READ_TOKEN
 npm run deploy
 ```
 
-The token must be at least 32 characters. Clients send it as `Authorization: Bearer <token>`. Without it the
-endpoint answers 503. Never commit the token.
+`MCP_AUTH_TOKEN` (at least 32 characters) is now only the fallback until a token is generated in Settings. Clients
+send the token as `Authorization: Bearer <token>`. With no generated token and no secret the endpoint answers 503.
+Never commit a token.
 
 ## Local test
 
 Put `MCP_AUTH_TOKEN=<random value>` in `.dev.vars` (git-ignored), then run `npm run dev`.
+
+`npm test` starts a mock Supabase on port 8799 and two local `wrangler dev` processes (ports 8798 and 8797) with test
+tokens only. It needs those ports free and touches nothing live.

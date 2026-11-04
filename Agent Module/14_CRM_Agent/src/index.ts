@@ -1,7 +1,9 @@
 // Cloudflare Worker "crm-agent": the MCP endpoint of the CRM Agent, at /mcp.
 //
-// Clients send the MCP_AUTH_TOKEN Worker secret as a Bearer token. get_crm_lead_status
-// reads through the crm_agent_lead_status database function using a separate read token.
+// Clients send a Bearer token, checked through the crm_agent_check_mcp_token database function.
+// Until a token is generated in the CRM, the MCP_AUTH_TOKEN Worker secret is the fallback.
+// get_crm_lead_status reads through the crm_agent_lead_status database function using a
+// separate read token. Every tool call is logged (tool, result, error code, duration only).
 // The other two tools are placeholders: they change nothing and return not_implemented
 // until they are connected to authorized CRM handlers.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -23,8 +25,12 @@ function jsonError(message: string, status: number, headers: Record<string, stri
   return Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store", ...headers } });
 }
 
+function bearerToken(request: Request) {
+  return request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+}
+
 async function hasValidBearerToken(request: Request, expectedToken: string) {
-  const suppliedToken = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  const suppliedToken = bearerToken(request);
   if (!suppliedToken) return false;
 
   const [expectedDigest, suppliedDigest] = await Promise.all([
@@ -38,6 +44,29 @@ async function hasValidBearerToken(request: Request, expectedToken: string) {
     difference |= expectedBytes[index] ^ suppliedBytes[index];
   }
   return difference === 0;
+}
+
+async function checkMcpToken(env: Env, token: string): Promise<"valid" | "invalid" | "unset" | "unreachable"> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) return "unreachable";
+
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/crm_agent_check_mcp_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: env.SUPABASE_PUBLISHABLE_KEY },
+      body: JSON.stringify({ p_token: token }),
+      signal: AbortSignal.timeout(CRM_READ_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.error("MCP token check failed", response.status);
+      return "unreachable";
+    }
+
+    const result = await response.json();
+    return result === "valid" || result === "invalid" || result === "unset" ? result : "unreachable";
+  } catch (error) {
+    console.error("MCP token check failed", error instanceof Error ? error.name : "Unknown error");
+    return "unreachable";
+  }
 }
 
 function unavailableToolResult(toolName: string) {
@@ -85,7 +114,63 @@ async function getLeadStatus(env: Env, lead: string) {
   }
 }
 
-function createMcpServer(env: Env) {
+// Records tool name, outcome, error code and duration. Never inputs or results.
+function logToolCall(
+  env: Env,
+  ctx: ExecutionContext,
+  tool: string,
+  startedAt: number,
+  result: { isError?: boolean; content: { text: string }[] },
+) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY || !env.CRM_READ_TOKEN) return;
+
+  let errorCode: string | null = null;
+  if (result.isError) {
+    try {
+      const code = (JSON.parse(result.content[0]?.text ?? "") as { error?: unknown }).error;
+      errorCode = typeof code === "string" ? code : "unknown";
+    } catch {
+      errorCode = "unknown";
+    }
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const publishableKey = env.SUPABASE_PUBLISHABLE_KEY;
+  const body = JSON.stringify({
+    p_read_token: env.CRM_READ_TOKEN,
+    p_tool: tool,
+    p_ok: !result.isError,
+    p_error_code: errorCode,
+    p_duration_ms: Math.round(Date.now() - startedAt),
+  });
+
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const response = await fetch(`${supabaseUrl}/rest/v1/rpc/crm_agent_log_call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: publishableKey },
+          body,
+          signal: AbortSignal.timeout(CRM_READ_TIMEOUT_MS),
+        });
+        if (!response.ok) console.error("Usage log failed", response.status);
+      } catch (error) {
+        console.error("Usage log failed", error instanceof Error ? error.name : "Unknown error");
+      }
+    })(),
+  );
+}
+
+function createMcpServer(env: Env, ctx: ExecutionContext) {
+  const logged =
+    <A,>(tool: string, handler: (args: A) => Promise<ReturnType<typeof jsonToolResult>>) =>
+    async (args: A) => {
+      const startedAt = Date.now();
+      const result = await handler(args);
+      logToolCall(env, ctx, tool, startedAt, result);
+      return result;
+    };
+
   const server = new McpServer({ name: "crm-agent", version: "1.0.0" }, { capabilities: { tools: {} } });
 
   server.registerTool(
@@ -96,7 +181,7 @@ function createMcpServer(env: Env) {
       inputSchema: z.object({ lead_id: z.string().trim().min(1).max(128) }).strict(),
       annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    async ({ lead_id }) => getLeadStatus(env, lead_id),
+    logged("get_crm_lead_status", async ({ lead_id }: { lead_id: string }) => getLeadStatus(env, lead_id)),
   );
 
   server.registerTool(
@@ -121,7 +206,7 @@ function createMcpServer(env: Env) {
         .strict(),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async () => unavailableToolResult("update_crm_lead"),
+    logged("update_crm_lead", async () => unavailableToolResult("update_crm_lead")),
   );
 
   server.registerTool(
@@ -138,25 +223,38 @@ function createMcpServer(env: Env) {
         .strict(),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
-    async () => unavailableToolResult("trigger_agent_workflow"),
+    logged("trigger_agent_workflow", async () => unavailableToolResult("trigger_agent_workflow")),
   );
 
   return server;
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname !== "/mcp") return jsonError("Not found.", 404);
 
-    const expectedToken = env.MCP_AUTH_TOKEN;
-    if (!expectedToken || expectedToken.length < 32) {
-      return jsonError("MCP endpoint authentication is not configured.", 503);
-    }
-    if (!(await hasValidBearerToken(request, expectedToken))) {
+    const suppliedToken = bearerToken(request);
+    if (!suppliedToken) {
       return jsonError("Authentication required.", 401, { "WWW-Authenticate": 'Bearer realm="MCP"' });
     }
 
-    const server = createMcpServer(env);
+    const tokenState = await checkMcpToken(env, suppliedToken);
+    if (tokenState === "unreachable") return jsonError("MCP authentication is unavailable.", 503);
+    if (tokenState === "invalid") {
+      return jsonError("Authentication required.", 401, { "WWW-Authenticate": 'Bearer realm="MCP"' });
+    }
+    if (tokenState === "unset") {
+      // No token generated in the CRM yet: fall back to the Worker secret.
+      const expectedToken = env.MCP_AUTH_TOKEN;
+      if (!expectedToken || expectedToken.length < 32) {
+        return jsonError("MCP endpoint authentication is not configured.", 503);
+      }
+      if (!(await hasValidBearerToken(request, expectedToken))) {
+        return jsonError("Authentication required.", 401, { "WWW-Authenticate": 'Bearer realm="MCP"' });
+      }
+    }
+
+    const server = createMcpServer(env, ctx);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       maxRequestBodySize: MAX_REQUEST_BODY_SIZE,
