@@ -231,7 +231,9 @@ grant execute on function public.business_setup_quote_accept(uuid, boolean) to a
 
 -- ── Payment by case ──────────────────────────────────────────────────
 -- Net paid on a case: Payment less Refund and Reversal over every payment row carrying the case. The one place the sum is written
--- for a case (business_setup_net_paid still answers for a quote, and gives the same figure for a quote in a case).
+-- for a case (business_setup_net_paid still answers for a quote, and gives the same figure for a quote in a case: 014's quote-side sum takes
+-- case_id OR a quote of the case, and the fill trigger plus 013's backfill give every such payment a case_id). Tests 090 compares the two
+-- across an advance, a refund and a reversal, and must keep passing if either sum changes.
 create or replace function public.business_setup_case_net_paid(p_case uuid) returns numeric
 language sql stable security definer set search_path = public, pg_temp as $$
   select coalesce(sum(case when type = 'Payment' then amount else -amount end), 0) from business_setup_payments where case_id = p_case
@@ -252,7 +254,8 @@ begin
     'signed', exists (select 1 from hub_documents q join business_setup_signed_quotes s on s.quote_id = q.id and s.status = 'Confirmed'
                        where q.case_id = p_case and q.doc_type = 'quote' and q.status = 'accepted'),
     'paid', coalesce(business_setup_case_net_paid(p_case) > 0 or v_acc_total = 0 or v_override, false),
-    'letter', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'letter'),
+    -- a letter counts when its quote was not replaced (a letter made before the gate on a superseded quote does not satisfy it)
+    'letter', exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and lq.status <> 'superseded'),
     'invoice', true);
 end $$;
 revoke all on function public.business_setup_case_docs(uuid) from public, anon, authenticated;
@@ -421,7 +424,11 @@ begin
       raise exception 'This quote is locked because Accounts holds it: no payment can be reversed';
     end if;
   end if;
-  if o.case_id is not null then perform 1 from business_setup_cases where id = o.case_id for update; end if;
+  if o.case_id is not null then
+    perform 1 from business_setup_cases where id = o.case_id for update;
+    -- An advance has no quote on its row, but the case's accepted quote may be with Accounts.
+    if business_setup_case_locked(o.case_id) then raise exception 'This quote is locked because Accounts holds it: no payment can be reversed'; end if;
+  end if;
   if exists (select 1 from business_setup_payments where reverses_id = o.id) then raise exception 'This payment already has a reversal'; end if;
 
   insert into business_setup_payments (client_id, quote_id, case_id, paid_on, amount, method, reference, type, reverses_id, note)
@@ -433,6 +440,199 @@ begin
 end $$;
 revoke all on function public.business_setup_payment_add(jsonb), public.business_setup_payment_reverse(uuid, text) from public, anon;
 grant execute on function public.business_setup_payment_add(jsonb), public.business_setup_payment_reverse(uuid, text) to authenticated;
+
+-- ── Refund by case ───────────────────────────────────────────────────
+-- Refund as in 007 (money really returned, no receipt), on a case or on a quote (p: case_id or quote_id, amount, method, reference, reason).
+-- Capped by what the case (or the quote) has net paid. quote_id stays empty when the case has no accepted quote, so an advance can be
+-- returned and the case can then be marked lost. Refused while Accounts holds the case's accepted quote.
+create or replace function public.business_setup_refund_add(p jsonb) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare q hub_documents; c business_setup_cases; v_case uuid; v_quote uuid; v_client text; v_amount numeric; v_reason text; v_id uuid; v_net numeric;
+begin
+  perform business_setup_require('setup.payments.manage');
+  p := coalesce(p, '{}'::jsonb);
+  begin
+    v_case := nullif(p ->> 'case_id', '')::uuid; v_quote := nullif(p ->> 'quote_id', '')::uuid;
+  exception when invalid_text_representation then
+    raise exception 'The case or quote is not valid';
+  end;
+  if v_case is null and v_quote is null then raise exception 'Choose the case or the quote this refund is for'; end if;
+  if v_quote is null then
+    select id into v_quote from hub_documents where case_id = v_case and doc_type = 'quote' and department = 'Business Setup' and status = 'accepted' limit 1;
+  end if;
+  if v_quote is not null then
+    select * into q from hub_documents where id = v_quote for update;
+    if q.id is null or q.doc_type <> 'quote' or q.department <> 'Business Setup' or q.client_id is null then raise exception 'Quote not found'; end if;
+    if v_case is null then v_case := q.case_id;
+    elsif q.case_id is distinct from v_case then raise exception 'This quote does not belong to that case'; end if;
+  end if;
+  if v_case is not null then
+    select * into c from business_setup_cases where id = v_case for update;
+    if c.id is null then raise exception 'Case not found'; end if;
+    v_client := c.client_id;
+    if v_client is null then raise exception 'Link a client to this case before recording a refund'; end if;
+    if business_setup_case_locked(v_case) then raise exception 'This quote is locked because Accounts holds it: no refund can be recorded'; end if;
+    v_net := business_setup_case_net_paid(v_case);
+  else
+    v_client := q.client_id;
+    v_net := business_setup_net_paid(q.id);
+  end if;
+  if q.id is not null and business_setup_quote_locked(q.id) then raise exception 'This quote is locked because Accounts holds it: no refund can be recorded'; end if;
+  begin
+    v_amount := nullif(btrim(coalesce(p ->> 'amount', '')), '')::numeric;
+  exception when others then
+    v_amount := null;
+  end;
+  if v_amount is null or v_amount <= 0 or v_amount <> round(v_amount, 2) then raise exception 'Enter an amount above zero with at most two decimals'; end if;
+  v_reason := nullif(btrim(coalesce(p ->> 'reason', '')), '');
+  if v_reason is null then raise exception 'Give a reason for the refund'; end if;
+  if v_amount > v_net then raise exception 'This refund is above the % paid on the %', to_char(v_net, 'FM999,999,999,990.00'), case when v_case is null then 'quote' else 'case' end; end if;
+  insert into business_setup_payments (client_id, quote_id, case_id, paid_on, amount, method, reference, type, note)
+  values (v_client, q.id, v_case, (now() at time zone 'Asia/Dubai')::date, v_amount, nullif(btrim(coalesce(p ->> 'method', '')), ''), nullif(btrim(coalesce(p ->> 'reference', '')), ''), 'Refund', v_reason)
+  returning id into v_id;
+  perform business_setup_audit('business_setup_payments', v_id::text, 'refund_add', null, jsonb_build_object('client_id', v_client, 'quote_id', q.id, 'case_id', v_case, 'amount', v_amount, 'reason', v_reason));
+  return v_id;
+end $$;
+revoke all on function public.business_setup_refund_add(jsonb) from public, anon;
+grant execute on function public.business_setup_refund_add(jsonb) to authenticated;
+
+-- ── The Accounts lock reaches advances ───────────────────────────────
+-- A payment recorded before the quote was accepted has no quote_id. It belongs to the case, so it is locked, and shown to Accounts,
+-- with the case's accepted quote (011 only looked at quote_id).
+create or replace function public.business_setup_case_locked(p_case uuid) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (select 1 from hub_documents q where q.case_id = p_case and q.doc_type = 'quote' and q.status = 'accepted' and business_setup_quote_locked(q.id))
+$$;
+revoke all on function public.business_setup_case_locked(uuid) from public, anon, authenticated;
+
+create or replace function public.business_setup_child_lock() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_locked boolean := false;
+begin
+  if tg_table_name = 'business_setup_payments' then
+    v_locked := (new.quote_id is not null and business_setup_quote_locked(new.quote_id)) or (new.case_id is not null and business_setup_case_locked(new.case_id));
+  elsif tg_table_name = 'business_setup_receipts' then
+    v_locked := exists (select 1 from business_setup_payments y where y.id = new.payment_id
+                         and ((y.quote_id is not null and business_setup_quote_locked(y.quote_id)) or (y.case_id is not null and business_setup_case_locked(y.case_id))));
+  elsif tg_table_name = 'business_setup_documents' then
+    v_locked := new.service_id is not null and exists (select 1 from business_setup_services s where s.id = new.service_id and s.locked);
+  end if;
+  if v_locked then raise exception 'This quote is with Accounts. It can be changed only if Accounts reverts it.'; end if;
+  return new;
+end $$;
+revoke all on function public.business_setup_child_lock() from public, anon, authenticated;
+
+create or replace function public.business_setup_accounts_queue() returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform banking_require('accounts.review');
+  return (select coalesce(jsonb_agg(jsonb_build_object('quote_id', q.id, 'number', q.document_number, 'client_id', q.client_id, 'client_name', m.legal_name,
+             'status', h.status, 'sent_at', h.sent_at, 'reviewed_at', h.reviewed_at, 'remarks', h.remarks, 'total', q.total_amount, 'net_paid', business_setup_net_paid(q.id),
+             'outstanding', q.total_amount - business_setup_net_paid(q.id),
+             'services', (select coalesce(jsonb_agg(jsonb_build_object('name', s.name, 'action', s.action, 'status', s.status, 'completed_at', s.completed_at) order by s.name), '[]'::jsonb) from business_setup_services s where s.quote_id = q.id),
+             'payments', (select coalesce(jsonb_agg(jsonb_build_object('date', y.paid_on, 'amount', y.amount, 'type', y.type, 'method', y.method, 'reference', y.reference, 'receipt_number', r.receipt_number, 'receipt_path', r.storage_path) order by y.paid_on), '[]'::jsonb)
+                            from business_setup_payments y left join business_setup_receipts r on r.payment_id = y.id
+                           where y.quote_id = q.id or (q.case_id is not null and y.case_id = q.case_id)),
+             'outputs', (select coalesce(jsonb_agg(jsonb_build_object('id', d.id, 'file_name', d.file_name, 'storage_path', d.storage_path) order by d.created_at), '[]'::jsonb)
+                           from business_setup_documents d join business_setup_services s on s.id = d.service_id where s.quote_id = q.id and d.is_output))
+             order by (h.status = 'With Accounts') desc, coalesce(h.reviewed_at, h.sent_at) desc), '[]'::jsonb)
+    from business_setup_handovers h join hub_documents q on q.id = h.quote_id left join client_master m on m.client_id = q.client_id
+   where h.status in ('With Accounts', 'Closed'));
+end $$;
+revoke all on function public.business_setup_accounts_queue() from public, anon;
+grant execute on function public.business_setup_accounts_queue() to authenticated;
+
+-- ── Rejecting a quote ────────────────────────────────────────────────
+-- As in 006, plus: a signed copy waiting for review on the quote is refused, with a note and an audit entry.
+create or replace function public.business_setup_quote_reject(p_id uuid, p_reason text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_sid uuid;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  select * into q from hub_documents where id = p_id for update;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  if q.doc_type <> 'quote' or q.department <> 'Business Setup' then raise exception 'Only a Business Setup quote can be rejected'; end if;
+  if v_reason is null then raise exception 'Give a reason for rejecting the quote'; end if;
+  if q.status <> 'issued' then raise exception 'Only an issued quote can be rejected (this one is %)', q.status; end if;
+  update hub_documents set status = 'rejected', status_at = now(), status_by = auth.uid(), status_reason = v_reason where id = q.id;
+  for v_sid in update business_setup_signed_quotes set status = 'Refused', note = 'This quote was rejected, so this signed copy no longer applies',
+         decided_at = now(), decided_by = auth.uid() where quote_id = q.id and status = 'Uploaded' returning id loop
+    perform business_setup_audit('business_setup_signed_quotes', v_sid::text, 'signed_refused_by_reject', jsonb_build_object('status', 'Uploaded'), jsonb_build_object('quote_id', q.id));
+  end loop;
+  perform business_setup_audit('hub_documents', q.id::text, 'quote_reject', null,
+          jsonb_build_object('client_id', q.client_id, 'document_number', q.document_number, 'reason', v_reason));
+end $$;
+revoke all on function public.business_setup_quote_reject(uuid, text) from public, anon;
+grant execute on function public.business_setup_quote_reject(uuid, text) to authenticated;
+
+-- ── Linking a client when money arrives ──────────────────────────────
+-- The duplicate-checked step of Share link, shared by two doors: business_setup_case_link_client (lead rights) and
+-- business_setup_case_link_client_for_payment (payment rights, for Finance). Neither issues a login. Internal body, no rights check.
+create or replace function public.business_setup_case_link_client_body(p_case uuid, p_client text, p_allow_duplicate boolean) returns text
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare c business_setup_cases; v_client text := nullif(btrim(coalesce(p_client, '')), ''); r jsonb; v_data jsonb; v_dups text;
+begin
+  select * into c from business_setup_cases where id = p_case for update;
+  if c.id is null then raise exception 'Case not found'; end if;
+  if c.stage in ('Completed', 'Cancelled', 'Lost') then raise exception 'This case is closed'; end if;
+  if c.client_id is not null then
+    if v_client is not null and v_client <> c.client_id then raise exception 'This case is already linked to client %', c.client_id; end if;
+    return c.client_id;
+  end if;
+  if v_client is not null then
+    if not exists (select 1 from client_master where client_id = v_client) then raise exception 'Unknown client %', v_client; end if;
+  else
+    v_data := jsonb_strip_nulls(jsonb_build_object('Client Legal Name', c.lead_name, 'Primary Contact', c.contact_person, 'General Email', c.email, 'General Phone', c.phone));
+    r := client_master_save(null, v_data, null, p_allow_duplicate);
+    if not coalesce((r ->> 'ok')::boolean, false) then
+      select string_agg((d ->> 'id') || ' ' || coalesce(d ->> 'name', '') || ' (same ' || (select string_agg(m, ', ') from jsonb_array_elements_text(d -> 'matches') m) || ')', '; ')
+        into v_dups from jsonb_array_elements(r -> 'duplicates') d;
+      raise exception 'A client like this already exists: %. Link that client, or confirm this is a new one.', coalesce(v_dups, 'see Client Master');
+    end if;
+    v_client := r ->> 'id';
+  end if;
+  update business_setup_cases set client_id = v_client where id = p_case;
+  -- The case's quotes and letters that have no client follow it, so the quote can then be accepted.
+  update hub_documents set client_id = v_client where case_id = p_case and client_id is null;
+  perform business_setup_audit('business_setup_cases', p_case::text, 'case_link_client', null, jsonb_build_object('client_id', v_client));
+  return v_client;
+end $$;
+revoke all on function public.business_setup_case_link_client_body(uuid, text, boolean) from public, anon, authenticated;
+
+create or replace function public.business_setup_case_link_client(p_case uuid, p_client text default null, p_allow_duplicate boolean default false) returns text
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.leads.manage');
+  return business_setup_case_link_client_body(p_case, p_client, p_allow_duplicate);
+end $$;
+revoke all on function public.business_setup_case_link_client(uuid, text, boolean) from public, anon;
+grant execute on function public.business_setup_case_link_client(uuid, text, boolean) to authenticated;
+
+-- Creating the client goes through client_master_save, which asks client_master_can('kyc.manage'), a right Finance does not hold. This door
+-- sets a flag for the length of this one call (tied to the current transaction id and cleared straight after), and client_master_can honours
+-- it for kyc.manage only when the caller also holds setup.payments.manage. The flag cannot be set from the API: only SQL run inside the
+-- database can call set_config, and the API reaches the database only through the functions granted to it.
+create or replace function public.client_master_can(p_permission text) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select banking_can(p_permission) or business_setup_can(p_permission)
+      or (p_permission = 'kyc.manage' and current_setting('bs.pay_link', true) = pg_current_xact_id()::text and business_setup_can('setup.payments.manage'))
+$$;
+revoke all on function public.client_master_can(text) from public, anon;
+grant execute on function public.client_master_can(text) to authenticated;
+
+create or replace function public.business_setup_case_link_client_for_payment(p_case uuid, p_client text default null, p_allow_duplicate boolean default false) returns text
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_client text;
+begin
+  perform business_setup_require('setup.payments.manage');
+  perform set_config('bs.pay_link', pg_current_xact_id()::text, true);
+  v_client := business_setup_case_link_client_body(p_case, p_client, p_allow_duplicate);
+  perform set_config('bs.pay_link', '', true);
+  return v_client;
+end $$;
+revoke all on function public.business_setup_case_link_client_for_payment(uuid, text, boolean) from public, anon;
+grant execute on function public.business_setup_case_link_client_for_payment(uuid, text, boolean) to authenticated;
 
 -- ── Creating documents ───────────────────────────────────────────────
 -- As in 014, plus line VAT for a Business Setup quote (with or without a case): the mode is stored as exclusive, each line's
@@ -446,7 +646,7 @@ declare
   v_mode text := coalesce(p ->> 'vat_mode', 'inclusive'); v_number text; r hub_documents; it jsonb; q hub_documents; o hub_documents; v_id uuid := gen_random_uuid(); v_root uuid;
   v_client text := nullif(trim(p ->> 'client_id'), ''); v_revises uuid := nullif(p ->> 'revises_id', '')::uuid; v_template text := nullif(trim(p ->> 'template_key'), '');
   v_case uuid := nullif(p ->> 'case_id', '')::uuid; v_case_client text;
-  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_docs jsonb;
+  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_docs jsonb; v_sid uuid;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   -- An engagement letter exists only as the next step of a generated quote, and takes everything from it.
@@ -454,7 +654,7 @@ begin
     select * into q from hub_documents where id = (p ->> 'parent_id')::uuid and doc_type = 'quote' for update;
     if q.id is null then raise exception 'Generate the quote first: an engagement letter comes from a quote'; end if;
     if exists (select 1 from hub_documents where parent_id = q.id and doc_type = 'letter') then raise exception 'Quote % already has its engagement letter', q.document_number; end if;
-    if q.department = 'Business Setup' and q.status <> 'accepted' then raise exception 'Mark the quote as accepted first'; end if;
+    if q.department = 'Business Setup' and q.status <> 'accepted' then raise exception 'Confirm the signed quote first'; end if;
     p := jsonb_build_object('doc_type', 'letter', 'parent_id', q.id, 'department', q.department, 'client_name', q.client_name, 'contact_name', q.contact_name, 'contact_email', q.contact_email, 'contact_phone', q.contact_phone, 'client_address', q.client_address, 'license_number', q.license_number, 'vat_trn', q.vat_trn, 'services', to_jsonb(q.services), 'lines', q.lines, 'vat_mode', q.vat_mode, 'vat_rate', q.vat_rate);
     v_mode := q.vat_mode; v_rate := q.vat_rate; v_client := q.client_id; v_revises := null; v_case := q.case_id;
     v_bs_letter := q.department = 'Business Setup';
@@ -471,7 +671,10 @@ begin
                                       'paid', business_setup_net_paid(q.id) > 0 or coalesce(q.total_amount, 0) = 0);
     end if;
     if not (v_docs ->> 'signed')::boolean then raise exception 'Confirm the signed copy of the quote before the engagement letter'; end if;
-    if not (v_docs ->> 'paid')::boolean then raise exception 'The engagement letter needs a payment first: record one, or ask someone who may waive it'; end if;
+    if not (v_docs ->> 'paid')::boolean then
+      raise exception '%', case when q.case_id is not null then 'The engagement letter needs a payment first: record one, or ask someone who may waive it'
+                                else 'The engagement letter needs a payment first: record a payment on this quote' end;
+      end if;
   end if;
   if v_type <> 'quote' then v_revises := null; v_template := null; end if;
   if v_template is not null and not exists (select 1 from business_setup_quote_templates where key = v_template and active) then raise exception 'Unknown quote template %', v_template; end if;
@@ -558,8 +761,10 @@ begin
   if v_revises is not null then
     update hub_documents set status = 'superseded', status_at = now(), status_by = auth.uid(), status_reason = 'Revised by ' || r.document_number where id = v_revises;
     -- A signed copy uploaded for the quote just replaced no longer applies.
-    update business_setup_signed_quotes set status = 'Refused', note = 'This quote was revised, so this signed copy no longer applies: sign the new quote',
-           decided_at = now(), decided_by = auth.uid() where quote_id = v_revises and status = 'Uploaded';
+    for v_sid in update business_setup_signed_quotes set status = 'Refused', note = 'This quote was revised, so this signed copy no longer applies: sign the new quote',
+           decided_at = now(), decided_by = auth.uid() where quote_id = v_revises and status = 'Uploaded' returning id loop
+      perform business_setup_audit('business_setup_signed_quotes', v_sid::text, 'signed_refused_by_revision', jsonb_build_object('status', 'Uploaded'), jsonb_build_object('quote_id', v_revises, 'revised_by', r.document_number));
+    end loop;
   end if;
   return r;
 end $$;

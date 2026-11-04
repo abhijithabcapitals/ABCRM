@@ -19,7 +19,7 @@ begin
                     'completed_at', s.completed_at, 'expiry_date', s.expiry_date) order by s.created_at desc), '[]'::jsonb)
                    from business_setup_services s where s.client_id = v_client and not s.historical),
     'quotes', (select coalesce(jsonb_agg(jsonb_build_object('id', q.id, 'number', q.document_number, 'date', q.created_at::date, 'status', q.status, 'total', q.total_amount,
-                  'net_paid', business_setup_net_paid(q.id), 'outstanding', q.total_amount - business_setup_net_paid(q.id), 'has_file', q.storage_path is not null,
+                  'net_paid', case when q.status in ('issued', 'accepted') then business_setup_net_paid(q.id) end, 'outstanding', case when q.status in ('issued', 'accepted') then q.total_amount - business_setup_net_paid(q.id) end, 'has_file', q.storage_path is not null,
                   'can_sign', q.status = 'issued' and not exists (select 1 from business_setup_signed_quotes s where s.quote_id = q.id and s.status = 'Uploaded'),
                   'signed', (select jsonb_build_object('status', s.status, 'date', s.created_at::date, 'note', case when s.status = 'Refused' then s.note end)
                                from business_setup_signed_quotes s where s.quote_id = q.id order by s.created_at desc limit 1),
@@ -61,6 +61,18 @@ begin
   perform business_setup_audit('business_setup_signed_quotes', v_id::text, 'signed_add', null, jsonb_build_object('quote_id', q.id, 'source', 'Client', 'account_id', p_account));
   return v_id;
 end $$;
+
+-- The client's login name for the quote message: id, username and status only. Never the password or a vault reference. For staff who
+-- issue quotes (setup.quotes.manage), who do not hold the wider login rights of business_setup_portal_login_state.
+create or replace function public.business_setup_portal_login_name(p_client text) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.quotes.manage');
+  return (select jsonb_build_object('id', a.id, 'username', a.username, 'status', a.status)
+            from client_portal_accounts a where a.id = business_setup_portal_account(p_client));
+end $$;
+revoke all on function public.business_setup_portal_login_name(text) from public, anon;
+grant execute on function public.business_setup_portal_login_name(text) to authenticated;
 
 revoke all on function public.business_setup_portal_view(uuid), public.business_setup_portal_signed_add(uuid, uuid, text) from public, anon, authenticated;
 grant execute on function public.business_setup_portal_view(uuid), public.business_setup_portal_signed_add(uuid, uuid, text) to service_role;

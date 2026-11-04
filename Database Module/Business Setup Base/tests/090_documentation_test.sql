@@ -286,6 +286,102 @@ select public.bs_check('the shared case sum is internal', not has_function_privi
 select public.bs_check('staff may call the signed and override functions, anon may not', has_function_privilege('authenticated', 'public.business_setup_signed_decide(uuid, boolean, text, boolean)', 'execute')
   and has_function_privilege('authenticated', 'public.business_setup_case_paid_override(uuid, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_signed_add(uuid, text)', 'execute'));
 
+-- ══ Task 8 review fixes ══
+create function pg_temp.np(p_k text) returns numeric language sql security definer as $$ select public.business_setup_net_paid(pg_temp.fx(p_k)::uuid) $$;
+select public.bs_as(null);
+select pg_temp.mkcase('cR', 'CL990092'); select pg_temp.mkcase('cR2', 'CL990092'); select pg_temp.mkcase('cK', 'CL990092'); select pg_temp.mkcase('cS', 'CL990092'); select pg_temp.mkcase('cT', 'CL990092');
+select pg_temp.mkcase('cI', null);
+with c as (insert into public.business_setup_cases (client_id, stage, lead_name) values (null, 'Lead', 'cI') returning id) insert into f90 select 'cJ', id::text from c;
+
+-- ── 1: an advance can be refunded, so the case can then be marked lost ──
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cR'), 'amount', 300)) as ignored \gset
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('cR'), 'amount', 301, 'reason', 'x')), 'above');
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('cR'), 'amount', 10)), 'reason');
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('cN'), 'amount', 10, 'reason', 'x')), 'Link a client');
+select public.bs_expect_error($$select business_setup_refund_add('{"amount":10,"reason":"x"}')$$, 'case or the quote');
+select public.business_setup_refund_add(jsonb_build_object('case_id', pg_temp.fx('cR'), 'amount', 100, 'reason', 'Client changed mind')) as ignored \gset
+select public.bs_check('refund: a refund on an advance is recorded on the case with no quote, and has no receipt', (select count(*) = 1 from public.business_setup_payments where case_id = pg_temp.fx('cR')::uuid and type = 'Refund' and quote_id is null and amount = 100)
+  and not exists (select 1 from public.business_setup_receipts r join public.business_setup_payments y on y.id = r.payment_id where y.type = 'Refund' and y.case_id = pg_temp.fx('cR')::uuid));
+select public.bs_check('refund: net paid on the case is now 200', pg_temp.cnp('cR') = 200);
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('cR'), 'amount', 200.01, 'reason', 'x')), 'above');
+select public.business_setup_refund_add(jsonb_build_object('case_id', pg_temp.fx('cR'), 'amount', 200, 'reason', 'Rest returned')) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.business_setup_case_lost(pg_temp.fx('cR')::uuid, 'Never went ahead');
+select public.bs_check('refund: after the advance is refunded the case can be marked lost', pg_temp.stg('cR') = 'Lost');
+
+-- ── 16: the case sum and the quote sum agree across advance, refund and reversal ──
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+insert into f90 values ('adv2', public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cR2'), 'amount', 500))::text);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcq('qR2', 'cR2', 1000);
+select pg_temp.signaccept('qR2', 'staff/CL990092/signed-r2.pdf');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+insert into f90 values ('pay2', public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cR2'), 'amount', 100))::text);
+select public.business_setup_refund_add(jsonb_build_object('case_id', pg_temp.fx('cR2'), 'amount', 50, 'reason', 'Part returned')) as ignored \gset
+select public.bs_check('sums agree: advance 500 + payment 100 - refund 50 gives 550 both ways', pg_temp.cnp('cR2') = 550 and pg_temp.np('qR2') = 550);
+select public.business_setup_payment_reverse((pg_temp.fx('pay2')::jsonb ->> 'payment_id')::uuid, 'Wrong account') as ignored \gset
+select public.bs_check('sums agree: after reversing the 100 both give 450', pg_temp.cnp('cR2') = 450 and pg_temp.np('qR2') = 450);
+select public.business_setup_refund_add(jsonb_build_object('quote_id', pg_temp.fx('qR2'), 'amount', 450, 'reason', 'By quote')) as ignored \gset
+select public.bs_check('refund by quote id is capped and counted the same', pg_temp.cnp('cR2') = 0 and pg_temp.np('qR2') = 0);
+
+-- ── 2: an advance is held with the case's quote when Accounts holds it ──
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cK'), 'amount', 100)) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcq('qK', 'cK', 1000);
+select pg_temp.signaccept('qK', 'staff/CL990092/signed-k.pdf');
+select public.bs_as(null);
+update public.business_setup_services set status = 'Completed' where quote_id = pg_temp.fx('qK')::uuid;
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_send_to_accounts(pg_temp.fx('qK')::uuid, 'Ready');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_payment_reverse('%s', 'x')$$, (select id from public.business_setup_payments where case_id = pg_temp.fx('cK')::uuid and type = 'Payment' limit 1)), 'Accounts');
+select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('cK'), 'amount', 10)), 'Accounts');
+select public.bs_expect_error(format($$select business_setup_refund_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('cK'), 'amount', 10, 'reason', 'x')), 'Accounts');
+select public.bs_check('accounts lock: the advance row is untouched', pg_temp.cnp('cK') = 100);
+select public.bs_check('accounts lock: the Accounts row lists the advance and its receipt', (select bool_or((y ->> 'amount')::numeric = 100 and y ->> 'receipt_number' is not null)
+  from jsonb_array_elements(public.business_setup_accounts_queue()) e, jsonb_array_elements(e -> 'payments') y where e ->> 'quote_id' = pg_temp.fx('qK')));
+select public.bs_as(null);
+select public.bs_expect_error(format($$insert into public.business_setup_payments (client_id, case_id, paid_on, amount, type) values ('CL990092', '%s', current_date, 5, 'Payment')$$, pg_temp.fx('cK')), 'with Accounts');
+
+-- ── 3: Finance links a client when money arrives, without lead rights and without a login ──
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_case_link_client('%s')$$, pg_temp.fx('cI')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_case_link_client_for_payment('%s')$$, pg_temp.fx('cI')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_case_link_client_for_payment(pg_temp.fx('cI')::uuid) as fin_client \gset
+select public.bs_as(null);
+select public.bs_check('finance link: the case has the new client and no login was issued', (select client_id = :'fin_client' from public.business_setup_cases where id = pg_temp.fx('cI')::uuid)
+  and not exists (select 1 from public.client_portal_accounts where client_master_id = :'fin_client'));
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_check('finance link: a second call returns the same client', public.business_setup_case_link_client_for_payment(pg_temp.fx('cI')::uuid) = :'fin_client');
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cI'), 'amount', 50)) as ignored \gset
+select public.bs_check('finance link: Finance then records the payment on the case', pg_temp.cnp('cI') = 50);
+select public.bs_expect_error(format($$select business_setup_case_link_client_for_payment('%s')$$, pg_temp.fx('cJ')), 'already exists');
+
+-- ── 6, 7, 8: letter item, no-case gate, refusal wording ──
+select public.bs_as(null);
+with a as (insert into public.hub_documents (doc_type, department, client_name, client_id, document_number, total_amount, status, case_id) values ('quote', 'Business Setup', 'S LLC', 'CL990092', 'S-Q1', 100, 'superseded', pg_temp.fx('cS')::uuid) returning id)
+  insert into f90 select 'qS1', id::text from a;
+insert into public.hub_documents (doc_type, department, client_name, document_number, status, case_id, parent_id) values ('letter', 'Business Setup', 'S LLC', 'S-L1', 'issued', pg_temp.fx('cS')::uuid, pg_temp.fx('qS1')::uuid);
+select public.bs_check('a letter on a superseded quote does not satisfy the letter item', not (pg_temp.docs('cS') ->> 'letter')::boolean);
+with a as (insert into public.hub_documents (doc_type, department, client_name, client_id, document_number, total_amount, status) values ('quote', 'Business Setup', 'NC LLC', 'CL990092', 'NC-Q1', 100, 'accepted') returning id)
+  insert into f90 select 'qNC', id::text from a;
+with a as (insert into public.hub_documents (doc_type, department, client_name, client_id, document_number, total_amount, status) values ('quote', 'Business Setup', 'NI LLC', 'CL990092', 'NI-Q1', 100, 'issued') returning id)
+  insert into f90 select 'qNI', id::text from a;
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select hub_document_create('%s')$$, jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qNC'))), 'record a payment on this quote');
+select public.bs_expect_error(format($$select hub_document_create('%s')$$, jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qNI'))), 'Confirm the signed quote first');
+
+-- ── 9, 11: rejecting or revising a quote refuses its waiting copy, audited ──
+select pg_temp.mkcq('qT', 'cT', 100);
+insert into f90 values ('sT', public.business_setup_signed_add(pg_temp.fx('qT')::uuid, 'staff/CL990092/signed-t.pdf')::text);
+select public.business_setup_quote_reject(pg_temp.fx('qT')::uuid, 'Client declined');
+select public.bs_check('reject: the waiting copy is refused with a note', (select status = 'Refused' and note ilike '%rejected%' from public.business_setup_signed_quotes where id = pg_temp.fx('sT')::uuid) and pg_temp.qst('qT') = 'rejected');
+select public.bs_check('reject and revise: the refusals are audited', public.bs_audit_count('signed_refused_by_reject', pg_temp.fx('sT'), '{}') = 1 and public.bs_audit_count('signed_refused_by_revision', pg_temp.fx('sG'), '{}') = 1);
+select public.bs_as(null);
+
 
 -- ── a confirm that the accept refuses leaves the copy waiting ──
 select public.bs_as(null);

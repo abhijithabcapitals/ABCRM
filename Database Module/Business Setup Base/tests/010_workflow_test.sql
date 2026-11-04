@@ -342,7 +342,7 @@ insert into bs_fx values ('acct_quote', pg_temp.bs_quote('Accounting')::text);
 select public.bs_check('new quote is issued', (select status from public.hub_documents where id = (select v::uuid from bs_fx where k = 'bs_quote')) = 'issued');
 select public.bs_check('quote keeps client_id', (select client_id from public.hub_documents where id = (select v::uuid from bs_fx where k = 'bs_quote')) = 'CL900001');
 select public.bs_expect_error(format($$select pg_temp.bs_quote('Business Setup', '{"client_id":"CL000000"}')$$), 'client');
-select public.bs_expect_error(format($$select public.hub_document_create('{"doc_type":"letter","parent_id":"%s"}')$$, (select v from bs_fx where k = 'bs_quote')), 'Mark the quote as accepted first');
+select public.bs_expect_error(format($$select public.hub_document_create('{"doc_type":"letter","parent_id":"%s"}')$$, (select v from bs_fx where k = 'bs_quote')), 'Confirm the signed quote first');
 select public.bs_check('Accounting letter still free', (public.hub_document_create(jsonb_build_object('doc_type','letter','parent_id',(select v from bs_fx where k = 'acct_quote')))).id is not null);
 select public.bs_check('Accounting quote stays unlinked and issued', (select client_id is null and status = 'issued' from public.hub_documents where id = (select v::uuid from bs_fx where k = 'acct_quote')));
 -- revision: marks the old quote superseded in the same call

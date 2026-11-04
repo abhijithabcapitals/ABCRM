@@ -80,6 +80,25 @@ select public.bs_check('client B is unaffected', (pg_temp.vq('acc_b', 'qb') ->> 
 -- ── the Edge Function checks the same file path before it calls this function ──
 select public.bs_check('the same path cannot be sent twice (unique)', (select count(*) = 1 from public.business_setup_signed_quotes where storage_path = 'incoming/' || pg_temp.fx('acc_a') || '/f2/signed.pdf'));
 
+-- ── the login name for the quote message: quote staff only, and never a password or vault reference ──
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('login_name: SALES_EXECUTIVE gets id, username and status and nothing else', (select array_agg(k order by k) = array['id', 'status', 'username'] from jsonb_object_keys(public.business_setup_portal_login_name('CL900100')) k)
+  and public.business_setup_portal_login_name('CL900100') ->> 'username' = 'portal.a100');
+select public.bs_check('login_name: a client with no login gives nothing', public.business_setup_portal_login_name('CL000000-none') is null);
+select public.bs_expect_error($$select business_setup_portal_login_state('CL900100')$$, 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error($$select business_setup_portal_login_name('CL900100')$$, 'permission');
+select public.bs_as(null);
+select public.t_anon_refused('login_name: anon is refused', $$select public.business_setup_portal_login_name('CL900100')$$);
+
+-- ── Paid is hidden on rejected quotes in the portal ──
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type) values ('CL900101', pg_temp.fx('qb')::uuid, current_date, 400, 'Payment');
+select public.bs_check('an issued quote shows what is paid', (pg_temp.vq('acc_b', 'qb') ->> 'net_paid')::numeric = 400);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_quote_reject(pg_temp.fx('qb')::uuid, 'Declined');
+select public.bs_as(null);
+select public.bs_check('a rejected quote shows no paid or outstanding in the portal', pg_temp.vq('acc_b', 'qb') ->> 'status' = 'rejected' and pg_temp.vq('acc_b', 'qb') -> 'net_paid' = 'null'::jsonb and pg_temp.vq('acc_b', 'qb') -> 'outstanding' = 'null'::jsonb);
+
 do $$
 declare f int; t int;
 begin

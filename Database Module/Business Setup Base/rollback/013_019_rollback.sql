@@ -2,17 +2,25 @@
 -- Run with psql (it uses \ir to re-run the file that last defined a replaced function). Each migration adds its section
 -- at the top of the body, above the one before it, so the order here is the reverse of the order they were applied.
 -- WARNING: cases and everything stored only on them are lost. Quotes, letters, payments and forms keep their rows.
+-- WARNING (signed copies): every row of business_setup_signed_quotes is lost, including real client and staff uploads and their review
+-- notes. The files stay in storage but nothing points at them. Applying 015 again turns every already accepted quote into a Legacy
+-- row with no file, so a real signed copy is no longer linked after a rollback and re-apply.
 begin;
 
 -- ── 018_portal.sql ───────────────────────────────────────────────────
 -- The portal view goes back to 010's (no signed-copy fields) and the client upload function goes.
 drop function if exists public.business_setup_portal_signed_add(uuid, uuid, text);
+drop function if exists public.business_setup_portal_login_name(text);
 \ir ../migrations/010_portal.sql
 
 -- ── 015_documentation.sql ────────────────────────────────────────────
 -- hub_document_create goes back to 014's, and fee_item_save to 005's, by running those files again. Quotes keep their rows: the
 -- vat_rate and scope stored on their lines stay in the JSON, where nothing reads them, and a quote issued with line VAT keeps its amounts.
 -- The three company items go unless a service uses them (then they stay, at 0), and every other empty amount becomes 0.
+-- 006 (quote_reject), 011 (child lock, Accounts queue) and 014 (link client, accept, case_lost, create) come back in that order.
+\ir ../migrations/002_client_master_access.sql
+\ir ../migrations/006_quotes_tracker.sql
+\ir ../migrations/011_accounts_handover.sql
 \ir ../migrations/014_leads_ownership.sql
 \ir ../migrations/005_kyc_fees.sql
 -- Signed copies, payment by case and the letter gate (Task 8): payment_add and payment_reverse go back to 007's by running it again
@@ -25,6 +33,9 @@ drop function if exists public.business_setup_signed_decide(uuid, boolean, text,
 drop function if exists public.business_setup_case_paid_override(uuid, text);
 drop function if exists public.business_setup_case_net_paid(uuid);
 drop function if exists public.business_setup_case_documents(uuid);
+drop function if exists public.business_setup_case_locked(uuid);
+drop function if exists public.business_setup_case_link_client_for_payment(uuid, text, boolean);
+drop function if exists public.business_setup_case_link_client_body(uuid, text, boolean);
 drop table if exists public.business_setup_signed_quotes;
 delete from public.business_setup_fee_items f where f.grp = 'Company' and f.name in ('Company registration', 'Company renewal', 'Visa') and f.default_amount is null
    and not exists (select 1 from public.business_setup_services s where s.fee_item_id = f.id);
