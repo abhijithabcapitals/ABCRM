@@ -275,3 +275,15 @@ Needs the user at each step.
 - [ ] **Step 5: The user voids and removes the test documents.** Press Refresh. Expected: gone from Client Login, and the panel offers a new draft.
 - [ ] **Step 6: Press Send to Accounts on a case with Zoho errors or not connected.** Expected: still works. Skip if no safe case exists, and say so.
 - [ ] **Step 7: Update `Integrations Module/README.md`, commit** `Record Zoho live test`.
+
+### Task 11: Accounting draft invoices in the function
+
+**Files:** `Integrations Module/supabase/zoho-books/mapping.ts`, `handlers.ts`, their tests; a new Admin Base migration and rollback; `Database Module/Admin Base/tests`.
+
+Spec section 16. `accounting_jobs` becomes a third source with department `Accounting`: invoice only, Completed, fee above 0, linked client, exclusive 5% VAT. Permission `accounts.review` through `banking_can`. Read-back fills the job as section 16 says.
+
+### Task 12: Banking tab and Accounting panel
+
+**Files:** `Banking Module/components/Documentation.jsx`, `Accounting Module/components/JobWorkspace.jsx`, `Integrations Module/components/ZohoPanel.jsx`, `Integrations Module/logic/zohoPanel.js`, tests.
+
+Spec section 16. A **Zoho invoices** tab in Banking Documentation and the panel inside each Accounting job.

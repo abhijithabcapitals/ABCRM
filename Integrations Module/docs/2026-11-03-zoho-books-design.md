@@ -218,3 +218,19 @@ Going live needs separate approval at each step.
 ## 15. Not in this version
 
 Changing or deleting anything in Zoho, sending from the CRM, creating contacts or items, payment records and reconciliation, credit notes, stored PDF copies, PDFs in Client Login, background sync, webhooks, Zoho CRM, Mail or Sign, and importing past Zoho records.
+
+## 16. Where staff find it (added 2026-11-04)
+
+The user asked for Zoho invoices in the Documentation area of each module.
+
+| Module | Where | Notes |
+|---|---|---|
+| Business Setup | Documentation, inside each case, through its quotes | No new screen |
+| Business Banking | Documentation, a new **Zoho invoices** tab listing accepted quotations, each with the panel | Also stays in the account details step |
+| Accounting | The panel inside each job on the Accounting tab. Accounting has no Documentation tab | Invoice only. Jobs have no quote, so no estimate |
+
+**Accounting draft invoice.** Allowed for a Completed job with a fee above 0 and a linked client. One line: service name and period. Rate: the job's fee. **VAT is added on top** at 5% (user, 2026-11-04), so the mode is exclusive and the invoice total is the fee plus VAT. Reference: the job's own reference. Permission: `accounts.review`, for create, status and PDF.
+
+**Filling the job.** Once read-back sees the invoice as sent or later, the CRM records its number, date and total on the job, using the same fields and history as the typed entry. It never overwrites an invoice already recorded on the job: a different one gives a warning. A voided invoice is not cleared automatically; staff see a warning and clear it on the job. The typed entry stays for invoices made directly in Zoho.
+
+Client Login follows section 6, with `quote_id` empty.
