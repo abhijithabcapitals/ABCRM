@@ -4,6 +4,7 @@ export const FIXED_REPLY = "Opps! I dont Know";
 export const NO_INFO = "NO_INFO";
 export const MAX_MESSAGE = 4000;
 
+/** @type {Record<string, { fn: string }>} */
 export const ROUTES = {
   "AGT-08-SUPPORT": { fn: "support-agent" },
   "AGT-05-BIZDEV": { fn: "bd-agent" },
@@ -61,6 +62,7 @@ export function agentRequest(id, messages, { threadId, idempotencyKey } = {}) {
   return { messages, router: true };
 }
 
+/** @returns {{ answer: string, code?: undefined } | { code: string, answer?: undefined }} */
 export function readAgentReply(status, body) {
   if (typeof status !== "number" || status < 200 || status > 299) return { code: `agent_${status}` };
   const reply = body && body.reply;

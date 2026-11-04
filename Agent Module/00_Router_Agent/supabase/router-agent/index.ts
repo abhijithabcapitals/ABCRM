@@ -156,11 +156,11 @@ async function route(turn: Turn, authHeader: string) {
     }
 
     const result = readAgentReply(status, body);
-    if ("answer" in result) {
+    if (result.answer !== undefined) {
       await saveTurn(turn, result.answer, id);
       return { reply: result.answer, from: agent.name };
     }
-    note(result.code);
+    note(result.code!);
   }
   return await fixed("no_answer");
 }
