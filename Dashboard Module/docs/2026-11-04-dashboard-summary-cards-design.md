@@ -105,7 +105,7 @@ Dashboard opens (admin)
 
 Zoho allows 100 calls a minute and between 1,000 and 10,000 a day depending on plan. The plan is not known, so cards never call Zoho directly.
 
-**Table `zoho_finance_snapshot`.** One row: `id` (fixed at 1), `data` (jsonb), `as_of`, `status` (`ok`, `partial` or `failed`), `calls_used`, `refreshing_since`, `last_attempt_at`. Admins can select. Only the service role can write. Migration `Database Module/Admin Base/migrations/008_zoho_finance.sql`, with a rollback and a test.
+**Table `zoho_finance_snapshot`.** One row: `id` (fixed at 1), `data` (jsonb), `as_of`, `status` (`ok`, `partial` or `failed`), `calls_used`, `refreshing_since`, `last_attempt_at`. Admins can select. Only the service role can write. Migration `Database Module/Admin Base/migrations/009_zoho_finance.sql`, with a rollback and a test.
 
 **Function `zoho-finance`.** Admin only, checked the same way as `zoho-books`.
 
@@ -144,7 +144,7 @@ All amounts are in the organisation's base currency. Pure functions in `Integrat
 | Current ratio | Current assets divided by current liabilities |
 | Quick ratio | Current assets excluding stock, divided by current liabilities |
 | Cash ratio | Cash divided by current liabilities |
-| Debt to equity | Current plus long-term liabilities, divided by equity |
+| Debt to equity | Current, long-term and other liabilities (`other_liability`), divided by equity |
 | DSO | Accounts Receivable divided by the last 90 days' revenue, times 90 |
 | DPO | Accounts Payable divided by the last 90 days' cost, times 90 |
 
@@ -256,7 +256,7 @@ Each live step needs the user's approval when it is reached.
 
 1. Done: the Settings fields went live at caaf30a. Release the module cards.
 2. The user saves the three values in Settings.
-3. Apply `008_zoho_finance.sql` and deploy `zoho-finance` with `connection_test`.
+3. Apply `009_zoho_finance.sql` and deploy `zoho-finance` with `connection_test`.
 4. Run the proof of read-only and the live probe.
 5. Build the figures from the probe results, deploy the function again, and run the accuracy check.
 6. Release the Zoho cards.

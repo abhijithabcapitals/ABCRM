@@ -1,4 +1,7 @@
--- Restores 003's audit_trail_attach_all, then drops the Zoho finance snapshot table and its single row.
+-- Undoes 009_zoho_finance.sql. Restores 003's audit_trail_attach_all, then drops the Zoho finance snapshot table and its single row.
+
+begin;
+
 create or replace function public.audit_trail_attach_all() returns table (attached int, failed text[]) language plpgsql security definer set search_path = pg_catalog, public, pg_temp as $$
 declare
   t record;
@@ -28,5 +31,7 @@ begin
 end $$;
 
 revoke all on function public.audit_trail_attach_all() from public, anon, authenticated;
--- Drops the Zoho finance snapshot table and its single row. The Dashboard cards then have no Zoho figures until 008 runs again.
+-- Drops the Zoho finance snapshot table and its single row. The Dashboard cards then have no Zoho figures until 009 runs again.
 drop table if exists public.zoho_finance_snapshot;
+
+commit;

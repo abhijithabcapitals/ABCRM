@@ -1,5 +1,5 @@
 -- =====================================================================
--- Admin Base - Zoho finance snapshot                               008
+-- Admin Base - Zoho finance snapshot                               009
 -- =====================================================================
 -- One row (id = 1) holding the latest Zoho financial figures for the Dashboard cards.
 -- data: the figures as JSON. as_of: when they were read. status: ok, partial or failed (null until the first read).
@@ -10,8 +10,13 @@
 -- Left out of the audit trail: it is a rebuildable cache of Zoho figures and Zoho stays the record. Logging it would copy
 -- the financial data into the permanent audit_trail on every refresh. So this file redefines audit_trail_attach_all (from 003,
 -- the newest definition, only the exclusion list changed) and removes the trigger if the hourly job already attached it.
--- Run after 005. NOT APPLIED to the live database. Idempotent. Undo: rollback/008_rollback.sql
+-- Prerequisites: 001 (admin_is) and 003 (audit_trail_capture, and the audit_trail_attach_all this replaces).
+-- After applying, run: notify pgrst, 'reload schema';  so PostgREST can see the new table.
+-- NOT APPLIED to the live database. Idempotent. Undo: rollback/009_zoho_finance_rollback.sql
 -- =====================================================================
+
+begin;
+
 create table if not exists public.zoho_finance_snapshot (
   id int primary key default 1 check (id = 1),
   data jsonb,
@@ -63,3 +68,5 @@ end $$;
 
 revoke all on function public.audit_trail_attach_all() from public, anon, authenticated;
 drop trigger if exists audit_trail_row on public.zoho_finance_snapshot;
+
+commit;
