@@ -239,3 +239,87 @@ Deno.test("odd field names are not reported", async () => {
   assert(!out.transactionFields.includes("cf_secret"));
   assert(!out.transactionFields.includes("Acme Co"));
 });
+
+function checkDeps(chart: Json[], bank: Json = undefined) {
+  return depsWith((p, q) => {
+    if (p === "/chartofaccounts") return { chartofaccounts: chart };
+    if (p === "/bankaccounts" && bank) return bank;
+    return sample(p, q);
+  });
+}
+const acct = (id: string, type: string, current_balance: Json, parent_account_id?: string) => ({ account_id: id, account_type: type, current_balance, parent_account_id });
+
+Deno.test("probe counts parents with a balance and tests whether they equal their children", async () => {
+  const rollup = await handle("probe", {}, checkDeps([
+    acct("P", "expense", 30), acct("C1", "expense", 10, "P"), acct("C2", "expense", 20, "P"),
+    acct("Q", "expense", 0), acct("C3", "expense", 5, "Q"),
+  ])) as Json;
+  assertEquals(rollup.parentsWithBalance, 1);
+  assertEquals(rollup.parentEqualsChildren, true);
+
+  const own = await handle("probe", {}, checkDeps([acct("P", "expense", 31), acct("C1", "expense", 10, "P")])) as Json;
+  assertEquals(own.parentsWithBalance, 1);
+  assertEquals(own.parentEqualsChildren, false);
+
+  const none = await handle("probe", {}, checkDeps([acct("P", "expense", 0), acct("C1", "expense", 10, "P"), acct("X", "bank", 4)])) as Json;
+  assertEquals(none.parentsWithBalance, 0);
+  assertEquals(none.parentEqualsChildren, "unknown");
+
+  const missing = await handle("probe", {}, checkDeps([acct("P", "expense", null), acct("C1", "expense", 10, "P")])) as Json;
+  assertEquals(missing.parentsWithBalance, "unknown");
+  assertEquals(missing.parentEqualsChildren, "unknown");
+});
+
+Deno.test("probe tests assets minus liabilities against equity", async () => {
+  const check = async (chart: Json[]) => ((await handle("probe", {}, checkDeps(chart))) as Json).assetsMinusLiabilitiesEqualsEquity;
+  const base = [acct("1", "bank", 100), acct("2", "fixed_asset", 50), acct("3", "accounts_payable", 30), acct("4", "long_term_liability", 20)];
+  assertEquals(await check([...base, acct("5", "equity", 100), acct("6", "income", 999)]), true);
+  assertEquals(await check([...base, acct("5", "equity", 60)]), false);
+  assertEquals(await check([...base, acct("5", "equity", null)]), "unknown");
+  assertEquals(await check([...base, acct("5", "equity", 100), acct("7", "some_new_type", 8)]), "unknown");
+  assertEquals(await check([]), "unknown");
+});
+
+Deno.test("probe tests the bank list against the chart's bank plus cash, leaving out cards", async () => {
+  const chart = [acct("1", "bank", 100), acct("2", "cash", 20), acct("3", "credit_card", 9)];
+  const check = async (bank: Json) => ((await handle("probe", {}, checkDeps(chart, bank))) as Json).cashMatchesChart;
+  const row = (over: Json) => ({ account_id: "1", account_type: "bank", currency_code: "AED", ...over });
+  assertEquals(await check({ bankaccounts: [row({ bcy_balance: 120 }), row({ account_type: "credit_card", bcy_balance: 9 })] }), true);
+  assertEquals(await check({ bankaccounts: [row({ balance: 120 })] }), true);
+  assertEquals(await check({ bankaccounts: [row({ bcy_balance: 100 })] }), false);
+  assertEquals(await check({ bankaccounts: [row({ currency_code: "USD", balance: 120 })] }), "unknown");
+  assertEquals(await check({ bankaccounts: [] }), "unknown");
+  assertEquals(await check({ bankaccounts: [row({ bcy_balance: 120 })], page_context: { has_more_page: true } }), "unknown");
+});
+
+Deno.test("a failed or cut-off chart gives unknown for all the new checks", async () => {
+  const failed = await handle("probe", {}, depsWith((p, q) => {
+    if (p === "/chartofaccounts") throw new ZohoHttpError(500, "x");
+    return sample(p, q);
+  })) as Json;
+  const cut = await handle("probe", {}, depsWith((p, q) => {
+    if (p === "/chartofaccounts") return { chartofaccounts: [acct("1", "bank", 1)], page_context: { has_more_page: true } };
+    return sample(p, q);
+  })) as Json;
+  for (const out of [failed, cut]) {
+    for (const k of ["parentsWithBalance", "parentEqualsChildren", "assetsMinusLiabilitiesEqualsEquity", "cashMatchesChart"]) {
+      assertEquals(out[k], "unknown", k);
+    }
+  }
+});
+
+Deno.test("the new checks leak no amount, name or ID", async () => {
+  const out = await handle("probe", {}, checkDeps([
+    { ...acct("9001001", "bank", 987654.32), account_name: NAMES[1] },
+    { ...acct("9001002", "equity", 987654.32), account_name: NAMES[2] },
+    { ...acct("9001003", "expense", 123456.78, "9001009"), account_name: NAMES[3] },
+    { ...acct("9001009", "expense", 123456.78), account_name: NAMES[0] },
+  ], { bankaccounts: [{ account_id: "9001001", account_name: NAMES[1], account_type: "bank", currency_code: "AED", bcy_balance: 987654.32 }] })) as Json;
+  assertEquals(out.parentEqualsChildren, true);
+  assertEquals(out.assetsMinusLiabilitiesEqualsEquity, true);
+  assertEquals(out.cashMatchesChart, true);
+  const text = JSON.stringify(out);
+  for (const bad of [...NAMES, "987654", "123456", "9001001", "9001002", "9001003", "9001009"]) {
+    assert(!text.includes(bad), `probe output leaks ${bad}`);
+  }
+});

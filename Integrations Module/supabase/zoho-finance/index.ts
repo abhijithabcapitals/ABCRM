@@ -65,6 +65,7 @@ Deno.serve(async (req) => {
       return { ...zohoFor({ clientId, clientSecret, refreshToken, orgId, dc }), orgId };
     },
     now: () => new Date(),
+    scrub: (text: string) => scrub(text, secretValues),
   };
 
   try {

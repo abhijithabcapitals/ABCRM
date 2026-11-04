@@ -1,7 +1,8 @@
 // Financial figures for the Dashboard cards. Pure functions over plain inputs, with no knowledge of Zoho's
 // responses (zohoSources.ts does that mapping). Rules: design document section 5.
 // Dates are yyyy-mm-dd strings. Margins and shares are percent numbers: 10 means 10%.
-// A zero divisor or an unknown input gives null, which the card shows as "n/a". Never zero.
+// A zero or negative divisor, or an unknown input, gives null, which the card shows as "n/a". Never zero.
+// Sums are rounded to cents before any ratio, so floating point dust cannot pass for a real divisor.
 
 export type OpenDoc = {
   name: string;
@@ -17,7 +18,8 @@ export type BaseDoc = { name: string; dueDate: string | null; amount: number };
 export type Balance = { type: string; balance: number | null };
 export type CashAccount = { name: string; balance: number | null };
 // Amount is in the base currency, positive for income earned or cost incurred, negative for a reversal.
-export type LedgerEntry = { account: string; kind: "revenue" | "expense" | "cogs"; date: string; amount: number };
+// otherIncome counts in net profit and net margin only: never in revenue, gross margin or DSO.
+export type LedgerEntry = { account: string; kind: "revenue" | "otherIncome" | "expense" | "cogs"; date: string; amount: number };
 
 // A null list means that section was not finished in this refresh.
 export type FiguresInput = {
@@ -61,8 +63,8 @@ export type SnapshotData = {
   ar: DocSection | null;
   ap: DocSection | null;
   cash: { total: number | null; accounts: CashAccount[] } | null;
-  monthly: { month: string; revenue: number; cost: number; cogs: number }[] | null;
-  ytd: { revenue: number; cost: number; profit: number; netMargin: number | null; grossMargin: number | null } | null;
+  monthly: { month: string; revenue: number; otherIncome: number; cost: number; cogs: number }[] | null;
+  ytd: { revenue: number; otherIncome: number; cost: number; profit: number; netMargin: number | null; grossMargin: number | null } | null;
   topCosts: { name: string; amount: number }[] | null;
   ratios: {
     current: number | null;
@@ -72,21 +74,24 @@ export type SnapshotData = {
     dso: number | null;
     dpo: number | null;
   };
-  health: Health | null;
+  health: Health;
   partial: string[];
 };
 
 const DAY = 86_400_000;
-const money = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const money = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100 + 0; // + 0 turns -0 into 0.
 const fine = (n: number) => Math.round(n * 10000) / 10000;
 const dayNumber = (iso: string) => Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) / DAY;
-const ratioOf = (top: number | null, bottom: number | null) => (top === null || bottom === null || bottom === 0 ? null : top / bottom);
+// A negative divisor is not a usable ratio: negative equity must not read as good debt to equity.
+const ratioOf = (top: number | null, bottom: number | null) => (top === null || bottom === null || bottom <= 0 ? null : top / bottom);
 const rounded = (n: number | null) => (n === null ? null : fine(n));
 
 function daysPast(dueDate: string | null, today: string): number {
   if (!dueDate) return 0; // No due date cannot be overdue.
   const due = dayNumber(dueDate);
-  return Number.isNaN(due) ? 0 : dayNumber(today) - due;
+  // zohoSources.ts refuses these first. Calling it current would understate what is overdue.
+  if (Number.isNaN(due)) throw new Error("Open document has an unreadable due date.");
+  return dayNumber(today) - due;
 }
 
 export function agingBuckets(docs: BaseDoc[], today: string): Aging {
@@ -135,7 +140,8 @@ function toBase(docs: OpenDoc[], currency: string): { docs: BaseDoc[]; excluded:
       excluded++;
       continue;
     }
-    out.push({ name: d.name, dueDate: d.dueDate, amount: d.balance * rate });
+    // Each document is rounded, as Zoho rounds it, so the sum can match Zoho's ledger.
+    out.push({ name: d.name, dueDate: d.dueDate, amount: money(d.balance * rate) });
   }
   return { docs: out, excluded };
 }
@@ -149,7 +155,7 @@ function sumTypes(balances: Balance[] | null, types: string[]): number | null {
     if (b.balance === null) return null;
     sum += b.balance;
   }
-  return sum;
+  return money(sum);
 }
 
 function docSection(docs: OpenDoc[], currency: string, today: string, balances: Balance[] | null, ledgerType: string): DocSection {
@@ -171,7 +177,7 @@ function docSection(docs: OpenDoc[], currency: string, today: string, balances: 
   };
 }
 
-const overdueShare = (s: DocSection | null) => (s === null || s.total === 0 ? null : ((s.total - s.aging.current) / s.total) * 100);
+const overdueShare = (s: DocSection | null) => (s === null ? null : percentOf(money(s.total - s.aging.current), s.total));
 
 function fiscalStart(today: string, startMonth: number): string {
   const year = Number(today.slice(0, 4));
@@ -194,9 +200,9 @@ export function ledgerStart(today: string): string {
 const COST_KINDS = ["expense", "cogs"];
 
 function ledgerFigures(ledger: LedgerEntry[], today: string, from: string) {
-  const months = new Map<string, { revenue: number; cost: number; cogs: number }>();
-  for (let i = 11; i >= 0; i--) months.set(monthBack(today, i), { revenue: 0, cost: 0, cogs: 0 });
-  let revenue = 0, cost = 0, cogs = 0, revenue90 = 0, cost90 = 0, cost3Months = 0;
+  const months = new Map<string, { revenue: number; otherIncome: number; cost: number; cogs: number }>();
+  for (let i = 11; i >= 0; i--) months.set(monthBack(today, i), { revenue: 0, otherIncome: 0, cost: 0, cogs: 0 });
+  let revenueSum = 0, otherIncomeSum = 0, costSum = 0, cogsSum = 0, revenue90 = 0, cost90 = 0, cost3Months = 0;
   const expenses = new Map<string, number>();
   const start90 = dayNumber(today) - 89; // 90 days, counting today.
   const thisMonth = monthBack(today, 0);
@@ -208,13 +214,15 @@ function ledgerFigures(ledger: LedgerEntry[], today: string, from: string) {
     const m = months.get(e.date.slice(0, 7));
     if (m) {
       if (e.kind === "revenue") m.revenue += e.amount;
+      if (e.kind === "otherIncome") m.otherIncome += e.amount;
       if (isCost) m.cost += e.amount;
       if (e.kind === "cogs") m.cogs += e.amount;
     }
     if (e.date >= from) {
-      if (e.kind === "revenue") revenue += e.amount;
-      if (isCost) cost += e.amount;
-      if (e.kind === "cogs") cogs += e.amount;
+      if (e.kind === "revenue") revenueSum += e.amount;
+      if (e.kind === "otherIncome") otherIncomeSum += e.amount;
+      if (isCost) costSum += e.amount;
+      if (e.kind === "cogs") cogsSum += e.amount;
       if (e.kind === "expense") expenses.set(e.account, (expenses.get(e.account) ?? 0) + e.amount);
     }
     if (dayNumber(e.date) >= start90) {
@@ -225,21 +233,33 @@ function ledgerFigures(ledger: LedgerEntry[], today: string, from: string) {
     if (isCost && month >= start3Months && month < thisMonth) cost3Months += e.amount;
   }
 
+  const revenue = money(revenueSum);
+  const otherIncome = money(otherIncomeSum);
+  const cost = money(costSum);
+  const profit = money(revenue + otherIncome - cost);
+  const netMargin = percentOf(profit, revenue);
   return {
-    monthly: [...months].map(([month, v]) => ({ month, revenue: money(v.revenue), cost: money(v.cost), cogs: money(v.cogs) })),
+    monthly: [...months].map(([month, v]) => ({
+      month,
+      revenue: money(v.revenue),
+      otherIncome: money(v.otherIncome),
+      cost: money(v.cost),
+      cogs: money(v.cogs),
+    })),
     ytd: {
-      revenue: money(revenue),
-      cost: money(cost),
-      profit: money(revenue - cost),
-      netMargin: rounded(percentOf(revenue - cost, revenue)),
-      grossMargin: rounded(percentOf(revenue - cogs, revenue)),
+      revenue,
+      otherIncome,
+      cost,
+      profit,
+      netMargin: rounded(netMargin),
+      grossMargin: rounded(percentOf(money(revenue - cogsSum), revenue)),
     },
-    rawNetMargin: percentOf(revenue - cost, revenue),
+    rawNetMargin: netMargin,
     topCosts: largest(expenses, 5),
-    revenue90,
-    cost90,
+    revenue90: money(revenue90),
+    cost90: money(cost90),
     // Average monthly cost over the last 3 complete months. The current month is not over, so it is left out.
-    avgMonthlyCost: cost3Months / 3,
+    avgMonthlyCost: money(cost3Months / 3),
   };
 }
 
@@ -264,8 +284,8 @@ export function buildFigures(input: FiguresInput, today: string): SnapshotData {
   const currentLiabilities = sumTypes(balances, ["accounts_payable", "credit_card", "other_current_liability"]);
   const longTerm = sumTypes(balances, ["long_term_liability"]);
   const equity = sumTypes(balances, ["equity"]);
-  const quickAssets = currentAssets === null || stock === null ? null : currentAssets - stock;
-  const allLiabilities = currentLiabilities === null || longTerm === null ? null : currentLiabilities + longTerm;
+  const quickAssets = currentAssets === null || stock === null ? null : money(currentAssets - stock);
+  const allLiabilities = currentLiabilities === null || longTerm === null ? null : money(currentLiabilities + longTerm);
 
   const current = ratioOf(currentAssets, currentLiabilities);
   const dso = ar && led ? ratioOf(ar.total, led.revenue90) : null;
@@ -276,8 +296,7 @@ export function buildFigures(input: FiguresInput, today: string): SnapshotData {
   if (!ap) partial.push("ap");
   if (!cashKnown) partial.push("cash");
   if (!led) partial.push("monthly", "ytd", "topCosts");
-  // Ratios and health draw on every source. Ratios keep what could be worked out, each other one being null.
-  // Health gives no score at all, because a score from part of the data could read as a complete one.
+  // Ratios and health draw on every source. Each keeps what could be worked out, and is marked incomplete.
   const unfinished = !ar || !ap || !cashKnown || !led || balances === null;
   if (unfinished) partial.push("ratios", "health");
 
@@ -298,10 +317,11 @@ export function buildFigures(input: FiguresInput, today: string): SnapshotData {
       dso: rounded(dso === null ? null : dso * 90),
       dpo: rounded(dpo === null ? null : dpo * 90),
     },
-    health: unfinished ? null : healthScore({
+    // A factor whose source is unfinished is left out and named, as a factor showing n/a is. "health" in partial marks it.
+    health: healthScore({
       currentRatio: current,
-      cashCover: ratioOf(cashTotal, led.avgMonthlyCost),
-      netMargin: led.rawNetMargin,
+      cashCover: led ? ratioOf(cashTotal, led.avgMonthlyCost) : null,
+      netMargin: led ? led.rawNetMargin : null,
       arOverdueShare: overdueShare(ar),
       apOverdueShare: overdueShare(ap),
     }),
@@ -337,9 +357,11 @@ export function healthScore(factors: HealthFactors): Health {
       missing.push(f.label);
       continue;
     }
-    const rating = f.rate(value); // Rated on the exact value, before rounding for storage.
+    // Rated on the stored value, so 3.3 / 2.2, which is 1.4999999999999998 in floating point, is the true 1.5 it shows.
+    const shown = fine(value);
+    const rating = f.rate(shown);
     points += POINTS[rating];
-    scored.push({ key: f.key, label: f.label, value: fine(value), rating });
+    scored.push({ key: f.key, label: f.label, value: shown, rating });
   }
   if (scored.length === 0) return { score: null, band: null, factors: scored, missing };
   const score = Math.round((points / (scored.length * 20)) * 1000) / 10;

@@ -13,7 +13,7 @@ export type ZohoReader = {
   orgId: string;
   get(path: string, query?: Record<string, string>): Promise<Json>;
 };
-export type SourceAccount = Balance & { id: string; name: string };
+export type SourceAccount = Balance & { id: string; name: string; parentId: string | null };
 
 // UNVERIFIED: the documentation's example uses this path. Section 3 of the design keeps /chartofaccounts/transactions
 // as the other candidate until the probe has run.
@@ -28,6 +28,13 @@ const num = (v: unknown): number | null => {
 };
 const text = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 const blank = (v: unknown) => v === undefined || v === null || v === "";
+// Read to the day. Zoho may send a longer timestamp. Returns null for anything that is not a real date.
+const dateOf = (v: unknown): string | null => {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(v)) return null;
+  const day = v.slice(0, 10);
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+};
 
 // Reads every page of a list. A reply without the list is an error: an empty result would look like a real zero.
 async function readAll(zoho: ZohoReader, path: string, key: string, query: Record<string, string> = {}): Promise<Json[]> {
@@ -75,9 +82,10 @@ export async function readOrganization(zoho: ZohoReader): Promise<{ currency: st
 const BALANCE_SIGN: Record<string, 1 | -1> = {};
 
 // UNVERIFIED: a parent account's current_balance is assumed to hold only its own postings. If it rolls up its
-// children, sums here would count those twice. The rows carry parent_account_id for that fix.
+// children, sums here would count those twice. The probe's parentEqualsChildren tests this, and parentId is kept for a fix.
 // UNVERIFIED: whether equity accounts hold this year's earnings. Zoho's balance sheet may work that out separately,
-// which would make equity here too low and debt to equity too high. Paging this list with per_page and page is also assumed.
+// which would make equity here too low and debt to equity too high. The probe's assetsMinusLiabilitiesEqualsEquity
+// tests this. Paging this list with per_page and page is also assumed.
 export async function readAccounts(zoho: ZohoReader): Promise<SourceAccount[]> {
   const rows = await readAll(zoho, "/chartofaccounts", "chartofaccounts", { showbalance: "true" });
   return rows.map((a) => {
@@ -88,6 +96,7 @@ export async function readAccounts(zoho: ZohoReader): Promise<SourceAccount[]> {
       name: String(a?.account_name ?? ""),
       type,
       balance: balance === null ? null : balance * (BALANCE_SIGN[type] ?? 1),
+      parentId: blank(a?.parent_account_id) ? null : String(a.parent_account_id),
     };
   });
 }
@@ -110,9 +119,13 @@ async function readOpen(zoho: ZohoReader, path: string, key: string, filters: st
       if (balance !== null && balance <= 0) continue;
       // Without an ID, documents would collapse into one and the total would come out low.
       if (blank(d?.[idField])) throw new Error(`Zoho ${key} row had no ${idField}.`);
+      // A due date that cannot be read fails: treated as current, it would understate what is overdue. A blank one
+      // stays blank, and figures.ts counts it as current. UNVERIFIED: whether Zoho ever sends a blank due date.
+      const dueDate = dateOf(d?.due_date);
+      if (dueDate === null && !blank(d?.due_date)) throw new Error(`Zoho ${key} row had an unreadable due date.`);
       byId.set(String(d[idField]), {
         name: String(d?.[nameField] ?? ""),
-        dueDate: text(d?.due_date),
+        dueDate,
         balance,
         currency: text(d?.currency_code),
         // UNVERIFIED: balance is assumed to be in the document's currency, and exchange_rate to be base currency per
@@ -135,18 +148,21 @@ const CASH_TYPES = ["bank", "cash"];
 // currency needs bcy_balance (UNVERIFIED: read as the base currency balance); without it the balance is unknown.
 // UNVERIFIED: whether the list holds cash accounts such as petty cash. Any bank or cash account in the chart of
 // accounts but not in the list is added from there, and its balance is assumed to be in the base currency.
+// UNVERIFIED: this join assumes account_id is the same in /bankaccounts and /chartofaccounts. If it differs, every bank
+// account is added twice. The probe's cashMatchesChart tests the totals.
 export async function readCash(zoho: ZohoReader, accounts: SourceAccount[] | null, currency: string): Promise<CashAccount[]> {
   const rows = await readAll(zoho, "/bankaccounts", "bankaccounts");
   const seen = new Set<string>();
   const out: CashAccount[] = [];
   for (const a of rows) {
     if (!blank(a?.account_type) && !CASH_TYPES.includes(a.account_type)) continue;
-    seen.add(String(a?.account_id));
+    seen.add(String(a?.account_id)); // UNVERIFIED join key, see above.
     const base = num(a?.bcy_balance);
     const own = a?.currency_code === currency ? num(a?.balance) : null;
     out.push({ name: String(a?.account_name ?? ""), balance: base ?? own });
   }
   for (const a of accounts ?? []) {
+    // UNVERIFIED join key, see above.
     if (CASH_TYPES.includes(a.type) && !seen.has(a.id)) out.push({ name: a.name, balance: a.balance });
   }
   return out;
@@ -154,15 +170,19 @@ export async function readCash(zoho: ZohoReader, accounts: SourceAccount[] | nul
 
 // ---- Revenue and cost ----
 
-// Both income types count as revenue and all three cost types as cost, so net profit can match Zoho's own
-// Profit and Loss screen. Section 8's accuracy check compares them.
+// Revenue is income accounts only. Other income counts in net profit and net margin alone. Other expense counts in cost
+// and net profit, and is not cost of goods sold. So net profit can match Zoho's own Profit and Loss screen, which
+// section 8's accuracy check compares.
 const KINDS: Record<string, LedgerEntry["kind"]> = {
   income: "revenue",
-  other_income: "revenue",
+  other_income: "otherIncome",
   expense: "expense",
   other_expense: "expense",
   cost_of_goods_sold: "cogs",
 };
+
+// The fewest calls readLedger can make: one per account. refresh.ts skips the ledger when these do not fit the calls left.
+export const ledgerAccountCount = (accounts: SourceAccount[]) => accounts.filter((a) => KINDS[a.type]).length;
 
 // UNVERIFIED: date_start and date_end are the documented filter names, and the probe tests a second style.
 // UNVERIFIED: debit_amount and credit_amount are assumed to be in the base currency, even where currency_code differs.
@@ -176,15 +196,16 @@ export async function readLedger(zoho: ZohoReader, accounts: SourceAccount[], fr
     const rows = await readAll(zoho, TRANSACTIONS_PATH, "transactions", { account_id: a.id, date_start: from, date_end: to });
     for (const r of rows) {
       // A row that cannot be read fails the refresh. Dropping it would understate the totals without any sign.
-      const date = text(r?.transaction_date) ?? text(r?.date);
-      if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) throw new Error("Zoho transaction had no readable date.");
+      const date = dateOf(text(r?.transaction_date) ?? text(r?.date));
+      if (!date) throw new Error("Zoho transaction had no readable date.");
       const debit = num(r?.debit_amount);
       const credit = num(r?.credit_amount);
       const unreadable = (!blank(r?.debit_amount) && debit === null) || (!blank(r?.credit_amount) && credit === null);
       if (unreadable || (debit === null && credit === null)) throw new Error("Zoho transaction had no readable amount.");
       // Income grows with credits, and costs with debits. The opposite side is a reversal, such as a credit note.
       const net = (credit ?? 0) - (debit ?? 0);
-      out.push({ account: a.name, kind, date: date.slice(0, 10), amount: kind === "revenue" ? net : -net || 0 });
+      const earned = kind === "revenue" || kind === "otherIncome";
+      out.push({ account: a.name, kind, date, amount: earned ? net : -net || 0 });
     }
   }
   return out;

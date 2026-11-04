@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1";
+import { assertEquals, assertThrows } from "jsr:@std/assert@1";
 import { agingBuckets, buildFigures, type FiguresInput, healthBand, healthScore, topOverdue } from "./figures.ts";
 
 const today = "2026-11-04";
@@ -206,7 +206,7 @@ Deno.test("AR and AP carry aging and the top overdue list", () => {
   assertEquals(f.ap!.top, [{ name: "Vend", amount: 140 }]);
 });
 
-const entry = (account: string, kind: "revenue" | "expense" | "cogs", date: string, amount: number) => ({ account, kind, date, amount });
+const entry = (account: string, kind: "revenue" | "otherIncome" | "expense" | "cogs", date: string, amount: number) => ({ account, kind, date, amount });
 
 Deno.test("monthly has 12 months ending this month, and ignores what is outside them", () => {
   const f = buildFigures(input({
@@ -220,8 +220,8 @@ Deno.test("monthly has 12 months ending this month, and ignores what is outside 
     ],
   }), today);
   assertEquals(f.monthly!.length, 12);
-  assertEquals(f.monthly![0], { month: "2025-12", revenue: 40, cost: 0, cogs: 0 });
-  assertEquals(f.monthly![11], { month: "2026-11", revenue: 100, cost: 50, cogs: 20 });
+  assertEquals(f.monthly![0], { month: "2025-12", revenue: 40, otherIncome: 0, cost: 0, cogs: 0 });
+  assertEquals(f.monthly![11], { month: "2026-11", revenue: 100, otherIncome: 0, cost: 50, cogs: 20 });
 });
 
 Deno.test("year to date figures by hand", () => {
@@ -235,7 +235,7 @@ Deno.test("year to date figures by hand", () => {
   }), today);
   assertEquals(f.period, { from: "2026-01-01", to: today });
   // Profit 1000 - 500 = 500. Net margin 500 / 1000 = 50%. Gross margin (1000 - 200) / 1000 = 80%.
-  assertEquals(f.ytd, { revenue: 1000, cost: 500, profit: 500, netMargin: 50, grossMargin: 80 });
+  assertEquals(f.ytd, { revenue: 1000, otherIncome: 0, cost: 500, profit: 500, netMargin: 50, grossMargin: 80 });
 });
 
 Deno.test("year to date follows the fiscal start month, across a year boundary", () => {
@@ -393,16 +393,19 @@ Deno.test("an unfinished section has no total and is named in partial", () => {
   const noAr = buildFigures(input({ receivables: null }), today);
   assertEquals(noAr.ar, null);
   assertEquals(noAr.partial, ["ar", "ratios", "health"]);
-  assertEquals(noAr.health, null);
+  assertEquals(noAr.health.missing.includes("Receivables overdue share"), true);
 
   const noLedger = buildFigures(input({ ledger: null }), today);
   assertEquals([noLedger.monthly, noLedger.ytd, noLedger.topCosts], [null, null, null]);
   assertEquals(noLedger.partial, ["monthly", "ytd", "topCosts", "ratios", "health"]);
+  assertEquals(noLedger.health.missing.includes("Cash cover"), true);
+  assertEquals(noLedger.health.missing.includes("Net margin"), true);
 
   const noCash = buildFigures(input({ cash: null, balances: [{ type: "accounts_payable", balance: 10 }] }), today);
   assertEquals(noCash.cash, null);
   assertEquals(noCash.ratios.cash, null);
   assertEquals(noCash.partial, ["cash", "ratios", "health"]);
+  assertEquals(noCash.health.missing.includes("Cash cover"), true);
 });
 
 Deno.test("what did finish is still calculated when another section did not", () => {
@@ -430,4 +433,127 @@ Deno.test("a complete input has an empty partial and carries the currency", () =
   const f = buildFigures(input(), today);
   assertEquals(f.partial, []);
   assertEquals(f.currency, "AED");
+});
+
+Deno.test("a true 1.5 current ratio from 3.3 / 2.2 rates good, despite floating point", () => {
+  const f = buildFigures(input({
+    balances: [{ type: "bank", balance: 3.3 }, { type: "accounts_payable", balance: 2.2 }],
+  }), today);
+  assertEquals(f.ratios.current, 1.5);
+  assertEquals(f.health.factors.find((x) => x.key === "currentRatio")!.rating, "good");
+});
+
+Deno.test("healthScore rates on the rounded value, so an exact 20% share is good", () => {
+  assertEquals(rating("arOverdueShare", ((3 - 2.4) / 3) * 100), "good");
+  assertEquals(rating("currentRatio", 3.3 / 2.2), "good");
+});
+
+Deno.test("an overdue share of exactly 20% from real documents rates good", () => {
+  const f = buildFigures(input({ receivables: [open(2.4), open(0.6, "AED", 1, 5)] }), today);
+  assertEquals(f.health.factors.find((x) => x.key === "arOverdueShare")!.rating, "good");
+});
+
+Deno.test("a divisor of float dust is zero, so its ratios are null", () => {
+  const f = buildFigures(input({
+    balances: [
+      { type: "bank", balance: 100 },
+      { type: "accounts_payable", balance: 0.1 },
+      { type: "accounts_payable", balance: 0.2 },
+      { type: "accounts_payable", balance: -0.3 },
+      { type: "equity", balance: 0.1 },
+      { type: "equity", balance: 0.2 },
+      { type: "equity", balance: -0.3 },
+    ],
+    ledger: [
+      entry("Sales", "revenue", "2026-05-01", 0.1),
+      entry("Sales", "revenue", "2026-05-01", 0.2),
+      entry("Sales", "revenue", "2026-05-01", -0.3),
+      entry("Rent", "expense", "2026-05-01", 10),
+    ],
+  }), today);
+  assertEquals(f.ytd!.revenue, 0);
+  assertEquals(f.ytd!.netMargin, null);
+  assertEquals(f.ytd!.grossMargin, null);
+  assertEquals(f.ratios.current, null);
+  assertEquals(f.ratios.debtToEquity, null);
+});
+
+Deno.test("a negative divisor gives null: equity, liabilities and revenue", () => {
+  const f = buildFigures(input({
+    receivables: [open(100)],
+    balances: [
+      { type: "bank", balance: 100 },
+      { type: "accounts_payable", balance: -50 },
+      { type: "long_term_liability", balance: 300 },
+      { type: "equity", balance: -200 },
+    ],
+    ledger: [entry("Sales", "revenue", daysAgo(1), -1000), entry("Rent", "expense", daysAgo(1), 500)],
+  }), today);
+  assertEquals(f.ratios.debtToEquity, null);
+  assertEquals(f.ratios.current, null);
+  assertEquals(f.ratios.quick, null);
+  assertEquals(f.ratios.dso, null);
+  assertEquals(f.ytd!.netMargin, null);
+  assertEquals(f.ytd!.grossMargin, null);
+  assertEquals(f.ytd!.profit, -1500);
+});
+
+Deno.test("negative average cost gives no cash cover", () => {
+  const f = buildFigures(input({
+    cash: [{ name: "Main", balance: 100 }],
+    ledger: [entry("Rent", "expense", "2026-10-01", -30)],
+  }), today);
+  assertEquals(f.health.missing.includes("Cash cover"), true);
+});
+
+Deno.test("other income counts in profit and net margin, not gross margin or DSO", () => {
+  const f = buildFigures(input({
+    receivables: [open(500)],
+    ledger: [
+      entry("Sales", "revenue", daysAgo(1), 1000),
+      entry("Interest", "otherIncome", daysAgo(1), 200),
+      entry("Goods", "cogs", daysAgo(1), 400),
+    ],
+  }), today);
+  // Gross (1000 - 400) / 1000 = 60%. Profit 1000 + 200 - 400 = 800. Net 800 / 1000 = 80%. DSO 500 / 1000 * 90 = 45.
+  assertEquals(f.ytd, { revenue: 1000, otherIncome: 200, cost: 400, profit: 800, netMargin: 80, grossMargin: 60 });
+  assertEquals(f.ratios.dso, 45);
+  assertEquals(f.monthly!.reduce((s, m) => s + m.otherIncome, 0), 200);
+  assertEquals(f.monthly!.reduce((s, m) => s + m.revenue, 0), 1000);
+});
+
+Deno.test("other income alone gives profit but no margin", () => {
+  const f = buildFigures(input({ ledger: [entry("Interest", "otherIncome", daysAgo(1), 200)] }), today);
+  assertEquals(f.ytd!.profit, 200);
+  assertEquals(f.ytd!.netMargin, null);
+});
+
+Deno.test("health is always scored: unfinished sources are left out, named, and marked partial", () => {
+  const f = buildFigures(input({
+    ledger: null,
+    receivables: [open(100)],
+    payables: [open(100)],
+    cash: [{ name: "Main", balance: 100 }],
+    balances: [{ type: "bank", balance: 200 }, { type: "accounts_payable", balance: 100 }],
+  }), today);
+  assertEquals(f.health.missing, ["Cash cover", "Net margin"]);
+  assertEquals(f.health.score, 100);
+  assertEquals(f.health.band, "Healthy");
+  assertEquals(f.partial.includes("health"), true);
+});
+
+Deno.test("nothing finished gives no score, but health is still an object", () => {
+  const f = buildFigures(input({ receivables: null, payables: null, balances: null, cash: null, ledger: null }), today);
+  assertEquals(f.health.score, null);
+  assertEquals(f.health.missing.length, 5);
+});
+
+Deno.test("each converted document is rounded to cents, as Zoho does", () => {
+  // 1.11 x 3.6725 = 4.076475, so 4.08 each and 8.16 together. Unrounded it would sum to 8.15.
+  const f = buildFigures(input({ receivables: [open(1.11, "USD", 3.6725), open(1.11, "USD", 3.6725)] }), today);
+  assertEquals(f.ar!.total, 8.16);
+});
+
+Deno.test("a malformed due date in plain input is an error, never current", () => {
+  assertThrows(() => agingBuckets([{ name: "A", dueDate: "soon", amount: 5 }], today));
 });

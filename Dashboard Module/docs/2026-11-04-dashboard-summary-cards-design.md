@@ -105,7 +105,7 @@ Dashboard opens (admin)
 
 Zoho allows 100 calls a minute and between 1,000 and 10,000 a day depending on plan. The plan is not known, so cards never call Zoho directly.
 
-**Table `zoho_finance_snapshot`.** One row: `id` (fixed at 1), `data` (jsonb), `as_of`, `status` (`ok`, `partial` or `failed`), `calls_used`, `refreshing_since`. Admins can select. Only the service role can write. Migration `Database Module/Admin Base/migrations/008_zoho_finance.sql`, with a rollback and a test.
+**Table `zoho_finance_snapshot`.** One row: `id` (fixed at 1), `data` (jsonb), `as_of`, `status` (`ok`, `partial` or `failed`), `calls_used`, `refreshing_since`, `last_attempt_at`. Admins can select. Only the service role can write. Migration `Database Module/Admin Base/migrations/008_zoho_finance.sql`, with a rollback and a test.
 
 **Function `zoho-finance`.** Admin only, checked the same way as `zoho-books`.
 
@@ -117,7 +117,7 @@ Zoho allows 100 calls a minute and between 1,000 and 10,000 a day depending on p
 **Refresh limits.**
 
 - At most one refresh runs at a time. A `refreshing_since` older than 5 minutes counts as abandoned.
-- An automatic refresh runs only when the snapshot is over 60 minutes old. The Refresh button works once the snapshot is over 5 minutes old.
+- An automatic refresh runs only when the snapshot and the last attempt are both over 60 minutes old. The Refresh button works once both are over 5 minutes old. A failed attempt counts, so opening the Dashboard does not keep spending calls on a failing refresh.
 - Each refresh stops at 90 Zoho calls. Sections it did not finish are marked partial and their cards say so. A partial total is never shown as complete.
 - A failed refresh keeps the previous numbers, with their old "as of" time and an error line.
 

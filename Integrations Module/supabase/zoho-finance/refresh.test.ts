@@ -13,10 +13,11 @@ const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000).toISOStri
 
 // Behaves like the Supabase client for the one row, including the filters a claim depends on.
 function fakeDb(start: Json = {}) {
-  const row: Json = { id: 1, data: null, as_of: null, status: null, error: null, calls_used: null, refreshing_since: null, ...start };
+  const row: Json = { id: 1, data: null, as_of: null, status: null, error: null, calls_used: null, refreshing_since: null, last_attempt_at: null, ...start };
   const db = {
     row,
     updates: [] as Json[],
+    beforeUpdate: undefined as undefined | (() => void),
     from(table: string) {
       assertEquals(table, "zoho_finance_snapshot");
       const filters: ((r: Json) => boolean)[] = [];
@@ -32,13 +33,14 @@ function fakeDb(start: Json = {}) {
           return q;
         },
         or: (expr: string) => {
-          const m = expr.match(/^refreshing_since\.is\.null,refreshing_since\.lt\."(.+)"$/);
-          assert(m, `unexpected filter ${expr}`);
-          filters.push((r) => r.refreshing_since === null || Date.parse(r.refreshing_since) < Date.parse(m![1]));
+          const m = expr.match(/^(\w+)\.is\.null,(\w+)\.lt\."(.+)"$/);
+          assert(m && m[1] === m[2], `unexpected filter ${expr}`);
+          filters.push((r) => r[m![1]] === null || Date.parse(r[m![1]]) < Date.parse(m![3]));
           return q;
         },
         maybeSingle: () => Promise.resolve({ data: { ...row }, error: null }),
         then: (ok: (v: Json) => unknown) => {
+          db.beforeUpdate?.();
           const hit = filters.every((f) => f(row));
           if (hit) {
             Object.assign(row, patch);
@@ -90,7 +92,7 @@ function fakeZoho(accountCount = 2, over: (path: string, q: Record<string, strin
 }
 
 function deps(db: Json, zoho: Json = fakeZoho(), over: Json = {}) {
-  return { isAdmin: () => Promise.resolve(true), zoho: () => Promise.resolve(zoho), db, now: () => NOW, ...over };
+  return { isAdmin: () => Promise.resolve(true), zoho: () => Promise.resolve(zoho), db, now: () => NOW, scrub: (t: string) => t, ...over };
 }
 
 const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -168,7 +170,11 @@ Deno.test("today is the date in the UAE, not in UTC", async () => {
 });
 
 Deno.test("the 91st call never happens: status is partial and the unfinished sections are named", async () => {
-  const z = fakeZoho(200);
+  // Few enough accounts to try, but one account's transactions never run out of pages.
+  const z = fakeZoho(2, (p) =>
+    p.startsWith("/chartofaccounts/")
+      ? { transactions: [{ transaction_date: "2026-10-01", credit_amount: 1 }], page_context: { has_more_page: true } }
+      : undefined);
   const db = fakeDb();
   assertEquals(await refresh({ force: false }, deps(db, z)), { status: "partial" });
   assertEquals(z.calls.length, MAX_CALLS);
@@ -187,7 +193,8 @@ Deno.test("a section that did not finish has no total in data, though earlier se
   assertEquals(db.row.data.monthly, null);
   assertEquals(db.row.data.ytd, null);
   assertEquals(db.row.data.topCosts, null);
-  assertEquals(db.row.data.health, null);
+  assertEquals(db.row.data.health.missing, ["Cash cover", "Net margin"]);
+  assertEquals(db.row.data.partial.includes("health"), true);
   assertEquals(db.row.data.ar.total, 100);
   assertEquals(db.row.data.ratios.current !== null, true);
   assertEquals(db.row.data.ratios.dso, null);
@@ -257,6 +264,9 @@ Deno.test("MissingSecretError is not_connected and leaves stored data alone", as
   assertEquals(out, { status: "failed", error: "not_connected" });
   for (const [k, v] of Object.entries(start)) assertEquals(db.row[k], v);
   assertEquals(db.row.refreshing_since, null);
+  // Not an attempt: adding the login must let the next open refresh at once.
+  assertEquals(db.row.last_attempt_at, null);
+  assertEquals(db.updates, []);
 });
 
 Deno.test("a run that lost its lock does not overwrite the run that took over", async () => {
@@ -266,7 +276,7 @@ Deno.test("a run that lost its lock does not overwrite the run that took over", 
     if (p === "/bankaccounts") db.row.refreshing_since = "2026-11-04T08:06:00.000Z";
     return undefined;
   });
-  await refresh({ force: false }, deps(db, z));
+  assertEquals(await refresh({ force: false }, deps(db, z)), { status: "busy" });
   assertEquals(db.row.data, null);
   assertEquals(db.row.refreshing_since, "2026-11-04T08:06:00.000Z");
 });
@@ -276,4 +286,114 @@ Deno.test("handle routes refresh and passes only a true force", async () => {
   assertEquals(await handle("refresh", { force: true }, deps(forced)), { status: "ok" });
   const notForced = fakeDb({ as_of: minutesAgo(6) });
   assertEquals(await handle("refresh", { force: "yes" }, deps(notForced)), { status: "fresh" });
+});
+
+Deno.test("a run that lost its lock and then failed also reports busy, and writes nothing", async () => {
+  const db = fakeDb();
+  const z = fakeZoho(2, (p) => {
+    if (p === "/bankaccounts") {
+      db.row.refreshing_since = "2026-11-04T08:06:00.000Z";
+      throw new ZohoHttpError(429, "x");
+    }
+  });
+  assertEquals(await quiet(() => refresh({ force: false }, deps(db, z))), { status: "busy" });
+  assertEquals(db.row.status, null);
+  assertEquals(db.row.error, null);
+});
+
+Deno.test("claiming records the attempt, and a failure keeps it", async () => {
+  const z = fakeZoho(2, (p) => {
+    if (p === "/bills") throw new ZohoHttpError(500, "x");
+  });
+  const db = fakeDb();
+  await quiet(() => refresh({ force: false }, deps(db, z)));
+  assertEquals(db.row.last_attempt_at, NOW.toISOString());
+  assertEquals(db.updates[0].last_attempt_at, NOW.toISOString());
+  assertEquals(db.updates[0].refreshing_since, NOW.toISOString());
+});
+
+Deno.test("an automatic refresh skips for 60 minutes after any attempt, even with old figures", async () => {
+  for (const [age, want] of [[59, "fresh"], [60, "fresh"], [61, "ok"]] as const) {
+    const z = fakeZoho();
+    const db = fakeDb({ as_of: minutesAgo(600), status: "failed", last_attempt_at: minutesAgo(age) });
+    assertEquals((await refresh({ force: false }, deps(db, z))).status, want, `${age} minutes`);
+    assertEquals(z.calls.length > 0, want === "ok");
+  }
+});
+
+Deno.test("the Refresh button waits 5 minutes after any attempt", async () => {
+  for (const [age, want] of [[4, "fresh"], [5, "fresh"], [6, "ok"]] as const) {
+    const db = fakeDb({ as_of: minutesAgo(600), status: "failed", last_attempt_at: minutesAgo(age) });
+    assertEquals((await refresh({ force: true }, deps(db))).status, want, `${age} minutes`);
+  }
+});
+
+Deno.test("repeat opens after a failure spend Zoho calls only once", async () => {
+  const z = fakeZoho(2, (p) => {
+    if (p === "/bills") throw new ZohoHttpError(500, "x");
+  });
+  const db = fakeDb({ as_of: minutesAgo(600) });
+  await quiet(() => refresh({ force: false }, deps(db, z)));
+  const spent = z.calls.length;
+  for (let i = 0; i < 5; i++) assertEquals((await refresh({ force: false }, deps(db, z))).status, "fresh");
+  assertEquals(z.calls.length, spent);
+});
+
+Deno.test("the age condition is inside the claim, with no read first that could go stale", async () => {
+  // Another run finishes at the moment this run claims. Only a condition in the claim itself can see that.
+  const db = fakeDb({ as_of: minutesAgo(600) });
+  db.beforeUpdate = () => Object.assign(db.row, { as_of: NOW.toISOString(), last_attempt_at: NOW.toISOString() });
+  assertEquals((await refresh({ force: true }, deps(db))).status, "fresh");
+  assertEquals(db.updates, []);
+});
+
+Deno.test("a live lock with recent figures is reported as busy", async () => {
+  const db = fakeDb({ refreshing_since: minutesAgo(1), last_attempt_at: minutesAgo(1) });
+  assertEquals(await refresh({ force: false }, deps(db)), { status: "busy" });
+});
+
+Deno.test("a chart too large for the calls left skips the ledger, marked partial, without wasting calls", async () => {
+  const z = fakeZoho(200);
+  const db = fakeDb();
+  assertEquals(await refresh({ force: false }, deps(db, z)), { status: "partial" });
+  assertEquals(z.calls.some((c) => c.path.startsWith("/chartofaccounts/")), false);
+  assert(z.calls.length < 15, `spent ${z.calls.length} calls`);
+  assertEquals(db.row.calls_used, z.calls.length);
+  assertEquals(db.row.data.partial, ["monthly", "ytd", "topCosts", "ratios", "health"]);
+  assert(typeof db.row.error === "string" && db.row.error.length > 0);
+});
+
+Deno.test("a chart that exactly fits the calls left is read", async () => {
+  // 9 fixed calls: organisation, chart, 3 invoice filters, 3 bill filters, bank accounts. 81 are left.
+  const fits = fakeZoho(81);
+  assertEquals((await refresh({ force: false }, deps(fakeDb(), fits))).status, "ok");
+  assertEquals(fits.calls.length, MAX_CALLS);
+  const over = fakeZoho(82);
+  assertEquals((await refresh({ force: false }, deps(fakeDb(), over))).status, "partial");
+  assertEquals(over.calls.length, 9);
+});
+
+Deno.test("the failure log is scrubbed", async () => {
+  const z = fakeZoho(2, () => {
+    throw new Error("bad token SECRET123");
+  });
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...a: unknown[]) => logged.push(a.join(" "));
+  try {
+    await refresh({ force: false }, deps(fakeDb(), z, { scrub: (t: string) => t.replaceAll("SECRET123", "[hidden]") }));
+  } finally {
+    console.error = original;
+  }
+  assertEquals(logged.length, 1);
+  assert(!logged[0].includes("SECRET123"));
+  assert(logged[0].includes("[hidden]"));
+});
+
+Deno.test("a login that cannot be built fails like any Zoho failure, and counts as an attempt", async () => {
+  const db = fakeDb({ data: { keep: true }, as_of: minutesAgo(120) });
+  const out = await quiet(() => refresh({ force: false }, deps(db, null, { zoho: () => Promise.reject(new ZohoAccessError("x")) })));
+  assertEquals(out, { status: "failed", error: "Zoho access has stopped. An admin must reconnect." });
+  assertEquals(db.row.data, { keep: true });
+  assertEquals(db.row.last_attempt_at, NOW.toISOString());
 });

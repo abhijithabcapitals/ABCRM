@@ -5,6 +5,7 @@
 -- data: the figures as JSON. as_of: when they were read. status: ok, partial or failed (null until the first read).
 -- error: what went wrong on the last read. calls_used: Zoho API calls the last read spent.
 -- refreshing_since: set while a refresh runs, so two refreshes do not start together.
+-- last_attempt_at: when a refresh last started, whether or not it worked. A failure keeps the old as_of, so this limits retries.
 -- Admins read it through RLS. Only the service role (the Edge Function) updates it. Nobody inserts or deletes.
 -- Left out of the audit trail: it is a rebuildable cache of Zoho figures and Zoho stays the record. Logging it would copy
 -- the financial data into the permanent audit_trail on every refresh. So this file redefines audit_trail_attach_all (from 003,
@@ -18,7 +19,8 @@ create table if not exists public.zoho_finance_snapshot (
   status text check (status in ('ok', 'partial', 'failed')),
   error text,
   calls_used int,
-  refreshing_since timestamptz
+  refreshing_since timestamptz,
+  last_attempt_at timestamptz
 );
 
 insert into public.zoho_finance_snapshot (id) values (1) on conflict (id) do nothing;

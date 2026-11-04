@@ -20,6 +20,8 @@ export type Deps = {
   // Service-role Supabase client. Used by refresh.
   db: Json;
   now(): Date;
+  // Removes secrets from text bound for the server log.
+  scrub(text: string): string;
 };
 
 async function requireAdmin(deps: Deps) {
@@ -134,6 +136,62 @@ const STYLES: { name: string; start: string; end: string }[] = [
   { name: "date.start", start: "date.start", end: "date.end" },
 ];
 
+// Types that sit in the accounting equation. "and more" in Zoho's docs means others exist; see equation() below.
+const ASSET_TYPES = new Set(["accounts_receivable", "cash", "bank", "stock", "other_current_asset", "fixed_asset", "other_asset"]);
+const LIABILITY_TYPES = new Set(["accounts_payable", "credit_card", "other_current_liability", "long_term_liability", "other_liability"]);
+const CASH_TYPES = new Set(["bank", "cash"]);
+const sameCents = (a: number, b: number) => Math.round(a * 100) === Math.round(b * 100);
+const total = (values: (number | null)[]): number | null =>
+  values.some((v) => v === null) ? null : (values as number[]).reduce((s, v) => s + v, 0);
+
+// A list cut off by paging, or that failed, can answer none of these. Only counts and booleans leave.
+type Check = boolean | Unknown;
+const cutOff = (call: Call) => call.status !== 200 || call.data?.page_context?.has_more_page === true;
+
+// parentsWithBalance: parents holding a non-zero balance of their own. parentEqualsChildren: true means balances roll up,
+// so summing parents and children counts twice. false does not rule out a roll-up over a parent's own postings too.
+function parentChecks(accounts: Json[]): { parentsWithBalance: number | Unknown; parentEqualsChildren: Check } {
+  const children = new Map<string, Json[]>();
+  for (const a of accounts) {
+    const parent = a?.parent_account_id;
+    if (parent === undefined || parent === null || parent === "") continue;
+    children.set(String(parent), [...(children.get(String(parent)) ?? []), a]);
+  }
+  const parents = accounts.filter((a) => children.has(String(a?.account_id)));
+  if (parents.some((a) => balanceOf(a) === null)) return { parentsWithBalance: "unknown", parentEqualsChildren: "unknown" };
+  const holding = parents.filter((a) => !sameCents(balanceOf(a) as number, 0));
+  const sums = holding.map((a) => total((children.get(String(a.account_id)) as Json[]).map(balanceOf)));
+  const parentEqualsChildren: Check = holding.length === 0 || sums.some((s) => s === null)
+    ? "unknown"
+    : holding.every((a, i) => sameCents(balanceOf(a) as number, sums[i] as number));
+  return { parentsWithBalance: holding.length, parentEqualsChildren };
+}
+
+// false can mean equity leaves out this year's earnings, or a type's sign is reversed.
+function equation(accounts: Json[]): Check {
+  const known = (a: Json) => ASSET_TYPES.has(a?.account_type) || LIABILITY_TYPES.has(a?.account_type) || a?.account_type === "equity" || IE_TYPES.has(a?.account_type);
+  // An unlisted type holding a balance could belong on either side.
+  if (accounts.some((a) => !known(a) && balanceOf(a) !== 0)) return "unknown";
+  const sum = (types: (t: string) => boolean) => total(accounts.filter((a) => types(a?.account_type)).map(balanceOf));
+  const assets = sum((t) => ASSET_TYPES.has(t));
+  const liabilities = sum((t) => LIABILITY_TYPES.has(t));
+  const equity = sum((t) => t === "equity");
+  if (accounts.length === 0 || assets === null || liabilities === null || equity === null) return "unknown";
+  return sameCents(assets - liabilities, equity);
+}
+
+// Does the /bankaccounts total equal the chart's bank plus cash? Credit cards are in that list and are left out.
+function cashCheck(accounts: Json[], bank: Call, baseCurrency: string | null): Check {
+  const list: Json[] = Array.isArray(bank.data?.bankaccounts) ? bank.data.bankaccounts : [];
+  const rows = list.filter((a) => CASH_TYPES.has(a?.account_type));
+  const inChart = accounts.filter((a) => CASH_TYPES.has(a?.account_type));
+  if (cutOff(bank) || rows.length === 0 || inChart.length === 0) return "unknown";
+  const read = (v: unknown) => (v === undefined || v === null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+  const listTotal = total(rows.map((a) => read(a?.bcy_balance) ?? (a?.currency_code === baseCurrency ? read(a?.balance) : null)));
+  const chartTotal = total(inChart.map(balanceOf));
+  return listTotal === null || chartTotal === null ? "unknown" : sameCents(listTotal, chartTotal);
+}
+
 async function probe(zoho: ZohoLike, now: Date): Promise<object> {
   const start12 = new Date(now);
   start12.setUTCFullYear(start12.getUTCFullYear() - 1);
@@ -161,6 +219,13 @@ async function probe(zoho: ZohoLike, now: Date): Promise<object> {
     byType.set(t, list);
   }
   const accountTypes = [...byType].map(([type, vals]) => ({ type, count: vals.length, balanceSign: sign(vals) }));
+
+  // Structure checks on the balances. Each answer is a count or a boolean, never an amount.
+  const bank = await attempt(zoho, "/bankaccounts", { per_page: "200" });
+  const chartUsable = !cutOff(coa);
+  const parents = chartUsable ? parentChecks(accounts) : { parentsWithBalance: "unknown" as const, parentEqualsChildren: "unknown" as const };
+  const assetsMinusLiabilitiesEqualsEquity = chartUsable ? equation(accounts) : "unknown";
+  const cashMatchesChart = chartUsable ? cashCheck(accounts, bank, baseCurrency) : "unknown";
 
   // Sample income or expense accounts. Their IDs stay inside this function.
   const ie = accounts.filter((a) => IE_TYPES.has(a?.account_type));
@@ -296,5 +361,9 @@ async function probe(zoho: ZohoLike, now: Date): Promise<object> {
     openFilters,
     otherCurrency,
     callsNeededFor12Months,
+    parentsWithBalance: parents.parentsWithBalance,
+    parentEqualsChildren: parents.parentEqualsChildren,
+    assetsMinusLiabilitiesEqualsEquity,
+    cashMatchesChart,
   };
 }

@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import {
   fiscalMonthFrom,
+  ledgerAccountCount,
   readAccounts,
   readCash,
   readLedger,
@@ -75,7 +76,7 @@ Deno.test("readAccounts asks for balances, reads every page, and keeps an unknow
       }
       : {
         chartofaccounts: [
-          { account_id: "3", account_name: "Odd", account_type: "equity", current_balance: null },
+          { account_id: "3", account_name: "Odd", account_type: "equity", current_balance: null, parent_account_id: "1" },
           { account_id: "4", account_name: "Empty", account_type: "equity" },
           { account_id: "5", account_name: "Word", account_type: "equity", current_balance: "n/a" },
         ],
@@ -84,7 +85,8 @@ Deno.test("readAccounts asks for balances, reads every page, and keeps an unknow
   );
   const out = await readAccounts(z);
   assertEquals(out.map((a) => a.balance), [10.5, 20, null, null, null]);
-  assertEquals(out[0], { id: "1", name: "Bank", type: "bank", balance: 10.5 });
+  assertEquals(out[0], { id: "1", name: "Bank", type: "bank", balance: 10.5, parentId: null });
+  assertEquals(out[2].parentId, "1");
   assertEquals(z.calls.length, 2);
   for (const c of z.calls) assertEquals(c.q.showbalance, "true");
 });
@@ -164,9 +166,9 @@ Deno.test("readCash uses base currency balances, leaves out credit cards, and ad
     ],
   }));
   const coa = [
-    { id: "1", name: "AED acct", type: "bank", balance: 100 },
-    { id: "6", name: "Petty cash", type: "cash", balance: 7 },
-    { id: "7", name: "Rent", type: "expense", balance: 50 },
+    { id: "1", name: "AED acct", type: "bank", balance: 100, parentId: null },
+    { id: "6", name: "Petty cash", type: "cash", balance: 7, parentId: null },
+    { id: "7", name: "Rent", type: "expense", balance: 50, parentId: null },
   ];
   assertEquals(await readCash(z, coa, "AED"), [
     { name: "AED acct", balance: 100 },
@@ -179,12 +181,12 @@ Deno.test("readCash uses base currency balances, leaves out credit cards, and ad
 
 Deno.test("readLedger reads income, expense and cost accounts in the window, netting debits and credits", async () => {
   const accounts = [
-    { id: "1", name: "Sales", type: "income", balance: 0 },
-    { id: "2", name: "Interest", type: "other_income", balance: 0 },
-    { id: "3", name: "Rent", type: "expense", balance: 0 },
-    { id: "4", name: "Fines", type: "other_expense", balance: 0 },
-    { id: "5", name: "Goods", type: "cost_of_goods_sold", balance: 0 },
-    { id: "6", name: "Bank", type: "bank", balance: 0 },
+    { id: "1", name: "Sales", type: "income", balance: 0, parentId: null },
+    { id: "2", name: "Interest", type: "other_income", balance: 0, parentId: null },
+    { id: "3", name: "Rent", type: "expense", balance: 0, parentId: null },
+    { id: "4", name: "Fines", type: "other_expense", balance: 0, parentId: null },
+    { id: "5", name: "Goods", type: "cost_of_goods_sold", balance: 0, parentId: null },
+    { id: "6", name: "Bank", type: "bank", balance: 0, parentId: null },
   ];
   const z = fake((path, q) => {
     assertEquals(path, TRANSACTIONS_PATH);
@@ -208,7 +210,7 @@ Deno.test("readLedger reads income, expense and cost accounts in the window, net
   assertEquals(out, [
     { account: "Sales", kind: "revenue", date: "2026-05-01", amount: 100 },
     { account: "Sales", kind: "revenue", date: "2026-05-02", amount: -30 },
-    { account: "Interest", kind: "revenue", date: "2026-05-03", amount: 5 },
+    { account: "Interest", kind: "otherIncome", date: "2026-05-03", amount: 5 },
     { account: "Rent", kind: "expense", date: "2026-05-04", amount: 40 },
     { account: "Rent", kind: "expense", date: "2026-05-05", amount: -10 },
     { account: "Fines", kind: "expense", date: "2026-05-06", amount: 2 },
@@ -218,9 +220,10 @@ Deno.test("readLedger reads income, expense and cost accounts in the window, net
 });
 
 Deno.test("a transaction with no readable date or amount fails rather than being dropped", async () => {
-  const accounts = [{ id: "1", name: "Sales", type: "income", balance: 0 }];
+  const accounts = [{ id: "1", name: "Sales", type: "income", balance: 0, parentId: null }];
   const withRow = (row: Json) => fake(() => ({ transactions: [row] }));
   await assertRejects(() => readLedger(withRow({ credit_amount: 5 }), accounts, "2025-12-01", "2026-11-04"));
+  await assertRejects(() => readLedger(withRow({ transaction_date: "2026-13-45", credit_amount: 5 }), accounts, "2025-12-01", "2026-11-04"));
   await assertRejects(() => readLedger(withRow({ transaction_date: "2026-01-01" }), accounts, "2025-12-01", "2026-11-04"));
   await assertRejects(() => readLedger(withRow({ transaction_date: "2026-01-01", credit_amount: "AED 5" }), accounts, "2025-12-01", "2026-11-04"));
 });
@@ -228,4 +231,18 @@ Deno.test("a transaction with no readable date or amount fails rather than being
 Deno.test("an open document with no ID fails, so documents cannot collapse into one", async () => {
   const z = fake((_p, q) => ({ invoices: q.status === "unpaid" ? [inv("1", { invoice_id: undefined }), inv("2", { invoice_id: undefined })] : [] }));
   await assertRejects(() => readReceivables(z));
+});
+
+Deno.test("a malformed due date fails the refresh; a blank one stays blank", async () => {
+  for (const bad of ["soon", "2026-13-45", "04/11/2026"]) {
+    const z = fake((_p, q) => ({ invoices: q.status === "unpaid" ? [inv("1", { due_date: bad })] : [] }));
+    await assertRejects(() => readReceivables(z));
+  }
+  const z = fake((_p, q) => ({ invoices: q.status === "unpaid" ? [inv("1", { due_date: "" })] : [] }));
+  assertEquals((await readReceivables(z))[0].dueDate, null);
+});
+
+Deno.test("ledgerAccountCount counts income and cost accounts only", () => {
+  const a = (type: string) => ({ id: "1", name: "A", type, balance: 0, parentId: null });
+  assertEquals(ledgerAccountCount([a("income"), a("other_income"), a("expense"), a("other_expense"), a("cost_of_goods_sold"), a("bank"), a("equity")]), 5);
 });

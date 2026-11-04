@@ -51,8 +51,8 @@ set role anon;
 select t5.fails('anon cannot read', $$select count(*) from public.zoho_finance_snapshot$$);
 reset role;
 set role service_role;
-update public.zoho_finance_snapshot set data = '{"a":1}', status = 'ok', calls_used = 3, as_of = now();
-select t5.ok('the service role writes the snapshot', (select status = 'ok' and calls_used = 3 and data = '{"a":1}'::jsonb from public.zoho_finance_snapshot));
+update public.zoho_finance_snapshot set data = '{"a":1}', status = 'ok', calls_used = 3, as_of = now(), last_attempt_at = now();
+select t5.ok('the service role writes the snapshot', (select status = 'ok' and calls_used = 3 and data = '{"a":1}'::jsonb and last_attempt_at is not null from public.zoho_finance_snapshot));
 reset role;
 
 -- The hourly audit job must skip this table and still work on others.
