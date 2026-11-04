@@ -61,3 +61,31 @@
   .msgr-close, .msgr-back { display: block; }
   .msgr-show-chat .msgr-chat-pane { display: flex; }
 }
+
+/* New chats, groups and attachments. Screens sit inside the panel so a click on them never counts as outside. */
+.msgr-panel { position: relative; }
+.msgr-screen { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: #fff; min-height: 0; }
+.msgr-screen .msgr-head-title { margin: 0 8px; font-weight: 600; }
+.msgr-screen-foot { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid #e6ebed; margin-top: auto; }
+.msgr-new { margin-left: auto; margin-right: 8px; padding: 4px 10px; border: 1px solid #0F6E56; border-radius: 8px; background: #fff; color: #0F6E56; font: inherit; font-size: 12px; cursor: pointer; }
+.msgr-icon-btn { flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: #0F6E56; font-size: 20px; line-height: 1; cursor: pointer; }
+.msgr-icon-btn:hover { background: #eef3f3; }
+.msgr-tabs { display: flex; gap: 4px; padding: 6px 12px 0; flex-wrap: wrap; }
+.msgr-tab { padding: 4px 10px; border: 1px solid #d5dee1; border-radius: 14px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.msgr-tab-on { background: #0F6E56; border-color: #0F6E56; color: #fff; }
+.msgr-field-row { display: flex; align-items: center; gap: 8px; padding-right: 12px; }
+.msgr-field-row .msgr-search { flex: 1; min-width: 0; }
+.msgr-member { cursor: default; }
+.msgr-role { color: #7a8a8f; }
+.msgr-add { padding: 8px 12px; border-top: 1px solid #e6ebed; }
+.msgr-pick-rows { max-height: 150px; }
+.msgr-danger { padding: 6px 12px; border: 0; border-radius: 8px; background: #A32D2D; color: #fff; font: inherit; cursor: pointer; }
+.msgr-screen .msgr-problem { margin: 6px 12px; }
+.msgr-attach-wrap { position: relative; flex: none; align-self: center; }
+.msgr-popover { position: absolute; left: 0; bottom: 100%; margin-bottom: 8px; width: 260px; max-width: calc(100vw - 40px); padding-bottom: 8px; background: #fff; border: 1px solid #d5dee1; border-radius: 10px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); z-index: 3; }
+.msgr-pop-body { display: flex; flex-direction: column; }
+.msgr-pop-body .msgr-send { margin: 0 12px; }
+.msgr-popover .msgr-problem { margin: 6px 12px 0; }
+.msgr-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 140px; padding: 3px 4px 3px 10px; border-radius: 14px; background: #d7ebe5; color: #0F6E56; font-size: 12px; }
+.msgr-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msgr-chip-x { border: 0; background: none; color: inherit; font-size: 16px; line-height: 1; cursor: pointer; }

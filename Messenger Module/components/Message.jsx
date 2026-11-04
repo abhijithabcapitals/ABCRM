@@ -8,11 +8,15 @@ const TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", hour: "2
 export default function Message({ message, mine, name, tick, onRetry }) {
   const label = message.link_label;
   const openable = message.link_type === "web" && !checkWebLink(message.link_ref);
+  // A link sent without text has its label as the body; show it once.
+  const same = !!label && message.body === label;
+  const hideText = same && message.link_type === "web";
+  const hideLabel = same && message.link_type !== "web";
   return (
     <div className={`msgr-msg ${mine ? "msgr-mine" : "msgr-theirs"}`}>
       {name && <span className="msgr-sender">{name}</span>}
-      {message.body && <span className="msgr-text">{message.body}</span>}
-      {label && (openable
+      {message.body && !hideText && <span className="msgr-text">{message.body}</span>}
+      {label && !hideLabel && (openable
         ? <a className="msgr-attach" href={message.link_ref} target="_blank" rel="noopener noreferrer">{label}</a>
         : <span className="msgr-attach">{label}</span>)}
       <span className="msgr-meta">

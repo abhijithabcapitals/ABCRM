@@ -8,10 +8,12 @@ export default function Composer({ conversationId, draft, onDraft, onSend, attac
   const [link, setLink] = useState(null);
 
   function submit() {
-    const bad = checkBody(draft);
+    // A link with no typed text sends the link's label as the body, which the database requires.
+    const text = draft.trim() || (link ? link.label : "");
+    const bad = checkBody(text);
     if (bad) { setProblem(bad); return; }
     setProblem("");
-    onSend(draft.trim(), link);
+    onSend(text, link);
     onDraft("");
     setLink(null);
   }

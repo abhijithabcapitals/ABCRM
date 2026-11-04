@@ -190,3 +190,29 @@ test("Conversation refetches members for unknown senders and skips focus refresh
   assert.match(src, /if \(seen\.current\) refresh\(false\)/);
   assert.match(src, /visible && !shown\.current/);
 });
+
+test("AttachPicker checks web links and labels leads by lead number only", () => {
+  const src = read("components/AttachPicker.jsx");
+  assert.match(src, /checkWebLink\(/);
+  assert.match(src, /lead_number|Lead \$\{/);
+  assert.doesNotMatch(src, /prospect_name|lead\.name/);
+  assert.doesNotMatch(read("services/chatApi.js"), /prospect_name/);
+});
+
+test("GroupInfo uses leave, removeMember, addMembers and renameGroup", () => {
+  const src = read("components/GroupInfo.jsx");
+  for (const fn of ["leave", "removeMember", "addMembers", "renameGroup"]) assert.ok(src.includes("chatApi." + fn + "("), fn);
+});
+
+test("new chat screens use startDirect and createGroup and stay inside the panel", () => {
+  const src = read("components/MessengerPanel.jsx") + read("components/NewChat.jsx");
+  assert.match(src, /startDirect\(/);
+  assert.match(src, /createGroup\(/);
+  assert.doesNotMatch(readAll("components"), /createPortal/);
+});
+
+test("new screens never render a raw error.message", () => {
+  for (const f of ["NewChat", "GroupInfo", "AttachPicker", "MessengerPanel"]) {
+    assert.doesNotMatch(read(`components/${f}.jsx`), /(e|err|error)\.message/, `${f} renders .message`);
+  }
+});

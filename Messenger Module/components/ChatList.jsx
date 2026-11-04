@@ -16,7 +16,7 @@ function when(iso) {
   return DAY.format(d) === DAY.format(new Date()) ? TIME.format(d) : DAY.format(d);
 }
 
-export default function ChatList({ rows, selectedId, myId, error, onSelect, onRetry, onClose }) {
+export default function ChatList({ rows, selectedId, myId, error, onSelect, onRetry, onClose, onNew }) {
   const [search, setSearch] = useState("");
   const needle = search.trim().toLowerCase();
   const shown = [...rows]
@@ -27,6 +27,7 @@ export default function ChatList({ rows, selectedId, myId, error, onSelect, onRe
     <section className="msgr-list-pane" aria-label="Chats">
       <header className="msgr-pane-head">
         <strong>Chats</strong>
+        <button type="button" className="msgr-new" onClick={onNew} aria-label="New chat or group">New chat</button>
         <button type="button" className="msgr-close" onClick={onClose} aria-label="Close chat">×</button>
       </header>
       <input className="msgr-search" type="search" placeholder="Search chats" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search chats" />
