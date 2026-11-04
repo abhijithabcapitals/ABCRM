@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, readPages, PAGE_SIZE, NOTIFICATION_LIMIT, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes, isMissingTable, failureNote,
+  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, readPages, PAGE_SIZE, NOTIFICATION_LIMIT, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes, isMissingTable, failureNote, RATE_LIMIT_MESSAGES,
 } from "../../Dashboard Module/logic/summaryFigures.js";
 
 const rows = (n, stage = "New", status = "active") => Array.from({ length: n }, () => ({ stage, status }));
@@ -141,6 +141,20 @@ test("fmtRatio shows n/a for unknown and two decimals otherwise", () => {
   assert.equal(fmtRatio(undefined), "n/a");
   assert.equal(fmtRatio(1.234), "1.23");
   assert.equal(fmtRatio(0), "0.00");
+});
+
+test("refreshWaitMinutes: after a rate-limit message the wait is 15 minutes", () => {
+  for (const error of RATE_LIMIT_MESSAGES) {
+    assert.equal(refreshWaitMinutes({ as_of: minutesAgo(600), last_attempt_at: minutesAgo(10), error }, NOW), 5, error);
+    assert.equal(refreshWaitMinutes({ as_of: minutesAgo(600), last_attempt_at: minutesAgo(15), error }, NOW), 0, error);
+  }
+  assert.equal(refreshWaitMinutes({ as_of: minutesAgo(600), last_attempt_at: minutesAgo(10), error: "Zoho refused the request." }, NOW), 0);
+  // The same list is pinned in zoho-finance/refresh.test.ts.
+  assert.deepEqual(RATE_LIMIT_MESSAGES, [
+    "Zoho is busy, try again shortly.",
+    "Zoho is limiting requests, so some figures are incomplete. Refresh again in a few minutes.",
+    "Zoho is limiting requests. Refresh again in a few minutes.",
+  ]);
 });
 
 test("refreshWaitMinutes: Refresh waits 5 minutes from the last figures or attempt", () => {

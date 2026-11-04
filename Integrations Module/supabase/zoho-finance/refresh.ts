@@ -1,10 +1,10 @@
 // Rebuilds the one zoho_finance_snapshot row. Limits: design document section 4.
 // Stops at MAX_CALLS Zoho calls or TIME_BUDGET_MS, and a section it did not finish has no total. A failure keeps the old numbers.
 
-import { browserMessage, UserError } from "./errors.ts";
+import { browserMessage, BUSY_KEPT, BUSY_PARTIAL, RATE_LIMIT_MESSAGES, UserError } from "./errors.ts";
 import { buildFigures, ledgerStart } from "./figures.ts";
 import type { Deps, ZohoLike } from "./handlers.ts";
-import { ZohoHttpError } from "./zohoClient.ts";
+import { isRateLimit } from "./zohoClient.ts";
 import { ledgerAccountCount, readAccounts, readCash, readLedger, readOrganization, readPayables, readReceivables, UnfinishedRead } from "./zohoSources.ts";
 
 export const MAX_CALLS = 150;
@@ -25,7 +25,9 @@ class CallLimitReached extends Error {}
 class TimeBudgetReached extends Error {}
 
 const TOO_SLOW = "Zoho took too long, so some figures are incomplete. Refresh to try again.";
-const BUSY = "Zoho is limiting requests, so some figures are incomplete. Refresh again in a few minutes.";
+const TOO_SLOW_KEPT = "Zoho took too long. Refresh to try again.";
+const BUSY = BUSY_PARTIAL;
+const RATE_LIMIT_WAIT_MINUTES = 15; // The forced Refresh waits this long after Zoho limited requests.
 
 // A due date falls on a UAE calendar day, so "today" must too.
 const uaeToday = (now: Date) => new Date(now.getTime() + UAE_OFFSET_MS).toISOString().slice(0, 10);
@@ -60,7 +62,7 @@ function limited(zoho: ZohoLike, startedAt: number, clock: () => number, sleep: 
         try {
           return await zoho.get(path, query);
         } catch (e) {
-          if (e instanceof ZohoHttpError && e.status === 429) halted = e;
+          if (isRateLimit(e)) halted = e;
           throw e;
         }
       },
@@ -89,7 +91,13 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
   // Claim the row. The lock and both age limits sit in this one update, so there is no gap between checking and claiming.
   // A failure keeps the old as_of, so last_attempt_at is what stops each Dashboard open spending up to 150 calls again.
   const claim = now.toISOString();
-  const wait = ago(force ? FORCED_MINUTES : AUTO_MINUTES);
+  let forcedMinutes = FORCED_MINUTES;
+  if (force) {
+    const { data: last, error: lastError } = await table().select("error").eq("id", 1).maybeSingle();
+    if (lastError) throw new Error(`Snapshot read failed: ${lastError.message}`);
+    if (RATE_LIMIT_MESSAGES.includes(last?.error)) forcedMinutes = RATE_LIMIT_WAIT_MINUTES;
+  }
+  const wait = ago(force ? forcedMinutes : AUTO_MINUTES);
   const { data: claimed, error: claimError } = await table()
     .update({ refreshing_since: claim, last_attempt_at: claim })
     .eq("id", 1)
@@ -132,7 +140,7 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
         if (e instanceof UnfinishedRead) return null;
         if (e instanceof TimeBudgetReached) stopped ??= TOO_SLOW;
         // Zoho's limit stops the run, but what was already read is still good, and more calls would extend the block.
-        else if (e instanceof ZohoHttpError && e.status === 429) stopped ??= BUSY;
+        else if (isRateLimit(e)) stopped ??= BUSY;
         else if (e instanceof CallLimitReached) stopped ??= `The limit of ${MAX_CALLS} Zoho calls was not enough. Some figures are incomplete.`;
         else throw e;
         return null;
@@ -161,6 +169,20 @@ export async function refresh({ force }: { force: boolean }, deps: Deps): Promis
       cash,
       ledger,
     }, today);
+
+    // A run Zoho cut short must not replace figures an earlier run read in full. Reading the old row failing is a failure.
+    if (stopped === BUSY || stopped === TOO_SLOW) {
+      const { data: prev, error: prevError } = await table().select("data").eq("id", 1).maybeSingle();
+      if (prevError) throw new Error(`Snapshot read failed: ${prevError.message}`);
+      const old = prev?.data;
+      const oldMissing: string[] = Array.isArray(old?.partial) ? old.partial : [];
+      const lacksSomething = old && typeof old === "object" && data.partial.some((k) => !oldMissing.includes(k) && old[k] != null);
+      if (lacksSomething) {
+        const error = stopped === BUSY ? BUSY_KEPT : TOO_SLOW_KEPT;
+        const kept = await finish({ status: "failed", error, calls_used: calls.used() });
+        return kept ? { status: "failed", error } : { status: "busy" };
+      }
+    }
 
     const status = data.partial.length > 0 ? "partial" : "ok";
     const stored = await finish({

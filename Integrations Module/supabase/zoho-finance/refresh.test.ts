@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { CALL_GAP_MS, MAX_CALLS, refresh, TIME_BUDGET_MS } from "./refresh.ts";
 import { handle } from "./handlers.ts";
-import { UserError } from "./errors.ts";
+import { BUSY_KEPT, BUSY_MESSAGE, BUSY_PARTIAL, RATE_LIMIT_MESSAGES, UserError } from "./errors.ts";
 import { ZohoAccessError, ZohoHttpError } from "./zohoClient.ts";
 import { MissingSecretError } from "./secrets.ts";
 
@@ -644,4 +644,122 @@ Deno.test("a 429 before any section still takes the failed path", async () => {
   assertEquals(out, { status: "failed", error: "Zoho is busy, try again shortly." });
   assertEquals(db.row.data, { old: true });
   assertEquals(db.row.refreshing_since, null);
+});
+
+// ---- A run Zoho cut short must not replace figures read in full ----
+
+
+async function fullRow() {
+  const db = fakeDb();
+  assertEquals((await refresh({ force: false }, deps(db, fakeZoho(2)))).status, "ok");
+  db.row.as_of = minutesAgo(600);
+  db.row.last_attempt_at = minutesAgo(600);
+  return db;
+}
+
+const ledger429 = (code?: number) =>
+  fakeZoho(5, (p) => {
+    if (p.startsWith("/chartofaccounts/")) throw new ZohoHttpError(code === undefined ? 429 : 400, "raw detail", code);
+  });
+
+Deno.test("a full stored row survives a ledger 429: data and as_of are kept, the status is failed", async () => {
+  const db = await fullRow();
+  const before = structuredClone(db.row.data);
+  const out = await refresh({ force: false }, deps(db, ledger429()));
+  assertEquals(out, { status: "failed", error: BUSY_KEPT });
+  assertEquals(db.row.data, before);
+  assertEquals(db.row.as_of, minutesAgo(600));
+  assertEquals(db.row.status, "failed");
+  assertEquals(db.row.error, BUSY_KEPT);
+  assertEquals(db.row.refreshing_since, null);
+  assert(db.row.calls_used > 0);
+});
+
+Deno.test("a full stored row survives running out of time too", async () => {
+  const db = await fullRow();
+  const before = structuredClone(db.row.data);
+  const clock = fakeClock();
+  const z = fakeZoho(2);
+  const slow = { ...z, get: (p: string, q?: Record<string, string>) => {
+    clock.advance(20_000);
+    return z.get(p, q);
+  } };
+  const out = await refresh({ force: false }, deps(db, slow, { now: clock.now, sleep: clock.sleep }));
+  assertEquals(out.status, "failed");
+  assertEquals(db.row.data, before);
+  assertEquals(db.row.as_of, minutesAgo(600));
+  assertEquals(db.row.error, "Zoho took too long. Refresh to try again.");
+});
+
+Deno.test("an empty old row stores the partial run", async () => {
+  const db = fakeDb();
+  const out = await refresh({ force: false }, deps(db, ledger429()));
+  assertEquals(out, { status: "partial" });
+  assertEquals(db.row.error, BUSY_PARTIAL);
+  assertEquals(db.row.data.ar.total, 100);
+  assertEquals(db.row.data.monthly, null);
+});
+
+Deno.test("an old row that already lacks the ledger is replaced by the new partial run", async () => {
+  const db = fakeDb();
+  await refresh({ force: false }, deps(db, fakeZoho(200))); // Too many accounts: stored partial, no ledger.
+  assertEquals(db.row.status, "partial");
+  db.row.as_of = minutesAgo(600);
+  db.row.last_attempt_at = minutesAgo(600);
+  const out = await refresh({ force: false }, deps(db, ledger429()));
+  assertEquals(out, { status: "partial" });
+  assertEquals(db.row.error, BUSY_PARTIAL);
+  assertEquals(db.row.as_of === minutesAgo(600), false);
+});
+
+Deno.test("if the old row cannot be read, the run fails and keeps the stored figures", async () => {
+  const db = await fullRow();
+  const before = structuredClone(db.row.data);
+  const original = db.from;
+  let reads = 0;
+  db.from = (t: string) => {
+    const q = original(t);
+    const maybeSingle = q.maybeSingle;
+    q.maybeSingle = () => (++reads, Promise.resolve({ data: null, error: { message: "down" } }));
+    void maybeSingle;
+    return q;
+  };
+  const out = await quiet(() => refresh({ force: false }, deps(db, ledger429())));
+  assertEquals(out.status, "failed");
+  assertEquals(reads, 1);
+  assertEquals(db.row.data, before);
+  assertEquals(db.row.as_of, minutesAgo(600));
+});
+
+Deno.test("a 400 with code 44 or 45 counts as a rate limit", async () => {
+  for (const code of [44, 45]) {
+    const db = await fullRow();
+    const out = await refresh({ force: false }, deps(db, ledger429(code)));
+    assertEquals(out, { status: "failed", error: BUSY_KEPT }, String(code));
+  }
+  const z = fakeZoho(2, (p) => {
+    if (p === "/organizations") throw new ZohoHttpError(400, "x", 44);
+  });
+  const out = await quiet(() => refresh({ force: false }, deps(fakeDb(), z)));
+  assertEquals(out, { status: "failed", error: BUSY_MESSAGE });
+});
+
+Deno.test("the forced Refresh waits 15 minutes after a rate-limit message, 5 after any other", async () => {
+  for (const error of RATE_LIMIT_MESSAGES) {
+    for (const [age, want] of [[14, "fresh"], [15, "fresh"], [16, "ok"]] as const) {
+      const db = fakeDb({ as_of: minutesAgo(600), last_attempt_at: minutesAgo(age), status: "failed", error });
+      assertEquals((await refresh({ force: true }, deps(db))).status, want, `${error} ${age}`);
+    }
+  }
+  const other = fakeDb({ as_of: minutesAgo(600), last_attempt_at: minutesAgo(6), status: "failed", error: "Zoho refused the request." });
+  assertEquals((await refresh({ force: true }, deps(other))).status, "ok");
+});
+
+Deno.test("the rate-limit texts are the ones the Dashboard compares with", () => {
+  // The same list is pinned in Main Module/tests/summaryFigures.test.mjs.
+  assertEquals(RATE_LIMIT_MESSAGES, [
+    "Zoho is busy, try again shortly.",
+    "Zoho is limiting requests, so some figures are incomplete. Refresh again in a few minutes.",
+    "Zoho is limiting requests. Refresh again in a few minutes.",
+  ]);
 });
