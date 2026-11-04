@@ -289,3 +289,71 @@ Deno.test("a 2xx reply that is not JSON gives a plain error", async () => {
   const e = await assertRejects(() => z.get("/items"), Error, "could not be read");
   assertEquals(e.message.includes("<html>"), false);
 });
+
+const pdfReply = (body = "%PDF-1.4 fake", type = "application/pdf") =>
+  () => new Response(body, { status: 200, headers: { "Content-Type": type } });
+
+Deno.test("getPdf sends accept=pdf with organization_id and returns the bytes", async () => {
+  const calls: Call[] = [];
+  const z = createZohoClient(cfg, fakeFetch(calls, pdfReply()));
+  const bytes = await z.getPdf("/invoices/9001");
+  assertEquals(new TextDecoder().decode(bytes), "%PDF-1.4 fake");
+  const api = calls.find((c) => !c.url.includes("/oauth/"))!;
+  const u = new URL(api.url);
+  assertEquals(u.origin + u.pathname, "https://www.zohoapis.ae/books/v3/invoices/9001");
+  assertEquals(u.searchParams.get("accept"), "pdf");
+  assertEquals(u.searchParams.get("organization_id"), "ORG");
+  assertEquals(api.init?.method, "GET");
+  assertEquals(api.init?.redirect, "error");
+  assert(api.init?.signal instanceof AbortSignal);
+  assertEquals(new Headers(api.init?.headers).get("Authorization"), "Zoho-oauthtoken T");
+});
+
+Deno.test("getPdf accepts PDF bytes under another content type", async () => {
+  const z = createZohoClient(cfg, fakeFetch([], pdfReply("%PDF-1.7 x", "application/octet-stream")));
+  assertEquals((await z.getPdf("/estimates/7001")).length, 10);
+});
+
+Deno.test("getPdf refuses a non-PDF reply and a non-digit ID", async () => {
+  const calls: Call[] = [];
+  const z = createZohoClient(cfg, fakeFetch(calls, pdfReply("<html>login</html>", "text/html")));
+  const e = await assertRejects(() => z.getPdf("/invoices/9001"), Error, "did not send a PDF");
+  assertEquals(e.message.includes("<html>"), false);
+  for (const path of ["/invoices/abc", "/invoices/1/x", "/invoices", "/contacts/1", "/invoices/../users", "/estimates/12?x=1", "/items"]) {
+    await assertRejects(() => z.getPdf(path), NotAllowedError);
+  }
+  assertEquals(calls.filter((c) => !c.url.includes("/oauth/")).length, 1);
+});
+
+Deno.test("getPdf refuses a file over 10 MB with a plain error", async () => {
+  const big = new Uint8Array(10 * 1024 * 1024 + 1);
+  big.set(new TextEncoder().encode("%PDF"));
+  const z = createZohoClient(cfg, fakeFetch([], () => new Response(big, { headers: { "Content-Type": "application/pdf" } })));
+  await assertRejects(() => z.getPdf("/invoices/9001"), Error, "too large");
+  const ok = new Uint8Array(10 * 1024 * 1024);
+  ok.set(new TextEncoder().encode("%PDF"));
+  const z2 = createZohoClient(cfg, fakeFetch([], () => new Response(ok, { headers: { "Content-Type": "application/pdf" } })));
+  assertEquals((await z2.getPdf("/invoices/9001")).length, ok.length);
+});
+
+Deno.test("getPdf parses Zoho errors as usual and hides secrets", async () => {
+  const z = createZohoClient(cfg, fakeFetch([], () => Response.json({ code: 1002, message: "gone fake-refresh-token" }, { status: 404 })));
+  const e = await assertRejects(() => z.getPdf("/invoices/9001"), ZohoHttpError);
+  assertEquals(e.status, 404);
+  assertEquals(e.message, "gone [hidden]");
+});
+
+Deno.test("getPdf allows 30 seconds, other calls 20", async () => {
+  const seen: number[] = [];
+  const real = AbortSignal.timeout;
+  AbortSignal.timeout = (ms: number) => (seen.push(ms), real.call(AbortSignal, ms));
+  try {
+    let n = 0;
+    const z = createZohoClient(cfg, fakeFetch([], () => (++n === 1 ? pdfReply()() : Response.json({ code: 0 }))));
+    await z.getPdf("/invoices/9001");
+    await z.get("/items");
+  } finally {
+    AbortSignal.timeout = real;
+  }
+  assertEquals(seen, [20000, 30000, 20000]);
+});

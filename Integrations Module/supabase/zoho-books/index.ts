@@ -9,6 +9,8 @@
 //   contact_link    { client_id, zoho_contact_id, department, replace? }
 //   document_create { source_table, source_id, kind }   creates a draft estimate or invoice
 //   contact_get     { client_id, department }        needs view permission
+//   document_state  { source_table, source_id, force? }   saved rows, and Zoho status at most every 15 minutes
+//   document_pdf    { source_table, source_id, kind }     returns the PDF itself (application/pdf)
 //
 // Deploy with this folder's files together:
 //   supabase functions deploy zoho-books --project-ref pnnakrhfzyxudjaghoxx --use-api
@@ -22,6 +24,7 @@ const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Expose-Headers": "Content-Disposition",
 };
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { ...cors, "Content-Type": "application/json" } });
@@ -79,7 +82,17 @@ Deno.serve(async (req) => {
   };
 
   try {
-    return json(await handle(String(body?.action ?? ""), body, deps));
+    const out = await handle(String(body?.action ?? ""), body, deps);
+    const file = out as { pdf?: unknown; filename?: unknown };
+    if (file.pdf instanceof Uint8Array) {
+      // Only the file goes out, with a name that has no quotes or path characters.
+      const name = String(file.filename ?? "document.pdf").replace(/[^A-Za-z0-9._ -]/g, "");
+      return new Response(new Uint8Array(file.pdf), {
+        status: 200,
+        headers: { ...cors, "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${name}"` },
+      });
+    }
+    return json(out);
   } catch (e) {
     if (e instanceof UserError) return json({ error: e.message }, 400);
     const detail = scrub((e as Error)?.message ?? "Unexpected error", secretValues);

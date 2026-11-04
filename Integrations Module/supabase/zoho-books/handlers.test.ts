@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { browserMessage, handle, permissionCheck, UserError } from "./handlers.ts";
+import { browserMessage, handle, pdfFileName, permissionCheck, UserError } from "./handlers.ts";
 import { ZohoAccessError, ZohoHttpError, ZohoTimeoutError } from "./zohoClient.ts";
 import { MissingSecretError } from "./secrets.ts";
 
@@ -25,7 +25,15 @@ function fakeDb(
       const run = (): { rows: Row[]; error: unknown } => {
         const err = errors[`${t}.${op}`];
         if (err) return { rows: [], error: err };
+        if (op === "select" && errors[`${t}.hide`] === true) {
+          // The first read misses a row that exists, as a second caller would see.
+          errors[`${t}.hide`] = false;
+          return { rows: [], error: null };
+        }
         if (op === "insert") {
+          if (t === "business_setup_invoices" && tables[t].some((r) => r.zoho_id === payload.zoho_id)) {
+            return { rows: [], error: { code: "23505", message: "duplicate key value" } };
+          }
           if (t === "zoho_documents") {
             const dup = tables[t].some((r) =>
               r.source_table === payload.source_table && r.source_id === payload.source_id && r.kind === payload.kind
@@ -35,6 +43,11 @@ function fakeDb(
           const row = { id: `id-${++seq}`, ...payload };
           tables[t].push(row);
           return { rows: [{ ...row }], error: null };
+        }
+        if (op === "delete") {
+          const rows = match();
+          tables[t] = tables[t].filter((r) => !rows.includes(r));
+          return { rows: rows.map((r) => ({ ...r })), error: null };
         }
         if (op === "update") {
           if (errors[`${t}.update.nomatch`]) return { rows: [], error: null };
@@ -54,6 +67,10 @@ function fakeDb(
         update: (row: Row) => {
           op = "update";
           payload = row;
+          return b;
+        },
+        delete: () => {
+          op = "delete";
           return b;
         },
         upsert: (row: Row, opts?: unknown) => {
@@ -94,6 +111,7 @@ function fakeDb(
 function makeDeps(over: Record<string, unknown> = {}) {
   const calls: Call[] = [];
   const posts: { path: string; body: Row }[] = [];
+  const pdfCalls: string[] = [];
   const asked: string[] = [];
   const log = { tables: [] as string[], saved: [] as unknown[], conflicts: [] as unknown[] };
   const tables: Record<string, Row[]> = {
@@ -157,6 +175,7 @@ function makeDeps(over: Record<string, unknown> = {}) {
           ? { invoice: { invoice_id: "9001", invoice_number: "INV-0001", total: 105, status: "draft" } }
           : { estimate: { estimate_id: "7001", estimate_number: "EST-0001", total: 105, status: "draft" } },
       ),
+    pdfImpl: (_path: string): Promise<Uint8Array> => Promise.resolve(new TextEncoder().encode("%PDF-1.4 fake")),
     now: new Date("2026-11-03T00:00:00Z"),
   };
   const { link: _l, dbError: _d, readError: _r, ...rest } = over;
@@ -176,6 +195,10 @@ function makeDeps(over: Record<string, unknown> = {}) {
           const r = replies[path];
           return Promise.resolve(typeof r === "function" ? r(query) : r);
         },
+        getPdf: (path: string) => {
+          pdfCalls.push(path);
+          return state.pdfImpl(path);
+        },
         post: (path: string, body: Row) => {
           posts.push({ path, body });
           return state.postImpl(path);
@@ -188,7 +211,7 @@ function makeDeps(over: Record<string, unknown> = {}) {
   };
   const { saved, tables: touched, conflicts } = log;
   // deno-lint-ignore no-explicit-any
-  return { deps: deps as any, calls, posts, saved, asked, tables: touched, conflicts, replies, db: tables, state, errors };
+  return { deps: deps as any, calls, posts, pdfCalls, saved, asked, tables: touched, conflicts, replies, db: tables, state, errors };
 }
 
 Deno.test("connection_test and taxes_list are admin only", async () => {
@@ -985,4 +1008,300 @@ Deno.test("a takeover clears the old read time and keeps the first presser", asy
   });
   await handle("document_create", hub, m.deps);
   assertEquals([m.db.zoho_documents[0].created_by, m.db.zoho_documents[0].last_read_at], ["first-user", null]);
+});
+
+
+// ---- Read back, Client Login and View PDF ----
+
+const STATE = { source_table: "hub_documents", source_id: "h1" };
+const BANK = { source_table: "banking_quotations", source_id: "b1" };
+
+function seed(db: Record<string, Row[]>, over: Row = {}) {
+  const row: Row = {
+    id: "d1",
+    department: "Business Setup",
+    source_table: "hub_documents",
+    source_id: "h1",
+    kind: "invoice",
+    reference: "Q-1",
+    state: "created",
+    crm_total: 105,
+    zoho_id: "9001",
+    zoho_number: "INV-0001",
+    zoho_status: "draft",
+    total: 105,
+    balance: null,
+    last_read_at: null,
+    created_at: "2026-11-02T00:00:00.000Z",
+    ...over,
+  };
+  db.zoho_documents.push(row);
+  return row;
+}
+
+const invoiceReply = (status: string, extra: Row = {}) => ({
+  invoice: { invoice_id: "9001", invoice_number: "INV-0001", total: 105, balance: 105, status, date: "2026-11-03", ...extra },
+});
+const notFound = () => {
+  throw new ZohoHttpError(404, "Invoice does not exist");
+};
+
+Deno.test("no second Zoho call within 15 minutes unless forced", async () => {
+  const { deps, db, calls, replies, state } = makeDeps();
+  seed(db);
+  replies["/invoices/9001"] = invoiceReply("sent");
+  await handle("document_state", STATE, deps);
+  assertEquals(calls.filter((c) => c.path === "/invoices/9001").length, 1);
+  state.now = new Date("2026-11-03T00:14:00Z");
+  await handle("document_state", STATE, deps);
+  assertEquals(calls.filter((c) => c.path === "/invoices/9001").length, 1);
+  await handle("document_state", { ...STATE, force: true }, deps);
+  assertEquals(calls.filter((c) => c.path === "/invoices/9001").length, 2);
+  state.now = new Date("2026-11-03T00:16:00Z");
+  await handle("document_state", STATE, deps);
+  assertEquals(calls.filter((c) => c.path === "/invoices/9001").length, 2);
+  state.now = new Date("2026-11-03T00:30:00Z");
+  await handle("document_state", STATE, deps);
+  assertEquals(calls.filter((c) => c.path === "/invoices/9001").length, 3);
+});
+
+Deno.test("force needs the same view permission and a refusal makes no Zoho call", async () => {
+  const { deps, db, calls } = makeDeps({ can: () => Promise.resolve(false) });
+  seed(db);
+  await assertRejects(() => handle("document_state", { ...STATE, force: true }, deps), UserError, "permission");
+  assertEquals(calls.length, 0);
+});
+
+Deno.test("document_state asks for setup.access or cases.view, chosen by the table", async () => {
+  const a = makeDeps();
+  await handle("document_state", STATE, a.deps);
+  assertEquals(a.asked, ["setup.access"]);
+  const b = makeDeps();
+  await handle("document_state", { ...BANK, department: "business_setup" }, b.deps);
+  assertEquals(b.asked, ["cases.view"]);
+});
+
+Deno.test("a draft adds no business_setup_invoices row", async () => {
+  const { deps, db, replies } = makeDeps();
+  seed(db);
+  replies["/invoices/9001"] = invoiceReply("draft");
+  const res = await handle("document_state", STATE, deps) as Row;
+  assertEquals(db.business_setup_invoices ?? [], []);
+  assertEquals(res.rows[0].state, "created");
+  assertEquals(db.zoho_documents[0].zoho_status, "draft");
+});
+
+Deno.test("a sent invoice adds one row with number, date and total, source zoho", async () => {
+  const { deps, db, replies } = makeDeps();
+  seed(db);
+  replies["/invoices/9001"] = invoiceReply("sent");
+  await handle("document_state", STATE, deps);
+  assertEquals(db.business_setup_invoices.length, 1);
+  const r = db.business_setup_invoices[0];
+  assertEquals(r.client_id, "CL000001");
+  assertEquals(r.quote_id, "h1");
+  assertEquals(r.invoice_number, "INV-0001");
+  assertEquals(r.issued_on, "2026-11-03");
+  assertEquals(r.amount, 105);
+  assertEquals(r.source, "zoho");
+  assertEquals(r.zoho_id, "9001");
+  assertEquals("file_path" in r, false);
+  assertEquals(db.zoho_documents[0].zoho_status, "sent");
+  assertEquals(db.zoho_documents[0].balance, 105);
+  assertEquals(db.zoho_documents[0].last_read_at, "2026-11-03T00:00:00.000Z");
+});
+
+Deno.test("every client-visible status adds a row, and an unknown one does not", async () => {
+  const cases: [string, boolean][] = [["overdue", true], ["paid", true], ["partially_paid", true], ["unpaid", true], ["pending_approval", false], ["", false]];
+  for (const [status, shown] of cases) {
+    const { deps, db, replies } = makeDeps();
+    seed(db);
+    replies["/invoices/9001"] = invoiceReply(status);
+    await handle("document_state", STATE, deps);
+    assertEquals((db.business_setup_invoices ?? []).length, shown ? 1 : 0, status);
+  }
+});
+
+Deno.test("reading twice leaves one row and updates it", async () => {
+  const { deps, db, replies } = makeDeps();
+  seed(db);
+  replies["/invoices/9001"] = invoiceReply("sent");
+  await handle("document_state", STATE, deps);
+  replies["/invoices/9001"] = invoiceReply("paid", { total: 110 });
+  await handle("document_state", { ...STATE, force: true }, deps);
+  assertEquals(db.business_setup_invoices.length, 1);
+  assertEquals(db.business_setup_invoices[0].amount, 110);
+});
+
+Deno.test("a second caller that adds the row first does not make a duplicate", async () => {
+  const { deps, db, replies, errors } = makeDeps();
+  seed(db);
+  db.business_setup_invoices = [{ id: "i0", zoho_id: "9001", client_id: "CL000001", amount: 1 }];
+  errors["business_setup_invoices.hide"] = true;
+  replies["/invoices/9001"] = invoiceReply("sent");
+  await handle("document_state", STATE, deps);
+  assertEquals(db.business_setup_invoices.length, 1);
+  assertEquals(db.business_setup_invoices[0].amount, 105);
+});
+
+Deno.test("a void invoice removes the row", async () => {
+  const { deps, db, replies } = makeDeps();
+  seed(db);
+  db.business_setup_invoices = [{ id: "i0", zoho_id: "9001", client_id: "CL000001" }, { id: "i1", zoho_id: "other", client_id: "CL000001" }];
+  replies["/invoices/9001"] = invoiceReply("void");
+  await handle("document_state", STATE, deps);
+  assertEquals(db.business_setup_invoices.map((r) => r.zoho_id), ["other"]);
+});
+
+Deno.test("an estimate never adds a row", async () => {
+  const { deps, db, replies } = makeDeps();
+  seed(db, { kind: "estimate", zoho_id: "7001", zoho_number: "EST-1" });
+  replies["/estimates/7001"] = { estimate: { estimate_id: "7001", status: "sent", total: 105, date: "2026-11-03" } };
+  const res = await handle("document_state", STATE, deps) as Row;
+  assertEquals(db.business_setup_invoices ?? [], []);
+  assertEquals(res.rows[0].kind, "estimate");
+  assertEquals(db.zoho_documents[0].zoho_status, "sent");
+});
+
+Deno.test("a Banking invoice adds a row with quote_id null", async () => {
+  const { deps, db, replies } = makeDeps();
+  seed(db, { department: "Banking", source_table: "banking_quotations", source_id: "b1", reference: "BQ-1" });
+  replies["/invoices/9001"] = invoiceReply("sent");
+  await handle("document_state", BANK, deps);
+  assertEquals(db.business_setup_invoices.length, 1);
+  assertEquals(db.business_setup_invoices[0].quote_id, null);
+  assertEquals(db.business_setup_invoices[0].client_id, "CL000002");
+});
+
+Deno.test("404 from Zoho sets gone and removes any row", async () => {
+  const { deps, db, replies } = makeDeps();
+  seed(db);
+  db.business_setup_invoices = [{ id: "i0", zoho_id: "9001", client_id: "CL000001" }];
+  replies["/invoices/9001"] = notFound;
+  const res = await handle("document_state", STATE, deps) as Row;
+  assertEquals(db.zoho_documents[0].state, "gone");
+  assertEquals(db.zoho_documents[0].zoho_id, "9001");
+  assertEquals(db.business_setup_invoices, []);
+  assertEquals(res.rows[0].state, "gone");
+  assertEquals(res.read_error, null);
+});
+
+Deno.test("a Zoho failure leaves the last status and reports it", async () => {
+  const { deps, db, replies } = makeDeps();
+  seed(db, { zoho_status: "sent", balance: 50 });
+  db.business_setup_invoices = [{ id: "i0", zoho_id: "9001", client_id: "CL000001" }];
+  replies["/invoices/9001"] = () => {
+    throw new ZohoHttpError(429, "slow down");
+  };
+  const res = await handle("document_state", STATE, deps) as Row;
+  assertEquals(res.read_error, "Zoho is busy, try again shortly.");
+  assertEquals(res.connected, true);
+  assertEquals(res.rows[0].zoho_status, "sent");
+  assertEquals(res.rows[0].balance, 50);
+  assertEquals(db.zoho_documents[0].last_read_at, null);
+  assertEquals(db.business_setup_invoices.length, 1);
+});
+
+Deno.test("missing credentials still return the saved rows", async () => {
+  const { deps, db, calls } = makeDeps({
+    zoho: () => Promise.reject(new MissingSecretError("ZOHO_CLIENT_ID")),
+  });
+  seed(db, { zoho_status: "sent" });
+  const res = await handle("document_state", STATE, deps) as Row;
+  assertEquals(res.connected, false);
+  assertEquals(res.read_error, "Zoho credentials are missing.");
+  assertEquals(res.rows.length, 1);
+  assertEquals(res.rows[0].zoho_status, "sent");
+  assertEquals(res.rows[0].url, null);
+  assertEquals(calls.length, 0);
+});
+
+Deno.test("only created rows are read, and rows carry the warning and earlier draft", async () => {
+  const { deps, db, calls, replies } = makeDeps();
+  seed(db, { id: "d2", kind: "estimate", state: "failed", zoho_id: null, zoho_number: null });
+  seed(db, { total: 99 });
+  replies["/invoices/9001"] = invoiceReply("draft", { total: 99 });
+  const res = await handle("document_state", STATE, deps) as Row;
+  assertEquals(calls.map((c) => c.path), ["/invoices/9001"]);
+  const inv = res.rows.find((r: Row) => r.kind === "invoice");
+  assertEquals(inv.total_warning, true);
+  assertEquals("earlier_draft" in inv, true);
+  assertEquals(inv.url, "https://books.zoho.ae/app/ORG1#/invoices/9001");
+});
+
+Deno.test("a Client Login write failure is reported and the read time is held back", async () => {
+  const { deps, db, replies, errors } = makeDeps();
+  seed(db);
+  errors["business_setup_invoices.insert"] = { code: "XX000", message: "boom" };
+  replies["/invoices/9001"] = invoiceReply("sent");
+  const res = await handle("document_state", STATE, deps) as Row;
+  assertEquals(res.read_error, "The Zoho status was read, but Client Login could not be updated. Press Refresh to try again.");
+  assertEquals(db.zoho_documents[0].last_read_at, null);
+  assertEquals(db.zoho_documents[0].zoho_status, "sent");
+});
+
+Deno.test("document_pdf needs setup.access or cases.view and makes no Zoho call when refused", async () => {
+  const refused = makeDeps({ can: () => Promise.resolve(false) });
+  seed(refused.db);
+  await assertRejects(() => handle("document_pdf", { ...STATE, kind: "invoice" }, refused.deps), UserError, "permission");
+  assertEquals(refused.pdfCalls.length + refused.calls.length, 0);
+  const a = makeDeps();
+  seed(a.db);
+  await handle("document_pdf", { ...STATE, kind: "invoice" }, a.deps);
+  assertEquals(a.asked, ["setup.access"]);
+  const b = makeDeps();
+  seed(b.db, { department: "Banking", source_table: "banking_quotations", source_id: "b1" });
+  await handle("document_pdf", { ...BANK, kind: "invoice" }, b.deps);
+  assertEquals(b.asked, ["cases.view"]);
+});
+
+Deno.test("document_pdf takes the Zoho ID from zoho_documents and ignores any ID from the browser", async () => {
+  const { deps, db, pdfCalls } = makeDeps();
+  seed(db);
+  const res = await handle("document_pdf", { ...STATE, kind: "invoice", zoho_id: "666", id: "666", path: "/users" }, deps) as Row;
+  assertEquals(pdfCalls, ["/invoices/9001"]);
+  assertEquals(res.filename, "INV-0001.pdf");
+  assertEquals(new TextDecoder().decode(res.pdf).startsWith("%PDF"), true);
+});
+
+Deno.test("document_pdf with no created row says so and calls nothing", async () => {
+  const cases: (Row | null)[] = [null, { state: "creating" }, { state: "failed" }, { state: "gone" }, { state: "unknown" }, { zoho_id: null }];
+  for (const over of cases) {
+    const { deps, db, pdfCalls, calls } = makeDeps();
+    if (over) seed(db, over);
+    await assertRejects(() => handle("document_pdf", { ...STATE, kind: "invoice" }, deps), UserError, "This draft isn't available yet.");
+    assertEquals(pdfCalls.length + calls.length, 0);
+  }
+});
+
+Deno.test("document_pdf on a 404 sets gone", async () => {
+  const { deps, db, state } = makeDeps();
+  seed(db);
+  db.business_setup_invoices = [{ id: "i0", zoho_id: "9001", client_id: "CL000001" }];
+  state.pdfImpl = () => Promise.reject(new ZohoHttpError(404, "missing"));
+  await assertRejects(() => handle("document_pdf", { ...STATE, kind: "invoice" }, deps), UserError, "no longer has");
+  assertEquals(db.zoho_documents[0].state, "gone");
+  assertEquals(db.business_setup_invoices, []);
+});
+
+Deno.test("document_pdf stores nothing", async () => {
+  const { deps, db, saved } = makeDeps();
+  seed(db);
+  const before = JSON.stringify(db);
+  await handle("document_pdf", { ...STATE, kind: "invoice" }, deps);
+  assertEquals(JSON.stringify(db), before);
+  assertEquals(saved, []);
+});
+
+Deno.test("document_pdf rejects an unknown kind or table", async () => {
+  const { deps } = makeDeps();
+  await assertRejects(() => handle("document_pdf", { ...STATE, kind: "bill" }, deps), UserError, "Choose estimate or invoice");
+  await assertRejects(() => handle("document_pdf", { source_table: "x", source_id: "1", kind: "invoice" }, deps), UserError, "Unknown quote type");
+});
+
+Deno.test("the PDF file name has no quotes or path characters", () => {
+  assertEquals(pdfFileName("INV-0001"), "INV-0001.pdf");
+  assertEquals(pdfFileName('..\\..\\evil"; x=y/INV 1'), "evil xyINV 1.pdf");
+  assertEquals(pdfFileName(null), "document.pdf");
+  assertEquals(pdfFileName('"/\\'), "document.pdf");
 });

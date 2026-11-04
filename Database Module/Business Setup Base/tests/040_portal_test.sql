@@ -80,6 +80,22 @@ select public.bs_check('superseded hidden', pg_temp.v()::text !~ 'BSQ-OLD');
 select public.bs_check('hidden output hidden', pg_temp.v()::text !~ 'internal-output.pdf');
 select public.bs_check('visible output shown', pg_temp.v()::text ~ 'visible-output.pdf');
 select public.bs_check('invoices empty array', pg_temp.v() -> 'invoices' = '[]'::jsonb);
+-- Zoho invoices: Admin Base 010 adds the unique index.
+\ir '../../Admin Base/migrations/010_zoho_invoices.sql'
+insert into public.business_setup_invoices (client_id, quote_id, invoice_number, issued_on, amount, source, zoho_id) values
+  ('CL900080', pg_temp.fx('quote_a')::uuid, 'INV-A', current_date, 500, 'zoho', 'z-a'),
+  ('CL900081', pg_temp.fx('quote_b')::uuid, 'INV-B', current_date, 700, 'zoho', 'z-b');
+select public.bs_check('the portal shows only this client''s invoices', pg_temp.v() -> 'invoices' @> '[{"number": "INV-A"}]'::jsonb and pg_temp.v()::text !~ 'INV-B' and jsonb_array_length(pg_temp.v() -> 'invoices') = 1);
+select public.bs_check('an invoice row with no file says has_file false', (select (e ->> 'has_file')::boolean = false from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-A'));
+select public.bs_check('invoice fields', (select (e ->> 'amount')::numeric = 500 and e ->> 'date' = current_date::text from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-A'));
+select public.bs_expect_error($$insert into public.business_setup_invoices (client_id, invoice_number, zoho_id) values ('CL900080', 'INV-DUP', 'z-a')$$, 'duplicate key');
+insert into public.business_setup_invoices (client_id, invoice_number) values ('CL900080', 'OLD-1'), ('CL900080', 'OLD-2');
+select public.bs_check('rows with no Zoho id are not limited', (select count(*) = 2 from public.business_setup_invoices where invoice_number like 'OLD-%'));
+\ir '../../Admin Base/migrations/rollback/010_rollback.sql'
+select public.bs_check('rollback drops the index', to_regclass('public.business_setup_invoices_zoho_uq') is null);
+\ir '../../Admin Base/migrations/010_zoho_invoices.sql'
+select public.bs_check('the index is back after reapplying', to_regclass('public.business_setup_invoices_zoho_uq') is not null);
+delete from public.business_setup_invoices where client_id in ('CL900080', 'CL900081');
 select public.bs_check('service fields', (select e ->> 'name' = 'Trade licence' and e ->> 'action' = 'New' and e ->> 'status' = 'In progress' from jsonb_array_elements(pg_temp.v() -> 'services') e));
 select public.bs_check('payment fields and receipt', (select e ->> 'reference' = 'TT-A' and e ->> 'receipt_number' = 'BSR-A' and (e ->> 'amount')::numeric = 400 from jsonb_array_elements(pg_temp.v() -> 'payments') e));
 select public.bs_check('balance per quote', (select (e ->> 'net_paid')::numeric = 400 and (e ->> 'outstanding')::numeric = 600 from jsonb_array_elements(pg_temp.v() -> 'quotes') e where e ->> 'number' = 'BSQ-A'));
