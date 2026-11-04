@@ -12,7 +12,7 @@ trap '"$BIN/pg_ctl.exe" -D "$DATA" -m immediate stop >/dev/null; rm -rf "$DATA"'
 PSQL=("$BIN/psql.exe" -U postgres -p "$PORT" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -q)
 "${PSQL[@]}" -f "$HERE/000_stub.sql" >/dev/null || exit 1
 for pass in 1 2; do
-  for f in "$HERE"/../migrations/001_*.sql "$HERE"/../migrations/002_*.sql "$HERE"/../migrations/003_*.sql "$HERE"/../migrations/004_*.sql "$HERE"/../migrations/005_*.sql "$HERE"/../migrations/009_*.sql "$HERE"/../migrations/011_*.sql "$HERE"/../migrations/012_*.sql "$HERE"/../migrations/013_*.sql "$HERE"/../migrations/014_*.sql; do
+  for f in "$HERE"/../migrations/001_*.sql "$HERE"/../migrations/002_*.sql "$HERE"/../migrations/003_*.sql "$HERE"/../migrations/004_*.sql "$HERE"/../migrations/005_*.sql "$HERE"/../migrations/009_*.sql "$HERE"/../migrations/011_*.sql "$HERE"/../migrations/012_*.sql "$HERE"/../migrations/013_*.sql "$HERE"/../migrations/014_*.sql "$HERE"/../migrations/016_crm_agent_openrouter.sql; do
     "${PSQL[@]}" -f "$f" >/dev/null 2>"$DATA/err" || { echo "FAILED pass $pass: $f"; cat "$DATA/err"; exit 1; }
   done
   echo "migrations pass $pass ok"
@@ -35,6 +35,9 @@ echo "$OUT080" | grep -E "ok |FAILED|ERROR|passed|error"
 OUT090="$("${PSQL[@]}" -t -f "$HERE/090_crm_agent_chat_test.sql" 2>&1)"; RC090=$?
 echo "$OUT090" | grep -E "ok |FAILED|ERROR|passed|error"
 [ "$RC090" -eq 0 ] || { echo "FAILED 090_crm_agent_chat_test.sql exit $RC090"; exit 1; }
+OUT100="$("${PSQL[@]}" -t -f "$HERE/100_crm_agent_openrouter_test.sql" 2>&1)"; RC100=$?
+echo "$OUT100" | grep -E "ok |FAILED|ERROR|passed|error"
+[ "$RC100" -eq 0 ] || { echo "FAILED 100_crm_agent_openrouter_test.sql exit $RC100"; exit 1; }
 # A migration pass must keep data: 050 wrote calls_used = 77, rerun 009 and check it survived. Lost data stops the run.
 "${PSQL[@]}" -f "$HERE/../migrations/009_zoho_finance.sql" >/dev/null 2>&1 || { echo "FAILED 009 rerun"; exit 1; }
 KEPT="$("${PSQL[@]}" -t -A -c "select case when (select calls_used from public.zoho_finance_snapshot) = 77 and (select count(*) from public.zoho_finance_snapshot) = 1 then 'ok 009 rerun keeps data' else 'FAILED 009 rerun lost data' end")" || { echo "FAILED 009 rerun check"; exit 1; }
@@ -85,3 +88,10 @@ OUT014="$("${PSQL[@]}" -t -A -c "select case when to_regprocedure('public.crm_ag
 echo "$OUT014"
 [ "$OUT014" = "ok rollback 014 clean" ] || exit 1
 "${PSQL[@]}" -f "$HERE/../migrations/014_crm_agent_chat.sql" && echo "ok 014 reapplies after rollback"
+# Rollback 016 twice, check the agent is back on the fixed-answer settings, then migrate again.
+"${PSQL[@]}" -c "update public.agents set role = 'Answers questions from the CRM data the person asking may see: leads, tasks, clients, banking, HR, attendance, accounting and knowledge. Read-only.', provider = 'openrouter', model = 'deepseek/deepseek-v4.1-flash', runtime = 'gateway' where id = 'AGT-14-CRM'"
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../migrations/rollback/016_crm_agent_openrouter_rollback.sql" || { echo "FAILED rollback 016"; exit 1; }; done
+OUT016="$("${PSQL[@]}" -t -A -c "select case when provider = 'anthropic' and runtime = 'own_code' and role like 'Reads the current status%' then 'ok rollback 016 restores the fixed-answer settings' else 'FAILED rollback 016' end from public.agents where id = 'AGT-14-CRM'")"
+echo "$OUT016"
+case "$OUT016" in "ok "*) ;; *) exit 1 ;; esac
+"${PSQL[@]}" -f "$HERE/../migrations/016_crm_agent_openrouter.sql" && echo "ok 016 reapplies after rollback"

@@ -35,15 +35,20 @@ Claude OAuth is not implemented.
 
 ## Bruno route
 
-Bruno calls the Edge Function `supabase/crm-agent/` (`index.ts`, `logic.js`) for agent `AGT-14-CRM`. It reads lead numbers
-(`LD-YYYY-n`) from the newest message, up to 5, looks each up with the database function `crm_agent_lead_status_for_me` using
-the person's own login, and replies with stage, status, priority, owner, onboarding and dates (Dubai time). With no number, or
-no lead the person can see, it replies `NO_INFO`. No AI model, service role or secrets; `cost_usd` is always 0. Logs hold reason
-codes only. Tests: `node --test "Agent Module/14_CRM_Agent/tests/crmAgentChat.test.mjs"`. Deploy steps are in the Router
-Agent README.
+Bruno calls the Edge Function `supabase/crm-agent/` (`index.ts`, `logic.js`, `tools.js`) for agent `AGT-14-CRM`. A model on OpenRouter
+answers with three tools: `list_my_tables`, `describe_table` and `read_rows`. It uses the `OPENROUTER_API_KEY` secret, and the model
+comes from Settings > Agents. Every data call uses the person's own login, so row security applies, and `logic.js` adds a
+table-to-tab map, because the database does not check module tabs. A table not in the map is refused. When the data gives no
+answer, the reply is `NO_INFO`.
 
-A version that answers in plain words through Claude, using a Console API key, is at git `be5c18b`, with its design in
-`docs/2026-11-04-crm-agent-claude-design.md`. A Claude subscription cannot be called from the server.
+`READ_ONLY` in `logic.js` is on, so it changes nothing. Setting it to false offers `change_rows` on the tables in `CHANGEABLE`, with
+no confirmation. Add a table there only after checking that its screens write to it directly.
+
+CRM data goes to the provider OpenRouter picks. The request refuses providers that keep or train on prompts. Logs and
+`crm_agent_tool_calls` hold codes, tables and actions only, never inputs or results.
+
+Tests: `node --test "Agent Module/14_CRM_Agent/tests/crmAgentRules.test.mjs" "Agent Module/14_CRM_Agent/tests/crmAgentTools.test.mjs"`.
+Deploy steps are in the Router Agent README.
 
 ## Claude plan usage
 

@@ -56,7 +56,7 @@ create function public.bd_can_view_lead(p_lead_id uuid) returns boolean language
 grant execute on function public.bd_can_view_lead(uuid), public.bd_current_role(uuid) to authenticated;
 
 -- The seeded agent row migrations 013 and 014 update (Database Module/AI Base/migrations/003_agent_seed.sql).
-create table public.agents (id text primary key, name text, role text, runtime text default 'not_connected');
+create table public.agents (id text primary key, name text, role text, runtime text default 'not_connected', provider text default 'anthropic', model text default 'claude-opus-5-5');
 insert into public.agents values ('AGT-14-CRM', 'CRM Manager', 'Manages the CRM by chat: settings, integrations, database, UI and code changes, each approved by an admin.');
 
 -- The live rule migration 013 relies on (Database Module/AI Base/migrations/002_agents.sql).
