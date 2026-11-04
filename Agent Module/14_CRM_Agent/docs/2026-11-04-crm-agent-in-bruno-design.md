@@ -1,6 +1,6 @@
 # CRM Agent in Bruno: design
 
-Date: 2026-11-04. Status: awaiting review. Branch: `router-agent`, worktree `D:\Abhijith Projects\CRM-router`.
+Date: 2026-11-04. Status: replaced by `2026-11-04-crm-agent-claude-design.md`. Kept for history; do not build from it. Branch: `router-agent`, worktree `D:Abhijith ProjectsCRM-router`.
 
 ## Goal
 
