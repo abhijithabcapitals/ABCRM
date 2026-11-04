@@ -1,7 +1,7 @@
 // The full Messenger page: sections, chat search, list times, and who may open it.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { DEFAULT_SECTION, SECTIONS, filterChats, rowTime, validSection } from "../logic/app.js";
@@ -130,6 +130,62 @@ test("every database call the service makes names real parameters", () => {
   }
 });
 
+const desk = await import(pathToFileURL(join(here, "logic", "desktop.js")).href);
+const deskFile = (p) => readFileSync(join(here, "desktop", "src-tauri", p), "utf8");
+
+test("a notification needs someone else's new message, and this person not looking", () => {
+  const base = { message: { sender_id: "them", body: "hi" }, me: "me", muted: false, focused: false, status: "available", prefs: { notifications: true } };
+  assert.equal(desk.shouldNotify(base), true);
+  assert.equal(desk.shouldNotify({ ...base, message: { sender_id: "me" } }), false);
+  assert.equal(desk.shouldNotify({ ...base, change: "update" }), false);
+  assert.equal(desk.shouldNotify({ ...base, muted: true }), false);
+  assert.equal(desk.shouldNotify({ ...base, focused: true }), false);
+  assert.equal(desk.shouldNotify({ ...base, status: "dnd" }), false);
+  assert.equal(desk.shouldNotify({ ...base, prefs: { notifications: false } }), false);
+});
+
+test("with previews off, no message text reaches a notification", () => {
+  const message = { body: "Secret  client\nname" };
+  assert.deepEqual(desk.notificationText({ message, title: "Tax", prefs: { preview: true } }), { title: "Tax", body: "Secret client name" });
+  assert.deepEqual(desk.notificationText({ message, title: "Tax", prefs: { preview: false } }), { title: "Tax", body: "New message" });
+  assert.equal(desk.notificationText({ message: { body: "x".repeat(500) }, prefs: { preview: true } }).body.length, 160);
+  assert.equal(desk.notificationText({ message: {}, prefs: { preview: true } }).title, "New message");
+});
+
+test("only well-formed app links are acted on", () => {
+  const id = "11111111-1111-1111-1111-111111111111";
+  assert.deepEqual(desk.parseAppLink(`abmessenger://chat/${id}`), { conversation_id: id, conversation_kind: "chat", parent_id: null });
+  assert.equal(desk.parseAppLink(`abmessenger://channel/${id}`).conversation_kind, "channel");
+  for (const bad of [`https://chat/${id}`, "abmessenger://chat/not-an-id", `abmessenger://settings/${id}`, `abmessenger://chat/${id}/x`, "nonsense", null]) {
+    assert.equal(desk.parseAppLink(bad), null, String(bad));
+  }
+});
+
+test("the Windows app loads only its own page, and reaches only its own services", () => {
+  const conf = JSON.parse(deskFile("tauri.conf.json"));
+  const csp = conf.app.security.csp;
+  assert.match(csp, /script-src 'self';/);
+  assert.doesNotMatch(csp, /unsafe-eval|script-src[^;]*unsafe-inline/);
+  assert.equal(conf.app.windows.length, 1);
+  assert.doesNotMatch(conf.app.windows[0].url, /^https?:/);
+  assert.equal(conf.bundle.windows.nsis.installMode, "currentUser");
+  const env = join(here, "..", "Main Module", ".env");
+  if (existsSync(env)) {
+    const host = new URL(readFileSync(env, "utf8").match(/VITE_SUPABASE_URL=(\S+)/)[1]).host;
+    assert.ok(csp.includes(`https://${host}`) && csp.includes(`wss://${host}`), "the Supabase address in the app's rules differs from the CRM's");
+  }
+});
+
+test("the native side offers only the commands the page uses, and opens only https", () => {
+  const rust = deskFile("src/lib.rs");
+  const service = readFileSync(join(here, "services", "desktop.js"), "utf8");
+  const offered = rust.match(/generate_handler!\[([^\]]*)\]/)[1].split(",").map((s) => s.trim());
+  const used = [...service.matchAll(/invoke\("(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...offered].sort(), [...used].sort());
+  assert.match(rust, /parsed\.scheme\(\) != "https"/);
+  assert.deepEqual(JSON.parse(deskFile("capabilities/default.json")).permissions, ["core:event:default"]);
+});
+
 const chat = (title) => ({ id: title, kind: "group", title });
 const person = (other_name) => ({ id: other_name, kind: "direct", other_name });
 
@@ -139,8 +195,8 @@ test("an unknown saved section falls back to Chats", () => {
   assert.equal(validSection("calendar"), "calendar");
 });
 
-test("a section not built yet names its phase and a note; Chats, Activity, Teams and Files are built", () => {
-  const built = ["activity", "chats", "files", "teams"];
+test("a section not built yet names its phase and a note; Chats, Activity, Teams, Files and Settings are built", () => {
+  const built = ["activity", "chats", "files", "teams", "settings"];
   for (const s of SECTIONS) {
     if (built.includes(s.key)) assert.equal(s.phase, undefined, s.key);
     else assert.ok(s.phase && s.note, s.key);

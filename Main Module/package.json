@@ -8,6 +8,8 @@
     "dev": "vite",
     "prebuild": "node scripts/copy-ocr-assets.mjs",
     "build": "vite build",
+    "build:desktop": "vite build --config vite.desktop.config.js",
+    "dev:desktop": "vite --config vite.desktop.config.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "deploy:cloudflare": "node scripts/deploy-cloudflare.mjs"

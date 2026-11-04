@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import chatApi from "../services/chatClient.js";
+import { openLink } from "../services/desktop.js";
 import { catchUp, chatTitle, dayKey, mergeMessage, personLeft, senderName, tickState } from "../logic/chat.js";
 import { replyChange } from "../logic/teams.js";
 import Composer from "./Composer.jsx";
@@ -204,14 +205,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
     } catch (e) { setError(e.message); }
   }
 
-  async function openFile(id) {
-    // Opened before the wait, as browsers block a window opened after one.
-    const tab = window.open("", "_blank");
-    try {
-      const url = await chatApi.fileLink(id);
-      if (tab) { tab.opener = null; tab.location = url; } else window.location.assign(url);
-    } catch (e) { tab?.close(); setError(e.message); }
-  }
+  const openFile = (id) => openLink(() => chatApi.fileLink(id)).catch((e) => setError(e.message));
 
   function send(body, link, extra = {}) {
     const m = { id: crypto.randomUUID(), conversation_id: cid, sender_id: me, body, parent_id: extra.parentId ?? threadId, mention_ids: extra.mentionIds, created_at: new Date().toISOString(), status: "sending" };

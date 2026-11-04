@@ -3,7 +3,7 @@ import { STATUSES, presenceLabel } from "../logic/parity.js";
 import { initials } from "../logic/chat.js";
 
 // The signed-in person's initials and status dot; opens a menu to change the status.
-export default function StatusMenu({ name, status, onStatus }) {
+export default function StatusMenu({ name, status, onStatus, onSettings }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
 
@@ -31,6 +31,9 @@ export default function StatusMenu({ name, status, onStatus }) {
               </button>
             </li>
           ))}
+          <li className="abm-status-sep">
+            <button type="button" onClick={() => { onSettings(); setOpen(false); }}>Settings</button>
+          </li>
         </ul>
       )}
     </div>

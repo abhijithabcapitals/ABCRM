@@ -8,6 +8,7 @@ export const SECTIONS = [
   { key: "calendar", label: "Calendar", phase: 5, note: "Your meetings will show here by day and week." },
   { key: "calls", label: "Calls", phase: 4, note: "Audio and video calls and your call history will live here." },
   { key: "files", label: "Files" },
+  { key: "settings", label: "Settings", menuOnly: true }, // opened from the status menu, not the bar
 ];
 
 const KEYS = new Set(SECTIONS.map((s) => s.key));

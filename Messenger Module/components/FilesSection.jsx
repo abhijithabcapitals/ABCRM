@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import chatApi from "../services/chatClient.js";
+import { openLink } from "../services/desktop.js";
 import { chatTitle } from "../logic/chat.js";
 import { rowTime } from "../logic/app.js";
 import { formatBytes } from "../logic/parity.js";
@@ -19,17 +20,7 @@ export default function FilesSection({ chats }) {
   }, []);
   useEffect(() => { const first = setTimeout(load, 0); return () => clearTimeout(first); }, [load]);
 
-  async function open(id) {
-    // Opened before the wait, as browsers block a window opened after one.
-    const tab = window.open("", "_blank");
-    try {
-      const url = await chatApi.fileLink(id);
-      if (tab) { tab.opener = null; tab.location = url; } else window.location.assign(url);
-    } catch (e) {
-      tab?.close();
-      setError(e.message);
-    }
-  }
+  const open = (id) => openLink(() => chatApi.fileLink(id)).catch((e) => setError(e.message));
 
   const titleOf = (f) => {
     const chat = chats.find((c) => c.id === f.conversation_id);

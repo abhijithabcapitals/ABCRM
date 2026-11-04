@@ -23,11 +23,11 @@ Threaded posts,channels,must,yes,yes,
 Channel Files tab,channels,should,yes,no,
 Full-page app shell,shell,must,yes,partial,Built on fake data; real login check open
 Keep docked panel,shell,must,no,yes,User's approved design
-Windows installer,desktop,must,yes,no,Tauri; Rust not yet installed on this PC
-Tray and close to tray,desktop,must,yes,no,
-Windows notifications,desktop,must,yes,no,
-Start with Windows,desktop,should,yes,no,
-Protocol links,desktop,should,yes,no,
+Windows installer,desktop,must,yes,yes,1.5 MB; installs per person; unsigned
+Tray and close to tray,desktop,must,yes,partial,Close to tray checked; tray icon clicks not tried
+Windows notifications,desktop,must,yes,partial,Rules tested; no real notification shown yet
+Start with Windows,desktop,should,yes,partial,Compiled; not switched on or tried
+Protocol links,desktop,should,yes,partial,Registered by the installer; no link opened yet
 Auto update,desktop,should,yes,no,
 Code-signed installer,desktop,should,yes,no,Needs a paid certificate; otherwise SmartScreen warns
 One-to-one audio and video,calls,must,yes,no,

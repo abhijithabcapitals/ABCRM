@@ -21,7 +21,15 @@ chatApi.chatList = () => {
   if (state === "loading") return new Promise(() => {});
   return Promise.resolve(state === "empty" ? [] : ROWS.map((r) => ({ ...r })));
 };
-chatApi.subscribe = () => () => {};
+// ?desktop=1 pretends to be the Windows app and records what would reach Windows.
+if (new URLSearchParams(location.search).has("desktop")) {
+  window.__NATIVE_CALLS = [];
+  window.__TAURI__ = {
+    core: { invoke: async (name, args) => { window.__NATIVE_CALLS.push([name, args]); return name === "autostart_get" ? false : name === "app_version" ? "0.1.0" : name === "start_links" ? [] : null; } },
+    event: { listen: async () => () => {} },
+  };
+}
+chatApi.subscribe = (onMessage) => { window.__emitMessage = onMessage; return () => {}; };
 const REACTIONS = {};
 let ACTIVITY = state === "empty" ? [] : [
   { id: "a1", kind: "mention", actor_name: "Sample Colleague", conversation_id: "c1", message_id: "m1", preview: "Please review this, @Preview Person", read_at: null, created_at: at(5) },

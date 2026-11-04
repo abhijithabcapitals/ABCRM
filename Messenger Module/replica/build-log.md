@@ -33,3 +33,12 @@ Database: real Postgres, all checks and rollback pass. Function: unit tests only
 | S09 Manage team | Done on fake data | Team pictures; letting members create channels | Private channels stay hidden even from owners who are not in them, as the brief asked for no admin exception |
 
 Database: real Postgres, all checks and rollback pass. Channels are out of the 365-day limit until the user decides. The dock does not show channels. Nothing is live.
+
+## Phase 3, 2026-11-04
+
+| Screen | Status | Missing | Harder than expected |
+|---|---|---|---|
+| S21 Settings | Done on fake data | Device choices (phase 4) | None |
+| S22 Tray and notifications | Installed and started on this PC | Sign-in, tray clicks, a real notification and links not tried; auto-update; code signing | A missing crate and two wrong build paths on the first attempts |
+
+Installed at D:\\Apps\\AB Capital Messenger. Checked: starts and shows the login, a second launch closes and reopens the first, closing the window keeps it running, the link type is registered. Not checked: anything after sign-in.

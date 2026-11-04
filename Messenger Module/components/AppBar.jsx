@@ -17,7 +17,7 @@ const ICONS = {
 export default function AppBar({ section, unread, onSection }) {
   return (
     <nav className="abm-bar" aria-label="Messenger sections">
-      {SECTIONS.map((s) => {
+      {SECTIONS.filter((s) => !s.menuOnly).map((s) => {
         const badge = badgeText(unread[s.key] || 0);
         return (
           <button key={s.key} type="button" className="abm-bar-btn" aria-current={section === s.key ? "page" : undefined}
