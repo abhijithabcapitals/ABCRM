@@ -27,6 +27,16 @@ export class ZohoAccessError extends Error {
   }
 }
 
+// The request ran out of time. A create that timed out may still have happened in Zoho.
+export class ZohoTimeoutError extends Error {
+  constructor() {
+    super("Zoho did not answer in time.");
+    this.name = "ZohoTimeoutError";
+  }
+}
+
+const REQUEST_TIMEOUT_MS = 20_000;
+
 const GET_PATHS: RegExp[] = [
   /^\/organizations$/,
   /^\/contacts(\/\d+)?$/,
@@ -82,6 +92,16 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
   let token: { value: string; expires: number } | undefined;
   const secrets = () => [cfg.clientSecret, cfg.refreshToken, cfg.clientId, token?.value ?? ""];
 
+  async function send(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetchFn(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    } catch (e) {
+      const name = (e as Error)?.name;
+      if (name === "TimeoutError" || name === "AbortError") throw new ZohoTimeoutError();
+      throw e;
+    }
+  }
+
   async function readError(res: Response): Promise<ZohoHttpError> {
     let message = `Zoho returned HTTP ${res.status}`;
     let code: number | undefined;
@@ -104,7 +124,7 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
       client_secret: cfg.clientSecret,
     });
     // A redirect could carry the secrets to another host, so it is an error.
-    const res = await fetchFn(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body, redirect: "error" });
+    const res = await send(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body, redirect: "error" });
     if (!res.ok) {
       const err = await readError(res);
       // A rate limit or outage is not a lost connection. Only a refusal means reconnect.
@@ -151,9 +171,12 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
       headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(body ?? {});
     }
-    const res = await fetchFn(url.toString(), init);
+    const res = await send(url.toString(), init);
     if (!res.ok) throw await readError(res);
-    return await res.json();
+    // A 2xx reply that is not JSON is not shown as raw text.
+    return await res.json().catch(() => {
+      throw new Error("Zoho sent a reply that could not be read.");
+    });
   }
 
   return {

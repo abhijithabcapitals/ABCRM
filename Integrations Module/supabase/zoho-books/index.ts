@@ -6,7 +6,8 @@
 //   connection_test                                  admin only
 //   taxes_list                                       admin only
 //   contacts_search { query, department }            needs manage permission
-//   contact_link    { client_id, zoho_contact_id, department }
+//   contact_link    { client_id, zoho_contact_id, department, replace? }
+//   document_create { source_table, source_id, kind }   creates a draft estimate or invoice
 //   contact_get     { client_id, department }        needs view permission
 //
 // Deploy with this folder's files together:
@@ -14,7 +15,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { browserMessage, handle, permissionCheck, UserError } from "./handlers.ts";
-import { requireSecret } from "./secrets.ts";
+import { getSecret, requireSecret } from "./secrets.ts";
 import { clientKey, createZohoClient, scrub, type ZohoConfig } from "./zohoClient.ts";
 
 const cors = {
@@ -69,8 +70,10 @@ Deno.serve(async (req) => {
     zoho: async () => {
       const [clientId, clientSecret, refreshToken, orgId, dc] = await Promise.all(names.map((n) => requireSecret(admin, n)));
       secretValues = [clientId, clientSecret, refreshToken, orgId];
-      return { ...zohoFor({ clientId, clientSecret, refreshToken, orgId, dc }), orgId };
+      return { ...zohoFor({ clientId, clientSecret, refreshToken, orgId, dc }), orgId, dc };
     },
+    // Not a credential. A missing value is reported by the handler as a plain message.
+    vatTaxId: async () => (await getSecret(admin, "ZOHO_VAT_TAX_ID")) ?? null,
     userId,
     now: () => new Date(),
   };

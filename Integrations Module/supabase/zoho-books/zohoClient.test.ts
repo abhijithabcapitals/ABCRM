@@ -9,6 +9,7 @@ import {
   scrub,
   ZohoAccessError,
   ZohoHttpError,
+  ZohoTimeoutError,
 } from "./zohoClient.ts";
 
 const cfg = {
@@ -244,4 +245,47 @@ Deno.test("clientKey changes when any setting changes", () => {
   ]) {
     assert(clientKey({ ...cfg, ...change }) !== base);
   }
+});
+
+Deno.test("post overrides a caller-supplied send and organization_id", async () => {
+  const calls: Call[] = [];
+  const z = createZohoClient(cfg, fakeFetch(calls, () => Response.json({ code: 0 })));
+  await z.post("/estimates", {}, { send: "true", organization_id: "OTHER-ORG" });
+  const u = new URL(calls.find((c) => !c.url.includes("/oauth/"))!.url);
+  assertEquals(u.searchParams.getAll("send"), ["false"]);
+  assertEquals(u.searchParams.getAll("organization_id"), ["ORG"]);
+});
+
+Deno.test("both fetches carry a timeout signal", async () => {
+  const calls: Call[] = [];
+  const z = createZohoClient(cfg, fakeFetch(calls, () => Response.json({ code: 0 })));
+  await z.get("/items");
+  assertEquals(calls.length, 2);
+  for (const c of calls) assert(c.init?.signal instanceof AbortSignal);
+});
+
+Deno.test("a timed-out request becomes ZohoTimeoutError", async () => {
+  const slow = ((input: string | URL | Request) => {
+    if (String(input).includes("/oauth/v2/token")) return Promise.resolve(Response.json({ access_token: "T", expires_in: 3600 }));
+    return Promise.reject(new DOMException("The signal timed out.", "TimeoutError"));
+  }) as typeof fetch;
+  const z = createZohoClient(cfg, slow);
+  await assertRejects(() => z.post("/invoices", {}), ZohoTimeoutError);
+  const slowToken = (() => Promise.reject(new DOMException("The signal timed out.", "TimeoutError"))) as typeof fetch;
+  await assertRejects(() => createZohoClient(cfg, slowToken).get("/items"), ZohoTimeoutError);
+});
+
+Deno.test("a network failure is not a timeout", async () => {
+  const down = ((input: string | URL | Request) => {
+    if (String(input).includes("/oauth/v2/token")) return Promise.resolve(Response.json({ access_token: "T", expires_in: 3600 }));
+    return Promise.reject(new TypeError("connection reset"));
+  }) as typeof fetch;
+  const e = await assertRejects(() => createZohoClient(cfg, down).get("/items"));
+  assertEquals(e instanceof ZohoTimeoutError, false);
+});
+
+Deno.test("a 2xx reply that is not JSON gives a plain error", async () => {
+  const z = createZohoClient(cfg, fakeFetch([], () => new Response("<html>gateway</html>", { status: 200 })));
+  const e = await assertRejects(() => z.get("/items"), Error, "could not be read");
+  assertEquals(e.message.includes("<html>"), false);
 });

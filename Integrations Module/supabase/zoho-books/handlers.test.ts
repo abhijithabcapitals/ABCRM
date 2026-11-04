@@ -1,61 +1,191 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { browserMessage, handle, permissionCheck, UserError } from "./handlers.ts";
-import { ZohoAccessError, ZohoHttpError } from "./zohoClient.ts";
+import { ZohoAccessError, ZohoHttpError, ZohoTimeoutError } from "./zohoClient.ts";
 import { MissingSecretError } from "./secrets.ts";
 
 type Call = { path: string; query?: Record<string, string> };
+// deno-lint-ignore no-explicit-any
+type Row = Record<string, any>;
+
+// In-memory stand-in for the service-role client. Supports the calls the handlers make.
+function fakeDb(
+  tables: Record<string, Row[]>,
+  log: { tables: string[]; saved: unknown[]; conflicts: unknown[] },
+  errors: Record<string, unknown> = {},
+) {
+  let seq = 0;
+  return {
+    from: (t: string) => {
+      log.tables.push(t);
+      tables[t] ??= [];
+      let op = "select";
+      let payload: Row = {};
+      const filters: [string, unknown][] = [];
+      const match = () => tables[t].filter((r) => filters.every(([k, v]) => r[k] === v));
+      const run = (): { rows: Row[]; error: unknown } => {
+        const err = errors[`${t}.${op}`];
+        if (err) return { rows: [], error: err };
+        if (op === "insert") {
+          if (t === "zoho_documents") {
+            const dup = tables[t].some((r) =>
+              r.source_table === payload.source_table && r.source_id === payload.source_id && r.kind === payload.kind
+            );
+            if (dup) return { rows: [], error: { code: "23505", message: "duplicate key value" } };
+          }
+          const row = { id: `id-${++seq}`, ...payload };
+          tables[t].push(row);
+          return { rows: [row], error: null };
+        }
+        if (op === "update") {
+          const rows = match();
+          for (const r of rows) Object.assign(r, payload);
+          return { rows, error: null };
+        }
+        return { rows: match(), error: null };
+      };
+      const b = {
+        select: () => b,
+        insert: (row: Row) => {
+          op = "insert";
+          payload = row;
+          return b;
+        },
+        update: (row: Row) => {
+          op = "update";
+          payload = row;
+          return b;
+        },
+        upsert: (row: Row, opts?: unknown) => {
+          log.saved.push(row);
+          log.conflicts.push(opts);
+          const err = errors[`${t}.upsert`] ?? null;
+          if (!err) {
+            tables[t] = tables[t].filter((r) => r.client_id !== row.client_id);
+            tables[t].push({ ...row });
+          }
+          return Promise.resolve({ error: err });
+        },
+        eq: (k: string, v: unknown) => {
+          filters.push([k, v]);
+          return b;
+        },
+        order: () => b,
+        limit: () => b,
+        maybeSingle: () => {
+          const r = run();
+          return Promise.resolve({ data: r.rows[0] ?? null, error: r.error });
+        },
+        single: () => {
+          const r = run();
+          return Promise.resolve({ data: r.rows[0] ?? null, error: r.error });
+        },
+        // deno-lint-ignore no-explicit-any
+        then: (res: any, rej: any) => {
+          const r = run();
+          return Promise.resolve({ data: r.rows, error: r.error }).then(res, rej);
+        },
+      };
+      return b;
+    },
+  };
+}
 
 function makeDeps(over: Record<string, unknown> = {}) {
   const calls: Call[] = [];
-  const saved: unknown[] = [];
+  const posts: { path: string; body: Row }[] = [];
   const asked: string[] = [];
-  const tables: string[] = [];
-  const conflicts: unknown[] = [];
+  const log = { tables: [] as string[], saved: [] as unknown[], conflicts: [] as unknown[] };
+  const tables: Record<string, Row[]> = {
+    client_master: [{ client_id: "c1" }, { client_id: "CL000001" }, { client_id: "CL000002" }],
+    banking_clients: [
+      { id: "bc1", client_master_id: "CL000002" },
+      { id: "bc2", client_master_id: null },
+      { id: "bc3", client_master_id: "c1" },
+    ],
+    banking_cases: [{ id: "case1", client_id: "bc1" }, { id: "case2", client_id: "bc2" }],
+    zoho_contact_links: [
+      { client_id: "CL000001", zoho_contact_id: "11", zoho_contact_name: "Acme LLC" },
+      { client_id: "CL000002", zoho_contact_id: "11", zoho_contact_name: "Acme LLC" },
+    ],
+    hub_documents: [{
+      id: "h1",
+      doc_type: "quote",
+      department: "Business Setup",
+      client_id: "CL000001",
+      document_number: "Q-1",
+      status: "issued",
+      total_amount: 105,
+      vat_mode: "inclusive",
+      lines: [{ service_name: "Setup", amount: 105 }],
+      revises_id: null,
+    }],
+    banking_quotations: [{
+      id: "b1",
+      case_id: "case1",
+      quotation_number: "BQ-1",
+      status: "Accepted",
+      vat_mode: "inclusive",
+      total_amount: 205,
+      bank_fee_total: 100,
+      direct_to_bank_total: 0,
+      service_fee_total: 105,
+      supplementary_total: 0,
+      discount_total: 0,
+      supersedes_id: null,
+    }],
+    zoho_documents: [],
+  };
+  if (over.link) tables.zoho_contact_links.push({ client_id: "c1", ...(over.link as Row) });
+  const errors: Record<string, unknown> = {};
+  if (over.dbError) errors["zoho_contact_links.upsert"] = over.dbError;
+  if (over.readError) errors["zoho_contact_links.select"] = over.readError;
   const replies: Record<string, unknown> = {
     "/organizations": { organizations: [{ organization_id: "ORG1", name: "Acme Trading LLC" }] },
     "/settings/taxes": { taxes: [{ tax_id: "1", tax_name: "VAT", tax_percentage: 5 }] },
     "/contacts": { contacts: [{ contact_id: "11", contact_name: "Acme", tax_reg_no: "100", currency_code: "AED", extra: "x" }] },
     "/contacts/11": { contact: { contact_id: "11", contact_name: "Acme LLC", currency_code: "AED" } },
     "/contacts/22": { contact: { contact_id: "22", contact_name: "Dollar Co", currency_code: "USD" } },
+    "/estimates": { estimates: [] },
+    "/invoices": { invoices: [] },
   };
+  const state = {
+    postImpl: (path: string): Promise<unknown> =>
+      Promise.resolve(
+        path === "/invoices"
+          ? { invoice: { invoice_id: "9001", invoice_number: "INV-0001", total: 105, status: "draft" } }
+          : { estimate: { estimate_id: "7001", estimate_number: "EST-0001", total: 105, status: "draft" } },
+      ),
+    now: new Date("2026-11-03T00:00:00Z"),
+  };
+  const { link: _l, dbError: _d, readError: _r, ...rest } = over;
   const deps = {
     isAdmin: () => Promise.resolve(true),
     can: (_d: string, p: string) => {
       asked.push(p);
       return Promise.resolve(true);
     },
-    db: {
-      from: (t: string) => {
-        tables.push(t);
-        return {
-          upsert: (row: unknown, opts?: unknown) => {
-            saved.push(row);
-            conflicts.push(opts);
-            return Promise.resolve({ error: over.dbError ?? null });
-          },
-          select: () => ({
-            eq: () => ({
-              maybeSingle: () => Promise.resolve({ data: over.link ?? null, error: over.dbError ?? null }),
-            }),
-          }),
-        };
-      },
-    },
+    db: fakeDb(tables, log, errors),
     zoho: () =>
       Promise.resolve({
         orgId: "ORG1",
+        dc: "ae",
         get: (path: string, query?: Record<string, string>) => {
           calls.push({ path, query });
           return Promise.resolve(replies[path]);
         },
-        post: () => Promise.reject(new Error("no post expected")),
+        post: (path: string, body: Row) => {
+          posts.push({ path, body });
+          return state.postImpl(path);
+        },
       }),
+    vatTaxId: () => Promise.resolve("TAX5"),
     userId: "user-1",
-    now: () => new Date("2026-11-03T00:00:00Z"),
-    ...over,
+    now: () => state.now,
+    ...rest,
   };
+  const { saved, tables: touched, conflicts } = log;
   // deno-lint-ignore no-explicit-any
-  return { deps: deps as any, calls, saved, asked, tables, conflicts, replies };
+  return { deps: deps as any, calls, posts, saved, asked, tables: touched, conflicts, replies, db: tables, state };
 }
 
 Deno.test("connection_test and taxes_list are admin only", async () => {
@@ -132,7 +262,7 @@ Deno.test("contact_link saves the name Zoho returns, not one from the browser", 
   assertEquals(row.zoho_contact_id, "11");
   assertEquals(row.client_id, "c1");
   assertEquals(row.linked_by, "user-1");
-  assertEquals(tables, ["zoho_contact_links"]);
+  assertEquals(tables.includes("zoho_contact_links"), true);
   assertEquals(conflicts, [{ onConflict: "client_id" }]);
 });
 
@@ -140,7 +270,7 @@ Deno.test("contact_link maps a missing client to a plain message", async () => {
   const fk = { code: "23503", message: 'insert violates foreign key constraint "zoho_contact_links_client_id_fkey"' };
   const { deps } = makeDeps({ dbError: fk });
   await assertRejects(
-    () => handle("contact_link", { client_id: "CL000001", zoho_contact_id: "11", department: "banking" }, deps),
+    () => handle("contact_link", { client_id: "CL000002", zoho_contact_id: "11", department: "banking" }, deps),
     UserError,
     "That client was not found.",
   );
@@ -148,16 +278,17 @@ Deno.test("contact_link maps a missing client to a plain message", async () => {
 
 Deno.test("other database errors reach the caller as plain text only", async () => {
   const pg = { code: "XX000", message: 'relation "zoho_contact_links" constraint "secret_name" broke' };
-  const { deps } = makeDeps({ dbError: pg });
   const quiet = console.error;
   console.error = () => {};
   try {
     for (
-      const [fn, args, msg] of [
-        ["contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, "Could not save the Zoho link."],
-        ["contact_get", { client_id: "c1", department: "banking" }, "Could not read the Zoho link."],
+      const [fn, args, msg, over] of [
+        ["contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, "Could not save the Zoho link.", { dbError: pg }],
+        ["contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, "Could not read the Zoho link.", { readError: pg }],
+        ["contact_get", { client_id: "c1", department: "banking" }, "Could not read the Zoho link.", { readError: pg }],
       ] as const
     ) {
+      const { deps } = makeDeps(over);
       const e = await assertRejects(() => handle(fn, args, deps), UserError, msg);
       assertEquals(e.message.includes("zoho_contact_links"), false);
       assertEquals(e.message.includes("secret_name"), false);
@@ -282,4 +413,367 @@ Deno.test("browserMessage gives fixed text and never raw detail", () => {
     const m = browserMessage(e);
     assertEquals(m.includes("secret") || m.includes("raw"), false);
   }
+});
+
+// ---- contact_link ownership and overwrite ----
+
+Deno.test("contact_link in Banking needs a Banking client with that Client Master id", async () => {
+  const { deps, saved } = makeDeps();
+  await assertRejects(
+    () => handle("contact_link", { client_id: "CL000001", zoho_contact_id: "11", department: "banking" }, deps),
+    UserError,
+    "This client is not in Business Banking.",
+  );
+  assertEquals(saved.length, 0);
+});
+
+Deno.test("contact_link in Business Setup needs a Client Master row", async () => {
+  const { deps, saved } = makeDeps();
+  await assertRejects(
+    () => handle("contact_link", { client_id: "CL999999", zoho_contact_id: "11", department: "business_setup" }, deps),
+    UserError,
+    "That client was not found.",
+  );
+  assertEquals(saved.length, 0);
+});
+
+Deno.test("contact_link asks before replacing a different link, and saves nothing", async () => {
+  const { deps, saved, calls } = makeDeps({ link: { zoho_contact_id: "99", zoho_contact_name: "Old Co" } });
+  const r = await handle("contact_link", { client_id: "c1", zoho_contact_id: "11", department: "business_setup" }, deps);
+  assertEquals(r, { needs_replace: true, current_name: "Old Co" });
+  assertEquals(saved.length, 0);
+  assertEquals(calls.length, 0);
+});
+
+Deno.test("contact_link replaces when replace is true, and re-saving the same contact needs no replace", async () => {
+  const a = makeDeps({ link: { zoho_contact_id: "99", zoho_contact_name: "Old Co" } });
+  const r = await handle("contact_link", { client_id: "c1", zoho_contact_id: "11", department: "business_setup", replace: true }, a.deps);
+  assertEquals(r, { ok: true, zoho_contact_id: "11", zoho_contact_name: "Acme LLC" });
+  assertEquals(a.saved.length, 1);
+  const b = makeDeps({ link: { zoho_contact_id: "11", zoho_contact_name: "Acme LLC" } });
+  assertEquals((await handle("contact_link", { client_id: "c1", zoho_contact_id: "11", department: "business_setup" }, b.deps) as Row).ok, true);
+});
+
+// ---- document_create ----
+
+const hub = { source_table: "hub_documents", source_id: "h1", kind: "estimate" };
+const bank = { source_table: "banking_quotations", source_id: "b1", kind: "estimate" };
+const ref = (r: unknown) => r as Row;
+const estimateReply = (total = 105) => ({ estimate: { estimate_id: "7001", estimate_number: "EST-0001", total, status: "draft" } });
+
+Deno.test("Business Setup estimate needs setup.quotes.manage, invoice needs setup.services.manage, Banking needs cases.manage", async () => {
+  const a = makeDeps();
+  await handle("document_create", hub, a.deps);
+  assertEquals(a.asked, ["setup.quotes.manage"]);
+  const b = makeDeps();
+  b.db.hub_documents[0].status = "accepted";
+  await handle("document_create", { ...hub, kind: "invoice" }, b.deps);
+  assertEquals(b.asked, ["setup.services.manage"]);
+  const c = makeDeps();
+  await handle("document_create", bank, c.deps);
+  assertEquals(c.asked, ["cases.manage"]);
+  const d = makeDeps();
+  await handle("document_create", { ...bank, kind: "invoice" }, d.deps);
+  assertEquals(d.asked, ["cases.manage"]);
+});
+
+Deno.test("without permission nothing is read or sent", async () => {
+  const { deps, calls, posts, tables } = makeDeps({ can: () => Promise.resolve(false) });
+  await assertRejects(() => handle("document_create", hub, deps), UserError, "permission");
+  assertEquals([calls.length, posts.length, tables.length], [0, 0, 0]);
+});
+
+Deno.test("unknown source_table or kind is refused", async () => {
+  const { deps, posts } = makeDeps();
+  await assertRejects(() => handle("document_create", { ...hub, source_table: "profiles" }, deps), UserError);
+  await assertRejects(() => handle("document_create", { ...hub, kind: "credit_note" }, deps), UserError);
+  await assertRejects(() => handle("document_create", { ...hub, source_id: "" }, deps), UserError);
+  assertEquals(posts.length, 0);
+});
+
+Deno.test("a hub row must be a quote of Business Setup", async () => {
+  const a = makeDeps();
+  a.db.hub_documents[0].doc_type = "letter";
+  await assertRejects(() => handle("document_create", hub, a.deps), UserError, "quote");
+  const b = makeDeps();
+  b.db.hub_documents[0].department = "Banking";
+  await assertRejects(() => handle("document_create", hub, b.deps), UserError, "Business Setup");
+  const c = makeDeps();
+  await assertRejects(() => handle("document_create", { ...hub, source_id: "nope" }, c.deps), UserError, "not found");
+  for (const x of [a, b, c]) assertEquals([x.posts.length, x.db.zoho_documents.length], [0, 0]);
+});
+
+Deno.test("amounts come from the stored row, not the browser", async () => {
+  const { deps, posts } = makeDeps();
+  await handle("document_create", { ...hub, total_amount: 1, lines: [{ amount: 1 }], department: "banking" }, deps);
+  const items = posts[0].body.line_items as Row[];
+  assertEquals(items[0].rate, 105);
+  assertEquals(posts[0].body.reference_number, "Q-1");
+  assertEquals(posts[0].body.customer_id, "11");
+  assertEquals(posts[0].body.date, "2026-11-03");
+});
+
+Deno.test("no contact link returns needs_contact and calls nothing", async () => {
+  const { deps, calls, posts, db } = makeDeps();
+  db.zoho_contact_links.length = 0;
+  assertEquals(await handle("document_create", hub, deps), { needs_contact: true });
+  assertEquals([calls.length, posts.length, db.zoho_documents.length], [0, 0, 0]);
+});
+
+Deno.test("a banking client with no client_master_id says so", async () => {
+  const { deps, posts, db } = makeDeps();
+  db.banking_quotations.push({ ...db.banking_quotations[0], id: "b2", case_id: "case2" });
+  await assertRejects(
+    () => handle("document_create", { ...bank, source_id: "b2" }, deps),
+    UserError,
+    "no Client Master record",
+  );
+  assertEquals([posts.length, db.zoho_documents.length], [0, 0]);
+});
+
+Deno.test("a quote that cannot be sent is refused before any row is written", async () => {
+  const { deps, posts, db } = makeDeps();
+  db.hub_documents[0].status = "draft";
+  await assertRejects(() => handle("document_create", hub, deps), UserError, "issued, sent or accepted");
+  assertEquals([posts.length, db.zoho_documents.length], [0, 0]);
+});
+
+Deno.test("a missing VAT code is refused before any row is written", async () => {
+  const { deps, posts, calls, db } = makeDeps({ vatTaxId: () => Promise.resolve(null) });
+  await assertRejects(() => handle("document_create", hub, deps), UserError, "Pick the 5% VAT code in Settings first.");
+  assertEquals([posts.length, calls.length, db.zoho_documents.length], [0, 0, 0]);
+});
+
+Deno.test("the row is written as creating before the POST", async () => {
+  const m = makeDeps();
+  let seen: Row | undefined;
+  m.state.postImpl = () => {
+    seen = { ...m.db.zoho_documents[0] };
+    return Promise.resolve(estimateReply());
+  };
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals(seen?.state, "creating");
+  assertEquals(seen?.reference, "Q-1");
+  assertEquals(seen?.crm_total, 105);
+  assertEquals(seen?.created_by, "user-1");
+  const row = m.db.zoho_documents[0];
+  assertEquals([row.state, row.zoho_id, row.zoho_number, row.zoho_status, row.total, row.crm_total], ["created", "7001", "EST-0001", "draft", 105, 105]);
+  assertEquals(r, {
+    state: "created",
+    zoho_id: "7001",
+    zoho_number: "EST-0001",
+    total_warning: false,
+    earlier_draft: null,
+    url: "https://books.zoho.ae/app/ORG1#/quotes/7001",
+  });
+});
+
+Deno.test("the invoice link uses invoices, and the POST never carries send", async () => {
+  const m = makeDeps();
+  m.db.hub_documents[0].status = "accepted";
+  const r = ref(await handle("document_create", { ...hub, kind: "invoice" }, m.deps));
+  assertEquals(m.posts[0].path, "/invoices");
+  assertEquals("send" in m.posts[0].body, false);
+  assertEquals(r.url, "https://books.zoho.ae/app/ORG1#/invoices/9001");
+});
+
+Deno.test("a match on reference_number is adopted with no POST", async () => {
+  const m = makeDeps();
+  m.replies["/estimates"] = {
+    estimates: [
+      { estimate_id: "1", estimate_number: "EST-9", reference_number: "Q-1-OTHER", customer_id: "11", total: 105, status: "draft" },
+      { estimate_id: "2", estimate_number: "EST-8", reference_number: "Q-1", customer_id: "55", total: 105, status: "draft" },
+      { estimate_id: "7001", estimate_number: "EST-0001", reference_number: "Q-1", customer_id: "11", total: 105, status: "sent" },
+    ],
+  };
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals(m.posts.length, 0);
+  assertEquals(m.calls[0], { path: "/estimates", query: { reference_number: "Q-1" } });
+  assertEquals([r.state, r.zoho_id, r.zoho_number, r.adopted_count], ["created", "7001", "EST-0001", 1]);
+  assertEquals(m.db.zoho_documents[0].zoho_status, "sent");
+});
+
+Deno.test("several exact matches: the newest is adopted and the count returned", async () => {
+  const m = makeDeps();
+  const e = (id: string, created: string) => ({
+    estimate_id: id, estimate_number: `EST-${id}`, reference_number: "Q-1", customer_id: "11", total: 105, status: "draft", created_time: created,
+  });
+  m.replies["/estimates"] = { estimates: [e("1", "2026-11-01T08:00:00+0400"), e("3", "2026-11-03T08:00:00+0400"), e("2", "2026-11-02T08:00:00+0400")] };
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.zoho_id, r.adopted_count, m.posts.length], ["3", 3, 0]);
+});
+
+Deno.test("a double press: unique violation returns the existing row, one POST only", async () => {
+  const m = makeDeps();
+  const [a, b] = await Promise.all([handle("document_create", hub, m.deps), handle("document_create", hub, m.deps)]);
+  assertEquals(m.posts.length, 1);
+  assertEquals(m.db.zoho_documents.length, 1);
+  assertEquals([ref(a).state, ["creating", "created"].includes(ref(b).state)], ["created", true]);
+});
+
+Deno.test("an existing created row is returned with no Zoho request", async () => {
+  const m = makeDeps();
+  await handle("document_create", hub, m.deps);
+  const before = [m.calls.length, m.posts.length];
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([m.calls.length, m.posts.length], before);
+  assertEquals([r.state, r.zoho_number], ["created", "EST-0001"]);
+});
+
+Deno.test("a fresh creating row says it is being created; an old one counts as unknown", async () => {
+  const m = makeDeps();
+  const seed = { source_table: "hub_documents", source_id: "h1", kind: "estimate", state: "creating", reference: "Q-1" };
+  m.db.zoho_documents.push({ id: "r1", ...seed, created_at: "2026-11-02T23:59:00.000Z" });
+  await assertRejects(() => handle("document_create", hub, m.deps), UserError, "This draft is already being created. Try again in a moment.");
+  assertEquals(m.posts.length, 0);
+  m.db.zoho_documents[0].created_at = "2026-11-02T23:57:00.000Z";
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals(m.calls[0].path, "/estimates");
+  assertEquals([r.state, m.posts.length, m.db.zoho_documents.length], ["created", 1, 1]);
+});
+
+Deno.test("a timeout after POST sets unknown; retry searches first and adopts", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new ZohoTimeoutError());
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals(r.state, "unknown");
+  assertEquals(typeof r.error, "string");
+  assertEquals(m.db.zoho_documents[0].state, "unknown");
+  // Zoho did create it.
+  m.replies["/estimates"] = {
+    estimates: [{ estimate_id: "7001", estimate_number: "EST-0001", reference_number: "Q-1", customer_id: "11", total: 105, status: "draft" }],
+  };
+  const r2 = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r2.state, r2.zoho_id, m.posts.length, m.db.zoho_documents.length], ["created", "7001", 1, 1]);
+});
+
+Deno.test("a network failure after POST also sets unknown", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new TypeError("connection reset by https://secret.example"));
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const r = ref(await handle("document_create", hub, m.deps));
+    assertEquals(r.state, "unknown");
+    assertEquals(JSON.stringify(r).includes("secret.example"), false);
+    assertEquals(m.db.zoho_documents[0].error.includes("secret.example"), false);
+  } finally {
+    console.error = quiet;
+  }
+});
+
+Deno.test("a Zoho validation error sets failed with Zoho's message, and retry reuses the row", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new ZohoHttpError(400, "Customer is inactive.", 1001));
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.state, r.error], ["failed", "Customer is inactive."]);
+  assertEquals([m.db.zoho_documents[0].state, m.db.zoho_documents[0].error], ["failed", "Customer is inactive."]);
+  m.state.postImpl = () => Promise.resolve(estimateReply());
+  const r2 = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r2.state, m.db.zoho_documents.length, m.posts.length, m.db.zoho_documents[0].error], ["created", 1, 2, null]);
+});
+
+Deno.test("429 says Zoho is busy and leaves the row retryable", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new ZohoHttpError(429, "Too many requests"));
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.state, r.error], ["failed", "Zoho is busy, try again shortly."]);
+  assertEquals(m.db.zoho_documents[0].state, "failed");
+  m.state.postImpl = () => Promise.resolve(estimateReply());
+  assertEquals(ref(await handle("document_create", hub, m.deps)).state, "created");
+});
+
+Deno.test("lost Zoho access sets failed with the reconnect message", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new ZohoAccessError("invalid_code client-secret"));
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const r = ref(await handle("document_create", hub, m.deps));
+    assertEquals([r.state, r.error], ["failed", "Zoho access has stopped. An admin must reconnect."]);
+  } finally {
+    console.error = quiet;
+  }
+});
+
+Deno.test("a failed search before the POST sets failed and sends nothing", async () => {
+  const m = makeDeps();
+  m.deps.zoho = () =>
+    Promise.resolve({
+      orgId: "ORG1",
+      dc: "ae",
+      get: () => Promise.reject(new ZohoTimeoutError()),
+      post: () => {
+        m.posts.push({ path: "x", body: {} });
+        return Promise.resolve({});
+      },
+    });
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.state, m.posts.length, m.db.zoho_documents[0].state], ["failed", 0, "failed"]);
+});
+
+Deno.test("a retry on gone creates again and never adopts the deleted one", async () => {
+  const m = makeDeps();
+  m.db.zoho_documents.push({
+    id: "r1", source_table: "hub_documents", source_id: "h1", kind: "estimate", reference: "Q-1",
+    state: "gone", zoho_id: "7001", zoho_number: "EST-0001", created_at: "2026-11-01T00:00:00.000Z",
+  });
+  m.replies["/estimates"] = {
+    estimates: [{ estimate_id: "7001", estimate_number: "EST-0001", reference_number: "Q-1", customer_id: "11", total: 105, status: "draft" }],
+  };
+  m.state.postImpl = () => Promise.resolve({ estimate: { estimate_id: "7002", estimate_number: "EST-0002", total: 105, status: "draft" } });
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.state, r.zoho_id, m.posts.length, m.db.zoho_documents.length], ["created", "7002", 1, 1]);
+});
+
+Deno.test("a total difference returns total_warning and keeps created", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.resolve(estimateReply(110));
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.state, r.total_warning], ["created", true]);
+  assertEquals([m.db.zoho_documents[0].crm_total, m.db.zoho_documents[0].total], [105, 110]);
+  // One cent of rounding is not a warning.
+  const n = makeDeps();
+  n.state.postImpl = () => Promise.resolve(estimateReply(105.01));
+  assertEquals(ref(await handle("document_create", hub, n.deps)).total_warning, false);
+});
+
+Deno.test("a revised quote reports the earlier draft's number", async () => {
+  const m = makeDeps();
+  m.db.hub_documents.push(
+    { ...m.db.hub_documents[0], id: "h0", document_number: "Q-0", revises_id: null },
+    { ...m.db.hub_documents[0], id: "hm", document_number: "Q-0b", revises_id: "h0" },
+  );
+  m.db.hub_documents[0].revises_id = "hm";
+  m.db.zoho_documents.push(
+    { id: "z0", source_table: "hub_documents", source_id: "h0", kind: "estimate", state: "created", zoho_number: "EST-0000" },
+    { id: "z0i", source_table: "hub_documents", source_id: "h0", kind: "invoice", state: "created", zoho_number: "INV-0000" },
+  );
+  assertEquals(ref(await handle("document_create", hub, m.deps)).earlier_draft, "EST-0000");
+  // A gone ancestor draft has nothing in Zoho to point to.
+  m.db.zoho_documents[0].state = "gone";
+  m.db.zoho_documents.splice(2, 1);
+  assertEquals(ref(await handle("document_create", { ...hub, source_id: "hm" }, m.deps)).earlier_draft, null);
+});
+
+Deno.test("a revised Banking quote follows supersedes_id", async () => {
+  const m = makeDeps();
+  m.db.banking_quotations.push({ ...m.db.banking_quotations[0], id: "b0", quotation_number: "BQ-0" });
+  m.db.banking_quotations[0].supersedes_id = "b0";
+  m.db.zoho_documents.push({ id: "z0", source_table: "banking_quotations", source_id: "b0", kind: "estimate", state: "created", zoho_number: "EST-0100" });
+  assertEquals(ref(await handle("document_create", bank, m.deps)).earlier_draft, "EST-0100");
+});
+
+Deno.test("an ancestor loop does not hang", async () => {
+  const m = makeDeps();
+  m.db.hub_documents[0].revises_id = "h1";
+  assertEquals(ref(await handle("document_create", hub, m.deps)).earlier_draft, null);
+});
+
+Deno.test("Zoho's message is saved as given and nothing else leaks", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new ZohoHttpError(400, "[hidden] is not valid."));
+  const r = await handle("document_create", hub, m.deps);
+  assertEquals(JSON.stringify(r).includes("fake-"), false);
+  assertEquals(m.db.zoho_documents[0].error, "[hidden] is not valid.");
 });
