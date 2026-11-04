@@ -3,6 +3,8 @@
 export type Kind = "estimate" | "invoice";
 export type VatMode = "inclusive" | "exclusive" | "none";
 
+export type Line = { name: string; amount: number; taxable: boolean };
+
 export type Source = {
   department: "Business Setup" | "Banking";
   clientId: string | null;
@@ -10,17 +12,24 @@ export type Source = {
   status: string;
   total: number;
   vatMode: VatMode;
-  lines: { name: string; amount: number }[];
-  discount: number;
+  lines: Line[];
+  // True when an amount was missing, not a number, or negative.
+  unreadable: boolean;
 };
 
 const NAME_MAX = 100; // Zoho's line item name limit
 const NO_CLIENT = "This client has no Client Master record, so it can't be linked to Zoho.";
+const BAD_AMOUNT = "This quote has an amount that can't be read. Fix it before creating a Zoho draft.";
+const NO_LINES = "This quote has no lines to send to Zoho.";
 
 const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+
+// A usable amount is a finite number, not negative. Anything else is reported, not zeroed.
+const readable = (v: unknown): boolean =>
+  v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0;
 
 const mode = (v: unknown): VatMode => (v === "exclusive" || v === "none" ? v : "inclusive");
 
@@ -36,17 +45,33 @@ export function fromHub(row: Record<string, any>): Source {
     lines: lines.map((l: any) => ({
       name: String(l?.service_name || l?.description || "Service"),
       amount: num(l?.amount),
+      taxable: true,
     })),
-    discount: 0,
+    unreadable: lines.some((l: any) => !readable(l?.amount)),
   };
 }
 
-// Only the three fee totals and the discount are read. Memo fields stay out.
+// The bank fee total holds the part paid straight to the bank too, so that part is taken off.
+// VAT applies only to AB Capital's own charges, and the discount comes off those: service
+// fee first, then supplementary. Memo fields are never read.
 export function fromBanking(row: Record<string, any>, clientMasterId: string | null): Source {
-  const lines = [
-    { name: "Bank fee", amount: num(row.bank_fee_total) },
-    { name: "Service fee", amount: num(row.service_fee_total) },
-    { name: "Supplementary charges", amount: num(row.supplementary_total) },
+  const bankTotal = num(row.bank_fee_total);
+  const direct = num(row.direct_to_bank_total);
+  let svc = num(row.service_fee_total);
+  let supp = num(row.supplementary_total);
+  const disc = num(row.discount_total);
+  const bank = bankTotal - direct;
+  const unreadable = [row.bank_fee_total, row.service_fee_total, row.supplementary_total, row.discount_total]
+      .some((v) => !readable(v)) || (row.direct_to_bank_total != null && !readable(row.direct_to_bank_total)) ||
+    bank < 0 || disc > svc + supp;
+  const svcCut = Math.min(disc, svc);
+  svc = Math.round((svc - svcCut) * 100) / 100;
+  const suppCut = Math.round((disc - svcCut) * 100) / 100;
+  supp = Math.round((supp - suppCut) * 100) / 100;
+  const lines: Line[] = [
+    { name: "Bank fee", amount: bank, taxable: false },
+    { name: svcCut > 0 ? "Service fee, less discount" : "Service fee", amount: svc, taxable: true },
+    { name: suppCut > 0 ? "Supplementary charges, less discount" : "Supplementary charges", amount: supp, taxable: true },
   ].filter((l) => l.amount !== 0);
   return {
     department: "Banking",
@@ -56,7 +81,7 @@ export function fromBanking(row: Record<string, any>, clientMasterId: string | n
     total: num(row.total_amount),
     vatMode: mode(row.vat_mode),
     lines,
-    discount: num(row.discount_total),
+    unreadable,
   };
 }
 
@@ -81,10 +106,9 @@ export function toZohoBody(
       name: l.name.slice(0, NAME_MAX),
       rate: l.amount,
       quantity: 1,
-      ...(taxed ? { tax_id: vatTaxId } : {}),
+      ...(taxed && l.taxable ? { tax_id: vatTaxId } : {}),
     })),
   };
-  if (src.discount > 0) body.discount = src.discount;
   return body;
 }
 
@@ -104,6 +128,8 @@ const INVOICE_OK: Record<Source["department"], string[]> = {
 
 export function canCreate(src: Source, kind: Kind): string | null {
   if (!src.clientId) return NO_CLIENT;
+  if (src.unreadable) return BAD_AMOUNT;
+  if (src.lines.length === 0) return NO_LINES;
   const ok = (kind === "invoice" ? INVOICE_OK : ESTIMATE_OK)[src.department];
   if (ok.includes(src.status)) return null;
   return kind === "invoice"

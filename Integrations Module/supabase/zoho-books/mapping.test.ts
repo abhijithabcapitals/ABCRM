@@ -36,11 +36,11 @@ const bankRow = (over: Record<string, unknown> = {}) => ({
   total_amount: 1000,
   vat_mode: "inclusive",
   vat_rate: 5,
-  bank_fee_total: 500,
+  bank_fee_total: 700,
   service_fee_total: 300,
   supplementary_total: 0,
   discount_total: 50,
-  direct_to_bank_total: 9999,
+  direct_to_bank_total: 200,
   initial_deposit_memo: "memo A",
   minimum_balance_memo: "memo B",
   ...over,
@@ -73,23 +73,48 @@ Deno.test("none sends no tax_id", () => {
 });
 
 Deno.test("banking makes bank, service and supplementary lines, dropping zero ones", () => {
-  const b = toZohoBody(fromBanking(bankRow(), "cm1"), "c", "tax", "2026-11-04") as any;
-  assertEquals(b.line_items.length, 2);
+  const b = toZohoBody(fromBanking(bankRow({ discount_total: 0 }), "cm1"), "c", "tax", "2026-11-04") as any;
   assertEquals(b.line_items.map((l: any) => l.rate), [500, 300]);
-  const b2 = toZohoBody(fromBanking(bankRow({ supplementary_total: 20 }), "cm1"), "c", "tax", "2026-11-04") as any;
+  const b2 = toZohoBody(fromBanking(bankRow({ discount_total: 0, supplementary_total: 20 }), "cm1"), "c", "tax", "2026-11-04") as any;
   assertEquals(b2.line_items.length, 3);
 });
 
-Deno.test("banking discount_total goes in discount", () => {
+Deno.test("banking discount comes off the service fee line and is not sent as discount", () => {
   const b = toZohoBody(fromBanking(bankRow(), "cm1"), "c", "tax", "2026-11-04") as any;
-  assertEquals(b.discount, 50);
+  assertEquals(b.line_items.map((l: any) => [l.name, l.rate]), [["Bank fee", 500], ["Service fee, less discount", 250]]);
+  assert(!("discount" in b));
   assert(!("discount_type" in b));
-  const none = toZohoBody(fromBanking(bankRow({ discount_total: 0 }), "cm1"), "c", "tax", "2026-11-04") as any;
-  assert(!("discount" in none));
+});
+
+Deno.test("exclusive banking: bank line has no direct amount and no tax_id, others are taxed", () => {
+  // collected bank 500, service 300, supplementary 100, discount 50, net 350, VAT 17.50, total 867.50
+  const row = bankRow({ vat_mode: "exclusive", supplementary_total: 100, total_amount: 867.5 });
+  const src = fromBanking(row, "cm1");
+  const b = toZohoBody(src, "c", "tax", "2026-11-04") as any;
+  const [bank, ...rest] = b.line_items;
+  assertEquals(bank.rate, 500);
+  assert(!("tax_id" in bank));
+  assert(rest.every((l: any) => l.tax_id === "tax"));
+  const taxable = rest.reduce((t: number, l: any) => t + l.rate, 0);
+  assertEquals(taxable, 350);
+  assertEquals(bank.rate + taxable + taxable * 0.05, src.total);
+  assertEquals(b.is_inclusive_tax, false);
+});
+
+Deno.test("inclusive banking: a discount above the service fee takes the rest off supplementary", () => {
+  const row = bankRow({ service_fee_total: 100, supplementary_total: 80, discount_total: 130 });
+  const b = toZohoBody(fromBanking(row, "cm1"), "c", "tax", "2026-11-04") as any;
+  // service line is zero and dropped; supplementary 80 - 30 = 50
+  assertEquals(b.line_items.map((l: any) => [l.name, l.rate]), [["Bank fee", 500], ["Supplementary charges, less discount", 50]]);
+});
+
+Deno.test("direct_to_bank_total equal to the whole bank fee gives no bank line", () => {
+  const b = toZohoBody(fromBanking(bankRow({ bank_fee_total: 200 }), "cm1"), "c", "tax", "2026-11-04") as any;
+  assert(!b.line_items.some((l: any) => l.name === "Bank fee"));
 });
 
 Deno.test("direct_to_bank_total and memo fields are never sent", () => {
-  const src = fromBanking(bankRow(), "cm1");
+  const src = fromBanking(bankRow({ direct_to_bank_total: 9999, bank_fee_total: 10499 }), "cm1");
   const json = JSON.stringify([src, toZohoBody(src, "c", "tax", "2026-11-04")]);
   assert(!json.includes("9999"));
   assert(!json.includes("memo"));
@@ -138,6 +163,16 @@ Deno.test("canCreate: an invoice needs an accepted quote; rejected and supersede
   for (const s of ["Draft", "Approval Required", "Rejected", "Expired", "Superseded"]) {
     assert(canCreate(bank(s), "estimate") !== null);
   }
+});
+
+Deno.test("canCreate: unreadable, negative and empty lines are refused", () => {
+  const msg = "This quote has an amount that can't be read. Fix it before creating a Zoho draft.";
+  for (const amount of ["abc", -5, null, undefined]) {
+    assertEquals(canCreate(fromHub(hubRow({ lines: [{ service_name: "A", amount }] })), "estimate"), msg);
+  }
+  assertEquals(canCreate(fromHub(hubRow({ lines: [] })), "estimate"), "This quote has no lines to send to Zoho.");
+  assertEquals(canCreate(fromBanking(bankRow({ discount_total: 5000 }), "cm1"), "estimate"), msg);
+  assertEquals(canCreate(fromBanking(bankRow({ service_fee_total: "x" }), "cm1"), "estimate"), msg);
 });
 
 Deno.test("canCreate: no client record is refused", () => {
