@@ -1,13 +1,10 @@
 // Actions for the zoho-finance Edge Function. Read-only. Kept free of Deno and Supabase imports so tests run offline.
 
-export class UserError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "UserError";
-  }
-}
-
+import { UserError } from "./errors.ts";
+import { refresh } from "./refresh.ts";
 import { ZohoAccessError, ZohoHttpError } from "./zohoClient.ts";
+
+export { browserMessage, UserError } from "./errors.ts";
 
 // deno-lint-ignore no-explicit-any
 type Json = any;
@@ -20,19 +17,10 @@ export type ZohoLike = {
 export type Deps = {
   isAdmin(): Promise<boolean>;
   zoho(): Promise<ZohoLike>;
-  // Service-role Supabase client. Unused by these two actions.
+  // Service-role Supabase client. Used by refresh.
   db: Json;
   now(): Date;
 };
-
-// The only error text the browser sees for a Zoho or unexpected failure. Raw detail stays in the server log.
-export function browserMessage(e: unknown): string {
-  if (e instanceof ZohoAccessError) return "Zoho access has stopped. An admin must reconnect.";
-  if (e instanceof ZohoHttpError) {
-    return e.status === 429 ? "Zoho is busy, try again shortly." : "Zoho refused the request.";
-  }
-  return "Something went wrong talking to Zoho.";
-}
 
 async function requireAdmin(deps: Deps) {
   if (!(await deps.isAdmin())) throw new UserError("Only a CRM admin can do this.");
@@ -54,7 +42,7 @@ export async function handle(action: string, body: Json, deps: Deps): Promise<ob
   }
 }
 
-async function run(action: string, _body: Json, deps: Deps): Promise<object> {
+async function run(action: string, body: Json, deps: Deps): Promise<object> {
   if (action === "connection_test") {
     await requireAdmin(deps);
     const zoho = await deps.zoho();
@@ -72,6 +60,10 @@ async function run(action: string, _body: Json, deps: Deps): Promise<object> {
   if (action === "probe") {
     await requireAdmin(deps);
     return await probe(await deps.zoho(), deps.now());
+  }
+
+  if (action === "refresh") {
+    return await refresh({ force: body.force === true }, deps);
   }
 
   throw new UserError("Unknown action.");

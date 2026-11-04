@@ -5,6 +5,7 @@
 // Actions (POST JSON { action }):
 //   connection_test    admin only
 //   probe              admin only; structure of the Zoho data only, never an amount, name or ID
+//   refresh            admin only; { force } rebuilds the zoho_finance_snapshot row, subject to its limits
 //
 // Deploy with this folder's files together:
 //   supabase functions deploy zoho-finance --project-ref pnnakrhfzyxudjaghoxx --use-api

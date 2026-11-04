@@ -33,7 +33,7 @@ const GET_PATHS: RegExp[] = [
   /^\/bills$/,
   /^\/bankaccounts$/,
   /^\/chartofaccounts$/,
-  // Both transaction paths are allowed for the probe only. Task 8 keeps one.
+  // Both transaction paths are allowed for the probe only. One is removed once the live probe has run.
   /^\/chartofaccounts\/transactions$/,
   /^\/chartofaccounts\/accounttransactions$/,
   /^\/expenses$/,
