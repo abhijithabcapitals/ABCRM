@@ -14,6 +14,13 @@ const withStorage = (impl, fn) => {
   try { return fn(); } finally { prev ? Object.defineProperty(globalThis, "localStorage", prev) : delete globalThis.localStorage; }
 };
 
+test("card titles match the spec", () => {
+  assert.deepEqual(Object.fromEntries(SUMMARY_CARDS.map((c) => [c.id, c.title])), {
+    bd: "Business Development", banking: "Business Banking", setup: "Business Setup", accounting: "Accounting",
+    hr: "HR", tax: "Tax Compliance", notifications: "Notifications", health: "Company Health",
+    ar: "Accounts Receivable", ap: "Accounts Payable", ratios: "Financial Ratios", revenue: "Revenue", cost: "Cost", cash: "Cash",
+  });
+});
 test("admin sees all 14 cards", () => {
   assert.equal(SUMMARY_CARDS.length, 14);
   assert.equal(visibleCards(SUMMARY_CARDS, { isAdmin: true, tabs: [] }).length, 14);
