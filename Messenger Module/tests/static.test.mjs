@@ -21,12 +21,21 @@ test("browser code holds no token words", () => {
 });
 
 test("panel falls back to a visible link when the pop-up is blocked", () => {
-  const src = read("components/TeamsPanel.jsx");
+  const src = read("components/ChatStarter.jsx");
   assert.match(src, /window\.open\(/);
   assert.match(src, /blocked/i);
 });
 
 test("window.open does not use noopener, which would make a opened window look blocked", () => {
-  const src = read("components/TeamsPanel.jsx");
+  const src = read("components/ChatStarter.jsx");
   assert.doesNotMatch(src, /window\.open\([^)]*noopener/);
+});
+
+const main = (p) => readFileSync(join(here, "..", "Main Module", p), "utf8");
+
+test("Messenger is wired into the Main Module", () => {
+  assert.match(main("vite.config.js"), /'@messenger'/);
+  assert.match(main("src/App.jsx"), /lazy\(\(\) => import\("@messenger"\)\)/);
+  assert.match(main("src/tabs.js"), /key: "messenger"/);
+  assert.match(main("src/components/Sidebar.jsx"), /key: "messenger"/);
 });

@@ -11,6 +11,7 @@ export const GRANTABLE_TABS = [
   { key: "hr", label: "HR" },
   { key: "tax", label: "Tax Compliance" },
   { key: "knowledge", label: "Knowledge" },
+  { key: "messenger", label: "Messenger" },
   { key: "spaces", label: "Spaces, Tasks and Documents" },
 ];
 const KEYS = new Set(GRANTABLE_TABS.map((t) => t.key));

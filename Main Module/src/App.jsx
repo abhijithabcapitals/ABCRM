@@ -28,6 +28,7 @@ const HR = lazy(() => import("@hr"));
 const AccountingPage = lazy(() => import("@accounting"));
 const BusinessSetup = lazy(() => import("@business-setup"));
 const Knowledge = lazy(() => import("@knowledge"));
+const Messenger = lazy(() => import("@messenger"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
 const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
@@ -531,6 +532,7 @@ export default function App() {
         {view === "accounts" && <AccountingPage profile={profile} />}
         {view === "business-setup" && <BusinessSetup profile={profile} />}
         {view === "knowledge" && <Knowledge profile={profile} />}
+        {view === "messenger" && <Messenger profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
         {view === "email-agent" && profile?.role === "admin" && <EmailAgent />}
         {view === "tax" && (

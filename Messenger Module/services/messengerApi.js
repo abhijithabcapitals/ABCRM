@@ -11,7 +11,7 @@ export async function listStaff() {
 
 export async function listLinks(recordType, recordId) {
   return check(await supabase.from("crm_communication_links").select("*")
-    .eq("record_type", recordType).eq("record_id", String(recordId)).eq("link_type", "teams_chat")
+    .eq("record_type", recordType).eq("record_id", String(recordId)).eq("link_type", "chat")
     .order("created_at", { ascending: false }));
 }
 
@@ -19,7 +19,7 @@ export async function listLinks(recordType, recordId) {
 export async function saveChatLink({ recordType, recordId, reference, label }) {
   const { data: auth } = await supabase.auth.getUser();
   const { error } = await supabase.from("crm_communication_links").insert({
-    record_type: recordType, record_id: String(recordId), link_type: "teams_chat", reference, label, created_by: auth?.user?.id,
+    record_type: recordType, record_id: String(recordId), link_type: "chat", reference, label, created_by: auth?.user?.id,
   });
   if (error && error.code !== "23505") throw new Error(error.message);
 }
@@ -31,4 +31,13 @@ export async function deleteLink(id) {
 export async function currentUserId() {
   const { data } = await supabase.auth.getUser();
   return data?.user?.id || null;
+}
+
+// The person's own saved chats, newest first.
+export async function listMyChats(limit = 20) {
+  const me = await currentUserId();
+  if (!me) return [];
+  return check(await supabase.from("crm_communication_links").select("*")
+    .eq("link_type", "chat").eq("created_by", me)
+    .order("created_at", { ascending: false }).limit(limit));
 }

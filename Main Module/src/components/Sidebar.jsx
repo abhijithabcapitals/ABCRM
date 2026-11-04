@@ -1193,6 +1193,7 @@ export default function Sidebar({
           { key: "hr", Icon: IconClients, label: "HR" },
           { key: "tax", Icon: IconCheck, label: "Tax Compliance" },
           { key: "knowledge", Icon: IconFile, label: "Knowledge" },
+          { key: "messenger", Icon: IconMail, label: "Messenger" },
           ...(profile?.role === "admin"
             ? [
                 { key: "ceo", Icon: IconSparkles, label: "CEO Agent" },
