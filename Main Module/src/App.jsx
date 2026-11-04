@@ -10,7 +10,7 @@ import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
 // Static, so a failed chunk load cannot crash the app; the bubble loads its panel lazily itself.
-import MessengerBubble from "@messenger/components/MessengerBubble";
+import MessengerDock from "@messenger/components/MessengerDock";
 import "./App.css";
 
 // Code-split the heavy views so the initial load only downloads the one in use
@@ -560,10 +560,10 @@ export default function App() {
           <Settings currentUser={user} profile={profile} spaces={spaces} onAccessChanged={() => fetchAccessRules(profile)} />
         )}
         </Suspense>
-        <MessengerBubble profile={profile} />
       </main>
       <BrandFooter />
       </div>
+      <MessengerDock profile={profile} onOpenMail={profile?.role === "admin" ? () => handleNavigate("ceo") : undefined} />
     </div>
   );
 }

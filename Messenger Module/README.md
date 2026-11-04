@@ -1,13 +1,13 @@
 # Messenger Module
 
-The CRM's floating chat **bubble** and the Teams panel on client and lead records: start a Microsoft Teams chat from the CRM. The Microsoft connection screens are in Settings > Integrations.
+The CRM's docked chat **panel** and the Teams panel on client and lead records: start a Microsoft Teams chat from the CRM. The Microsoft connection screens are in Settings > Integrations.
 Data lives in `Database Module/Messanger Base` (`crm_communication_links`). Design and plan: `docs/`.
 
 ## Layout
 
 | Folder | Holds |
 |---|---|
-| `components/` | `MessengerBubble` and the chat screens, `ChatStarter` (staff picker and open button), `TeamsPanel` (record panel), `MicrosoftConnection` (admin: connection, people review, test, secret expiry; shown under the microsoft row in Settings > Integrations), `SyncLogs` (admin log, shown below it) |
+| `components/` | `MessengerDock`, `ChatRail` and the chat screens, `ChatStarter` (staff picker and open button), `TeamsPanel` (record panel), `MicrosoftConnection` (admin: connection, people review, test, secret expiry; shown under the microsoft row in Settings > Integrations), `SyncLogs` (admin log, shown below it) |
 | `logic/` | Pure rules: Teams deep link and message text, staff list, sentences for the Microsoft return and secret expiry |
 | `services/messengerApi.js` | The only file that talks to Supabase and the `ms365` function |
 | `supabase/ms365/` | The Edge Function: Microsoft sign-in, token storage in Vault, Graph client |

@@ -272,3 +272,24 @@ test("members embeds names, flattened from profiles", async () => {
     { profile_id: "u1", role: "owner", last_read_at: "t", full_name: "Asha" },
     { profile_id: "u2", role: "member", last_read_at: "t", full_name: null }]);
 });
+
+test("mailNewCount counts new CEO threads from the last 15 days, leaving out switched-off mailboxes", async () => {
+  const calls = {};
+  const threads = {
+    select(c, o) { calls.select = [c, o]; return this; }, contains(k, v) { calls.tags = [k, v]; return this; }, eq(k, v) { calls.status = [k, v]; return this; },
+    gte(k, v) { calls.since = [k, v]; return this; }, not(k, op, v) { calls.not = [k, op, v]; return this; },
+    then(ok) { return Promise.resolve({ count: 4, error: null }).then(ok); },
+  };
+  const prefs = { select() { return this; }, maybeSingle: async () => ({ data: { hidden_mailbox_ids: ["m1", "m2"] } }) };
+  const client = { schema: (s) => ({ from: () => (s === "ceo" ? prefs : threads) }) };
+  assert.equal(await createChatApi(client).mailNewCount(), 4);
+  assert.deepEqual(calls.tags, ["tags", ["ceo"]]);
+  assert.deepEqual(calls.status, ["status", "new"]);
+  assert.deepEqual(calls.not, ["mailbox_id", "in", "(m1,m2)"]);
+  assert.ok(Date.now() - Date.parse(calls.since[1]) <= 15 * 86400000 + 5000);
+  assert.deepEqual(calls.select[1], { count: "exact", head: true });
+});
+test("mailNewCount gives null when mail cannot be read, so the badge stays empty", async () => {
+  const q = { select() { return this; }, contains() { return this; }, eq() { return this; }, gte() { return this; }, not() { return this; }, maybeSingle: async () => ({ data: null }), then(ok) { return Promise.resolve({ count: null, error: { code: "42501" } }).then(ok); } };
+  assert.equal(await createChatApi({ schema: () => ({ from: () => q }) }).mailNewCount(), null);
+});

@@ -1,43 +1,47 @@
 import { useState } from "react";
-import ChatList from "./ChatList.jsx";
 import Conversation from "./Conversation.jsx";
 import NewChat from "./NewChat.jsx";
 import GroupInfo from "./GroupInfo.jsx";
 import AttachPicker from "./AttachPicker.jsx";
+import ChatSettings from "./ChatSettings.jsx";
 
-// Two panes: the list and the open chat. On phones only one shows at a time.
+// The open pane beside the rail: a chat, or the new chat, group info or settings screen on top of it.
 // Drafts live here, so a half-typed message survives switching chats and closing the panel.
-export default function MessengerPanel({ profile, rows, reload, onMessage, visible, connected = true, error = "", onClose }) {
-  const [selected, setSelected] = useState(null);
+export default function MessengerPanel({ profile, rows, reload, onMessage, visible, connected = true, selected, onSelect, screen, onScreen, onClose, keepOpen, onKeepOpen }) {
   const [drafts, setDrafts] = useState({});
-  const [screen, setScreen] = useState(null); // "new", "info", or null
   const row = rows.find((r) => r.id === selected);
+  const back = () => onScreen(null);
 
   // The new chat arrives through reload; selection is by id, so it shows as soon as the row is in the list.
   async function opened(id) {
     await reload();
-    setSelected(id);
-    setScreen(null);
+    onSelect(id);
+    onScreen(null);
   }
 
   return (
-    <div className={`msgr-panel ${row ? "msgr-show-chat" : "msgr-show-list"}`} hidden={!visible} role="dialog" aria-label="Team chat">
+    <div className="msgr-panel" role="region" aria-label="Team chat">
       {!connected && <div className="msgr-reconnect">Reconnecting…</div>}
       <div className="msgr-panes">
-        <ChatList rows={rows} selectedId={selected} myId={profile?.id} error={error} onSelect={setSelected} onRetry={reload} onClose={onClose} onNew={() => setScreen("new")} />
         {row ? (
           <Conversation key={row.id} row={row} profile={profile} visible={visible} connected={connected} onMessage={onMessage} reload={reload}
-            draft={drafts[row.id] || ""} onDraft={(text) => setDrafts((d) => ({ ...d, [row.id]: text }))}
-            onBack={() => setSelected(null)} onClose={onClose}
-            onInfo={() => setScreen("info")} attachSlot={(slot) => <AttachPicker {...slot} />} />
+            draft={drafts[row.id] || ""} onDraft={(text) => setDrafts((d) => ({ ...d, [row.id]: text }))} onClose={onClose}
+            onInfo={() => onScreen("info")} attachSlot={(slot) => <AttachPicker {...slot} />} />
         ) : (
-          <section className="msgr-chat-pane" aria-label="Conversation"><p className="msgr-empty">Select a chat</p></section>
+          <section className="msgr-chat-pane" aria-label="Conversation">
+            <header className="msgr-pane-head">
+              <strong>Chats</strong>
+              <button type="button" className="msgr-close" onClick={onClose} aria-label="Close chat">×</button>
+            </header>
+            <p className="msgr-empty">Select a chat</p>
+          </section>
         )}
       </div>
-      {screen === "new" && <NewChat me={profile?.id} onOpened={opened} onBack={() => setScreen(null)} onClose={onClose} />}
+      {screen === "new" && <NewChat me={profile?.id} onOpened={opened} onBack={back} onClose={onClose} />}
+      {screen === "settings" && <ChatSettings keepOpen={keepOpen} onKeepOpen={onKeepOpen} onBack={back} onClose={onClose} />}
       {screen === "info" && row && row.kind === "group" && (
-        <GroupInfo key={row.id} row={row} me={profile?.id} reload={reload} onBack={() => setScreen(null)} onClose={onClose}
-          onLeft={() => { setSelected(null); setScreen(null); }} />
+        <GroupInfo key={row.id} row={row} me={profile?.id} reload={reload} onBack={back} onClose={onClose}
+          onLeft={() => { onSelect(null); onScreen(null); }} />
       )}
     </div>
   );

@@ -3,6 +3,7 @@
 
 const PAGE = 50;
 const PICK_LIMIT = 20;
+const MAIL_WINDOW_DAYS = 15;
 let seq = 0; // one channel name per subscription, so two in a window never share a topic
 
 function fail(sentence) {
@@ -111,6 +112,17 @@ export function createChatApi(client) {
       return rows(await client.from("profiles").select("id, full_name").order("full_name"), "Could not load the staff list. Please try again.");
     },
     clientLookup,
+    // New conversations in the connected mailboxes, counted as the CEO Agent inbox does. Null when mail cannot be read.
+    async mailNewCount() {
+      const { data: prefs } = await client.schema("ceo").from("inbox_preferences").select("hidden_mailbox_ids").maybeSingle();
+      const hidden = prefs?.hidden_mailbox_ids || [];
+      let q = client.schema("email_base").from("threads").select("id", { count: "exact", head: true })
+        .contains("tags", ["ceo"]).eq("status", "new")
+        .gte("last_message_at", new Date(Date.now() - MAIL_WINDOW_DAYS * 86400000).toISOString());
+      if (hidden.length) q = q.not("mailbox_id", "in", `(${hidden.join(",")})`);
+      const { count, error } = await q;
+      return error ? null : count;
+    },
     searchRecords,
     subscribe,
   };

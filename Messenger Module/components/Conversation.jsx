@@ -13,7 +13,7 @@ const oldestFirst = (list) => [...list].reverse();
 const addAll = (cur, page) => oldestFirst(page).reduce((acc, m) => mergeMessage(acc, m), cur);
 
 // Open chat. The panel gives it key={conversationId}, so every chat starts with clean state.
-export default function Conversation({ row, profile, visible, connected, onMessage, reload, draft, onDraft, onBack, onClose, onInfo, attachSlot }) {
+export default function Conversation({ row, profile, visible, connected, onMessage, reload, draft, onDraft, onClose, onInfo, attachSlot }) {
   const cid = row.id;
   const me = profile?.id;
   const [messages, setMessages] = useState([]);
@@ -174,7 +174,6 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   return (
     <section className="msgr-chat-pane" aria-label="Conversation">
       <header className="msgr-pane-head">
-        <button type="button" className="msgr-back" onClick={onBack} aria-label="Back to chats">←</button>
         <span className="msgr-head-title">
           <strong>{chatTitle(row)}</strong>
           {group && <small>{row.member_count} members</small>}

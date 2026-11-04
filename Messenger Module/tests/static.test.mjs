@@ -41,7 +41,7 @@ test("the Messenger tab is gone but the alias stays for TeamsPanel and ChatStart
   assert.doesNotMatch(main("src/components/Sidebar.jsx"), /key: "messenger"/);
   for (const f of ["MessengerModule", "Chats", "Overview"]) assert.ok(!existsSync(join(here, `components/${f}.jsx`)), f);
   assert.doesNotMatch(read("index.js"), /MessengerModule/);
-  assert.match(read("index.js"), /MessengerBubble/);
+  assert.match(read("index.js"), /MessengerDock/);
 });
 
 test("every link_type in messengerApi.js is a value the database accepts", () => {
@@ -114,12 +114,15 @@ test("App.jsx keeps view in abc_view and does not use URLSearchParams.size", () 
   assert.doesNotMatch(read("components/MicrosoftConnection.jsx"), /q\.size/);
 });
 
-test("the bubble is mounted once in App.jsx, imported statically so a failed chunk cannot crash the app", () => {
+test("the dock is mounted once in App.jsx, beside the page and not over it, imported statically so a failed chunk cannot crash the app", () => {
   const app = main("src/App.jsx");
-  assert.match(app, /^import MessengerBubble from "@messenger\/components\/MessengerBubble";$/m);
+  assert.match(app, /^import MessengerDock from "@messenger\/components\/MessengerDock";$/m);
   assert.doesNotMatch(app, /lazy\(\(\) => import\("@messenger/);
-  assert.equal((app.match(/<MessengerBubble /g) || []).length, 1);
-  assert.doesNotMatch(app, /<Suspense[^>]*><MessengerBubble/);
+  assert.equal((app.match(/<MessengerDock /g) || []).length, 1);
+  // Beside .app-body in the flex layout, so the page resizes when the dock opens and closes.
+  assert.ok(app.indexOf("<MessengerDock ") > app.indexOf("</main>"));
+  assert.doesNotMatch(app, /MessengerBubble/);
+  assert.doesNotMatch(app, /<Suspense[^>]*><MessengerDock/);
 });
 
 test("a saved or requested view of messenger or wiki opens the dashboard, and the saved value is fixed", async () => {
@@ -162,8 +165,8 @@ test("AttachPicker keeps one client copy per opening and passes it to searchReco
   assert.match(src, /chatApi\.searchRecords\(kind, query, /);
 });
 
-test("the bubble loads the panel lazily and wraps it in the error boundary", () => {
-  const src = read("components/MessengerBubble.jsx");
+test("the dock loads the panel lazily and wraps it in the error boundary", () => {
+  const src = read("components/MessengerDock.jsx");
   assert.match(src, /lazy\(\(\) => import\("\.\/MessengerPanel(\.jsx)?"\)\)/);
   assert.match(src, /<ChatBoundary/);
   assert.match(src, /shouldCollapse/);
@@ -174,11 +177,13 @@ test("no message HTML is ever rendered", () => {
   assert.doesNotMatch(readAll("components"), /dangerouslySetInnerHTML/);
 });
 
-test("chat.css holds the bubble position and every selector is scoped under .msgr-", () => {
+test("no bubble remains, the rail stays visible, and every selector in chat.css is scoped under .msgr-", () => {
   const css = read("components/chat.css");
-  assert.match(css, /right:\s*20px/);
-  assert.match(css, /bottom:\s*88px/);
-  assert.match(css, /z-index:\s*8900/);
+  assert.doesNotMatch(css, /msgr-bubble/);
+  assert.ok(!existsSync(join(here, "components/MessengerBubble.jsx")));
+  assert.ok(!existsSync(join(here, "components/ChatList.jsx")));
+  assert.match(css, /\.msgr-rail \{/);
+  assert.match(css, /\.msgr-dock-pane \{[^}]*transition: width/);
   const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const selectors = [];
   let depth = 0, buf = "", inMedia = [];
@@ -199,7 +204,7 @@ test("chat.css holds the bubble position and every selector is scoped under .msg
 });
 
 test("the panel's loading and failure notes each carry a close button", () => {
-  const src = read("components/MessengerBubble.jsx");
+  const src = read("components/MessengerDock.jsx");
   assert.match(src, /function PanelNote/);
   assert.match(src, /msgr-close/);
   assert.match(src, /<Suspense fallback=\{<PanelNote/);
@@ -228,7 +233,7 @@ test("Composer checks the body with checkBody", () => {
 });
 
 test("list, conversation and composer never render a raw error.message", () => {
-  for (const f of ["ChatList", "Conversation", "Composer", "Message"]) {
+  for (const f of ["ChatRail", "Conversation", "Composer", "Message"]) {
     assert.doesNotMatch(read(`components/${f}.jsx`), /(e|err|error)\.message/, `${f} renders .message`);
   }
 });
@@ -270,4 +275,24 @@ test("new screens never render a raw error.message", () => {
   for (const f of ["NewChat", "GroupInfo", "AttachPicker", "MessengerPanel"]) {
     assert.doesNotMatch(read(`components/${f}.jsx`), /(e|err|error)\.message/, `${f} renders .message`);
   }
+});
+
+test("the rail holds settings, new chat, the chat list, and the WhatsApp, Telegram and mail buttons", () => {
+  const src = read("components/ChatRail.jsx");
+  for (const label of ["Chat settings", "New chat", "WhatsApp", "Telegram", "New mail"]) assert.ok(src.includes(label), label);
+  assert.match(src, /https:\/\/web\.whatsapp\.com\//);
+  assert.match(src, /https:\/\/web\.telegram\.org\//);
+  assert.match(src, /rel="noopener noreferrer"/);
+  assert.match(src, /title=\{/);
+});
+
+test("clicking the page collapses the dock unless the person chose to keep it open", () => {
+  const src = read("components/MessengerDock.jsx");
+  assert.match(src, /keepOpen/);
+  assert.match(read("components/ChatSettings.jsx"), /Keep chat open/);
+});
+
+test("the mail button is for admins only, and the reading widget moves clear of the dock", () => {
+  assert.match(main("src/App.jsx"), /onOpenMail=\{profile\?\.role === "admin"/);
+  assert.match(readFileSync(join(here, "..", "Banking Module/components/reading.css"), "utf8"), /var\(--msgr-dock-offset/);
 });

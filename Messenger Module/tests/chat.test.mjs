@@ -3,8 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   MAX_BODY, badgeText, totalUnread, checkBody, checkWebLink, mergeMessage,
-  tickState, dayKey, previewText, senderName, chatTitle, shouldCollapse, catchUp, personLeft,
-} from "../logic/chat.js";
+  tickState, dayKey, previewText, senderName, chatTitle, shouldCollapse, catchUp, personLeft, sortChats, initials, railTitle } from "../logic/chat.js";
 
 test("badge", () => {
   assert.equal(badgeText(0), "");
@@ -107,4 +106,21 @@ test("a direct chat whose other person is gone is marked as left", () => {
   assert.equal(personLeft({ kind: "direct", other_id: null }), true);
   assert.equal(personLeft({ kind: "direct", other_id: "u2" }), false);
   assert.equal(personLeft({ kind: "group", other_id: null }), false);
+});
+
+test("sortChats puts the latest first and does not change its input", () => {
+  const a = { id: "a", last_message_at: "2026-11-04T09:00:00Z" }, b = { id: "b", last_message_at: "2026-11-04T10:00:00Z" }, c = { id: "c", last_message_at: null };
+  const input = [a, c, b];
+  assert.deepEqual(sortChats(input).map((r) => r.id), ["b", "a", "c"]);
+  assert.deepEqual(input.map((r) => r.id), ["a", "c", "b"]);
+});
+test("initials", () => {
+  assert.equal(initials("Tax team"), "TT");
+  assert.equal(initials("GEO"), "G");
+  assert.equal(initials("  Sara  Bint  Ali "), "SA");
+  assert.equal(initials(""), "?");
+});
+test("railTitle gives the full name, with the preview when there is one", () => {
+  assert.equal(railTitle({ kind: "group", title: "Tax team", last_body: "Done", last_sender_id: "me" }, "me"), "Tax team\nYou: Done");
+  assert.equal(railTitle({ kind: "direct", other_name: "Omar Khan" }, "me"), "Omar Khan");
 });

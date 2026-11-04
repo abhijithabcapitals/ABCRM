@@ -85,3 +85,21 @@ export function catchUp(current, page) {
 export function personLeft(row) {
   return row.kind === "direct" && !row.other_id;
 }
+
+// Latest message first. Chats with no message yet go last.
+export function sortChats(rows) {
+  const at = (r) => (r.last_message_at ? Date.parse(r.last_message_at) : 0);
+  return [...rows].sort((a, b) => at(b) - at(a));
+}
+
+export function initials(title) {
+  const parts = String(title || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+// The rail shows only initials, so hovering gives the full name and the latest message.
+export function railTitle(row, myId) {
+  const preview = previewText(row, myId);
+  return preview ? `${chatTitle(row)}\n${preview}` : chatTitle(row);
+}

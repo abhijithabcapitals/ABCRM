@@ -75,20 +75,29 @@ Run on the real tenant, after the migrations are applied, `ms365` is deployed wi
 39. After steps 19 to 35, search `localStorage`, `sessionStorage`, IndexedDB and cookies for `refresh`, `token`, `secret`: no Microsoft token or secret appears (the Supabase sign-in session is expected).
 40. In the Network tab, no response from `ms365` or Supabase contains a refresh token, ID token, authorization code or client secret. The authorization code appears only in the Microsoft redirect to the function, and is gone from the address after the 302.
 
-# Browser check: chat bubble
+# Browser check: chat dock
 Needs two real staff logins (A and B) and a third (C) who is in neither chat, after `003_chat.sql` is applied with Realtime on.
 
-1. A and B in two browsers. A starts a chat with B from the bubble. B sees the unread badge on the bubble without reloading.
+1. A and B in two browsers. A starts a chat with B from the rail. B sees the unread badge on the bubble without reloading.
 2. A and B exchange messages live, both directions. Ticks and read state update.
-3. C opens the bubble: the A and B chat is not listed. C cannot open it by any address.
+3. C opens the rail: the A and B chat is not listed. C cannot open it by any address.
 4. An admin who is not in the chat cannot read it either.
-5. Badge counts: the bubble badge and each row count match unread messages, and clear when the chat is read.
+5. Badge counts: each chat's badge in the rail match unread messages, and clear when the chat is read.
 6. Click outside the panel: it collapses. Clicking inside it does not.
 7. Press Esc: the panel collapses.
 8. A and B start a chat with each other at the same moment. Only one chat exists afterwards.
 9. Put the laptop to sleep, send a message from the other login, wake it. The message appears and the connection recovers without a reload.
 10. Group: the title accepts 80 characters and no more.
-11. Mobile width: the bubble and panel fit the screen, and the composer is usable.
-12. The bubble does not cover the reading widget or any button in the CRM at the usual window sizes.
+11. Mobile width: the rail and open pane fit the screen, and the composer is usable.
+12. The rail does not cover the reading widget or any button in the CRM at the usual window sizes.
 13. Re-subscribing after a drop: switch the network off for a minute, then on. The status returns to connected without a reload, and a message sent meanwhile appears. Do this again after leaving the tab idle long enough for the channel to report CLOSED.
 14. Stacking order: with the panel open, open a CRM modal, a dropdown and the reading widget. The bubble (z-index 8900) must not sit above a modal and must not be hidden behind the page's own controls.
+
+## Docked panel
+
+1. Rail stays on the right of every page with settings, new chat, chats, WhatsApp, Telegram, and mail for admins.
+2. Opening a chat shrinks the page and closing it grows the page back, with no content hidden under the panel.
+3. Hover on a chat shows the full name.
+4. Clicking the page collapses the panel; with Keep chat open ticked in settings it stays open.
+5. WhatsApp and Telegram open in a new tab. The mail count matches the CEO Agent inbox, and clicking opens the CEO Agent.
+6. The BD Agent tab and other items fixed to the right of the page do not block the rail.
