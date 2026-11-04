@@ -633,7 +633,11 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
           }
         }
         // The read time is held back after a failed write, so the next open tries again.
-        if (sync.ok) patch.last_read_at = now.toISOString();
+        // A hidden-invoice reason is saved so it still shows while reads are throttled. A clean sync clears it.
+        if (sync.ok) {
+          patch.last_read_at = now.toISOString();
+          patch.error = sync.message;
+        }
         rowError = sync.message;
         const res = await deps.db.from("zoho_documents").update(patch).eq("id", row.id);
         if (res.error) {
@@ -656,8 +660,10 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
           }
         }
       }
-      readError ??= rowError;
+    } else if (row.state === "created" && row.error) {
+      rowError = row.error;
     }
+    readError ??= rowError;
     rows.push(
       await shapeRow(deps, zoho, table, id, kind, row, {
         kind,

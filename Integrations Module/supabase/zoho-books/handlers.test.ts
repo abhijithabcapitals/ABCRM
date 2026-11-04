@@ -1454,3 +1454,67 @@ Deno.test("a bad source_id gives a clean error in both actions", async () => {
   }
   assertEquals(pdfCalls.length + calls.length, 0);
 });
+
+Deno.test("a hidden-invoice warning still shows while reads are throttled, and a clean sync clears it", async () => {
+  const { deps, db, replies, calls, state } = makeDeps();
+  seed(db);
+  replies["/invoices/9001"] = invoiceReply("sent", { customer_id: "99" });
+  const first = await handle("document_state", STATE, deps) as Row;
+  assertEquals(first.read_error, OTHER);
+  assertEquals(db.zoho_documents[0].error, OTHER);
+  state.now = new Date("2026-11-03T00:05:00Z");
+  const second = await handle("document_state", STATE, deps) as Row;
+  assertEquals(calls.length, 1);
+  assertEquals(second.read_error, OTHER);
+  assertEquals(second.rows[0].read_error, OTHER);
+  assertEquals(second.rows[0].zoho_status, "sent");
+  // Fixed in Zoho: the next real read clears the warning and shows the invoice.
+  replies["/invoices/9001"] = invoiceReply("sent");
+  state.now = new Date("2026-11-03T00:30:00Z");
+  const third = await handle("document_state", STATE, deps) as Row;
+  assertEquals(third.read_error, null);
+  assertEquals(db.zoho_documents[0].error, null);
+  assertEquals(db.business_setup_invoices.length, 1);
+  const fourth = await handle("document_state", STATE, deps) as Row;
+  assertEquals(fourth.read_error, null);
+});
+
+Deno.test("the no-Client-Master warning is kept too, and a failed write does not save a warning", async () => {
+  const a = makeDeps();
+  a.db.banking_quotations.push({ ...a.db.banking_quotations[0], id: "b2", case_id: "case2" });
+  seed(a.db, { department: "Banking", source_table: "banking_quotations", source_id: "b2" });
+  a.replies["/invoices/9001"] = invoiceReply("sent");
+  const bank = { source_table: "banking_quotations", source_id: "b2" };
+  await handle("document_state", bank, a.deps);
+  const again = await handle("document_state", bank, a.deps) as Row;
+  assertEquals(again.read_error, NO_MASTER_MSG);
+  const b = makeDeps();
+  seed(b.db);
+  b.db.business_setup_invoices = [{ id: "i0", zoho_id: "9001", client_id: "CL000001" }];
+  b.errors["business_setup_invoices.delete"] = { code: "XX000", message: "boom" };
+  b.replies["/invoices/9001"] = invoiceReply("void");
+  await handle("document_state", STATE, b.deps);
+  assertEquals(b.db.zoho_documents[0].error ?? null, null);
+});
+
+Deno.test("a failed contact link read during read-back writes nothing and holds the read time back", async () => {
+  const { deps, db, replies, errors } = makeDeps();
+  seed(db);
+  db.business_setup_invoices = [{ id: "i0", zoho_id: "9001", client_id: "CL000001", amount: 1 }];
+  errors["zoho_contact_links.select"] = { code: "XX000", message: "boom" };
+  replies["/invoices/9001"] = invoiceReply("sent");
+  const res = await handle("document_state", STATE, deps) as Row;
+  assertEquals(res.read_error, LOGIN_FAILED);
+  assertEquals(db.business_setup_invoices, [{ id: "i0", zoho_id: "9001", client_id: "CL000001", amount: 1 }]);
+  assertEquals(db.zoho_documents[0].last_read_at, null);
+  assertEquals(db.zoho_documents[0].error ?? null, null);
+});
+
+Deno.test("an error saved on a created row is not a failure for document_create", async () => {
+  const { deps, db, posts } = makeDeps();
+  seed(db, { kind: "estimate", zoho_id: "7001", zoho_number: "EST-1", error: OTHER });
+  const res = await handle("document_create", { source_table: "hub_documents", source_id: "h1", kind: "estimate" }, deps) as Row;
+  assertEquals(res.state, "created");
+  assertEquals(res.zoho_number, "EST-1");
+  assertEquals(posts.length, 0);
+});
