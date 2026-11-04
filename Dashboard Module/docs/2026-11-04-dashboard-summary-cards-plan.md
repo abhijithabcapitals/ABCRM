@@ -377,7 +377,7 @@ Message: `Record zoho-finance probe results`.
   health,
   partial: string[] }
 ```
-- Produces, in `refresh.ts`: `refresh({ force }, deps) -> { status: "ok" | "partial" | "failed" | "busy" | "fresh" }`, and `MAX_CALLS = 200`.
+- Produces, in `refresh.ts`: `refresh({ force }, deps) -> { status: "ok" | "partial" | "failed" | "busy" | "fresh" }`, and `MAX_CALLS = 150`.
 - Figures follow spec section 5 exactly. A zero divisor gives `null`, which the card shows as "n/a".
 
 - [ ] **Step 1: Write the failing figures tests**
