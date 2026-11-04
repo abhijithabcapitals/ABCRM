@@ -16,7 +16,7 @@ const Dashboard = lazy(() => import("./components/Dashboard"));
 const Tasks = lazy(() => import("./components/Tasks"));
 const Wiki = lazy(() => import("./components/Wiki"));
 const WhiteboardView = lazy(() => import("./components/Whiteboard"));
-import ForcePasswordChange from "./components/ForcePasswordChange";
+const ForcePasswordChange = lazy(() => import("./components/ForcePasswordChange"));
 const Settings = lazy(() => import("./components/Settings"));
 const MyTasks = lazy(() => import("./components/MyTasks"));
 const TemplateHub = lazy(() => import("@template-hub/components/TemplateHub"));
@@ -100,9 +100,12 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // By id: Supabase hands back a new user object on every token refresh and tab
+  // focus, and those must not reload the whole space tree.
+  const userId = user?.id;
   useEffect(() => {
-    if (user) fetchSpaces();
-  }, [user]);
+    if (userId) fetchSpaces();
+  }, [userId]);
 
   // Restore active space and folder after spaces are loaded
   useEffect(() => {
@@ -133,12 +136,17 @@ export default function App() {
     }
   }, [spaces]);
 
+  // getSession and onAuthStateChange both fire on load; one request serves both.
+  const profileInFlight = useRef(null);
   async function fetchProfile(userId) {
+    if (profileInFlight.current === userId) return;
+    profileInFlight.current = userId;
     const { data } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", userId)
       .single();
+    profileInFlight.current = null;
     if (data) {
       setProfile(data);
       if (data.role !== "admin") {
@@ -209,19 +217,20 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (user) fetchTaskCounts();
-  }, [user, spaces]);
+    if (userId) fetchTaskCounts();
+  }, [userId, spaces]);
 
   // Keep the sidebar task counts live: any task insert/update/delete (from this
   // user or anyone else — new task, move between lists, trash, restore) refreshes
   // the counts without a page reload. Debounced so a burst of changes (e.g. a CSV
   // import) triggers a single refetch.
   const countsRefreshTimer = useRef(null);
+  const fetchTaskCountsRef = useRef(null);
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     const refresh = () => {
       clearTimeout(countsRefreshTimer.current);
-      countsRefreshTimer.current = setTimeout(() => fetchTaskCounts(), 400);
+      countsRefreshTimer.current = setTimeout(() => fetchTaskCountsRef.current(), 400);
     };
     const channel = supabase
       .channel("sidebar-task-counts")
@@ -232,7 +241,7 @@ export default function App() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, spaces]);
+  }, [userId]);
 
   useEffect(() => {
     if (profile && profile.role !== "admin") fetchAccessRules(profile);
@@ -276,6 +285,8 @@ export default function App() {
     });
     setTaskCounts(counts);
   }
+
+  fetchTaskCountsRef.current = fetchTaskCounts;
 
   function startSidebarResize(e) {
     isSidebarResizing.current = true;
@@ -435,7 +446,7 @@ export default function App() {
   }
 
   if (user.user_metadata?.must_change_password) {
-    return <ForcePasswordChange onDone={setUser} onSignOut={() => supabase.auth.signOut()} />;
+    return <Suspense fallback={null}><ForcePasswordChange onDone={setUser} onSignOut={() => supabase.auth.signOut()} /></Suspense>;
   }
 
   setUsageUser(profile?.id);

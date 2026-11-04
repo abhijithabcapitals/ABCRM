@@ -1,7 +1,7 @@
 // CEO playbooks for the ceo-agent chat, served by the get_playbook tool.
 //
 // Distilled and adapted for a UAE accounting and tax consultancy from open
-// skills installed in Agent Module/11_Personal_Agent/CEO Agent/.claude/skills:
+// skills (licences kept in CEO Agent Module/skills-licenses):
 // codealive-ai/ceo-ai-os (MIT), guia-matthieu/clawfu-skills (MIT),
 // thecraighewitt/skills (MIT), w95/awesome-claude-corporate-skills (MIT),
 // pollow/c-suite-skills (Apache-2.0), kangarooking/buffett-letters-skill (MIT).

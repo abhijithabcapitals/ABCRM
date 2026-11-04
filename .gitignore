@@ -37,6 +37,9 @@ Database Module/Banking Base/data/
 Database Module/Banking Base/private/
 Database Module/Generated Documents/
 
+# Old CRM import output holds client data (confidential, stays on this PC)
+Database Module/Accounting Base/data/
+
 # Business Setup: price list and import output (confidential, stay on this PC)
 Database Module/Business Setup Base/private/
 Database Module/Business Setup Base/data/

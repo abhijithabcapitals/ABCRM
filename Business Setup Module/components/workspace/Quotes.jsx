@@ -8,8 +8,8 @@ import NewServiceFlow from "../NewServiceFlow";
 import { acceptQuote, handoverState, rejectQuote, sendToAccounts, signLetter, uploadFile } from "../../services/businessSetupApi";
 import { fileLetter, fileQuote } from "../../services/documents";
 import { quoteTone } from "../../logic/statuses";
+import { money } from "@app/money";
 
-const money = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
 
 export default function Quotes({ w, clientId, reload }) {
   const { can } = useSetup();

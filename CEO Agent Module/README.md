@@ -1,7 +1,7 @@
 # CEO Agent Module
 
 The CRM's **CEO Agent** tab (admins only). It is the user interface of the CEO Intelligence Agent in
-`Agent Module/11_Personal_Agent/CEO Agent`, ported into the CRM so it opens inside the CRM shell.
+a standalone Next.js app, ported into the CRM so it opens inside the CRM shell.
 
 | Path | Purpose |
 |---|---|
@@ -95,7 +95,7 @@ true, voice upload stays locked until audio retention and a cleanup worker exist
 extraction, CRM sync, reminders or external actions yet.
 
 To give another person a CEO workspace, insert their row in `ceo.profiles` (see
-`Agent Module/11_Personal_Agent/CEO Agent/CONFIGURATION.md`). Without a row the tab says the account is not
+`CONFIGURATION.md`). Without a row the tab says the account is not
 provisioned.
 
 Email Base is the CRM-wide source for connected mailboxes, message headers and bodies, and conversation
@@ -108,5 +108,5 @@ and provide a matching Edge Function password secret.
 `@supabase/supabase-js` from the Main Module. `Main Module/src/components/CeoAgent.jsx` adds the page header
 and passes the CRM Supabase client; the sidebar shows **CEO Agent** to admins only.
 
-The standalone Next.js app in `Agent Module/11_Personal_Agent/CEO Agent` is unchanged and can still run on
-its own. Port later features (extraction, reminders, approvals) here as they are built there.
+The standalone Next.js app this came from was removed from the repository on 2026-11-04; it is in git history
+at commit `aa03557` under `Agent Module/11_Personal_Agent/CEO Agent`.

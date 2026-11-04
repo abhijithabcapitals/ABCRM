@@ -9,7 +9,7 @@
 -- ── Voucher register: receipts register themselves ───────────────────
 -- Voucher Base 002 resets this check on each run, so this migration sets it again after it.
 alter table public.voucher_register drop constraint if exists voucher_register_source_check;
-alter table public.voucher_register add constraint voucher_register_source_check check (source in ('banking', 'hub', 'template', 'business_setup'));
+alter table public.voucher_register add constraint voucher_register_source_check check (source in ('banking', 'hub', 'template', 'business_setup', 'accounting'));
 drop policy if exists voucher_register_read_business_setup on public.voucher_register;
 create policy voucher_register_read_business_setup on public.voucher_register for select to authenticated
   using (source = 'business_setup' and public.business_setup_can('setup.access'));

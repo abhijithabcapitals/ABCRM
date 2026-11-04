@@ -3,6 +3,7 @@ import { useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { loadVouchers, openInFolder, openStored, savePendingToPc } from "../services/hubApi";
+import { needsPcCopy } from "../logic/helpers";
 
 const TYPES = ["Quotation", "Engagement Letter", "Receipt"];
 
@@ -12,7 +13,7 @@ export default function VoucherRegister() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
   const rows = list.data || [];
-  const pending = rows.filter((r) => r.storage_path && !r.local_path);
+  const pending = rows.filter(needsPcCopy);
   const [error, setError] = useState(null);
   const fail = (e) => setError(e.message);
   const savePending = async () => {
@@ -40,7 +41,7 @@ export default function VoucherRegister() {
           { key: "issued_on", label: "Date", render: (r) => fmtDate(r.issued_on) }, { key: "amount", label: "Amount", right: true, render: (r) => (r.amount == null ? "–" : `AED ${Number(r.amount).toLocaleString("en-AE")}`) },
           { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> }, { key: "file", label: "File", render: (r) => <span className="bk-actions">
             {r.storage_path && <button type="button" className="bk-link" onClick={() => openStored(r.storage_path, r.source === "banking" ? "banking-documents" : undefined).catch(fail)}>View</button>}
-            {r.local_path ? <button type="button" className="bk-link" title={r.local_path} onClick={() => openInFolder(r.local_path).catch(fail)}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}
+            {r.local_path ? <button type="button" className="bk-link" title={r.local_path} onClick={() => openInFolder(r.local_path).catch(fail)}>Open in Folder</button> : needsPcCopy(r) && <Badge tone="warn">Not in PC folder</Badge>}
           </span> },
         ]} />
       )}

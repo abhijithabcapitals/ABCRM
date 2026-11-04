@@ -5,6 +5,19 @@ import { fileURLToPath } from 'node:url'
 // https://vite.dev/config/
 export default defineConfig({
   base: process.env.GITHUB_PAGES === 'true' ? '/ABCRM/' : '/',
+  build: {
+    rolldownOptions: {
+      output: {
+        // React and Supabase rarely change: their own files stay cached across releases.
+        advancedChunks: {
+          groups: [
+            { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+            { name: 'vendor-supabase', test: /node_modules[\\/](@supabase|iceberg-js)[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
   // Dropdowns everywhere put recent and most used choices first (src/jsx).
   plugins: [react({ jsxImportSource: '@crm-jsx' })],
   resolve: {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Button, ErrorNote, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { attendanceRange, calendarMarks } from "../services/hrApi";
+import { attendanceRange, biometricSync, calendarMarks } from "../services/hrApi";
 import AttendanceHistory from "./attendance/AttendanceHistory";
 import BiometricPanel from "./BiometricPanel";
 import CalendarView from "./attendance/CalendarView";
@@ -9,7 +9,7 @@ import EditDayModal from "./attendance/EditDayModal";
 import EndlessGrid from "./attendance/EndlessGrid";
 import WeekView from "./attendance/WeekView";
 import YearHeatmap from "./attendance/YearHeatmap";
-import { SHORT, STATUSES, canEditDay, dubaiToday, groupRange, markText, marksByDate, monthDays, periodRange, shiftPeriod, statusLabel, weekDays, withEveryone } from "../logic/attendance";
+import { SHORT, STATUSES, canEditDay, dubaiToday, groupRange, markText, marksByDate, monthDays, periodRange, shiftPeriod, staffSyncNote, statusLabel, weekDays, withEveryone } from "../logic/attendance";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const VIEWS = [
@@ -27,7 +27,7 @@ function periodTitle(period, date) {
   return fmtDate(date);
 }
 
-// Five views of one set of rows from hr_attendance_range. HR changes anyone's day, a manager direct reports' days (not their own), an employee only reads.
+// Five views of one set of rows from hr_attendance_range. HR changes anyone's day, a manager asks for direct reports' days, and everyone asks for their own.
 // The database enforces all of it; the buttons here only follow it.
 export default function Attendance({ role, employeeId, profile }) {
   const today = dubaiToday();
@@ -54,18 +54,27 @@ export default function Attendance({ role, employeeId, profile }) {
   const canEdit = (p, d) => canEditDay({ role, myId: employeeId, employeeId: p.employee_id, date: d, today, employeeStatus: p.employee_status, exitDate: p.exit_date, status: p.days[d]?.status, isAdmin });
   const onEdit = (p, d) => { setNotice(null); setEditing({ person: p, date: d }); };
   const needsPerson = viewKey === "calendar" || viewKey === "year";
+  // HR has the full Biometric sync panel below. Everyone else gets the recent sync from here.
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(null);
+  const syncNow = async () => {
+    setSyncing(true); setSyncError(null); setNotice(null);
+    try { const r = await biometricSync(); await reload(); setNotice(staffSyncNote(r)); } catch (e) { setSyncError(e.message); }
+    setSyncing(false);
+  };
 
   return (
     <div>
       <PageHead title="Attendance Sheet" sub={role === "hr" ? "Everyone. Click a day to change it." : role === "manager" ? "You and your direct reports. Click a day to request a change." : "Your attendance. Click a day to use Annual leave, work from home or correct the times."}>
+        {role !== "hr" && <Button busy={syncing} onClick={syncNow}>Sync now</Button>}
         <span className="hr-month-nav">
           <Button onClick={() => setDate(shiftPeriod(view.period, date, -1))} aria-label="Previous">‹</Button>
           <strong>{periodTitle(view.period, date)}</strong>
           <Button onClick={() => setDate(shiftPeriod(view.period, date, 1))} aria-label="Next">›</Button>
         </span>
       </PageHead>
-      <ErrorNote message={rows.error} />
-      {notice && <div className="hr-warning" role="status">{notice}</div>}
+      <ErrorNote message={rows.error || syncError} />
+      {notice &&<div className="hr-warning" role="status">{notice}</div>}
       <Panel>
         <div className="hr-view-bar">
           <div className="hr-switch" role="group" aria-label="View">

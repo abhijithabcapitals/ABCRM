@@ -52,6 +52,13 @@ const MODEL = Deno.env.get("OPENROUTER_MAIL_MODEL") || "deepseek/deepseek-v4.1-f
 const BUCKET = "email-base";
 // Per run, shared by all mailboxes: stop fetching after this many messages, bytes or
 // milliseconds. Parsing is CPU-bound and Edge Functions have a small CPU allowance.
+// The CRM keeps recent mail only; older mail stays on the mail server and is read there directly.
+const MAIL_WINDOW_DAYS = 15;
+const IMAP_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function recentMailCriteria(): string {
+  const d = new Date(Date.now() - MAIL_WINDOW_DAYS * 86_400_000);
+  return `SINCE ${d.getUTCDate()}-${IMAP_MONTHS[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
+}
 const MAX_MESSAGES_PER_RUN = 25;
 const MAX_BYTES_PER_RUN = 12 * 1024 * 1024;
 const FETCH_BUDGET_MS = 45_000;
@@ -375,9 +382,9 @@ async function syncFolder(db: Db, client: ImapClient, account: Row, folder: Row,
   const found = !total
     ? []
     : previousLastUid === 0 || !client.uidNext
-    ? await client.searchUids("ALL")
+    ? await client.searchUids(recentMailCriteria())
     : client.uidNext > previousLastUid + 1
-    ? await client.searchUids(`UID ${previousLastUid + 1}:${client.uidNext - 1}`)
+    ? await client.searchUids(`UID ${previousLastUid + 1}:${client.uidNext - 1} ${recentMailCriteria()}`)
     : [];
   const highestUid = found.reduce((highest, uid) => Math.max(highest, uid), previousLastUid);
   const newUids = found.filter((uid) => uid > previousLastUid).sort((a, b) => b - a);
@@ -469,7 +476,7 @@ async function syncFolder(db: Db, client: ImapClient, account: Row, folder: Row,
     const range = `UID ${Math.max(1, backfillFloorUid + 1)}:${backfillUid}`;
     const backfillFound = initializingBackfill && backfillFloorUid === previousLastUid
       ? found
-      : await client.searchUids(range);
+      : await client.searchUids(`${range} ${recentMailCriteria()}`);
     backfillTotal = backfillFound.filter((uid) => uid > backfillFloorUid && uid <= backfillUid!).length;
     liveBackfillStored = backfillFound.filter((uid) => processedLive.has(uid)).length;
     const pendingBackfill = backfillFound

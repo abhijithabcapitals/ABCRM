@@ -3,8 +3,8 @@ import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import { openDocument } from "@business-setup/services/businessSetupApi";
+import { aedMoney as money } from "@app/money";
 
-const money = (n) => `AED ${Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 })}`;
 const TABS = [["With Accounts", "Awaiting Validation"], ["Closed", "Closed"]];
 
 export default function SetupValidation() {

@@ -3,14 +3,16 @@
 //
 // Every 15 minutes (pg_cron, Biometric Base/schedule.sql) it re-reads the last 3 days. Re-reading is safe: punches are unique per code and
 // time. "Sync now" on the Attendance tab does the same; with { from, to } (YYYY-MM-DD) it catches up a date range, HR only.
+// Anyone linked to an employee may run the recent sync. It reads every code on the device, so it runs at most once in two minutes for them,
+// and they get back only that it ran: the counts and any provider error stay with HR.
 //
 // Deploy with JWT verification OFF: the scheduler sends x-sync-secret (checked by hr_biometric_secret_ok, created in schedule.sql) and
-// "Sync now" sends the user's session token (checked here with hr_is_admin_or_hr).
+// "Sync now" sends the user's session token (checked here with hr_my_access).
 // Credentials: ETIMEOFFICE_CORPORATE_ID, ETIMEOFFICE_USERNAME, ETIMEOFFICE_PASSWORD, as Edge Function secrets or, where credential_get is
 // on the database, saved in Settings > Integrations (which wins).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { authHeader, dateRangeWindow, fetchPunches, recentWindow } from "./etimeoffice.js";
+import { authHeader, dateRangeWindow, fetchPunches, recentWindow, syncDecision } from "./etimeoffice.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -37,19 +39,25 @@ Deno.serve(async (req) => {
 
   const given = req.headers.get("x-sync-secret");
   const fromScheduler = !!given && (await admin.rpc("hr_biometric_secret_ok", { p_secret: given })).data === true;
+  const body = await req.json().catch(() => ({}));
+  const hasRange = !!(body.from || body.to);
+  let isHr = fromScheduler;
   if (!fromScheduler) {
     const user = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, {
       auth: { persistSession: false },
       global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
     });
-    const { data: isHr, error } = await user.rpc("hr_is_admin_or_hr");
-    if (error || isHr !== true) return reply(403, { error: "Only HR can run the biometric sync" });
+    const { data: access, error } = await user.rpc("hr_my_access");
+    const { data: last } = await admin.from("hr_biometric_sync").select("last_attempt_at, last_success_at").eq("id", 1).maybeSingle();
+    const decision = syncDecision({ role: error ? "none" : access?.role, hasRange, lastAttemptAt: last?.last_attempt_at, now: Date.now() });
+    if (decision === "denied") return reply(403, { error: hasRange ? "Only HR can catch up dates" : "Your login is not linked to an employee" });
+    if (decision === "wait") return reply(200, { skipped: true, last_success_at: last?.last_success_at ?? null });
+    isHr = access.role === "hr";
   }
 
   let window;
   try {
-    const body = await req.json().catch(() => ({}));
-    window = !fromScheduler && (body.from || body.to) ? dateRangeWindow(body.from, body.to) : recentWindow(Date.now());
+    window = !fromScheduler && hasRange ? dateRangeWindow(body.from, body.to) : recentWindow(Date.now());
   } catch (e) {
     return reply(400, { error: (e as Error).message });
   }
@@ -65,10 +73,10 @@ Deno.serve(async (req) => {
     if (error) throw new Error(error.message);
     const stats = { ...data, unreadable: bad, from: window.from, to: window.to };
     await admin.rpc("hr_biometric_sync_record", { p_ok: true, p_error: null, p_stats: stats });
-    return reply(200, stats);
+    return reply(200, isHr ? stats : { synced: true });
   } catch (e) {
     const message = (e as Error).message;
     await admin.rpc("hr_biometric_sync_record", { p_ok: false, p_error: message, p_stats: null });
-    return reply(502, { error: message });
+    return reply(502, { error: isHr ? message : "The biometric sync did not work. Please tell HR" });
   }
 });

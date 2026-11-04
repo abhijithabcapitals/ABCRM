@@ -3,11 +3,11 @@ import { useState } from "react";
 import "@banking/components/banking.css";
 import { ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
-import ServiceDesk from "@template-hub/components/ServiceDesk";
 import SalariesPanel from "@hr/components/SalariesPanel";
 import ExpensesPanel from "@hr/components/ExpensesPanel";
 import "@hr/components/hr.css";
 import BankingValidation from "./BankingValidation";
+import AccountingDesk from "./AccountingDesk";
 import SetupValidation from "./SetupValidation";
 
 const TABS = [["banking", "Business Banking"], ["setup", "Business Setup"], ["accounting", "Accounting"], ["salaries", "Salaries"], ["expenses", "Expenses"]];
@@ -27,7 +27,7 @@ export default function AccountingModule({ profile }) {
       </nav>
       {tab === "banking" && <BankingValidation />}
       {tab === "setup" && <SetupValidation />}
-      {tab === "accounting" && <ServiceDesk department="Accounting" profile={profile} />}
+      {tab === "accounting" && <AccountingDesk profile={profile} />}
       {tab === "salaries" && <SalariesPanel />}
       {tab === "expenses" && <ExpensesPanel />}
     </div>

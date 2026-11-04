@@ -106,8 +106,8 @@ a person sees mail only from mailboxes they own. The top of the panel holds a mi
 | `supabase/bd-agent/skills.ts` | Generated bundle of the agent spec and the 64 skills in `Agent Module/05_Business_Development_Agent/.claude/skills` |
 | `scripts/build-bd-agent-skills.mjs` | Regenerates `skills.ts`; run after `npx skills update` in the agent folder |
 
-Deploy (Git Bash, from `Agent Module/11_Personal_Agent/CEO Agent`, linked to `pnnakrhfzyxudjaghoxx`):
+Deploy (Git Bash, from `Database Module/tools`, linked to `pnnakrhfzyxudjaghoxx`):
 
 ```bash
-node "../../../Business Development Module/scripts/build-bd-agent-skills.mjs" && mkdir -p supabase/functions/bd-agent && cp "../../../Business Development Module/supabase/bd-agent/"{index.ts,skills.ts} supabase/functions/bd-agent/ && npx --no-install supabase functions deploy bd-agent --project-ref pnnakrhfzyxudjaghoxx
+node "../../Business Development Module/scripts/build-bd-agent-skills.mjs" && mkdir -p supabase/functions/bd-agent && cp "../../Business Development Module/supabase/bd-agent/"{index.ts,skills.ts} supabase/functions/bd-agent/ && npx --no-install supabase functions deploy bd-agent --project-ref pnnakrhfzyxudjaghoxx
 ```

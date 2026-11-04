@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { authHeader, dateRangeWindow, fetchPunches, formatApiDate, parsePunchDate, parsePunchResponse, punchUrl, recentWindow } from "../supabase/hr-biometric-sync/etimeoffice.js";
+import { authHeader, dateRangeWindow, fetchPunches, formatApiDate, parsePunchDate, parsePunchResponse, punchUrl, recentWindow, syncDecision } from "../supabase/hr-biometric-sync/etimeoffice.js";
 import { syncSummary } from "../logic/attendance.js";
 
 test("auth header follows the documented format", () => {
@@ -71,4 +71,18 @@ test("fetch sends the auth header", async () => {
 test("sync summary names what needs attention", () => {
   assert.equal(syncSummary({ new_punches: 4, days: { created: 1, updated: 1, manual: 1, unmatched: 2 }, unreadable: 1 }),
     "4 new punch(es), 2 day(s) updated, 1 day(s) kept as edited by hand, 2 day(s) with no matching employee, 1 unreadable record(s).");
+});
+
+test("syncDecision lets staff run only the recent sync, spaced out", () => {
+  const now = Date.parse("2026-11-04T10:00:00Z");
+  const ago = (s) => new Date(now - s * 1000).toISOString();
+  assert.equal(syncDecision({ role: "hr", hasRange: true, lastAttemptAt: ago(1), now }), "run");
+  assert.equal(syncDecision({ role: "hr", hasRange: false, lastAttemptAt: ago(1), now }), "run");
+  assert.equal(syncDecision({ role: "employee", hasRange: false, lastAttemptAt: ago(300), now }), "run");
+  assert.equal(syncDecision({ role: "manager", hasRange: false, lastAttemptAt: null, now }), "run");
+  assert.equal(syncDecision({ role: "employee", hasRange: false, lastAttemptAt: ago(60), now }), "wait");
+  assert.equal(syncDecision({ role: "employee", hasRange: false, lastAttemptAt: ago(120), now }), "run");
+  assert.equal(syncDecision({ role: "employee", hasRange: true, lastAttemptAt: null, now }), "denied");
+  assert.equal(syncDecision({ role: "none", hasRange: false, lastAttemptAt: null, now }), "denied");
+  assert.equal(syncDecision({ role: undefined, hasRange: false, lastAttemptAt: null, now }), "denied");
 });
