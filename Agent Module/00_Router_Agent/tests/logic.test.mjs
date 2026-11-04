@@ -4,6 +4,7 @@ import {
   FIXED_REPLY, NO_INFO, MAX_MESSAGE, ROUTES,
   eligibleAgents, canAfford, parseRanking, rankingPrompt,
   agentRequest, readAgentReply, agentHistory, fallbackAgents, rankingFailureReason,
+  agentTimeoutMs, rankingCostUsd, RANKING_MODEL,
 } from "../supabase/router-agent/logic.js";
 
 test("the fixed reply keeps the user's spelling", () => assert.equal(FIXED_REPLY, "Opps! I dont Know"));
@@ -67,3 +68,12 @@ test("the ranking failure reason is cut at 120 characters", () => assert.equal(r
 test("a reason quoting the question is not logged", () => assert.equal(rankingFailureReason({ error: { message: "Flagged: my private question" } }, "my private question"), ""));
 test("provider metadata is never used as the reason", () => assert.equal(rankingFailureReason({ error: { metadata: { flagged_input: "secret" } } }, "q"), ""));
 test("no error body gives no reason", () => assert.equal(rankingFailureReason(null, "q"), ""));
+
+const shared = [{ role: "user", content: "q1" }, { role: "assistant", content: "from BD", agent_id: "AGT-05-BIZDEV" }, { role: "user", content: "q2" }, { role: "assistant", content: "from CEO", agent_id: "AGT-11-CEO" }];
+test("an agent gets only its own replies", () => assert.deepEqual(agentHistory(shared, "q3", "AGT-11-CEO").map((m) => m.content), ["q1", "q2", "from CEO", "q3"]));
+test("an agent with no replies gets only the questions", () => assert.deepEqual(agentHistory(shared, "q3", "AGT-08-SUPPORT").map((m) => m.role), ["user", "user", "user"]));
+test("history items hold only role and content", () => assert.deepEqual(Object.keys(agentHistory(shared, "q", "AGT-05-BIZDEV")[1]), ["role", "content"]));
+test("the CRM Agent gets more time", () => { assert.equal(agentTimeoutMs("AGT-14-CRM"), 120000); assert.equal(agentTimeoutMs("AGT-08-SUPPORT"), 70000); });
+test("ranking is priced as Haiku", () => assert.equal(rankingCostUsd({ input_tokens: 1000000, output_tokens: 1000000 }), 0.6));
+test("no usage costs nothing", () => assert.equal(rankingCostUsd(undefined), 0));
+test("ranking uses Haiku", () => assert.equal(RANKING_MODEL, "claude-haiku-5-5"));

@@ -3,6 +3,10 @@
 export const FIXED_REPLY = "Opps! I dont Know";
 export const NO_INFO = "NO_INFO";
 export const MAX_MESSAGE = 4000;
+export const RANKING_MODEL = "claude-haiku-5-5";
+
+const AGENT_MS = 70_000;
+const CRM_AGENT_MS = 120_000;
 
 /** @type {Record<string, { fn: string }>} */
 export const ROUTES = {
@@ -72,9 +76,10 @@ export function readAgentReply(status, body) {
   return { answer: reply };
 }
 
-export function agentHistory(recent, question) {
+// An agent gets the person's questions plus only its own earlier replies, so what one agent read never reaches another.
+export function agentHistory(recent, question, agentId) {
   const kept = (recent || [])
-    .filter((m) => m && (m.role === "user" || m.role === "assistant"))
+    .filter((m) => m && (m.role === "user" || (m.role === "assistant" && m.agent_id === agentId)))
     .map((m) => ({ role: m.role, content: m.content }));
   return [...kept, { role: "user", content: question }];
 }
@@ -90,3 +95,8 @@ export function rankingFailureReason(data, question) {
   const reason = message.replace(/\s+/g, " ").trim().slice(0, 120);
   return question && message.includes(question) ? "" : reason;
 }
+
+export const agentTimeoutMs = (id) => (id === "AGT-14-CRM" ? CRM_AGENT_MS : AGENT_MS);
+
+// Haiku 5.5: US dollars 0.10 and 0.50 per million input and output tokens.
+export const rankingCostUsd = (usage) => ((usage?.input_tokens || 0) * 0.1 + (usage?.output_tokens || 0) * 0.5) / 1_000_000;

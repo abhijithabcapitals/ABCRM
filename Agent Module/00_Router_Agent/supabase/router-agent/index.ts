@@ -12,20 +12,19 @@
 // Logs hold short reason codes only, never message text.
 //
 // Copy logic.js with this file. Deploy as "router-agent" with JWT verification on.
-// Secret: OPENROUTER_API_KEY, for ranking between agents.
+// Ranking between agents uses Claude Haiku with the CRM Agent's key, from Settings > Agents.
 
+import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
-  agentHistory, agentRequest, canAfford, eligibleAgents, fallbackAgents, FIXED_REPLY, MAX_MESSAGE, parseRanking, rankingFailureReason, rankingPrompt, readAgentReply, ROUTES,
+  agentHistory, agentRequest, agentTimeoutMs, canAfford, eligibleAgents, fallbackAgents, FIXED_REPLY, MAX_MESSAGE, parseRanking, rankingCostUsd,
+  rankingFailureReason, RANKING_MODEL, rankingPrompt, readAgentReply, ROUTES,
 } from "./logic.js";
 
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const RANKING_MODEL = "deepseek/deepseek-v4.1-flash";
 const ORCHESTRATOR_ID = "AGT-00-ORCHESTRATOR";
 const CEO_ID = "AGT-11-CEO";
 const REQUEST_MS = 140_000;
 const RANKING_MS = 15_000;
-const AGENT_MS = 70_000;
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -54,42 +53,29 @@ async function saveTurn({ admin, uid, question }: Turn, answer: string, agentId:
 
 // Records the call in public.ai_usage (counts only, never content) and returns the ranked agent ids.
 async function rankAgents({ admin, uid, question }: Turn, agents: Agent[]) {
-  const apiKey = Deno.env.get("OPENROUTER_API_KEY");
+  const { data: apiKey } = await admin.rpc("credential_get", { p_name: "AGENT_KEY_AGT_14_CRM" });
   if (!apiKey) {
     note("ranking_no_key");
     return { ids: [] as string[], cost: 0, failed: true };
   }
-  const res = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: RANKING_MODEL,
-      provider: { data_collection: "deny" },
-      temperature: 0,
-      max_tokens: 100,
-      usage: { include: true },
-      messages: rankingPrompt(question, agents),
-    }),
-    signal: AbortSignal.timeout(RANKING_MS),
+  const [system, ...messages] = rankingPrompt(question, agents);
+  const client = new Anthropic({ apiKey, timeout: RANKING_MS, maxRetries: 0 });
+  const response = await client.messages.create({
+    model: RANKING_MODEL,
+    max_tokens: 1000,
+    system: system.content,
+    output_config: { effort: "low" },
+    messages,
+  } as Anthropic.MessageCreateParamsNonStreaming);
+  const cost = rankingCostUsd(response.usage);
+  const { error } = await admin.from("ai_usage").insert({
+    function_name: "router-agent", user_id: uid, model: RANKING_MODEL, prompt_tokens: response.usage?.input_tokens,
+    completion_tokens: response.usage?.output_tokens, cost_usd: cost,
   });
-  const data = await res.json().catch(() => ({}));
-  const u = data?.usage;
-  if (u) {
-    const { error } = await admin.from("ai_usage").insert({
-      function_name: "router-agent", user_id: uid, model: RANKING_MODEL, prompt_tokens: u.prompt_tokens,
-      completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null,
-      cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null,
-    });
-    if (error) note("ledger_failed");
-  }
-  const cost = typeof u?.cost === "number" ? u.cost : 0;
-  if (!res.ok) {
-    note(`ranking_${res.status}`);
-    const reason = rankingFailureReason(data, question);
-    if (reason) note(`ranking_reason: ${reason}`);
-    return { ids: [] as string[], cost, failed: true };
-  }
-  return { ids: parseRanking(data?.choices?.[0]?.message?.content, agents.map((a) => a.id)) as string[], cost, failed: false };
+  if (error) note("ledger_failed");
+  // deno-lint-ignore no-explicit-any
+  const text = response.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+  return { ids: parseRanking(text, agents.map((a) => a.id)) as string[], cost, failed: false };
 }
 
 async function route(turn: Turn, authHeader: string) {
@@ -110,8 +96,10 @@ async function route(turn: Turn, authHeader: string) {
   let spent = 0;
   let order = [agents[0].id];
   if (agents.length > 1) {
-    const ranked = await rankAgents(turn, agents).catch(() => {
-      note("ranking_failed");
+    const ranked = await rankAgents(turn, agents).catch((e) => {
+      note(e instanceof Anthropic.APIError ? `ranking_${e.status}` : "ranking_failed");
+      const reason = rankingFailureReason({ error: { message: e?.message } }, question);
+      if (reason) note(`ranking_reason: ${reason}`);
       return { ids: [] as string[], cost: 0, failed: true };
     });
     if (ranked.cost > 0) {
@@ -122,10 +110,10 @@ async function route(turn: Turn, authHeader: string) {
     if (!order.length) return await fixed("no_ranking");
   }
 
-  const messages = agentHistory(ctx.recent, question);
   for (const id of order) {
     const agent = agents.find((a) => a.id === id)!;
     if (!canAfford(agent, ctx.credit_left, spent)) return await fixed("no_credit");
+    const messages = agentHistory(ctx.recent, question, id);
     const left = deadline - Date.now();
     if (left <= 0) return await fixed("deadline");
 
@@ -137,7 +125,7 @@ async function route(turn: Turn, authHeader: string) {
         method: "POST",
         headers: { Authorization: authHeader, apikey: Deno.env.get("SUPABASE_ANON_KEY")!, "Content-Type": "application/json" },
         body: JSON.stringify(agentRequest(id, messages, { threadId: ctx.ceo_thread_id ?? undefined, idempotencyKey: crypto.randomUUID() })),
-        signal: AbortSignal.timeout(Math.min(AGENT_MS, left)),
+        signal: AbortSignal.timeout(Math.min(agentTimeoutMs(id), left)),
       });
       status = res.status;
       body = await res.json().catch(() => null);
