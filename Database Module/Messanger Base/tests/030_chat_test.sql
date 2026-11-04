@@ -7,6 +7,11 @@
 \set cara 00000000-0000-0000-0000-000000000034
 \set dan 00000000-0000-0000-0000-000000000035
 \set eve 00000000-0000-0000-0000-000000000036
+\set frank 00000000-0000-0000-0000-000000000037
+\set gina 00000000-0000-0000-0000-000000000038
+\set hal 00000000-0000-0000-0000-000000000039
+\set ivy 00000000-0000-0000-0000-000000000040
+\set jon 00000000-0000-0000-0000-000000000041
 drop schema if exists t cascade;
 create schema t;
 grant usage on schema t to public;
@@ -28,10 +33,12 @@ end $$;
 create function t.n(q text) returns bigint language plpgsql as $$ declare r bigint; begin execute 'select count(*) from (' || q || ') x' into r; return r; end $$;
 grant execute on all functions in schema t to public;
 
-insert into profiles values (:'adm', 'admin', 'Ada Admin'), (:'olive', 'member', 'Olive Owner'), (:'bob', 'member', 'Bob'), (:'cara', 'member', 'Cara'), (:'dan', 'member', 'Dan Outsider'), (:'eve', 'member', 'Eve');
+insert into profiles values (:'adm', 'admin', 'Ada Admin'), (:'olive', 'member', 'Olive Owner'), (:'bob', 'member', 'Bob'), (:'cara', 'member', 'Cara'), (:'dan', 'member', 'Dan Outsider'), (:'eve', 'member', 'Eve'), (:'frank', 'member', 'Frank'), (:'gina', 'member', 'Gina'), (:'hal', 'member', 'Hal'), (:'ivy', 'member', 'Ivy'), (:'jon', 'member', 'Jon');
 select t.ok('chat tables have row security', (select count(*) from pg_class where relname in ('messenger_conversations', 'messenger_members', 'messenger_messages') and relrowsecurity) = 3);
 select t.ok('messages are in the realtime publication', exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'messenger_messages'));
-select t.ok('internal functions are not executable by browser roles', not has_function_privilege('authenticated', 'public.messenger_touch_conversation()', 'execute') and not has_function_privilege('anon', 'public.messenger_touch_conversation()', 'execute') and not has_function_privilege('authenticated', 'public.messenger_require_owner(uuid, uuid)', 'execute'));
+select t.ok('internal functions are not executable by browser roles', not has_function_privilege('authenticated', 'public.messenger_touch_conversation()', 'execute') and not has_function_privilege('anon', 'public.messenger_touch_conversation()', 'execute') and not has_function_privilege('authenticated', 'public.messenger_require_owner(uuid, uuid)', 'execute') and not has_function_privilege('authenticated', 'public.messenger_after_member_delete()', 'execute') and not has_function_privilege('anon', 'public.messenger_after_member_delete()', 'execute'));
+select t.fails('a group with no title is refused', $$insert into messenger_conversations (kind) values ('group')$$, 'violates check');
+select t.fails('a direct chat with a title is refused', $$insert into messenger_conversations (kind, title, direct_key) values ('direct', 'T', 'k')$$, 'violates check');
 
 -- Olive creates a direct chat with Bob and groups
 select set_config('test.uid', :'olive', false);
@@ -75,6 +82,10 @@ select t.fails('empty message refused', format($$insert into messenger_messages 
 select t.fails('message over 4000 characters refused', format($$insert into messenger_messages (conversation_id, sender_id, body) values (%L, %L, repeat('x', 4001))$$, :'g', :'bob'), 'violates check');
 select t.fails('web link not starting https refused', format($$insert into messenger_messages (conversation_id, sender_id, body, link_type, link_ref, link_label) values (%L, %L, 'see', 'web', 'http://example.test', 'Site')$$, :'g', :'bob'), 'violates check');
 select t.fails('web link with no scheme refused', format($$insert into messenger_messages (conversation_id, sender_id, body, link_type, link_ref, link_label) values (%L, %L, 'see', 'web', 'javascript:alert(1)', 'Site')$$, :'g', :'bob'), 'violates check');
+select t.fails('web link with no target refused', format($$insert into messenger_messages (conversation_id, sender_id, body, link_type, link_ref, link_label) values (%L, %L, 'see', 'web', null, 'Site')$$, :'g', :'bob'), 'violates check');
+select t.fails('client link with no target refused', format($$insert into messenger_messages (conversation_id, sender_id, body, link_type, link_ref, link_label) values (%L, %L, 'see', 'client', null, 'Client')$$, :'g', :'bob'), 'violates check');
+select t.fails('link target over 2000 characters refused', format($$insert into messenger_messages (conversation_id, sender_id, body, link_type, link_ref, link_label) values (%L, %L, 'see', 'client', repeat('x', 2001), 'Client')$$, :'g', :'bob'), 'violates check');
+select t.fails('link label over 300 characters refused', format($$insert into messenger_messages (conversation_id, sender_id, body, link_type, link_ref, link_label) values (%L, %L, 'see', 'client', 'ABC', repeat('x', 301))$$, :'g', :'bob'), 'violates check');
 select t.fails('link reference without a type refused', format($$insert into messenger_messages (conversation_id, sender_id, body, link_ref, link_label) values (%L, %L, 'see', 'https://example.test', 'Site')$$, :'g', :'bob'), 'violates check');
 select t.fails('unknown link type refused', format($$insert into messenger_messages (conversation_id, sender_id, body, link_type, link_ref, link_label) values (%L, %L, 'see', 'file', 'x', 'X')$$, :'g', :'bob'), 'violates check');
 insert into messenger_messages (conversation_id, sender_id, body, link_type, link_ref, link_label) values (:'g', :'bob', 'see', 'web', 'https://example.test', 'Site'), (:'g', :'bob', 'client', 'client', 'ABC-001', 'Client ABC-001: ABC Trading LLC');
@@ -239,6 +250,29 @@ select messenger_leave(:'g5');
 reset role;
 select t.ok('last member leaving deletes the group', (select count(*) from messenger_conversations where id = :'g5') = 0);
 select t.ok('last member leaving deletes its messages', (select count(*) from messenger_messages where conversation_id = :'g5') = 0);
+
+-- Deleting a profile settles the chats it was in
+select set_config('test.uid', :'frank', false);
+set role authenticated;
+select messenger_create_group('Frank group', array[:'gina', :'hal']::uuid[]) as g7 \gset
+reset role;
+insert into messenger_messages (conversation_id, sender_id, body) values (:'g7', :'gina', 'from gina');
+update messenger_members set joined_at = now() - interval '2 days' where conversation_id = :'g7' and profile_id = :'hal';
+update messenger_members set joined_at = now() - interval '1 day' where conversation_id = :'g7' and profile_id = :'gina';
+delete from profiles where id = :'frank';
+select t.ok('deleting the owner profile passes ownership to the earliest joined', (select role from messenger_members where conversation_id = :'g7' and profile_id = :'hal') = 'owner' and (select role from messenger_members where conversation_id = :'g7' and profile_id = :'gina') = 'member' and (select count(*) from messenger_members where conversation_id = :'g7') = 2);
+delete from profiles where id = :'gina';
+select t.ok('deleting a non-owner profile keeps the owner', (select role from messenger_members where conversation_id = :'g7' and profile_id = :'hal') = 'owner' and (select count(*) from messenger_conversations where id = :'g7') = 1);
+delete from profiles where id = :'hal';
+select t.ok('deleting every member profile deletes the group', (select count(*) from messenger_conversations where id = :'g7') = 0);
+select t.ok('deleting every member profile deletes its messages', (select count(*) from messenger_messages where conversation_id = :'g7') = 0);
+select set_config('test.uid', :'ivy', false);
+set role authenticated;
+select messenger_start_direct(:'jon') as d3 \gset
+insert into messenger_messages (conversation_id, sender_id, body) values (:'d3', :'ivy', 'hello jon');
+reset role;
+delete from profiles where id = :'jon';
+select t.ok('a direct chat keeps its surviving member and messages', (select count(*) from messenger_members where conversation_id = :'d3' and profile_id = :'ivy' and role = 'member') = 1 and (select count(*) from messenger_messages where conversation_id = :'d3') = 1);
 
 -- anon reaches nothing
 select set_config('test.uid', '', false);

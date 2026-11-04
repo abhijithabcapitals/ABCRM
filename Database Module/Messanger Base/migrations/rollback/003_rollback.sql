@@ -21,3 +21,4 @@ drop function if exists public.messenger_prune_messages();
 drop function if exists public.messenger_require_owner(uuid, uuid);
 drop function if exists public.messenger_stamp_message();
 drop function if exists public.messenger_touch_conversation();
+drop function if exists public.messenger_after_member_delete();

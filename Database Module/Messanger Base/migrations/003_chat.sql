@@ -12,7 +12,7 @@ create table if not exists public.messenger_conversations (
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   last_message_at timestamptz not null default now(),
-  check ((kind = 'group' and direct_key is null and char_length(title) between 1 and 80)
+  check ((kind = 'group' and direct_key is null and title is not null and char_length(title) between 1 and 80)
       or (kind = 'direct' and direct_key is not null and title is null))
 );
 
@@ -32,11 +32,11 @@ create table if not exists public.messenger_messages (
   sender_id uuid references public.profiles(id) on delete set null,
   body text not null check (char_length(body) between 1 and 4000),
   link_type text check (link_type in ('client', 'lead', 'task', 'web')),
-  link_ref text,
-  link_label text,
+  link_ref text check (char_length(link_ref) <= 2000),
+  link_label text check (char_length(link_label) <= 300),
   created_at timestamptz not null default now(),
-  check (link_type is not null or (link_ref is null and link_label is null)),
-  check (link_type is distinct from 'web' or left(link_ref, 8) = 'https://')
+  check ((link_type is null and link_ref is null and link_label is null) or (link_type is not null and link_ref is not null)),
+  check (link_type is distinct from 'web' or coalesce(left(link_ref, 8) = 'https://', false))
 );
 create index if not exists messenger_messages_conv_idx on public.messenger_messages (conversation_id, created_at desc);
 
@@ -90,6 +90,28 @@ create trigger messenger_messages_touch after insert on public.messenger_message
   for each row execute function public.messenger_touch_conversation();
 
 -- Internal check used by the owner-only functions. Not callable from the browser.
+-- Runs after any member row is deleted (leave, removal, or a profile delete cascading). Group only: a group with nobody left is deleted
+-- with its messages; if no owner remains, the longest-standing member becomes owner. Direct chats keep their surviving member.
+-- When the whole conversation is being deleted its row is already gone here, so nothing happens.
+create or replace function public.messenger_after_member_delete() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_kind text; v_next uuid;
+begin
+  select c.kind into v_kind from public.messenger_conversations c where c.id = old.conversation_id for update;   -- one change at a time
+  if v_kind is distinct from 'group' then return null; end if;
+  if not exists (select 1 from public.messenger_members m where m.conversation_id = old.conversation_id) then
+    delete from public.messenger_conversations where id = old.conversation_id;
+  elsif not exists (select 1 from public.messenger_members m where m.conversation_id = old.conversation_id and m.role = 'owner') then
+    select m.profile_id into v_next from public.messenger_members m where m.conversation_id = old.conversation_id order by m.joined_at, m.profile_id limit 1;
+    update public.messenger_members set role = 'owner' where conversation_id = old.conversation_id and profile_id = v_next;
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists messenger_members_settle on public.messenger_members;
+create trigger messenger_members_settle after delete on public.messenger_members
+  for each row execute function public.messenger_after_member_delete();
+
 create or replace function public.messenger_require_owner(p_conversation uuid, p_user uuid) returns void
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 begin
@@ -169,10 +191,10 @@ begin
   update public.messenger_conversations set title = v_title where id = p_conversation;
 end $$;
 
--- Leaves a group. The longest-standing member becomes owner if no owner remains; a group with nobody left is deleted with its messages.
+-- Leaves a group. messenger_after_member_delete passes on ownership or deletes the empty group.
 create or replace function public.messenger_leave(p_conversation uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_me uuid := (select auth.uid()); v_kind text; v_next uuid;
+declare v_me uuid := (select auth.uid()); v_kind text;
 begin
   if v_me is null then raise exception 'Sign in first' using errcode = '42501'; end if;
   select c.kind into v_kind from public.messenger_conversations c where c.id = p_conversation for update;   -- one leaver at a time
@@ -180,13 +202,7 @@ begin
     raise exception 'You are not in this chat';
   end if;
   if v_kind <> 'group' then raise exception 'You cannot leave a one-to-one chat'; end if;
-  delete from public.messenger_members where conversation_id = p_conversation and profile_id = v_me;
-  if not exists (select 1 from public.messenger_members m where m.conversation_id = p_conversation) then
-    delete from public.messenger_conversations where id = p_conversation;
-  elsif not exists (select 1 from public.messenger_members m where m.conversation_id = p_conversation and m.role = 'owner') then
-    select m.profile_id into v_next from public.messenger_members m where m.conversation_id = p_conversation order by m.joined_at, m.profile_id limit 1;
-    update public.messenger_members set role = 'owner' where conversation_id = p_conversation and profile_id = v_next;
-  end if;
+  delete from public.messenger_members where conversation_id = p_conversation and profile_id = v_me;   -- the trigger passes on ownership or deletes the empty group
 end $$;
 
 create or replace function public.messenger_mark_read(p_conversation uuid) returns void
@@ -242,7 +258,7 @@ revoke all on function public.messenger_is_member(uuid), public.messenger_start_
   public.messenger_add_members(uuid, uuid[]), public.messenger_remove_member(uuid, uuid), public.messenger_rename_group(uuid, text),
   public.messenger_leave(uuid), public.messenger_mark_read(uuid), public.messenger_chat_list(), public.messenger_read_state(uuid),
   public.messenger_prune_messages(), public.messenger_require_owner(uuid, uuid), public.messenger_stamp_message(),
-  public.messenger_touch_conversation() from public, anon, authenticated;
+  public.messenger_touch_conversation(), public.messenger_after_member_delete() from public, anon, authenticated;
 grant execute on function public.messenger_is_member(uuid), public.messenger_start_direct(uuid), public.messenger_create_group(text, uuid[]),
   public.messenger_add_members(uuid, uuid[]), public.messenger_remove_member(uuid, uuid), public.messenger_rename_group(uuid, text),
   public.messenger_leave(uuid), public.messenger_mark_read(uuid), public.messenger_chat_list(), public.messenger_read_state(uuid) to authenticated;
