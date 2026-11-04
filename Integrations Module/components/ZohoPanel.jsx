@@ -1,87 +1,103 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, ErrorNote } from "@banking/components/shared";
 import {
-  KIND_LABEL, NO_MASTER, NO_MATCH, NO_QUOTE, contactLine, contactLinkable, createRights, formatAmount, panelMode, panelNotes, pdfReply,
-  replaceQuestion, rowActions, rowNotes,
+  KIND_LABEL, LINK_READ_FAILED, NO_MASTER, NO_MATCH, NO_QUOTE, callZoho, contactLine, contactLinkable, createRights, formatAmount, linkContact,
+  makeGuard, openPdf, panelMode, panelNotes, replaceQuestion, rowActions, rowNotes, safeZohoUrl,
 } from "../logic/zohoPanel";
 
 // The Zoho step on a quote: link the client's Zoho contact, make draft estimates and invoices, and read them back.
 // It never blocks the handover buttons. When Zoho is down or not connected, the rest of the screen works as before.
-async function call(supabase, body) {
-  const { data, error } = await supabase.functions.invoke("zoho-books", { body });
-  if (error) {
-    let message = error.message;
-    try { message = (await error.context?.json())?.error || message; } catch { /* keep message */ }
-    throw new Error(message);
-  }
-  if (data && typeof data === "object" && typeof data.error === "string") throw new Error(data.error);
-  return data;
-}
-
+// Nothing is read from Zoho until staff press Show Zoho details.
 const Note = ({ tone, children }) => <div className={`bk-alert bk-alert-${tone}`} role="note">{children}</div>;
 
-export default function ZohoPanel({ supabase, department, sourceTable, sourceId, clientId, kinds = ["estimate", "invoice"], canCreate }) {
+export default function ZohoPanel({ supabase, department, sourceTable, sourceId, clientId, kinds = ["estimate", "invoice"], canCreate, noSourceNote }) {
   const rights = createRights(canCreate);
+  const [opened, setOpened] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState({ connected: undefined, readError: null });
   const [rows, setRows] = useState({});
-  const [link, setLink] = useState({ known: false, linked: false, name: "" });
+  const [link, setLink] = useState({ known: false, linked: false, name: "", failed: false });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState(null);
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState("");
   const [found, setFound] = useState(null);
   const [replace, setReplace] = useState(null);
-  const seq = useRef(0);
+  const busyNow = useRef(false);
+  // scope changes when the panel goes away or its quote changes; loads counts reads of the state.
+  const scope = useRef(makeGuard());
+  const loads = useRef(makeGuard());
+  const call = useCallback((body) => callZoho(supabase, body), [supabase]);
 
   const load = useCallback(async (force) => {
-    const mine = ++seq.current;
+    const inScope = scope.current.token();
+    const mine = loads.current.next();
+    const current = () => scope.current.valid(inScope) && loads.current.valid(mine);
     setLoading(true); setError(null);
     try {
-      const out = await call(supabase, { action: "document_state", source_table: sourceTable, source_id: sourceId, force: !!force });
-      if (mine !== seq.current) return;
+      const out = await call({ action: "document_state", source_table: sourceTable, source_id: sourceId, force: !!force });
+      if (!current()) return;
       setRows(Object.fromEntries((out.rows || []).map((r) => [r.kind, r])));
       setInfo({ connected: out.connected, readError: out.read_error || null });
-      if (out.connected !== false && clientId) {
-        const c = await call(supabase, { action: "contact_get", client_id: clientId, department });
-        if (mine !== seq.current) return;
-        setLink({ known: true, linked: !!c.linked, name: c.zoho_contact_name || "" });
-      }
       setLoaded(true);
+      if (out.connected !== false && clientId) {
+        try {
+          const c = await call({ action: "contact_get", client_id: clientId, department });
+          if (!current()) return;
+          setLink({ known: true, linked: !!c.linked, name: c.zoho_contact_name || "", failed: false });
+        } catch {
+          if (current()) setLink({ known: false, linked: false, name: "", failed: true });
+        }
+      }
     } catch (e) {
-      if (mine === seq.current) setError(e.message);
+      if (current()) setError(e.message);
     } finally {
-      if (mine === seq.current) setLoading(false);
+      if (current()) setLoading(false);
     }
-  }, [supabase, sourceTable, sourceId, clientId, department]);
+  }, [call, sourceTable, sourceId, clientId, department]);
 
   useEffect(() => {
-    if (sourceId) load(false);
-    return () => { seq.current += 1; };
-  }, [sourceId, load]);
+    const guard = scope.current;
+    return () => { guard.next(); };
+  }, [sourceId, clientId]);
 
+  const show = () => { setOpened(true); load(false); };
+
+  // One action at a time. The ref stops a double click in the same tick, before state updates.
   async function run(key, fn) {
+    if (busyNow.current) return;
+    busyNow.current = true;
+    const inScope = scope.current.token();
     setBusy(key); setError(null);
-    try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(""); }
+    try {
+      await fn(() => !scope.current.valid(inScope));
+    } catch (e) {
+      if (scope.current.valid(inScope)) setError(e.message);
+    } finally {
+      busyNow.current = false;
+      if (scope.current.valid(inScope)) setBusy("");
+    }
   }
 
-  const search = () => run("search", async () => {
-    const out = await call(supabase, { action: "contacts_search", query: query.trim(), department });
-    setFound(out.contacts || []);
+  const search = () => run("search", async (stale) => {
+    const out = await call({ action: "contacts_search", query: query.trim(), department });
+    if (!stale()) setFound(out.contacts || []);
   });
 
-  const saveLink = (contact, replaceIt) => run(`link-${contact.id}`, async () => {
-    const out = await call(supabase, { action: "contact_link", client_id: clientId, zoho_contact_id: contact.id, department, ...(replaceIt ? { replace: true } : {}) });
-    if (out.needs_replace) { setReplace({ contact, currentName: out.current_name }); return; }
+  const saveLink = (contact, replaceIt) => run(`link-${contact.id}`, async (stale) => {
+    const out = await linkContact({ call, clientId, department, contact, replace: replaceIt });
+    if (stale()) return;
+    if (out.status === "needs_replace") { setReplace({ contact, currentName: out.currentName }); return; }
     setReplace(null); setPicking(false); setFound(null); setQuery("");
-    setLink({ known: true, linked: true, name: out.zoho_contact_name || contact.name });
+    setLink({ known: true, linked: true, name: out.name, failed: false });
   });
 
-  const create = (kind) => run(`create-${kind}`, async () => {
-    const out = await call(supabase, { action: "document_create", source_table: sourceTable, source_id: sourceId, kind });
+  const create = (kind) => run(`create-${kind}`, async (stale) => {
+    const out = await call({ action: "document_create", source_table: sourceTable, source_id: sourceId, kind });
+    if (stale()) return;
     if (out.needs_contact) {
-      setLink({ known: true, linked: false, name: "" });
+      setLink({ known: true, linked: false, name: "", failed: false });
       setError("Link the Zoho contact for this client first.");
       return;
     }
@@ -89,31 +105,33 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
   });
 
   // The tab opens on the click itself, so pop-up blockers allow it. It is pointed at the file once that arrives.
-  function viewPdf(kind) {
-    const tab = window.open("", "_blank");
-    if (!tab) { setError("Your browser blocked the new tab. Allow pop-ups for this site and try again."); return; }
-    try { tab.opener = null; } catch { /* ignore */ }
-    return run(`pdf-${kind}`, async () => {
-      try {
-        const data = await call(supabase, { action: "document_pdf", source_table: sourceTable, source_id: sourceId, kind });
-        const reply = pdfReply(data);
-        if (!reply.ok) throw new Error(reply.message);
-        const url = URL.createObjectURL(data);
-        tab.location.href = url;
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-      } catch (e) {
-        tab.close();
-        throw e;
-      }
+  const viewPdf = (kind) => run(`pdf-${kind}`, async (stale) => {
+    const res = await openPdf({
+      openTab: () => window.open("", "_blank"),
+      fetchPdf: () => call({ action: "document_pdf", source_table: sourceTable, source_id: sourceId, kind }),
+      makeUrl: (blob) => URL.createObjectURL(blob),
+      revoke: (url) => URL.revokeObjectURL(url),
+      later: (fn, ms) => setTimeout(fn, ms),
+      isStale: stale,
     });
-  }
+    if (!res.ok && !res.stale) throw new Error(res.message);
+  });
 
-  if (!sourceId) return <div className="bk-note">{NO_QUOTE}</div>;
+  if (!sourceId) return <div className="bk-note">{noSourceNote || NO_QUOTE}</div>;
+
+  if (!opened) {
+    return (
+      <div className="bk-note bk-actions bk-wrap">
+        <strong>Zoho draft</strong>
+        <button type="button" className="bk-link" onClick={show}>Show Zoho details</button>
+      </div>
+    );
+  }
 
   const working = !!busy || loading;
   const connected = info.connected;
   const linkedOk = link.known && link.linked;
-  const canLink = rights.estimate && !!clientId;
+  const canLink = rights.estimate && !!clientId && !link.failed;
   const showContact = loaded && connected !== false;
 
   return (
@@ -123,9 +141,9 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
 
       {showContact && (
         <div className="bk-note">
-          {!clientId ? NO_MASTER : linkedOk ? <>Zoho contact: <strong>{link.name}</strong>{" "}</> : "No Zoho contact is linked to this client yet. "}
+          {!clientId ? NO_MASTER : link.failed ? LINK_READ_FAILED : linkedOk ? <>Zoho contact: <strong>{link.name}</strong>{" "}</> : "No Zoho contact is linked to this client yet. "}
           {canLink && !picking && <button type="button" className="bk-link" disabled={working} onClick={() => setPicking(true)}>{linkedOk ? "Change" : "Find in Zoho"}</button>}
-          {!canLink && !linkedOk && clientId ? "Someone who manages this must link it." : null}
+          {!canLink && !linkedOk && !link.failed && clientId ? "Someone who manages this must link it." : null}
         </div>
       )}
 
@@ -161,7 +179,8 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
         const row = rows[kind];
         const mode = panelMode({ connected, linked: linkedOk, row });
         if (mode === "needs_contact" || mode === "not_connected") return null;
-        const actions = rowActions(mode, { canCreate: rights[kind], connected, linked: linkedOk, hasUrl: !!row?.url });
+        const url = safeZohoUrl(row?.url);
+        const actions = rowActions(mode, { canCreate: rights[kind], connected, linked: linkedOk, hasUrl: !!url });
         const name = KIND_LABEL[kind];
         return (
           <div className="bk-mt" key={kind}>
@@ -175,7 +194,7 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
               {mode === "gone" && <span className="bk-muted">No longer in Zoho</span>}
               {actions.create && <Button disabled={working} busy={busy === `create-${kind}`} onClick={() => create(kind)}>{actions.create}</Button>}
               {actions.viewPdf && <button type="button" className="bk-link" disabled={working} onClick={() => viewPdf(kind)}>{busy === `pdf-${kind}` ? "Opening…" : "View PDF"}</button>}
-              {actions.openZoho && <a className="bk-link" href={row.url} target="_blank" rel="noopener noreferrer">Open in Zoho</a>}
+              {actions.openZoho && <a className="bk-link" href={url} target="_blank" rel="noopener noreferrer">Open in Zoho</a>}
             </div>
             {rowNotes(row, mode).map((n) => <Note key={n.text} tone={n.tone}>{n.text}</Note>)}
           </div>

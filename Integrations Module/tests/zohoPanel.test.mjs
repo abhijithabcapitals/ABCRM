@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  NOT_CONNECTED, contactLinkable, contactLine, createRights, formatAmount, panelMode, panelNotes, pdfReply, replaceQuestion, rowActions, rowNotes,
+  NOT_CONNECTED, POPUP_BLOCKED, callZoho, contactLinkable, linkContact, makeGuard, openPdf, readInvokeError, safeZohoUrl, contactLine, createRights, formatAmount, panelMode, panelNotes, pdfReply, replaceQuestion, rowActions, rowNotes,
 } from "../logic/zohoPanel.js";
 
 const file = (rel) => fileURLToPath(new URL(rel, import.meta.url));
@@ -101,7 +101,8 @@ test("amounts show two places", () => {
 test("the panel never disables Send to Accounts, and calls only the named actions", () => {
   const panel = read("../components/ZohoPanel.jsx");
   assert.doesNotMatch(panel, /Send to Accounts|bk-complete/);
-  for (const a of ["contact_get", "contacts_search", "contact_link", "document_create", "document_state", "document_pdf"]) assert.ok(panel.includes(a), a);
+  const code = panel + read("../logic/zohoPanel.js");
+  for (const a of ["contact_get", "contacts_search", "contact_link", "document_create", "document_state", "document_pdf"]) assert.ok(code.includes(a), a);
   assert.doesNotMatch(panel, /client_secret|refresh_token/i);
   assert.match(panel, /rel="noopener noreferrer"/);
   assert.match(panel, /target="_blank"/);
@@ -123,4 +124,96 @@ test("both screens use the panel and keep their handover buttons", () => {
 test("the old placeholder is gone and the module exports the panel", () => {
   assert.equal(existsSync(file("../../Business Setup Module/components/ZohoInvoicePanel.jsx")), false);
   assert.match(read("../index.js"), /ZohoPanel/);
+});
+
+const pdfBlob = () => new Blob(["%PDF"], { type: "application/pdf" });
+const fakeTab = () => ({ closed: false, opener: {}, location: { href: "" }, close() { this.closed = true; } });
+
+test("a failed call gives the function's own message, else the library's", async () => {
+  assert.equal(await readInvokeError({ message: "Edge Function returned a non-2xx status code", context: { json: async () => ({ error: "Choose a client first." }) } }), "Choose a client first.");
+  assert.equal(await readInvokeError({ message: "plain", context: { json: async () => { throw new Error("not json"); } } }), "plain");
+  assert.equal(await readInvokeError({ message: "plain" }), "plain");
+  const supabase = (result) => ({ functions: { invoke: async () => result } });
+  await assert.rejects(callZoho(supabase({ data: null, error: { message: "x", context: { json: async () => ({ error: "Zoho is busy, try again shortly." }) } } }), {}), /Zoho is busy/);
+  await assert.rejects(callZoho(supabase({ data: { error: "Unknown action." }, error: null }), {}), /Unknown action/);
+  const blob = pdfBlob();
+  assert.equal(await callZoho(supabase({ data: blob, error: null }), {}), blob);
+});
+
+test("openPdf: blocked tab, non-PDF reply, failed call and good reply", async () => {
+  const base = { makeUrl: () => "blob:x", revoke: () => {}, later: () => {} };
+  assert.deepEqual(await openPdf({ ...base, openTab: () => null, fetchPdf: async () => { throw new Error("must not be called"); } }), { ok: false, message: POPUP_BLOCKED });
+
+  let tab = fakeTab();
+  let res = await openPdf({ ...base, openTab: () => tab, fetchPdf: async () => ({ error: "No longer in Zoho." }) });
+  assert.equal(res.ok, false);
+  assert.equal(tab.closed, true);
+  assert.equal(tab.location.href, "");
+
+  tab = fakeTab();
+  res = await openPdf({ ...base, openTab: () => tab, fetchPdf: async () => { throw new Error("Zoho refused the request."); } });
+  assert.deepEqual(res, { ok: false, message: "Zoho refused the request." });
+  assert.equal(tab.closed, true);
+
+  tab = fakeTab();
+  const later = [];
+  const revoked = [];
+  res = await openPdf({ openTab: () => tab, fetchPdf: async () => pdfBlob(), makeUrl: () => "blob:abc", revoke: (u) => revoked.push(u), later: (fn, ms) => later.push([fn, ms]) });
+  assert.deepEqual(res, { ok: true });
+  assert.equal(tab.location.href, "blob:abc");
+  assert.equal(tab.closed, false);
+  assert.equal(tab.opener, null);
+  assert.equal(later[0][1], 60000);
+  later[0][0]();
+  assert.deepEqual(revoked, ["blob:abc"]);
+});
+
+test("openPdf: a reply for a quote that is no longer shown is dropped and the tab closed", async () => {
+  const tab = fakeTab();
+  const res = await openPdf({ openTab: () => tab, fetchPdf: async () => pdfBlob(), makeUrl: () => { throw new Error("no url"); }, revoke: () => {}, later: () => {}, isStale: () => true });
+  assert.deepEqual(res, { ok: false, stale: true });
+  assert.equal(tab.closed, true);
+});
+
+test("link: a saved link, and a client that already has another contact", async () => {
+  const sent = [];
+  const call = (reply) => async (body) => { sent.push(body); return reply; };
+  const contact = { id: "c1", name: "Acme" };
+  const first = await linkContact({ call: call({ needs_replace: true, current_name: "Old Co" }), clientId: "k1", department: "banking", contact });
+  assert.deepEqual(first, { status: "needs_replace", currentName: "Old Co" });
+  assert.equal("replace" in sent[0], false);
+  const second = await linkContact({ call: call({ ok: true, zoho_contact_id: "c1", zoho_contact_name: "Acme LLC" }), clientId: "k1", department: "banking", contact, replace: true });
+  assert.deepEqual(second, { status: "linked", name: "Acme LLC" });
+  assert.equal(sent[1].replace, true);
+  assert.equal(sent[1].zoho_contact_id, "c1");
+});
+
+test("guard: a reply that started before the source changed is no longer valid", () => {
+  const g = makeGuard();
+  const t = g.token();
+  assert.equal(g.valid(t), true);
+  g.next();
+  assert.equal(g.valid(t), false);
+  assert.equal(g.valid(g.token()), true);
+});
+
+test("Open in Zoho only for Zoho Books links", () => {
+  assert.equal(safeZohoUrl("https://books.zoho.ae/app/1#/invoices/2"), "https://books.zoho.ae/app/1#/invoices/2");
+  assert.equal(safeZohoUrl("https://evil.example/books.zoho."), null);
+  assert.equal(safeZohoUrl("javascript:alert(1)"), null);
+  assert.equal(safeZohoUrl(null), null);
+});
+
+test("the panel waits for a press before reading, and a new quote starts it fresh", () => {
+  const panel = read("../components/ZohoPanel.jsx");
+  assert.match(panel, /Show Zoho details/);
+  assert.equal((panel.match(/action: "document_state"/g) || []).length, 1);
+  assert.doesNotMatch(panel, /useEffect\([^)]*load\(/);
+  assert.match(read("../../Business Setup Module/components/workspace/Quotes.jsx"), /<ZohoPanel key=\{`\$\{q\.id\}:\$\{clientId\}`\}/);
+  assert.match(read("../../Banking Module/components/BankProcess.jsx"), /<ZohoPanel key=\{`\$\{quoteId\}:\$\{client\.client_master_id\}`\}/);
+});
+
+test("Banking: the quotation read is guarded and cannot fail the step", () => {
+  const bank = read("../../Banking Module/components/BankProcess.jsx");
+  assert.match(bank, /can\("quotes\.view"\) \? run\(table\("banking_quotations"\)[^\n]*\.catch\(\(\) => "error"\) : "denied"/);
 });

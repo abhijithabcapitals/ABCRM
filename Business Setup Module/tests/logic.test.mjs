@@ -77,6 +77,20 @@ test("the Zoho panel sits before the Banking handover button and blocks nothing"
   const panel = readFileSync(fileURLToPath(new URL("../../Integrations Module/components/ZohoPanel.jsx", import.meta.url)), "utf8");
   assert.ok(bank.indexOf("<ZohoPanel") > 0 && bank.indexOf("<ZohoPanel") < bank.indexOf('id="bk-complete"'));
   assert.doesNotMatch(panel, /Send to Accounts|bk-complete/);
+  // The handover controls sit outside the panel and in no condition that reads Zoho state.
+  const quotes = readFileSync(fileURLToPath(new URL("../components/workspace/Quotes.jsx", import.meta.url)), "utf8");
+  const sendLine = quotes.split(/\r?\n/).find((l) => l.includes("Send to Accounts</Button>"));
+  assert.ok(sendLine, "Quotes.jsx lost the Send to Accounts button");
+  assert.doesNotMatch(sendLine, /zoho|quoteId|ZohoPanel/i);
+  assert.match(sendLine, /^\s*\{can\("setup\.services\.manage"\) && <Button variant="primary" onClick=\{\(\) => setDialog\("send"\)\}>Send to Accounts<\/Button>\}\s*$/);
+  const completeLine = bank.split(/\r?\n/).find((l) => l.includes('id="bk-complete"'));
+  assert.ok(completeLine, "BankProcess.jsx lost bk-complete");
+  assert.doesNotMatch(completeLine, /zoho|quoteId|quoteNote/i);
+  for (const src of [quotes, bank]) {
+    const tag = src.match(/<ZohoPanel[\s\S]*?\/>/)?.[0];
+    assert.ok(tag, "the panel must be a self-closing element, with no children");
+    assert.doesNotMatch(tag, /Send to Accounts|bk-complete/);
+  }
 });
 
 test("the quote screen sends every contact field the database asks for", () => {

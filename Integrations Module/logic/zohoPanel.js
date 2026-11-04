@@ -85,3 +85,62 @@ export function formatAmount(n) {
   const v = Number(n);
   return Number.isFinite(v) ? v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "";
 }
+
+export const NO_VIEW = "You can't view quotations here.";
+export const QUOTE_READ_FAILED = "Could not read the quotation.";
+export const LINK_READ_FAILED = "Could not read the Zoho contact link. Press Refresh to try again.";
+export const POPUP_BLOCKED = "Your browser blocked the new tab. Allow pop-ups for this site and try again.";
+
+// Only links that point at Zoho Books are shown.
+export function safeZohoUrl(url) {
+  return typeof url === "string" && url.startsWith("https://books.zoho.") ? url : null;
+}
+
+// The message from a failed function call: the function's own JSON error, or the library's text.
+export async function readInvokeError(error) {
+  let message = error?.message || "Something went wrong talking to Zoho.";
+  try { message = (await error.context?.json())?.error || message; } catch { /* keep message */ }
+  return message;
+}
+
+// One call to the zoho-books function. Returns the data (a Blob for a PDF) or throws an Error with a readable message.
+export async function callZoho(supabase, body) {
+  const { data, error } = await supabase.functions.invoke("zoho-books", { body });
+  if (error) throw new Error(await readInvokeError(error));
+  if (data && typeof data === "object" && typeof data.error === "string") throw new Error(data.error);
+  return data;
+}
+
+// A counter that tells a late reply whether it still belongs to the screen that asked.
+export function makeGuard() {
+  let n = 0;
+  return { token: () => n, valid: (t) => t === n, next: () => ++n };
+}
+
+// Saves a contact link. Either it is saved, or the client already has another contact and staff must confirm.
+export async function linkContact({ call, clientId, department, contact, replace }) {
+  const out = await call({ action: "contact_link", client_id: clientId, zoho_contact_id: contact.id, department, ...(replace ? { replace: true } : {}) });
+  if (out?.needs_replace) return { status: "needs_replace", currentName: out.current_name };
+  return { status: "linked", name: out?.zoho_contact_name || contact.name };
+}
+
+// Opens the PDF in a tab that was opened on the click. Dependencies are passed in so each step can be tested.
+// openTab must be called straight from the click, before any await.
+export async function openPdf({ openTab, fetchPdf, makeUrl, later, revoke, isStale = () => false, delay = 60000 }) {
+  const tab = openTab();
+  if (!tab) return { ok: false, message: POPUP_BLOCKED };
+  try { tab.opener = null; } catch { /* ignore */ }
+  try {
+    const data = await fetchPdf();
+    if (isStale()) { tab.close(); return { ok: false, stale: true }; }
+    const reply = pdfReply(data);
+    if (!reply.ok) throw new Error(reply.message);
+    const url = makeUrl(data);
+    tab.location.href = url;
+    later(() => revoke(url), delay);
+    return { ok: true };
+  } catch (e) {
+    tab.close();
+    return { ok: false, message: e.message };
+  }
+}
