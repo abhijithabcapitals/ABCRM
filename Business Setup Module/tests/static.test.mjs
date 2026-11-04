@@ -60,3 +60,13 @@ test("the shell opens each page of the spec", () => {
   assert.match(shell, /myAccess\(\)/);
   assert.match(readFileSync(join(here, "services/businessSetupApi.js"), "utf8"), /rpc\("business_setup_my_access"\)/);
 });
+
+test("the dashboard shows the six planned figures, each opening its list", () => {
+  const src = readFileSync(join(here, "components/Dashboard.jsx"), "utf8");
+  const block = src.slice(src.indexOf("export const FIGURES"), src.indexOf("const STAGES"));
+  const rows = [...block.matchAll(/\["(\w+)", "([^"]+)", "(\w+)"\]/g)].map((m) => m.slice(1));
+  assert.deepEqual(rows.map((r) => r[0]), ["processes_pending", "receivables", "cases_completed_month", "pipeline_total", "forms_to_review", "pending_after_kyc"]);
+  // Planned targets: leads, review, documentation and cases are screens of the case pipeline (Task 4); NAV does not list them yet.
+  assert.deepEqual(rows.map((r) => r[2]), ["cases", "clients", "cases", "leads", "review", "documentation"]);
+  assert.match(src, /Cases by stage/);
+});

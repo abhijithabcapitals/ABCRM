@@ -409,3 +409,58 @@ begin
   end if;
   return r;
 end $$;
+
+-- ── Dashboard figures (spec section 5) ───────────────────────────────
+-- Every key of the 008 dashboard stays, because Dashboard Module/services/summaryApi.js reads them. New keys are additions:
+--   processes_pending       services not Completed or Cancelled whose quote belongs to a case (imported and caseless services are left out)
+--   receivables             per accepted Business Setup quote, total less net payments, never below zero (the same sum as outstanding)
+--   advances                net payments on a case that has no accepted quote
+--   cases_completed_month   cases at Completed whose completion fell in this calendar month, Asia/Dubai. A case has no completed-at column:
+--                           the time is the audit entry of its move to Completed, else its latest service completion, else its last update.
+--   cases_completed_total   cases at Completed
+--   pipeline                stage -> count for the seven open stages (Completed, Cancelled and Lost are not in it)
+--   forms_to_review         forms that are Submitted or In review (the same count as forms_waiting)
+--   pending_after_kyc       cases at Services: KYC is done and no quote has been issued
+create or replace function public.business_setup_dashboard() returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare v_exp jsonb; v_month timestamptz := date_trunc('month', now() at time zone 'Asia/Dubai') at time zone 'Asia/Dubai';
+        v_done_total int; v_done_month int;
+begin
+  perform business_setup_require('setup.access');
+  v_exp := business_setup_expiries();
+  select count(*), count(*) filter (where t.at >= v_month) into v_done_total, v_done_month
+    from (select coalesce(
+                   (select max(a.occurred_at) from business_setup_audit_log a
+                     where a.table_name = 'business_setup_cases' and a.row_id = c.id::text and a.action = 'case_stage' and a.new_data ->> 'stage' = 'Completed'),
+                   (select max(s.completed_at) from business_setup_services s where s.quote_id in (select id from hub_documents where case_id = c.id and doc_type = 'quote')),
+                   c.updated_at) as at
+            from business_setup_cases c where c.stage = 'Completed') t;
+  return jsonb_build_object(
+    'forms_waiting', business_setup_dash_forms(),
+    'open_quotes', (select count(*) from hub_documents where department = 'Business Setup' and doc_type = 'quote' and status = 'issued'),
+    'accepted_without_letter', (select count(*) from hub_documents q where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'
+                                   and not exists (select 1 from hub_documents l where l.parent_id = q.id and l.doc_type = 'letter')),
+    'outstanding', (select coalesce(sum(greatest(q.total_amount - business_setup_net_paid(q.id), 0)), 0) from hub_documents q
+                     where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'),
+    'active_services', (select count(*) from business_setup_services where status not in ('Completed', 'Cancelled') and not historical),
+    'expiries', jsonb_build_object('upcoming', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Upcoming'),
+                                   'past', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Past date')),
+    'processes_pending', (select count(*) from business_setup_services s
+                           where s.status not in ('Completed', 'Cancelled') and not s.historical
+                             and exists (select 1 from hub_documents q where q.id = s.quote_id and q.case_id is not null)),
+    'receivables', (select coalesce(sum(greatest(q.total_amount - business_setup_net_paid(q.id), 0)), 0) from hub_documents q
+                     where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'),
+    'advances', (select coalesce(sum(case when p.type = 'Payment' then p.amount else -p.amount end), 0) from business_setup_payments p
+                  where p.case_id is not null
+                    and not exists (select 1 from hub_documents q where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'
+                                       and (q.case_id = p.case_id or q.id = p.quote_id))),
+    'cases_completed_month', v_done_month,
+    'cases_completed_total', v_done_total,
+    'pipeline', (select jsonb_object_agg(st, (select count(*) from business_setup_cases c where c.stage = st))
+                   from unnest(array['Lead', 'Contact', 'Review', 'Services', 'Documentation', 'Assignment', 'In service']) st),
+    'forms_to_review', business_setup_dash_forms(),
+    'pending_after_kyc', (select count(*) from business_setup_cases where stage = 'Services')
+  ) || business_setup_dash_handover();
+end $$;
+revoke all on function public.business_setup_dashboard() from public, anon;
+grant execute on function public.business_setup_dashboard() to authenticated;

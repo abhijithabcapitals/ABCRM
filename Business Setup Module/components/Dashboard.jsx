@@ -5,10 +5,17 @@ import { dashboard, expiries } from "../services/businessSetupApi";
 import { expiryNote } from "../logic/expiries";
 import { aedMoney as money } from "@app/money";
 
-const CARDS = [
-  ["forms_waiting", "Forms waiting", "onboarding"], ["open_quotes", "Open quotes", "documents"], ["accepted_without_letter", "Accepted without letter", "documents"],
-  ["active_services", "Active services", "clients"], ["ready_for_accounts", "Ready for Accounts", "clients"], ["reverted_by_accounts", "Reverted by Accounts", "clients"],
+// Six figures, each opening the list behind it. The pages leads, review, documentation and cases arrive with the case screens.
+export const FIGURES = [
+  ["processes_pending", "Processes pending", "cases"], ["receivables", "Receivables", "clients"], ["cases_completed_month", "Cases completed", "cases"],
+  ["pipeline_total", "Cases in the pipeline", "leads"], ["forms_to_review", "Forms to review", "review"], ["pending_after_kyc", "Pending after KYC", "documentation"],
 ];
+const STAGES = ["Lead", "Contact", "Review", "Services", "Documentation", "Assignment", "In service"];
+
+const pipelineTotal = (d) => Object.values(d.pipeline || {}).reduce((a, n) => a + Number(n || 0), 0);
+const figure = (k, d) => (k === "receivables" ? money(d.receivables) : k === "pipeline_total" ? pipelineTotal(d) : d[k] ?? 0);
+// The second line under a figure: advances beside receivables, all-time beside this month's completions.
+const sub = (k, d) => (k === "receivables" ? `Advances ${money(d.advances)}` : k === "cases_completed_month" ? `This month. ${d.cases_completed_total ?? 0} in total` : "");
 
 export default function Dashboard() {
   const { goTo } = useSetup();
@@ -20,14 +27,22 @@ export default function Dashboard() {
       <PageHead title="Dashboard" sub="What needs attention today." />
       <ErrorNote message={d.error || e.error} />
       {d.data && (
-        <div className="bk-cards">
-          {CARDS.map(([k, label, page]) => (
-            <button type="button" className="bk-card bk-click" key={k} onClick={() => goTo(page)}><span>{label}</span><strong>{d.data[k]}</strong></button>
-          ))}
-          <div className="bk-card"><span>Outstanding balances</span><strong>{money(d.data.outstanding)}</strong></div>
-          <div className="bk-card"><span>Expiring in 90 days</span><strong>{d.data.expiries?.upcoming ?? 0}</strong></div>
-          <div className="bk-card"><span>Dates to check</span><strong>{d.data.expiries?.past ?? 0}</strong></div>
-        </div>
+        <>
+          <div className="bk-cards">
+            {FIGURES.map(([k, label, page]) => (
+              <button type="button" className="bk-card bk-click" key={k} onClick={() => goTo(page)}>
+                <span>{label}</span>
+                <strong>{figure(k, d.data)}</strong>
+                {sub(k, d.data) && <small>{sub(k, d.data)}</small>}
+              </button>
+            ))}
+          </div>
+          <Panel title="Cases by stage" sub="Open cases only. Completed, cancelled and lost cases are not counted.">
+            <div className="bk-cards">
+              {STAGES.map((st) => <div className="bk-card" key={st}><span>{st}</span><strong>{d.data.pipeline?.[st] ?? 0}</strong></div>)}
+            </div>
+          </Panel>
+        </>
       )}
       <Panel title="Expiries" sub="Licences and visas in the next 90 days, and dates already past. Past dates may come from old records, so check them before contacting a client.">
         <DataTable rows={e.data || []} search="Search name or company…" empty="Nothing is due." onRow={(r) => goTo("clients", { client: r.client_id })} columns={[

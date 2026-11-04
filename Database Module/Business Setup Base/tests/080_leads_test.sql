@@ -423,6 +423,81 @@ select public.bs_check('Accounting with no case behaves as before', (select case
 select public.bs_check('Business Setup with no case behaves as before', (select case_id is null from pg_temp.hq('{"department":"Business Setup","client_id":"CL980040"}'::jsonb)));
 select public.bs_expect_error($$select pg_temp.hq('{"department":"Business Setup","case_id":"00000000-0000-0000-0000-0000000000ff"}'::jsonb)$$, 'Unknown case');
 
+-- ── Dashboard figures (restructure Task 3) ──
+-- The database holds other test data, so every figure is checked as a change from a reading taken first.
+create function pg_temp.dash() returns jsonb language sql as $$ select public.business_setup_dashboard() $$;
+create function pg_temp.dd(p_base text, p_key text) returns numeric language sql as $$
+  select (pg_temp.dash() ->> p_key)::numeric - (pg_temp.fx(p_base)::jsonb ->> p_key)::numeric $$;
+create function pg_temp.dstage(p_base text, p_stage text) returns numeric language sql as $$
+  select coalesce((pg_temp.dash() -> 'pipeline' ->> p_stage)::numeric, 0) - coalesce((pg_temp.fx(p_base)::jsonb -> 'pipeline' ->> p_stage)::numeric, 0) $$;
+create function pg_temp.mkpay(p_client text, p_quote uuid, p_case uuid, p_amount numeric, p_type text default 'Payment') returns void language sql as $$
+  insert into public.business_setup_payments (client_id, quote_id, case_id, paid_on, amount, type) values (p_client, p_quote, p_case, current_date, p_amount, p_type) $$;
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 values ('d0', pg_temp.dash()::text);
+select public.bs_check('dash_keys: every old key is still present', pg_temp.dash() ?& array['forms_waiting', 'open_quotes', 'accepted_without_letter', 'outstanding', 'active_services', 'expiries', 'ready_for_accounts', 'reverted_by_accounts']);
+select public.bs_check('dash_keys: the new keys are present', pg_temp.dash() ?& array['processes_pending', 'receivables', 'advances', 'cases_completed_month', 'cases_completed_total', 'pipeline', 'forms_to_review', 'pending_after_kyc']);
+select public.bs_check('dash_pipeline: lists every open stage, even at zero', (select count(*) = 7 from jsonb_object_keys(pg_temp.dash() -> 'pipeline'))
+  and not (pg_temp.dash() -> 'pipeline') ?| array['Completed', 'Cancelled', 'Lost']);
+select public.bs_check('dash_keys: forms to review is the forms waiting', pg_temp.dash() ->> 'forms_to_review' = pg_temp.dash() ->> 'forms_waiting');
+
+-- Money: an accepted quote with a part payment, an overpaid one, a quote only issued, and advances on a case with no accepted quote.
+select public.bs_as(null);
+select pg_temp.mkclient('CL980060', false);
+select pg_temp.mkcase('d_rec', 'CL980060', 'Documentation');
+select pg_temp.mkcase('d_over', 'CL980060', 'Documentation');
+select pg_temp.mkcase('d_iss', 'CL980060', 'Documentation');
+select pg_temp.mkcase('d_adv', 'CL980060', 'Documentation');
+select pg_temp.mkquote('dq_rec', 'DQ-1', 'CL980060', pg_temp.cid('d_rec'));
+select pg_temp.mkquote('dq_over', 'DQ-2', 'CL980060', pg_temp.cid('d_over'));
+select pg_temp.mkquote('dq_iss', 'DQ-3', 'CL980060', pg_temp.cid('d_iss'));
+select pg_temp.mkquote('dq_adv', 'DQ-4', 'CL980060', pg_temp.cid('d_adv'));
+update public.hub_documents set total_amount = 1050, status = 'accepted' where id = pg_temp.cid('dq_rec');
+update public.hub_documents set status = 'accepted' where id = pg_temp.cid('dq_over');
+select pg_temp.mkpay('CL980060', pg_temp.cid('dq_rec'), pg_temp.cid('d_rec'), 400);
+select pg_temp.mkpay('CL980060', pg_temp.cid('dq_over'), pg_temp.cid('d_over'), 1200);
+select pg_temp.mkpay('CL980060', pg_temp.cid('dq_adv'), pg_temp.cid('d_adv'), 300);
+select pg_temp.mkpay('CL980060', null, pg_temp.cid('d_adv'), 50, 'Refund');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('dash_receivables: accepted 1050, paid 400 gives 650; overpaid counts 0; issued-only counts 0', pg_temp.dd('d0', 'receivables') = 650);
+select public.bs_check('dash_receivables: the old outstanding figure agrees', pg_temp.dd('d0', 'outstanding') = 650);
+select public.bs_check('dash_advances: a payment on a case with no accepted quote appears in advances only (net of refunds)', pg_temp.dd('d0', 'advances') = 250);
+
+-- Stages, completed cases, after KYC.
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 values ('d1', pg_temp.dash()::text);
+select public.bs_as(null);
+select pg_temp.mkcase('s_lead', null, 'Lead');
+select pg_temp.mkcase('s_svc1', 'CL980060', 'Services');
+select pg_temp.mkcase('s_svc2', 'CL980060', 'Services');
+select pg_temp.mkcase('s_doc', 'CL980060', 'Documentation');
+select pg_temp.mkcase('s_asg', 'CL980060', 'Assignment');
+select pg_temp.mkcase('s_done_new', 'CL980060', 'In service');
+select pg_temp.mkcase('s_done_old', 'CL980060', 'In service');
+select pg_temp.mkcase('s_canc', 'CL980060', 'Cancelled');
+select pg_temp.mkcase('s_lost', null, 'Lost');
+select public.business_setup_case_set_stage(pg_temp.cid('s_done_new'), 'Completed', 'test');
+update public.business_setup_cases set stage = 'Completed' where id = pg_temp.cid('s_done_old');
+insert into public.business_setup_audit_log (table_name, row_id, action, new_data, occurred_at) values ('business_setup_cases', pg_temp.fx('s_done_old'), 'case_stage', '{"stage":"Completed"}', now() - interval '70 days');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('dash_pipeline: counts per stage', pg_temp.dstage('d1', 'Lead') = 1 and pg_temp.dstage('d1', 'Services') = 2 and pg_temp.dstage('d1', 'Documentation') = 1
+  and pg_temp.dstage('d1', 'Assignment') = 1 and pg_temp.dstage('d1', 'In service') = 0);
+select public.bs_check('dash_pipeline: Completed, Cancelled and Lost are left out', not (pg_temp.dash() -> 'pipeline') ? 'Completed' and not (pg_temp.dash() -> 'pipeline') ? 'Cancelled' and not (pg_temp.dash() -> 'pipeline') ? 'Lost');
+select public.bs_check('dash_after_kyc: cases at Services count, Documentation does not', pg_temp.dd('d1', 'pending_after_kyc') = 2);
+select public.bs_check('dash_completed: two completed in total, one this month', pg_temp.dd('d1', 'cases_completed_total') = 2 and pg_temp.dd('d1', 'cases_completed_month') = 1);
+
+-- Services: only those whose quote is in a case are processes.
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 values ('d2', pg_temp.dash()::text);
+select public.bs_as(null);
+insert into public.business_setup_services (client_id, quote_id, name, status) values ('CL980060', pg_temp.cid('dq_rec'), 'in a case', 'In progress');
+insert into public.business_setup_services (client_id, quote_id, name, status) values ('CL980060', pg_temp.cid('dq_rec'), 'done in a case', 'Completed');
+insert into public.business_setup_services (client_id, name, status) values ('CL980060', 'no case', 'In progress');
+insert into public.business_setup_services (client_id, name, status, historical) values ('CL980060', 'old import', 'In progress', true);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('dash_history: a service with no case is left out of processes_pending', pg_temp.dd('d2', 'processes_pending') = 1);
+select public.bs_check('dash_history: active_services keeps its old meaning', pg_temp.dd('d2', 'active_services') = 2);
+select public.bs_as(null);
+
 -- ── Summary: raise when anything failed so psql exits non-zero ──
 do $$
 declare f int; t int;

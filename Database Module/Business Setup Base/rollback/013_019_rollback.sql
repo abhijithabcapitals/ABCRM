@@ -20,6 +20,25 @@ drop function if exists public.business_setup_reassign_respond(uuid, boolean, te
 drop function if exists public.business_setup_form_staff_save(uuid, jsonb);
 drop function if exists public.business_setup_form_doc_add(uuid, text, text);
 drop table if exists public.business_setup_reassign_requests;
+-- The dashboard, as Business Setup Base 008 defines it (009 and 011 only replace its helpers, which 014 leaves alone).
+create or replace function public.business_setup_dashboard() returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare v_exp jsonb;
+begin
+  perform business_setup_require('setup.access');
+  v_exp := business_setup_expiries();
+  return jsonb_build_object(
+    'forms_waiting', business_setup_dash_forms(),
+    'open_quotes', (select count(*) from hub_documents where department = 'Business Setup' and doc_type = 'quote' and status = 'issued'),
+    'accepted_without_letter', (select count(*) from hub_documents q where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'
+                                   and not exists (select 1 from hub_documents l where l.parent_id = q.id and l.doc_type = 'letter')),
+    'outstanding', (select coalesce(sum(greatest(q.total_amount - business_setup_net_paid(q.id), 0)), 0) from hub_documents q
+                     where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'),
+    'active_services', (select count(*) from business_setup_services where status not in ('Completed', 'Cancelled') and not historical),
+    'expiries', jsonb_build_object('upcoming', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Upcoming'),
+                                   'past', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Past date'))
+  ) || business_setup_dash_handover();
+end $$;
 -- hub_document_create, as 013 defines it. The 013 section below then puts back the version before 013.
 \ir ../migrations/013_cases.sql
 
