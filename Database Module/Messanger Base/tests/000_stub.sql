@@ -46,3 +46,9 @@ create function vault.create_secret(new_secret text, new_name text default null,
   insert into vault.secrets (secret, name, description) values (new_secret, new_name, new_description) returning id $$;
 create function vault.update_secret(secret_id uuid, new_secret text default null, new_name text default null, new_description text default null) returns void language sql as $$
   update vault.secrets set secret = coalesce(new_secret, secret), name = coalesce(new_name, name), description = coalesce(new_description, description), updated_at = now() where id = secret_id $$;
+
+-- Admin Base's audit trail, only what 004b_chat_audit_private.sql and its test need.
+create table public.audit_trail (id bigserial primary key, at timestamptz not null default now(), actor uuid, actor_name text, actor_email text, source text, table_schema text, table_name text,
+  action text, row_id text, changed text[], old_values jsonb, new_values jsonb, employee_id uuid);
+revoke all on public.audit_trail from public, anon, authenticated;
+create function public.audit_trail_clean(v jsonb) returns jsonb language sql immutable strict as $$ select v $$;

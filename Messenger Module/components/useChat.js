@@ -7,6 +7,7 @@ import { totalUnread } from "../logic/chat.js";
 export default function useChat(profileId) {
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
+  const [loadedFor, setLoadedFor] = useState(null); // whose list has arrived: tells "still loading" apart from "no chats"
   const [connected, setConnected] = useState(true);
   const rowsRef = useRef([]);
   const listeners = useRef(new Set());
@@ -32,6 +33,7 @@ export default function useChat(profileId) {
           if (g !== gen.current) return;
           apply(next || []);
           setError("");
+          setLoadedFor(profileId);
         } catch (e) {
           if (g === gen.current) setError(e.message || "Could not load your chats. Please try again.");
         }
@@ -39,7 +41,7 @@ export default function useChat(profileId) {
     } finally {
       if (g === gen.current) running.current = false;
     }
-  }, [apply]);
+  }, [apply, profileId]);
 
   const onMessage = useCallback((fn) => {
     listeners.current.add(fn);
@@ -56,7 +58,12 @@ export default function useChat(profileId) {
     if (!profileId) return undefined;
     reload();
     const stop = chatApi.subscribe(
-      (message) => {
+      (message, change) => {
+        if (change === "update") {
+          reload(); // an edit or delete can change the list's preview
+          listeners.current.forEach((fn) => { try { fn(message, change); } catch (e) { console.error("Messenger listener failed", e); } });
+          return;
+        }
         const mine = rowsRef.current.find((r) => r.id === message.conversation_id);
         if (!mine || message.sender_id !== profileId) reload();
         else {
@@ -75,5 +82,5 @@ export default function useChat(profileId) {
     };
   }, [profileId, reload, apply]);
 
-  return { rows, total: error ? 0 : totalUnread(rows), error, connected, reload, onMessage };
+  return { rows, total: error ? 0 : totalUnread(rows), error, loaded: loadedFor === profileId, connected, reload, onMessage };
 }

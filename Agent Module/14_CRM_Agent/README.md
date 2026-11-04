@@ -31,7 +31,15 @@ Settings (`unset`). If the database cannot be reached, the endpoint answers 503 
 Each tool call is logged through `crm_agent_log_call`: tool name, success, error code and duration. Lead numbers,
 tool inputs and results are never stored. A logging failure never changes the tool result. Calls the SDK rejects for invalid input are not logged, so the failure count can be slightly understated.
 
-Claude OAuth and subscription usage reporting are not implemented.
+Claude OAuth is not implemented.
+
+## Claude plan usage
+
+Settings > Claude Subscription shows the plan and limit percentages. An hourly scheduled task in the Claude desktop app
+reads them and saves them with `crm_agent_report_plan_usage` over the database connection
+(`Database Module/Admin Base/migrations/012_crm_agent_plan_usage.sql`). Readings stop while the laptop or the app is
+off, and the tab marks a reading out of date after 2 hours. There is no public API for these figures, so an app update
+could break the task.
 
 ## Deploy
 

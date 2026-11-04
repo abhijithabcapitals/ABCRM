@@ -57,6 +57,7 @@ export default defineConfig({
       'react-dom',
       '@supabase/supabase-js',
       'dompurify',
+      'livekit-client',
       '@tiptap/react',
       '@tiptap/starter-kit',
       '@tiptap/extension-table',

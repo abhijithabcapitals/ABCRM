@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import ChatBoundary from "./ChatBoundary.jsx";
 import ChatRail from "./ChatRail.jsx";
 import useChat from "./useChat.js";
+import usePresence from "./usePresence.js";
 import chatApi from "../services/chatClient.js";
 import { shouldCollapse } from "../logic/chat.js";
 import "./chat.css";
@@ -32,6 +33,7 @@ function PanelNote({ text, onClose }) {
 
 function Inner({ profile, onOpenMail }) {
   const { rows, error, connected, reload, onMessage } = useChat(profile?.id);
+  const { label: statusOf } = usePresence(profile?.id);
   const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState(false); // the pane loads on first open, then stays mounted so drafts survive
   const [selected, setSelected] = useState(null);
@@ -95,7 +97,7 @@ function Inner({ profile, onOpenMail }) {
               <Suspense fallback={<PanelNote text="Loading chat…" onClose={close} />}>
                 <MessengerPanel profile={profile} rows={rows} reload={reload} onMessage={onMessage} visible={open} connected={connected}
                   selected={selected} onSelect={setSelected} screen={screen} onScreen={setScreen} onClose={close}
-                  keepOpen={keepOpen} onKeepOpen={(on) => { setKeepOpen(on); saveKeepOpen(on); }} />
+                  keepOpen={keepOpen} onKeepOpen={(on) => { setKeepOpen(on); saveKeepOpen(on); }} statusOf={statusOf} />
               </Suspense>
             </ChatBoundary>
           </div>

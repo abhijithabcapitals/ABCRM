@@ -6,6 +6,7 @@ import ChatBoundary from "@messenger/components/ChatBoundary";
 
 // The Microsoft screens belong to the Messenger Module and load only when the microsoft row is open.
 const MicrosoftConnection = lazy(() => import("@messenger/components/MicrosoftConnection"));
+const InboxConnections = lazy(() => import("@messenger/components/InboxConnections"));
 
 // Settings > Integrations: every app the CRM can connect to, plus any custom app. Values are
 // encrypted in Supabase Vault and write-only: this screen shows whether one is saved, never what it is.
@@ -158,6 +159,11 @@ export default function IntegrationsPanel({ supabase }) {
             {i.id === "microsoft" && (
               <ChatBoundary fallback={<p style={{ fontSize: 12.5, color: "#b91c1c", margin: "8px 0 0" }}>The Microsoft screens could not load. Please reload the page.</p>}>
                 <Suspense fallback={null}><MicrosoftConnection /></Suspense>
+              </ChatBoundary>
+            )}
+            {i.id === "messenger-inbox" && (
+              <ChatBoundary fallback={<p style={{ fontSize: 12.5, color: "#b91c1c", margin: "8px 0 0" }}>The connection screen could not load. Please reload the page.</p>}>
+                <Suspense fallback={null}><InboxConnections /></Suspense>
               </ChatBoundary>
             )}
             {i.id === "zoho-books" && tab?.id === "invoices" && <ZohoConnection supabase={supabase} onSaved={load} />}

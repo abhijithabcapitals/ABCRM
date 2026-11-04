@@ -21,7 +21,7 @@ export default function ZohoHeader({ row, since, refreshing, notice, notConnecte
     <div className="sum-zoho-head">
       <div className="sum-zoho-bar">
         <span className="sum-zoho-asof">{state === "empty" ? "No figures yet" : `As of ${when(row.as_of)}`}</span>
-        {state === "stale" && <span className="sum-tag is-warn">Over an hour old</span>}
+        {state === "stale" && <span className="sum-tag is-warn">Over 6 hours old</span>}
         {failure && <span className="sum-tag is-danger">Last refresh failed</span>}
         <button
           type="button" className="sum-refresh" disabled={busy || missing} onClick={onRefresh}

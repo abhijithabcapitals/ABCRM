@@ -27,8 +27,9 @@ export const DATA_ROLES = ["READ_ONLY", "SALES_EXECUTIVE", "DOCUMENT_EXECUTIVE",
 const tabOf = (view) => (KEYS.has(view) ? view : "spaces");
 
 // The page a person actually sees. Admins go anywhere; members only where they were given access.
+// The full Messenger page needs no grant, as every member already has the chat dock.
 export function resolveView(view, isAdmin, tabs) {
-  if (isAdmin || view === "profile") return view;
+  if (isAdmin || view === "profile" || view === "team-messenger") return view;
   if (!ADMIN_ONLY.has(view) && (tabs || []).includes(tabOf(view))) return view;
   return (tabs || []).find((t) => t !== "spaces") || "profile";
 }

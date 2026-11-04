@@ -15,9 +15,9 @@ export type ZohoReader = {
 };
 export type SourceAccount = Balance & { id: string; name: string; parentId: string | null };
 
-// UNVERIFIED: the documentation's example uses this path. Section 3 of the design keeps /chartofaccounts/transactions
-// as the other candidate until the probe has run.
-export const TRANSACTIONS_PATH = "/chartofaccounts/accounttransactions";
+// The probe on the live organisation, 2026-11-04: this path filters by account and date, lists rows under "transactions"
+// and says whether more pages exist. /chartofaccounts/accounttransactions does none of the last two, despite the docs.
+export const TRANSACTIONS_PATH = "/chartofaccounts/transactions";
 const PER_PAGE = 200;
 
 const num = (v: unknown): number | null => {
@@ -201,26 +201,50 @@ export const ledgerAccountCount = (accounts: SourceAccount[]) => accounts.filter
 // UNVERIFIED: date_start and date_end are the documented filter names, and the probe tests a second style.
 // UNVERIFIED: debit_amount and credit_amount are assumed to be in the base currency, even where currency_code differs.
 // UNVERIFIED: a parent account's list is assumed to hold only its own postings.
-// One call or more per income and cost account, so a large chart of accounts can hit the 90-call limit.
+// One call or more per income and cost account, so a large chart of accounts can hit the call limit.
+// Two accounts are read at once. The rows are joined in account order, so the order they finish in changes nothing.
+const LEDGER_PARALLEL = 2;
+
 export async function readLedger(zoho: ZohoReader, accounts: SourceAccount[], from: string, to: string): Promise<LedgerEntry[]> {
-  const out: LedgerEntry[] = [];
-  for (const a of accounts) {
-    const kind = KINDS[a.type];
-    if (!kind) continue;
-    const rows = await readAll(zoho, TRANSACTIONS_PATH, TRANSACTION_KEYS, { account_id: a.id, date_start: from, date_end: to });
-    for (const r of rows) {
-      // A row that cannot be read fails the refresh. Dropping it would understate the totals without any sign.
-      const date = dateOf(text(r?.transaction_date) ?? text(r?.date));
-      if (!date) throw new Error("Zoho transaction had no readable date.");
-      const debit = num(r?.debit_amount);
-      const credit = num(r?.credit_amount);
-      const unreadable = (!blank(r?.debit_amount) && debit === null) || (!blank(r?.credit_amount) && credit === null);
-      if (unreadable || (debit === null && credit === null)) throw new Error("Zoho transaction had no readable amount.");
-      // Income grows with credits, and costs with debits. The opposite side is a reversal, such as a credit note.
-      const net = (credit ?? 0) - (debit ?? 0);
-      const earned = kind === "revenue" || kind === "otherIncome";
-      out.push({ account: a.name, kind, date, amount: earned ? net : -net || 0 });
+  const todo = accounts.filter((a) => KINDS[a.type]);
+  const perAccount: LedgerEntry[][] = todo.map(() => []);
+  let next = 0;
+  let failed = false;
+  let firstError: unknown;
+  const worker = async () => {
+    while (!failed && next < todo.length) {
+      const i = next++;
+      try {
+        perAccount[i] = await readAccountLedger(zoho, todo[i], from, to);
+      } catch (e) {
+        // Nothing new starts after the first error. The other worker finishes what it is reading.
+        // An unfinished list is the least serious error, so a limit, time or Zoho error from the other worker wins.
+        if (!failed || (firstError instanceof UnfinishedRead && !(e instanceof UnfinishedRead))) firstError = e;
+        failed = true;
+      }
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(LEDGER_PARALLEL, todo.length) }, worker));
+  if (failed) throw firstError;
+  return perAccount.flat();
+}
+
+async function readAccountLedger(zoho: ZohoReader, a: SourceAccount, from: string, to: string): Promise<LedgerEntry[]> {
+  const kind = KINDS[a.type];
+  const out: LedgerEntry[] = [];
+  const rows = await readAll(zoho, TRANSACTIONS_PATH, TRANSACTION_KEYS, { account_id: a.id, date_start: from, date_end: to });
+  for (const r of rows) {
+    // A row that cannot be read fails the refresh. Dropping it would understate the totals without any sign.
+    const date = dateOf(text(r?.transaction_date) ?? text(r?.date));
+    if (!date) throw new Error("Zoho transaction had no readable date.");
+    const debit = num(r?.debit_amount);
+    const credit = num(r?.credit_amount);
+    const unreadable = (!blank(r?.debit_amount) && debit === null) || (!blank(r?.credit_amount) && credit === null);
+    if (unreadable || (debit === null && credit === null)) throw new Error("Zoho transaction had no readable amount.");
+    // Income grows with credits, and costs with debits. The opposite side is a reversal, such as a credit note.
+    const net = (credit ?? 0) - (debit ?? 0);
+    const earned = kind === "revenue" || kind === "otherIncome";
+    out.push({ account: a.name, kind, date, amount: earned ? net : -net || 0 });
   }
   return out;
 }

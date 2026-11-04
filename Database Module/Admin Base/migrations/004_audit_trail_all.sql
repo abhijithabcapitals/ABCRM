@@ -27,12 +27,13 @@ declare
   n jsonb := case when TG_OP <> 'DELETE' then to_jsonb(NEW) end;
   who uuid := auth.uid();
   claims jsonb := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
-  private boolean := TG_TABLE_SCHEMA in ('ceo', 'email_base', 'email_agent');
+  private boolean := TG_TABLE_SCHEMA in ('ceo', 'email_base', 'email_agent') or (TG_TABLE_SCHEMA = 'public' and TG_TABLE_NAME like 'messenger\_%'); -- chat text stays out: Messanger Base 004b
   emp text := case when TG_TABLE_NAME = 'hr_employees' then whole ->> 'id' else whole ->> 'employee_id' end;
   diff text[];
   person jsonb;
   rid text;
 begin
+  if TG_TABLE_SCHEMA = 'public' and TG_TABLE_NAME in ('messenger_presence', 'messenger_activity') then return null; end if;
   if private and who is null then return null; end if;
   if TG_OP = 'UPDATE' then
     select array_agg(k order by k) into diff from (select jsonb_object_keys(o) as k union select jsonb_object_keys(n)) keys where (o -> k) is distinct from (n -> k);

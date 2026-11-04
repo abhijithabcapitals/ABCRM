@@ -94,3 +94,21 @@ Then, in Settings > Integrations > Microsoft, an admin records the client secret
 4. `rollback/001_rollback.sql` only if the chat links must go too; it deletes the saved chat links.
 5. Revert the merge on `main` if the screens must go.
 6. In Entra, delete the app registration or the secret if access must end entirely.
+
+## Full page and chat parity rollout
+
+Each step needs approval. Run `bash "Database Module/Messanger Base/tests/run-local.sh"` first.
+
+1. Run `004_chat_parity.sql` on the live database. The screens need it before merging; the dock's plain messages keep working either way.
+2. Merge to `main`, then run `npm run deploy:cloudflare`.
+3. Log in as a member and an admin, and check the Messenger page, edits and reactions arriving live in a second window, and a mention reaching Activity.
+4. Files are separate: follow `files-setup.md`. Until then, sharing a file says it is not set up.
+
+## Teams and channels rollout
+
+Each step needs approval, and follows the rollout above. Run `005_teams_channels.sql` on the live database first, then merge and run `npm run deploy:cloudflare`.
+Check with two logins that a private channel stays hidden, that a post and a thread reply arrive live, and that unread counts clear.
+
+## Calls rollout
+
+Each step needs approval. Follow `calls-setup.md`.
