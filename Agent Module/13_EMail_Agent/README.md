@@ -69,15 +69,15 @@ in on the CEO Agent tab first.
 
 ## Deploy
 
-Not applied yet. From Git Bash, in `Agent Module/11_Personal_Agent/CEO Agent` (linked to the CRM
+Not applied yet. From Git Bash, in `Database Module/tools` (linked to the CRM
 project `pnnakrhfzyxudjaghoxx`):
 
 ```bash
-npx --no-install supabase db query --linked --project-ref pnnakrhfzyxudjaghoxx -f "../../13_EMail_Agent/supabase/migrations/001_email_agent.sql"
+npx --no-install supabase db query --linked --project-ref pnnakrhfzyxudjaghoxx -f "../../Agent Module/13_EMail_Agent/supabase/migrations/001_email_agent.sql"
 ```
 
 ```bash
-mkdir -p supabase/functions/email-agent && cp ../../13_EMail_Agent/supabase/email-agent/{index.ts,logic.ts} supabase/functions/email-agent/ && npx --no-install supabase functions deploy email-agent --project-ref pnnakrhfzyxudjaghoxx --no-verify-jwt
+mkdir -p supabase/functions/email-agent && cp "../../Agent Module/13_EMail_Agent/supabase/email-agent/"{index.ts,logic.ts} supabase/functions/email-agent/ && npx --no-install supabase functions deploy email-agent --project-ref pnnakrhfzyxudjaghoxx --no-verify-jwt
 ```
 
 Secrets: `OPENROUTER_API_KEY` (already set for `ceo-mail-sync`); optional `EMAIL_AGENT_MODEL`.

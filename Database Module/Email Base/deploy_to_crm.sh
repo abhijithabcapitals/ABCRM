@@ -8,8 +8,8 @@ set -euo pipefail
 REF=pnnakrhfzyxudjaghoxx
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CRM="$(cd "$HERE/../.." && pwd)"
-AGENT="$CRM/Agent Module/11_Personal_Agent/CEO Agent"
-cd "$AGENT"
+TOOLS="$HERE/../tools"
+cd "$TOOLS"
 
 run_sql() {
   echo "== $1"

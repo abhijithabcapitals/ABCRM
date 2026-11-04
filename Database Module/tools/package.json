@@ -1,0 +1,8 @@
+{
+  "name": "crm-supabase-tools",
+  "private": true,
+  "description": "Supabase CLI for applying SQL and deploying Edge Functions to the CRM project",
+  "devDependencies": {
+    "supabase": "2.122.0"
+  }
+}
