@@ -6,4 +6,4 @@ import { createFakeApi } from "@template-hub/ardentax/services/fakeApi";
 const api = createFakeApi();
 window.ardentaxFake = api;
 const clients = [{ name: "Sample Trading LLC", contact: "Pat Doe", email: "pat@sample.example", phone: "+971500000000", address: "Office 1, Sample Tower" }];
-createRoot(document.getElementById("root")).render(<div style={{ display: "flex" }}><ArdentTaxView api={api} clients={clients} profile={{ full_name: "Dev" }} /></div>);
+createRoot(document.getElementById("root")).render(<div style={{ display: "flex" }}><ArdentTaxView api={api} clients={clients} /></div>);

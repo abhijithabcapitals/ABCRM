@@ -130,3 +130,24 @@ test("letter from a quote uses the letter template and links the quote", async (
   assert.ok(api.calls.includes("template:letter"));
   assert.ok((await textIn(wordBlob)).includes("Engagement Letter"));
 });
+
+test("the mail draft is filled from the settings, with the tokens replaced", async () => {
+  const api = fakeApi();
+  await generateDocument(api, { details: details(), requestId: "r" }, deps());
+  assert.equal(api.lastCreate.mail_to, "pat@sample.example");
+  assert.equal(api.lastCreate.mail_subject, "Proposal - Sample Trading LLC");
+  assert.equal(api.lastCreate.mail_body, "Dear Pat, total 5,699 AED");
+});
+
+test("a revision gets a fresh draft with its new figures", async () => {
+  const api = fakeApi();
+  await reviseDocument(api, { id: "id-1" }, details((d) => { d.rows.ONB.fee = 2000; }), "r", deps());
+  assert.equal(api.lastRevise.mail_body, "Dear Pat, total 6,199 AED");
+  assert.equal(api.lastRevise.mail_to, "pat@sample.example");
+});
+
+test("a letter from a quote gets its own draft", async () => {
+  const api = fakeApi();
+  await makeLetter(api, { id: "q-1", details: details() }, "r", deps());
+  assert.equal(api.lastCreate.mail_subject, "Proposal - Sample Trading LLC");
+});

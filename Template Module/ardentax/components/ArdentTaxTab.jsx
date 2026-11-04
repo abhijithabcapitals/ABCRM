@@ -3,7 +3,7 @@ import { useClientLookup } from "@banking/components/ClientLookup";
 import { ardentaxApi } from "../services/ardentaxApi";
 import ArdentTaxView from "./ArdentTaxView";
 
-export default function ArdentTaxTab({ profile }) {
+export default function ArdentTaxTab() {
   const clients = useClientLookup();
-  return <ArdentTaxView api={ardentaxApi} clients={clients} profile={profile} />;
+  return <ArdentTaxView api={ardentaxApi} clients={clients} />;
 }

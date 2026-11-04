@@ -6,6 +6,7 @@ import { Button, ErrorNote, Panel, Spinner, useLoad } from "@banking/components/
 import { computeQuote, defaultDetails, money, quoteBlockers, quoteChecks } from "../logic/quoteModel";
 import { generateDocument, makeLetter, regenerate, reviseDocument } from "../services/generate";
 import QuoteForm from "./QuoteForm";
+import MailPanel from "./MailPanel";
 import Register from "./Register";
 
 const dubaiToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date());
@@ -20,7 +21,7 @@ async function browserDeps() {
   };
 }
 
-export default function ArdentTaxView({ api, clients = [], Mail, profile }) {
+export default function ArdentTaxView({ api, clients = [] }) {
   const [details, setDetails] = useState(() => defaultDetails(dubaiToday()));
   const [revising, setRevising] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -111,7 +112,7 @@ export default function ArdentTaxView({ api, clients = [], Mail, profile }) {
           <ErrorNote message={docs.error} />
           {docs.loading && !docs.data ? <Spinner /> : <Register docs={docs.data || []} busy={busy} onOpen={open} onAgain={again} onLetter={letter} onRevise={revise} onMail={setMailDoc} />}
         </Panel>
-        {mailDoc && Mail && <Mail doc={mailDoc} api={api} profile={profile} onClose={() => setMailDoc(null)} onChanged={docs.reload} />}
+        {mailDoc && <MailPanel doc={mailDoc} api={api} onClose={() => setMailDoc(null)} onChanged={docs.reload} />}
       </div>
     </div>
   );

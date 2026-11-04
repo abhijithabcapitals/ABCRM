@@ -38,6 +38,15 @@ export function createFakeApi() {
     attach: async (id, word, pdf) => { Object.assign(docs.find((d) => d.id === id), { word_path: word, pdf_path: pdf }); },
     updateMail: async (id, m) => { Object.assign(docs.find((d) => d.id === id), { mail_to: m.to, mail_cc: m.cc, mail_subject: m.subject, mail_body: m.body, mail_attach_word: m.attachWord }); },
     upload: async (path, blob) => { if (api.failUpload) throw new Error("Storage is not available (test)."); files.set(path, blob); },
+    failSend: false,
+    sent: [],
+    sendMail: async (id) => {
+      if (api.failSend) throw new Error("The mail was not sent: server down (test).");
+      const d = docs.find((x) => x.id === id);
+      api.sent.push({ to: d.mail_to, subject: d.mail_subject });
+      d.mail_sent_at = new Date().toISOString();
+      return { ok: true, sent_at: d.mail_sent_at, warnings: [] };
+    },
     signedUrl: async (path) => URL.createObjectURL(files.get(path)),
   };
   return api;

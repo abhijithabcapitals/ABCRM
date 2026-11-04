@@ -17,3 +17,6 @@
 @media (max-width: 760px) {
   .at-head, .at-body { padding-left: 16px; padding-right: 16px; }
 }
+.at-confirm { grid-template-columns: 1fr; }
+.at-confirm dd { word-break: break-word; }
+.at-field-wide textarea, .bk-field textarea { width: 100%; box-sizing: border-box; font: inherit; }

@@ -546,7 +546,7 @@ export default function App() {
         )}
         {view === "mytasks" && <MyTasks profile={profile} />}
         {view === "quotations" && <TemplateHub profile={profile} />}
-        {view === "ardentax" && <ArdentTaxTab profile={profile} />}
+        {view === "ardentax" && <ArdentTaxTab />}
         {view === "clients" && <ClientsHub profile={profile} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "business-banking" && <BusinessBanking profile={profile} />}

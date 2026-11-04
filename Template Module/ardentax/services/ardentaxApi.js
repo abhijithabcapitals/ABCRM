@@ -24,6 +24,16 @@ export const ardentaxApi = {
     const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: blob.type });
     if (error) throw new Error(error.message);
   },
+  sendMail: async (id, resend) => {
+    const { data, error } = await supabase.functions.invoke("ardentax-mail-send", { body: { document_id: id, resend: !!resend } });
+    if (error) {
+      // The function explains a refusal in its response; the client's own message is generic.
+      let message = error.message;
+      try { message = (await error.context.json()).error || message; } catch { /* keep the client's message */ }
+      throw new Error(message);
+    }
+    return data;
+  },
   signedUrl: async (path) => {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
     if (error) throw new Error(error.message);

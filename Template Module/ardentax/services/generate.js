@@ -1,7 +1,7 @@
 // Makes a document's Word and PDF files. A number is taken only after a trial fill works, and a failure after that
 // can be repeated under the same number. api: ardentaxApi, or fakeApi on the development page.
 // deps: { JSZip, parse, serialize, toPdf(wordBlob) -> pdfBlob }.
-import { computeQuote, fileNameFor, quoteBlockers } from "../logic/quoteModel.js";
+import { computeQuote, fileNameFor, mailTokens, quoteBlockers } from "../logic/quoteModel.js";
 import { fillDocx } from "../logic/fillDocx.js";
 
 const WORD_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -10,6 +10,12 @@ const requestTotals = (t) => ({ one_time: t.oneTime, annual: t.annualTotal, year
 function assertReady(details, totals) {
   const missing = quoteBlockers(details, totals);
   if (missing.length) throw new Error(`Fill in before generating: ${missing.join(", ")}.`);
+}
+
+// The draft starts from the Email sheet's text, saved in the settings, with this document's figures.
+async function mailDraft(api, details, totals) {
+  const s = await api.mailSettings();
+  return { mail_to: details.client?.email || null, mail_subject: mailTokens(s.subject, details, totals), mail_body: mailTokens(s.body, details, totals) };
 }
 
 async function trialFill(api, details, totals, deps) {
@@ -38,7 +44,7 @@ export async function generateDocument(api, { details, requestId, sourceQuoteId,
   const totals = computeQuote(details);
   assertReady(details, totals);
   await trialFill(api, details, totals, deps);
-  const doc = await api.create({ request_id: requestId, doc_type: details.docType, source_quote_id: sourceQuoteId || null, details, totals: requestTotals(totals) });
+  const doc = await api.create({ request_id: requestId, doc_type: details.docType, source_quote_id: sourceQuoteId || null, details, totals: requestTotals(totals), ...(await mailDraft(api, details, totals)) });
   onCreated?.(doc);
   return fileDocument(api, doc, deps);
 }
@@ -49,7 +55,7 @@ export async function reviseDocument(api, doc, details, requestId, deps, onCreat
   const totals = computeQuote(details);
   assertReady(details, totals);
   await trialFill(api, details, totals, deps);
-  const revised = await api.revise(doc.id, { request_id: requestId, details, totals: requestTotals(totals) });
+  const revised = await api.revise(doc.id, { request_id: requestId, details, totals: requestTotals(totals), ...(await mailDraft(api, details, totals)) });
   onCreated?.(revised);
   return fileDocument(api, revised, deps);
 }
