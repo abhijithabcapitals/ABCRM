@@ -42,7 +42,8 @@ function fakeDb(tables: Record<string, Row[]>, fail: Record<string, { code: stri
       maybeSingle: () => {
         const error = failure("select");
         if (error) return Promise.resolve({ data: null, error });
-        return Promise.resolve({ data: rows().find(matches) ?? null, error: null });
+        const hit = rows().find(matches);
+        return Promise.resolve({ data: hit ? { ...hit } : null, error: null });
       },
       update: (p: Row) => {
         pending = "update";
@@ -744,4 +745,75 @@ Deno.test("an unknown action is refused", async () => {
 
 Deno.test("browserMessage gives a general message", () => {
   assertEquals(browserMessage(new Error("db password=abc")), "Something went wrong talking to Microsoft.");
+});
+
+// ---------------------------------------------------------------- revoked links free the account
+
+const COLLEAGUE = { tid: TENANT, oid: "oid-colleague", preferred_username: "other@abc.ae" };
+
+Deno.test("a rejected review frees the account, so its real owner can connect", async () => {
+  // A member forwards their own connect address, and the colleague signs in on it.
+  const t = setup({ connection: active, reply: () => tokenReply(COLLEAGUE) });
+  assertEquals(outcome((await callback(await params(MEMBER), t.deps)).redirect).ms, "review");
+  assertEquals(outcome((await callback(await params(OTHER), t.deps)).redirect).reason, "already_linked");
+
+  const admin = { ...t.deps, userId: ADMIN, isAdmin: () => Promise.resolve(true) };
+  await handle("user_links_review", { profile_id: MEMBER, decision: "reject" }, admin);
+  const l = linkFor(t.tables, MEMBER)!;
+  assertEquals([l.status, l.microsoft_user_id], ["revoked", null]);
+  const e = t.tables.microsoft_sync_log.find((x) => x.status === "reject")!;
+  assertEquals((e.detail as Row).microsoft_user_id, "oid-colleague");
+  assertEquals((e.detail as Row).upn, "other@abc.ae");
+
+  assertEquals(outcome((await callback(await params(OTHER), t.deps)).redirect).ms, "connected");
+  assertEquals(t.vault.get(OTHER), "rt-new");
+  assertEquals(linkFor(t.tables, OTHER)?.microsoft_user_id, "oid-colleague");
+  assertEquals(t.vault.has(MEMBER), false);
+});
+
+Deno.test("disconnect frees the account for another profile, and keeps the old values in the log", async () => {
+  const t = setup({
+    connection: active,
+    links: [{ profile_id: MEMBER, microsoft_user_id: "oid-colleague", upn: "member@abc.ae", status: "active" }],
+    reply: () => tokenReply(COLLEAGUE),
+  });
+  t.vault.set(MEMBER, "rt");
+  await handle("disconnect", {}, t.deps);
+  assertEquals(linkFor(t.tables, MEMBER)?.microsoft_user_id, null);
+  const e = t.tables.microsoft_sync_log.find((x) => x.action === "disconnect")!;
+  assertEquals(e.detail, { upn: "member@abc.ae", microsoft_user_id: "oid-colleague" });
+
+  assertEquals(outcome((await callback(await params(OTHER), t.deps)).redirect).ms, "connected");
+  assertEquals(linkFor(t.tables, OTHER)?.microsoft_user_id, "oid-colleague");
+});
+
+Deno.test("a revoked refresh token frees the account for another profile, and keeps the old values in the log", async () => {
+  const replies = [errorReply("invalid_grant"), tokenReply(COLLEAGUE)];
+  const t = setup({
+    connection: active,
+    links: [{ profile_id: MEMBER, microsoft_user_id: "oid-colleague", upn: "member@abc.ae", status: "active" }],
+    reply: () => replies.shift()!,
+  });
+  t.vault.set(MEMBER, "rt");
+  await assertRejects(async () => await (await graphFor(t.deps, MEMBER)).request("GET", "/me"));
+  const l = linkFor(t.tables, MEMBER)!;
+  assertEquals([l.status, l.microsoft_user_id], ["revoked", null]);
+  const e = t.tables.microsoft_sync_log.find((x) => x.action === "link_revoked")!;
+  assertEquals(e.detail, { upn: "member@abc.ae", microsoft_user_id: "oid-colleague" });
+
+  assertEquals(outcome((await callback(await params(OTHER), t.deps)).redirect).ms, "connected");
+});
+
+Deno.test("a failed token save releases the account claimed for a new link", async () => {
+  const t = setup({ connection: active, fail: { "rpc.ms_token_set": { code: "XX000", message: "down" } } });
+  assertEquals(outcome((await callback(await params(MEMBER), t.deps)).redirect).reason, "failed");
+  const l = linkFor(t.tables, MEMBER)!;
+  assertEquals([l.status, l.microsoft_user_id], ["revoked", null]);
+});
+
+Deno.test("a repeated disconnect leaves no revoked row holding a Microsoft account", async () => {
+  const t = setup({ links: [{ profile_id: MEMBER, microsoft_user_id: "o", upn: "m@abc.ae", status: "active" }] });
+  await handle("disconnect", {}, t.deps);
+  await handle("disconnect", {}, t.deps);
+  assertEquals(t.tables.microsoft_user_links.filter((r) => r.status === "revoked" && r.microsoft_user_id), []);
 });

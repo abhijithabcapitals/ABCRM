@@ -97,6 +97,19 @@ async function setLinkStatus(deps: BaseDeps, profileId: string, status: string):
   if (error) throw new DbFailure("Saving the link", error.code);
 }
 
+// Every move to revoked goes through here. Clearing the Microsoft ID frees that account for its real owner,
+// as a revoked row must not hold it under the unique rule. The caller logs the old values.
+async function revokeLink(deps: BaseDeps, profileId: string): Promise<void> {
+  const { error } = await deps.db
+    .from("microsoft_user_links")
+    .update({ status: "revoked", microsoft_user_id: null, updated_at: isoNow(deps) })
+    .eq("profile_id", profileId);
+  if (error) throw new DbFailure("Saving the link", error.code);
+}
+
+// What a revoked row no longer holds, for the log.
+const linkAudit = (link: Json) => ({ upn: link?.upn ?? null, microsoft_user_id: link?.microsoft_user_id ?? null });
+
 // A Graph client for one person. Only an active link ever yields a token.
 export async function graphFor(deps: BaseDeps, profileId: string) {
   const [tenantId, clientId, clientSecret] = await Promise.all([
@@ -120,8 +133,10 @@ export async function graphFor(deps: BaseDeps, profileId: string) {
     },
     // The status goes first, so a failed delete still leaves a link that yields no token.
     onRevoked: async () => {
-      await setLinkStatus(deps, profileId, "revoked");
+      const link = await readLink(deps, profileId);
+      await revokeLink(deps, profileId);
       await deleteToken(deps, profileId);
+      await logEvent(deps, { action: "link_revoked", status: "ok", actor: profileId, detail: linkAudit(link) });
     },
     // Only failures are kept, so normal use does not fill the table.
     log: async (e) => {
@@ -175,15 +190,17 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
   }
 
   if (action === "disconnect") {
+    let link: Json = null;
     try {
+      link = await readLink(deps, deps.userId);
       await deleteToken(deps, deps.userId);
-      await setLinkStatus(deps, deps.userId, "revoked");
+      await revokeLink(deps, deps.userId);
     } catch (e) {
       deps.note(`ms365: disconnect: ${(e as Error)?.message}`);
       await logEvent(deps, { action: "disconnect", status: "error", error_code: "db_error", actor: deps.userId });
       throw new UserError("Could not disconnect Microsoft. Try again.");
     }
-    await logEvent(deps, { action: "disconnect", status: "ok", actor: deps.userId });
+    await logEvent(deps, { action: "disconnect", status: "ok", actor: deps.userId, detail: linkAudit(link) });
     return { ok: true };
   }
 
@@ -277,7 +294,7 @@ async function reviewLink(body: Json, deps: Deps): Promise<object> {
   const status = decision === "accept" ? "active" : "revoked";
   let update = deps.db
     .from("microsoft_user_links")
-    .update({ status, updated_at: isoNow(deps) })
+    .update(decision === "accept" ? { status, updated_at: isoNow(deps) } : { status, microsoft_user_id: null, updated_at: isoNow(deps) })
     .eq("profile_id", profileId)
     .eq("status", "review");
   if (decision === "accept") update = update.eq("upn", row.upn);
@@ -289,7 +306,7 @@ async function reviewLink(body: Json, deps: Deps): Promise<object> {
     action: "user_links_review",
     status: decision,
     actor: deps.userId,
-    detail: { profile_id: profileId, upn: row.upn ?? null },
+    detail: { profile_id: profileId, ...linkAudit(row) },
   });
   return { ok: true, status };
 }
@@ -447,10 +464,15 @@ export async function callback(params: URLSearchParams, deps: BaseDeps): Promise
     if (claimError?.code === "23505") return await refuse("already_linked");
     if (claimError) throw new DbFailure("Saving the link", claimError.code);
 
-    const { error: tokenError } = await deps.db.rpc("ms_token_set", { p_profile: profileId, p_token: exchange.refreshToken });
-    if (tokenError) throw new DbFailure("Saving the sign-in", tokenError.code);
-
-    await setLinkStatus(deps, profileId, "active");
+    try {
+      const { error: tokenError } = await deps.db.rpc("ms_token_set", { p_profile: profileId, p_token: exchange.refreshToken });
+      if (tokenError) throw new DbFailure("Saving the sign-in", tokenError.code);
+      await setLinkStatus(deps, profileId, "active");
+    } catch (e) {
+      // A claim that did not complete must not keep the account.
+      if (held === "revoked") await revokeLink(deps, profileId).catch(() => deps.note("ms365: could not release a link claim"));
+      throw e;
+    }
 
     if (!connectionActive) {
       const now = isoNow(deps);
