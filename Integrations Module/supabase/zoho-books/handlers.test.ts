@@ -15,6 +15,28 @@ function fakeDb(
 ) {
   let seq = 0;
   return {
+    // Stands in for accounting_zoho_invoice_fill, with the same rules as the SQL.
+    rpc: (name: string, args: Row) => {
+      log.tables.push(`rpc:${name}`);
+      if (errors[`rpc.${name}`]) return Promise.resolve({ data: null, error: errors[`rpc.${name}`] });
+      if (name !== "accounting_zoho_invoice_fill") return Promise.resolve({ data: null, error: { message: "no such function" } });
+      const job = (tables.accounting_jobs ?? []).find((j) => j.id === args.p_job);
+      if (!job) return Promise.resolve({ data: null, error: { message: "Job not found" } });
+      const no = String(args.p_number ?? "").trim();
+      const amount = Number(args.p_amount);
+      if (job.work_status !== "Completed" || !no || !args.p_date || !(amount > 0)) {
+        return Promise.resolve({ data: { result: "refused" }, error: null });
+      }
+      if (job.invoice_number != null) {
+        return Promise.resolve({
+          data: job.invoice_number === no ? { result: "same" } : { result: "different", number: job.invoice_number },
+          error: null,
+        });
+      }
+      Object.assign(job, { invoice_number: no, invoice_date: args.p_date, invoice_amount: amount, invoiced_by: args.p_by });
+      (tables.accounting_job_events ??= []).push({ job_id: job.id, event: "Invoice recorded", to_value: no });
+      return Promise.resolve({ data: { result: "recorded" }, error: null });
+    },
     from: (t: string) => {
       log.tables.push(t);
       tables[t] ??= [];
@@ -158,6 +180,18 @@ function makeDeps(over: Record<string, unknown> = {}) {
       supersedes_id: null,
     }],
     zoho_documents: [],
+    accounting_jobs: [{
+      id: "a1",
+      job_number: "JOB-000001",
+      client_id: "CL000001",
+      service_name: "VAT Return",
+      period_label: "Q3 2026",
+      work_status: "Completed",
+      fee_amount: "1000.00",
+      invoice_number: null,
+      created_by: "u-job",
+    }],
+    accounting_job_events: [],
   };
   if (over.link) tables.zoho_contact_links.push({ client_id: "c1", ...(over.link as Row) });
   const errors: Record<string, unknown> = {};
@@ -1639,4 +1673,275 @@ Deno.test("someone with neither the view permission nor accounts.review still ca
   await assertRejects(() => handle("document_pdf", { ...STATE, kind: "invoice" }, m.deps), UserError, "permission");
   await assertRejects(() => handle("contact_get", { client_id: "c1", department: "banking" }, m.deps), UserError, "permission");
   assertEquals(m.calls.length, 0);
+});
+
+// ---- Accounting jobs ----
+
+const JOB = { source_table: "accounting_jobs", source_id: "a1", kind: "invoice" };
+const JOB_STATE = { source_table: "accounting_jobs", source_id: "a1" };
+const jobDoc = (over: Row = {}) => ({
+  department: "Accounting",
+  source_table: "accounting_jobs",
+  source_id: "a1",
+  reference: "JOB-000001",
+  zoho_number: "INV-0001",
+  created_by: "u-press",
+  ...over,
+});
+const VOIDED = "This invoice was voided in Zoho. Clear it on the job if that's right.";
+
+Deno.test("permissionCheck sends accounting to banking_can", async () => {
+  const calls: string[] = [];
+  const spy = (n: string, a: { p_permission: string }) => {
+    calls.push(n + ":" + a.p_permission);
+    return Promise.resolve({ data: true, error: null });
+  };
+  assertEquals(await permissionCheck(spy, "accounting", "accounts.review"), true);
+  assertEquals(calls, ["banking_can:accounts.review"]);
+});
+
+Deno.test("a job invoice needs accounts.review and sends one draft with 5% on top", async () => {
+  const m = makeDeps();
+  const r = ref(await handle("document_create", JOB, m.deps));
+  assertEquals(m.asked, ["accounts.review"]);
+  assertEquals(r.state, "created");
+  assertEquals(r.earlier_draft, null);
+  assertEquals(m.posts.length, 1);
+  assertEquals(m.posts[0].path, "/invoices");
+  assertEquals(m.posts[0].body.reference_number, "JOB-000001");
+  assertEquals(m.posts[0].body.is_inclusive_tax, false);
+  assertEquals(m.posts[0].body.line_items, [{ name: "VAT Return - Q3 2026", rate: 1000, quantity: 1, tax_id: "TAX5" }]);
+  assertEquals(m.db.zoho_documents[0].department, "Accounting");
+  assertEquals(m.db.zoho_documents[0].crm_total, 1050);
+});
+
+Deno.test("a job without accounts.review reads nothing and calls nothing", async () => {
+  const m = makeDeps({ can: () => Promise.resolve(false) });
+  await assertRejects(() => handle("document_create", JOB, m.deps), UserError, "permission");
+  await assertRejects(() => handle("document_state", JOB_STATE, m.deps), UserError, "permission");
+  await assertRejects(() => handle("document_pdf", JOB, m.deps), UserError, "permission");
+  assertEquals([m.calls.length, m.posts.length, m.pdfCalls.length, m.tables.length], [0, 0, 0, 0]);
+});
+
+Deno.test("a job estimate is refused with no row and no Zoho call", async () => {
+  const m = makeDeps();
+  await assertRejects(
+    () => handle("document_create", { ...JOB, kind: "estimate" }, m.deps),
+    UserError,
+    "Only an invoice can",
+  );
+  assertEquals([m.calls.length, m.posts.length, m.db.zoho_documents.length], [0, 0, 0]);
+});
+
+Deno.test("each job refusal reaches staff before anything is written", async () => {
+  const cases: [Row, string][] = [
+    [{ work_status: "In Progress" }, "This job must be completed before it is invoiced."],
+    [{ fee_amount: null }, "This job has no fee yet."],
+    [{ fee_amount: 0 }, "This job has no fee yet."],
+    [{ fee_amount: -1 }, "can't be read"],
+    [{ client_id: null }, "Link a client to this job first."],
+    [{ invoice_number: "INV-5" }, "This job already has an invoice recorded."],
+  ];
+  for (const [over, msg] of cases) {
+    const m = makeDeps();
+    Object.assign(m.db.accounting_jobs[0], over);
+    await assertRejects(() => handle("document_create", JOB, m.deps), UserError, msg);
+    assertEquals([m.calls.length, m.posts.length, m.db.zoho_documents.length], [0, 0, 0]);
+  }
+});
+
+Deno.test("a missing job is refused", async () => {
+  const m = makeDeps();
+  await assertRejects(() => handle("document_create", { ...JOB, source_id: "zz" }, m.deps), UserError, "job was not found");
+});
+
+Deno.test("a job with a recorded invoice and a Zoho row can still retry", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  m.db.zoho_documents.push({
+    id: "d9",
+    ...jobDoc(),
+    kind: "invoice",
+    state: "failed",
+    crm_total: 1050,
+    created_at: "2026-11-02T00:00:00.000Z",
+  });
+  const r = ref(await handle("document_create", JOB, m.deps));
+  assertEquals(r.state, "created");
+  assertEquals(m.db.zoho_documents.length, 1);
+});
+
+Deno.test("a job timeout sets unknown and the retry adopts the draft in Zoho", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new ZohoTimeoutError());
+  assertEquals(ref(await handle("document_create", JOB, m.deps)).state, "unknown");
+  m.state.now = new Date("2026-11-03T00:03:00Z");
+  m.replies["/invoices"] = {
+    invoices: [{ invoice_id: "9001", invoice_number: "INV-0001", reference_number: "JOB-000001", customer_id: "11", total: 1050, status: "draft" }],
+  };
+  const r = ref(await handle("document_create", JOB, m.deps));
+  assertEquals([r.state, r.zoho_id, m.posts.length, m.db.zoho_documents.length], ["created", "9001", 1, 1]);
+});
+
+Deno.test("a job's contact link, search and lookup use accounts.review", async () => {
+  const m = makeDeps();
+  await handle("contacts_search", { department: "accounting", query: "Acme" }, m.deps);
+  await handle("contact_get", { department: "accounting", client_id: "CL000001" }, m.deps);
+  await handle("contact_link", { department: "accounting", client_id: "c1", zoho_contact_id: "11" }, m.deps);
+  assertEquals(m.asked, ["accounts.review", "accounts.review", "accounts.review"]);
+  assertEquals(m.db.zoho_contact_links.some((l) => l.client_id === "c1"), true);
+  // The client must be in Client Master.
+  await assertRejects(
+    () => handle("contact_link", { department: "accounting", client_id: "nope", zoho_contact_id: "11" }, m.deps),
+    UserError,
+    "not found",
+  );
+  const no = makeDeps({ can: () => Promise.resolve(false) });
+  await assertRejects(() => handle("contacts_search", { department: "accounting", query: "x" }, no.deps), UserError, "permission");
+  await assertRejects(() => handle("contact_get", { department: "accounting", client_id: "c1" }, no.deps), UserError, "permission");
+  await assertRejects(
+    () => handle("contact_link", { department: "accounting", client_id: "c1", zoho_contact_id: "11" }, no.deps),
+    UserError,
+    "permission",
+  );
+  assertEquals(no.calls.length, 0);
+});
+
+Deno.test("a sent job invoice fills the job once, with one history entry", async () => {
+  const m = makeDeps();
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("sent", { total: 1050 });
+  const first = await handle("document_state", JOB_STATE, m.deps) as Row;
+  const job = m.db.accounting_jobs[0];
+  assertEquals([job.invoice_number, job.invoice_date, job.invoice_amount, job.invoiced_by], ["INV-0001", "2026-11-03", 1050, "u-press"]);
+  assertEquals(m.db.accounting_job_events.length, 1);
+  assertEquals(first.read_error, null);
+  // Client Login row with no quote.
+  assertEquals(m.db.business_setup_invoices.length, 1);
+  assertEquals(m.db.business_setup_invoices[0].quote_id, null);
+  assertEquals(m.db.business_setup_invoices[0].client_id, "CL000001");
+  // A second real read changes nothing.
+  m.state.now = new Date("2026-11-03T00:30:00Z");
+  await handle("document_state", JOB_STATE, m.deps);
+  assertEquals(m.db.accounting_job_events.length, 1);
+  assertEquals(m.db.accounting_jobs[0].invoice_number, "INV-0001");
+});
+
+Deno.test("a draft job invoice leaves the job alone", async () => {
+  const m = makeDeps();
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("draft");
+  await handle("document_state", JOB_STATE, m.deps);
+  assertEquals(m.db.accounting_jobs[0].invoice_number, null);
+  assertEquals(m.tables.includes("rpc:accounting_zoho_invoice_fill"), false);
+});
+
+Deno.test("a different invoice already on the job is kept, with a warning that sticks", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-TYPED";
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("sent");
+  const msg = "This job already has invoice INV-TYPED recorded, which differs from Zoho's.";
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(m.db.accounting_jobs[0].invoice_number, "INV-TYPED");
+  assertEquals(m.db.accounting_job_events.length, 0);
+  assertEquals(res.read_error, msg);
+  assertEquals(m.db.zoho_documents[0].error, msg);
+  // Still shown while reads are throttled.
+  m.state.now = new Date("2026-11-03T00:05:00Z");
+  const again = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(again.rows[0].read_error, msg);
+});
+
+Deno.test("the same number already on the job means no warning and no change", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("paid");
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(res.read_error, null);
+  assertEquals(m.db.accounting_job_events.length, 0);
+});
+
+Deno.test("an invoice billed to another contact does not fill the job", async () => {
+  const m = makeDeps();
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("sent", { customer_id: "99" });
+  await handle("document_state", JOB_STATE, m.deps);
+  assertEquals(m.db.accounting_jobs[0].invoice_number, null);
+  assertEquals(m.tables.includes("rpc:accounting_zoho_invoice_fill"), false);
+});
+
+Deno.test("a failed job fill holds the read time back and says so", async () => {
+  const m = makeDeps();
+  m.errors["rpc.accounting_zoho_invoice_fill"] = { code: "XX000", message: "boom" };
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("sent");
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(typeof res.read_error, "string");
+  assertEquals(m.db.zoho_documents[0].last_read_at, null);
+});
+
+Deno.test("a job that is no longer Completed refuses the fill with a warning", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].work_status = "Pending";
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("sent");
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(m.db.accounting_jobs[0].invoice_number, null);
+  assertEquals(typeof res.read_error, "string");
+});
+
+Deno.test("a voided job invoice that is on the job leaves the job and warns until a clean sync", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("void");
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(m.db.accounting_jobs[0].invoice_number, "INV-0001");
+  assertEquals(m.db.accounting_job_events.length, 0);
+  assertEquals(res.read_error, VOIDED);
+  assertEquals(m.db.zoho_documents[0].error, VOIDED);
+  // Fixed in Zoho: the next real read is clean.
+  m.replies["/invoices/9001"] = invoiceReply("sent");
+  m.state.now = new Date("2026-11-03T00:30:00Z");
+  const clean = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(clean.read_error, null);
+  assertEquals(m.db.zoho_documents[0].error, null);
+});
+
+Deno.test("a voided invoice that is not on the job gives no warning", async () => {
+  const m = makeDeps();
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("void");
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(res.read_error, null);
+  m.db.accounting_jobs[0].invoice_number = "INV-OTHER";
+  m.state.now = new Date("2026-11-03T00:30:00Z");
+  assertEquals(((await handle("document_state", JOB_STATE, m.deps)) as Row).read_error, null);
+});
+
+Deno.test("a job invoice Zoho no longer has warns when its number is on the job", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = notFound;
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(res.rows[0].state, "gone");
+  assertEquals(res.rows[0].read_error, VOIDED);
+  assertEquals(m.db.accounting_jobs[0].invoice_number, "INV-0001");
+});
+
+Deno.test("PDF and state for a job use the saved Zoho id and accounts.review", async () => {
+  const m = makeDeps();
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  const pdf = await handle("document_pdf", { ...JOB, zoho_id: "666" }, m.deps) as Row;
+  assertEquals(m.pdfCalls, ["/invoices/9001"]);
+  assertEquals(pdf.filename, "INV-0001.pdf");
+  assertEquals(m.asked, ["accounts.review"]);
+  m.replies["/invoices/9001"] = invoiceReply("draft");
+  const st = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(st.rows[0].earlier_draft, null);
+  assertEquals(st.rows[0].zoho_number, "INV-0001");
+  assertEquals(m.asked, ["accounts.review", "accounts.review"]);
 });

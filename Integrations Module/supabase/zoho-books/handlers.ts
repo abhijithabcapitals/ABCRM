@@ -7,7 +7,7 @@ export class UserError extends Error {
   }
 }
 
-import { canCreate, clientVisible, dubaiToday, fromBanking, fromHub, type Kind, type Source, toZohoBody, totalsMatch, vatDiffers, vatMissing } from "./mapping.ts";
+import { canCreate, clientVisible, dubaiToday, fromBanking, fromHub, fromJob, type Kind, type Source, toZohoBody, totalsMatch, vatDiffers, vatMissing } from "./mapping.ts";
 import { ZohoAccessError, ZohoHttpError, ZohoTimeoutError } from "./zohoClient.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -43,10 +43,10 @@ export function browserMessage(e: unknown): string {
   return "Something went wrong talking to Zoho.";
 }
 
-type Department = "business_setup" | "banking";
-const RPC: Record<Department, string> = { business_setup: "business_setup_can", banking: "banking_can" };
-const MANAGE: Record<Department, string> = { business_setup: "setup.quotes.manage", banking: "cases.manage" };
-const VIEW: Record<Department, string> = { business_setup: "setup.access", banking: "cases.view" };
+type Department = "business_setup" | "banking" | "accounting";
+const RPC: Record<Department, string> = { business_setup: "business_setup_can", banking: "banking_can", accounting: "banking_can" };
+const MANAGE: Record<Department, string> = { business_setup: "setup.quotes.manage", banking: "cases.manage", accounting: "accounts.review" };
+const VIEW: Record<Department, string> = { business_setup: "setup.access", banking: "cases.view", accounting: "accounts.review" };
 
 const ACCOUNTS_VIEW = "accounts.review";
 
@@ -54,9 +54,9 @@ type Rpc = (name: string, args: { p_permission: string }) => Promise<{ data: unk
 
 // Fails closed: an unknown department, a missing function, an error or anything but true means no.
 export async function permissionCheck(rpc: Rpc, department: string, permission: string): Promise<boolean> {
-  if (department !== "business_setup" && department !== "banking") return false;
+  if (!Object.hasOwn(RPC, department)) return false;
   try {
-    const { data, error } = await rpc(RPC[department], { p_permission: permission });
+    const { data, error } = await rpc(RPC[department as Department], { p_permission: permission });
     return !error && data === true;
   } catch {
     return false;
@@ -65,7 +65,7 @@ export async function permissionCheck(rpc: Rpc, department: string, permission: 
 
 function departmentOf(body: Json): Department {
   const d = body?.department;
-  if (d !== "business_setup" && d !== "banking") throw new UserError("Unknown department.");
+  if (d !== "business_setup" && d !== "banking" && d !== "accounting") throw new UserError("Unknown department.");
   return d;
 }
 
@@ -218,7 +218,11 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
 
 // ---- Create a draft estimate or invoice ----
 
-const SOURCE_DEPARTMENT: Record<string, Department> = { hub_documents: "business_setup", banking_quotations: "banking" };
+const SOURCE_DEPARTMENT: Record<string, Department> = {
+  hub_documents: "business_setup",
+  banking_quotations: "banking",
+  accounting_jobs: "accounting",
+};
 const STUCK_MS = 2 * 60_000;
 const BUSY = "This draft is already being created. Try again in a moment.";
 const WAIT = "Zoho may still be creating this draft. Check again in 2 minutes.";
@@ -235,6 +239,7 @@ class Ambiguous extends Error {
 
 function createPermission(department: Department, kind: Kind): string {
   if (department === "banking") return "cases.manage";
+  if (department === "accounting") return "accounts.review";
   return kind === "invoice" ? "setup.services.manage" : "setup.quotes.manage";
 }
 
@@ -249,6 +254,21 @@ async function readRow(deps: Deps, table: string, column: string, value: unknown
 
 // Amounts, department and client are always read here, never taken from the browser.
 async function loadSource(deps: Deps, table: string, id: string): Promise<Source> {
+  if (table === "accounting_jobs") {
+    const job = await readRow(deps, table, "id", id);
+    if (!job) throw new UserError("That job was not found.");
+    const src = fromJob(job);
+    if (src.invoiceRecorded) {
+      // An invoice made here and recorded on the job is no reason to refuse a retry.
+      const made = await deps.db.from("zoho_documents").select("id").eq("source_table", table).eq("source_id", id).eq("kind", "invoice");
+      if (made.error) {
+        console.error("zoho-books: draft lookup failed:", made.error.code, made.error.message);
+        throw new UserError("Could not read the draft record.");
+      }
+      if ((made.data ?? []).length > 0) src.invoiceRecorded = false;
+    }
+    return src;
+  }
   if (table === "hub_documents") {
     const row = await readRow(deps, table, "id", id);
     if (!row) throw new UserError("That quote was not found.");
@@ -267,6 +287,7 @@ async function loadSource(deps: Deps, table: string, id: string): Promise<Source
 
 // The nearest earlier version that already has a draft of this kind in Zoho.
 async function earlierDraft(deps: Deps, table: string, id: string, kind: Kind): Promise<string | null> {
+  if (table === "accounting_jobs") return null;
   const column = table === "hub_documents" ? "revises_id" : "supersedes_id";
   try {
     const seen = new Set([id]);
@@ -508,6 +529,8 @@ const NOT_READY = "This draft isn't available yet.";
 const NO_LONGER = "Zoho no longer has this document.";
 const OTHER_CONTACT = "This invoice is billed to a different Zoho contact, so Client Login won't show it.";
 const NO_MASTER = "This client has no Client Master record, so Client Login cannot show this invoice.";
+const VOIDED = "This invoice was voided in Zoho. Clear it on the job if that's right.";
+const JOB_REFUSED = "This invoice could not be recorded on the job. Check that the job is still Completed.";
 const GONE_NOT_SAVED = "Zoho no longer has this document, but Client Login could not be updated. Try again.";
 const CLIENT_LOGIN_FAILED = "The Zoho status was read, but Client Login could not be updated. Press Refresh to try again.";
 
@@ -538,13 +561,14 @@ async function removeInvoiceRow(deps: Deps, zohoId: string): Promise<boolean> {
 type Sync = { ok: boolean; message: string | null };
 const SYNC_OK: Sync = { ok: true, message: null };
 const SYNC_FAILED: Sync = { ok: false, message: CLIENT_LOGIN_FAILED };
+const JOB_FAILED: Sync = { ok: false, message: "The Zoho status was read, but the job could not be updated. Press Refresh to try again." };
 
 // The row is removed and the reason is reported. A failed removal is a failure, so it is retried.
 async function hideInvoiceRow(deps: Deps, zohoId: string, message: string): Promise<Sync> {
   return (await removeInvoiceRow(deps, zohoId)) ? { ok: true, message } : SYNC_FAILED;
 }
 
-async function saveInvoiceRow(deps: Deps, table: string, sourceId: string, zohoId: string, doc: Json): Promise<Sync> {
+async function saveInvoiceRow(deps: Deps, table: string, sourceId: string, zohoId: string, doc: Json, by: string | null): Promise<Sync> {
   const src = await loadSource(deps, table, sourceId);
   if (!src.clientId) {
     console.error("zoho-books: invoice has no Client Master record, so Client Login cannot show it");
@@ -577,7 +601,42 @@ async function saveInvoiceRow(deps: Deps, table: string, sourceId: string, zohoI
   let res = found.data ? await update() : await rows().insert(fields);
   if (res.error?.code === "23505") res = await update();
   if (res.error) console.error("zoho-books: invoice row save failed:", res.error.code, res.error.message);
-  return res.error ? SYNC_FAILED : SYNC_OK;
+  if (res.error) return SYNC_FAILED;
+  return table === "accounting_jobs" ? await fillJob(deps, sourceId, doc, by) : SYNC_OK;
+}
+
+// Records the Zoho invoice on the job. The SQL function holds the rules and never overwrites a number.
+async function fillJob(deps: Deps, jobId: string, doc: Json, by: string | null): Promise<Sync> {
+  const total = Number(doc.total);
+  const date = typeof doc.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(doc.date) ? doc.date : null;
+  const { data, error } = await deps.db.rpc("accounting_zoho_invoice_fill", {
+    p_job: jobId,
+    p_number: doc.invoice_number == null ? null : String(doc.invoice_number),
+    p_date: date,
+    p_amount: Number.isFinite(total) ? total : null,
+    p_by: by,
+  });
+  if (error) {
+    console.error("zoho-books: job fill failed:", error.code, error.message);
+    return JOB_FAILED;
+  }
+  if (data?.result === "different") {
+    return { ok: true, message: `This job already has invoice ${data.number} recorded, which differs from Zoho's.` };
+  }
+  if (data?.result === "refused") return { ok: true, message: JOB_REFUSED };
+  return SYNC_OK;
+}
+
+// A voided invoice is never cleared from the job automatically. Staff are told when its number is on the job.
+async function voidWarning(deps: Deps, row: Json): Promise<Sync> {
+  if (row.source_table !== "accounting_jobs") return SYNC_OK;
+  const res = await deps.db.from("accounting_jobs").select("invoice_number").eq("id", row.source_id).maybeSingle();
+  if (res.error) {
+    console.error("zoho-books: job read failed:", res.error.code, res.error.message);
+    return JOB_FAILED;
+  }
+  const recorded = String(res.data?.invoice_number ?? "").trim();
+  return recorded && recorded === String(row.zoho_number ?? "").trim() ? { ok: true, message: VOIDED } : SYNC_OK;
 }
 
 // Zoho reports a missing document as 404, or as its own code 1002.
@@ -586,10 +645,14 @@ function isMissing(e: unknown): boolean {
 }
 
 // Marks a row gone. The invoice row goes first: if it can't be removed the row stays created, so a later read retries.
+// A job that still carries the invoice number keeps a warning on the row.
 async function markGone(deps: Deps, row: Json, kind: Kind): Promise<boolean> {
   if (kind === "invoice" && !(await removeInvoiceRow(deps, String(row.zoho_id)))) return false;
-  const res = await deps.db.from("zoho_documents").update({ state: "gone", error: null }).eq("id", row.id).eq("state", "created");
+  const warn = kind === "invoice" ? await voidWarning(deps, row) : SYNC_OK;
+  if (!warn.ok) return false;
+  const res = await deps.db.from("zoho_documents").update({ state: "gone", error: warn.message }).eq("id", row.id).eq("state", "created");
   if (res.error) console.error("zoho-books: gone save failed:", res.error.code, res.error.message);
+  if (!res.error) row.error = warn.message;
   return !res.error;
 }
 
@@ -642,9 +705,13 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
         if (kind === "invoice") {
           const status = String(doc.status ?? "").toLowerCase();
           try {
-            sync = clientVisible(status)
-              ? await saveInvoiceRow(deps, table, id, String(row.zoho_id), doc)
-              : (await removeInvoiceRow(deps, String(row.zoho_id)) ? SYNC_OK : SYNC_FAILED);
+            if (clientVisible(status)) {
+              sync = await saveInvoiceRow(deps, table, id, String(row.zoho_id), doc, row.created_by ?? null);
+            } else if (!(await removeInvoiceRow(deps, String(row.zoho_id)))) {
+              sync = SYNC_FAILED;
+            } else if (status === "void") {
+              sync = await voidWarning(deps, { ...row, zoho_number: doc.invoice_number ?? row.zoho_number });
+            }
           } catch (e) {
             console.error("zoho-books: invoice row failed:", (e as Error)?.name);
             sync = SYNC_FAILED;
@@ -666,7 +733,8 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
       } catch (e) {
         if (isMissing(e)) {
           if (await markGone(deps, row, kind)) {
-            Object.assign(row, { state: "gone", error: null });
+            Object.assign(row, { state: "gone" });
+            rowError = row.error ?? null;
           } else {
             rowError = CLIENT_LOGIN_FAILED;
           }
@@ -678,7 +746,7 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
           }
         }
       }
-    } else if (row.state === "created" && row.error) {
+    } else if ((row.state === "created" || row.state === "gone") && row.error) {
       rowError = row.error;
     }
     readError ??= rowError;

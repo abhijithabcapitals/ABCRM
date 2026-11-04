@@ -5,6 +5,7 @@ import {
   dubaiToday,
   fromBanking,
   fromHub,
+  fromJob,
   type Source,
   toZohoBody,
   totalsMatch,
@@ -232,4 +233,74 @@ Deno.test("vatDiffers uses a one cent tolerance and is null when unchecked", () 
   assertEquals(vatDiffers(5, null), null);
   assertEquals(vatDiffers(5, "abc"), null);
   assertEquals(vatDiffers(null, 5), null);
+});
+
+// ---- Accounting jobs ----
+
+const jobRow = (over: Record<string, unknown> = {}) => ({
+  id: "j1",
+  job_number: "JOB-000007",
+  client_id: "CL1",
+  service_name: "VAT Return",
+  period_label: "Q3 2026",
+  work_status: "Completed",
+  fee_amount: "1000.00",
+  invoice_number: null,
+  ...over,
+});
+
+Deno.test("a job maps to one exclusive 5% line with its own reference", () => {
+  const s = fromJob(jobRow());
+  assertEquals(s.department, "Accounting");
+  assertEquals(s.reference, "JOB-000007");
+  assertEquals(s.clientId, "CL1");
+  assertEquals(s.vatMode, "exclusive");
+  assertEquals(s.vatRate, 5);
+  assertEquals(s.lines, [{ name: "VAT Return - Q3 2026", amount: 1000, taxable: true }]);
+  assertEquals([s.vatAmount, s.total], [50, 1050]);
+  const b = toZohoBody(s, "cust", "tax", "2026-11-04") as any;
+  assertEquals(b.is_inclusive_tax, false);
+  assertEquals(b.line_items, [{ name: "VAT Return - Q3 2026", rate: 1000, quantity: 1, tax_id: "tax" }]);
+  assertEquals(canCreate(s, "invoice"), null);
+});
+
+Deno.test("job totals round to 2 places", () => {
+  const t = (fee: string) => {
+    const s = fromJob(jobRow({ fee_amount: fee }));
+    return [s.vatAmount, s.total];
+  };
+  assertEquals(t("123.45"), [6.17, 129.62]);
+  assertEquals(t("0.10"), [0.01, 0.11]);
+  assertEquals(t("0.09"), [0, 0.09]);
+  assertEquals(t("10.10"), [0.51, 10.61]);
+  assertEquals(t("99999999.99"), [5000000, 104999999.99]);
+});
+
+Deno.test("a job line has no period part when none is set, and the name is capped at 100", () => {
+  assertEquals(fromJob(jobRow({ period_label: null })).lines[0].name, "VAT Return");
+  assertEquals(fromJob(jobRow({ period_label: "  " })).lines[0].name, "VAT Return");
+  const long = fromJob(jobRow({ service_name: "S".repeat(120) }));
+  const b = toZohoBody(long, "c", "t", "2026-11-04") as any;
+  assertEquals(b.line_items[0].name.length, 100);
+});
+
+Deno.test("job refusals use plain text", () => {
+  const no = (over: Record<string, unknown>, kind: "invoice" | "estimate" = "invoice") => canCreate(fromJob(jobRow(over)), kind);
+  assertEquals(no({}, "estimate"), "An estimate can't be made from a job. Only an invoice can.");
+  assertEquals(no({ work_status: "In Progress" }), "This job must be completed before it is invoiced.");
+  assertEquals(no({ work_status: "completed" }), "This job must be completed before it is invoiced.");
+  assertEquals(no({ fee_amount: null }), "This job has no fee yet.");
+  assertEquals(no({ fee_amount: 0 }), "This job has no fee yet.");
+  assertEquals(no({ fee_amount: "0.00" }), "This job has no fee yet.");
+  const bad = "This quote has an amount that can't be read. Fix it before creating a Zoho draft.";
+  assertEquals(no({ fee_amount: -5 }), bad);
+  assertEquals(no({ fee_amount: "abc" }), bad);
+  assertEquals(no({ client_id: null }), "Link a client to this job first.");
+  assertEquals(no({ invoice_number: "INV-9" }), "This job already has an invoice recorded.");
+});
+
+Deno.test("a job's recorded invoice no longer blocks once the handler clears the flag", () => {
+  const s = fromJob(jobRow({ invoice_number: "INV-9" }));
+  assertEquals(s.invoiceRecorded, true);
+  assertEquals(canCreate({ ...s, invoiceRecorded: false }, "invoice"), null);
 });

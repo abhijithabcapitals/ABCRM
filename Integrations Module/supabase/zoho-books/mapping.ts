@@ -6,7 +6,7 @@ export type VatMode = "inclusive" | "exclusive" | "none";
 export type Line = { name: string; amount: number; taxable: boolean };
 
 export type Source = {
-  department: "Business Setup" | "Banking";
+  department: "Business Setup" | "Banking" | "Accounting";
   clientId: string | null;
   reference: string;
   status: string;
@@ -19,6 +19,10 @@ export type Source = {
   lines: Line[];
   // True when an amount was missing, not a number, or negative.
   unreadable: boolean;
+  // Jobs only. The fee is null or 0.
+  feeMissing?: boolean;
+  // Jobs only. The job already holds an invoice number. The handler clears this when a Zoho record exists.
+  invoiceRecorded?: boolean;
 };
 
 const NAME_MAX = 100; // Zoho's line item name limit
@@ -26,6 +30,11 @@ const NO_CLIENT = "This client has no Client Master record, so it can't be linke
 const BAD_AMOUNT = "This quote has an amount that can't be read. Fix it before creating a Zoho draft.";
 const NO_NUMBER = "This quote has no number, so it can't be sent to Zoho.";
 const OTHER_RATE = "This quote uses a VAT rate other than 5%, which the saved Zoho VAT code doesn't match.";
+const JOB_ESTIMATE = "An estimate can't be made from a job. Only an invoice can.";
+const JOB_NOT_DONE = "This job must be completed before it is invoiced.";
+const JOB_NO_FEE = "This job has no fee yet.";
+const JOB_NO_CLIENT = "Link a client to this job first.";
+const JOB_RECORDED = "This job already has an invoice recorded.";
 const NO_LINES = "This quote has no lines to send to Zoho.";
 
 const num = (v: unknown): number => {
@@ -101,6 +110,31 @@ export function fromBanking(row: Record<string, any>, clientMasterId: string | n
   };
 }
 
+// The fee is in whole cents, so the 5% is worked in cents too and rounded half up.
+export function fromJob(row: Record<string, any>): Source {
+  const raw = row.fee_amount;
+  const blank = raw === null || raw === undefined || raw === "";
+  const ok = !blank && readable(raw);
+  const cents = ok ? Math.round(Number(raw) * 100) : 0;
+  const vatCents = Math.floor((cents * 5 + 50) / 100);
+  const service = String(row.service_name ?? "").trim();
+  const period = String(row.period_label ?? "").trim();
+  return {
+    department: "Accounting",
+    clientId: row.client_id ? String(row.client_id) : null,
+    reference: String(row.job_number ?? ""),
+    status: String(row.work_status ?? ""),
+    total: (cents + vatCents) / 100,
+    vatMode: "exclusive",
+    vatRate: 5,
+    vatAmount: vatCents / 100,
+    lines: [{ name: period ? `${service} - ${period}` : service, amount: cents / 100, taxable: true }],
+    unreadable: !blank && !ok,
+    feeMissing: blank || (ok && cents === 0),
+    invoiceRecorded: !!String(row.invoice_number ?? "").trim(),
+  };
+}
+
 export function vatMissing(src: Source, vatTaxId: string | null): string | null {
   if (src.vatMode !== "none" && !vatTaxId) return "Pick the 5% VAT code in Settings first.";
   return null;
@@ -141,16 +175,28 @@ export function vatDiffers(crm: number | null, zoho: unknown): boolean | null {
   return !totalsMatch(crm, z);
 }
 
-const ESTIMATE_OK: Record<Source["department"], string[]> = {
+const ESTIMATE_OK: Record<Exclude<Source["department"], "Accounting">, string[]> = {
   "Business Setup": ["issued", "accepted"],
   "Banking": ["Issued", "Sent", "Accepted"],
 };
-const INVOICE_OK: Record<Source["department"], string[]> = {
+const INVOICE_OK: Record<Exclude<Source["department"], "Accounting">, string[]> = {
   "Business Setup": ["accepted"],
   "Banking": ["Accepted"],
 };
 
+function canCreateJob(src: Source, kind: Kind): string | null {
+  if (kind !== "invoice") return JOB_ESTIMATE;
+  if (src.status !== "Completed") return JOB_NOT_DONE;
+  if (src.unreadable) return BAD_AMOUNT;
+  if (src.feeMissing) return JOB_NO_FEE;
+  if (!src.clientId) return JOB_NO_CLIENT;
+  if (!src.reference.trim()) return NO_NUMBER;
+  if (src.invoiceRecorded) return JOB_RECORDED;
+  return null;
+}
+
 export function canCreate(src: Source, kind: Kind): string | null {
+  if (src.department === "Accounting") return canCreateJob(src, kind);
   if (!src.clientId) return NO_CLIENT;
   if (!src.reference.trim()) return NO_NUMBER;
   if (src.unreadable) return BAD_AMOUNT;
