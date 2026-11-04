@@ -571,6 +571,35 @@
               "name": "ZOHO_VAT_TAX_ID",
               "use": "Zoho's 5% VAT code",
               "source": "Picked under Zoho connection on this card"
+            },
+            {
+              "name": "ZOHO_FINANCE_CLIENT_ID",
+              "use": "OAuth app for the read-only login",
+              "source": "api-console.zoho.com -> Self Client -> Client Secret"
+            },
+            {
+              "name": "ZOHO_FINANCE_CLIENT_SECRET",
+              "use": "Same app",
+              "source": "Same"
+            },
+            {
+              "name": "ZOHO_FINANCE_REFRESH_TOKEN",
+              "use": "Long-lived read-only access",
+              "source": "Created once with READ scopes only"
+            }
+          ],
+          "subTabs": [
+            {
+              "id": "invoices",
+              "label": "Invoices and Quotes",
+              "note": "Used by the zoho-books function to create draft invoices and quotes.",
+              "secrets": ["ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN", "ZOHO_BOOKS_ORG_ID", "ZOHO_DC", "ZOHO_VAT_TAX_ID"]
+            },
+            {
+              "id": "financials",
+              "label": "Financial Dashboard",
+              "note": "A separate read-only login for the Dashboard's financial cards. Saving here does not change Invoices and Quotes. Nothing uses these values until the zoho-finance function is built. Organisation and data centre come from Invoices and Quotes.",
+              "secrets": ["ZOHO_FINANCE_CLIENT_ID", "ZOHO_FINANCE_CLIENT_SECRET", "ZOHO_FINANCE_REFRESH_TOKEN"]
             }
           ]
         },

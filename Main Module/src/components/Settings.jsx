@@ -234,7 +234,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
 
       <div className="content-area">
         {/* Tabs */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 24, borderBottom: "1px solid #e5e7eb", paddingBottom: 0 }}>
+        <div className="crm-tabs" aria-label="Settings" style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 24, borderBottom: "1px solid #e5e7eb", paddingBottom: 0 }}>
           {[
             { key: "health", label: "🩺 Health" },
             { key: "team", label: "👥 Members" },

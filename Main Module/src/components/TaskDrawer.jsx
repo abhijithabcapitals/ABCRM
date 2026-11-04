@@ -116,7 +116,7 @@ export default function TaskDrawer({ ctx }) {
           </div>
 
           {/* Drawer tabs */}
-          <div
+          <div className="crm-tabs" aria-label="Task details"
             style={{
               display: "flex",
               borderBottom: "1px solid #e6eded",

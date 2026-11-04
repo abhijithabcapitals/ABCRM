@@ -29,7 +29,7 @@ export default function TemplateHub({ profile }) {
         <div style={{ fontSize: 13, color: "#999", marginTop: 4 }}>
           Generate quotations, engagement letters and mail drafts for every service.
         </div>
-        <div style={{ display: "flex", gap: 22, marginTop: 16 }}>
+        <div className="crm-tabs" aria-label="Template Hub" style={{ display: "flex", gap: 22, marginTop: 16 }}>
           {TABS.map((t) => (
             <button
               key={t.key}

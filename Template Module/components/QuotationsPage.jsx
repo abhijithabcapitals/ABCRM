@@ -28,7 +28,7 @@ export default function Quotations({ profile }) {
         <div style={{ fontSize: 13, color: "#999", marginTop: 4 }}>
           Generate quotation documents from your freezone templates.
         </div>
-        <div style={{ display: "flex", gap: 22, marginTop: 16 }}>
+        <div className="crm-tabs" aria-label="Quotations" style={{ display: "flex", gap: 22, marginTop: 16 }}>
           {[
             { key: "generate", label: "Generate" },
             { key: "templates", label: "Templates" },
