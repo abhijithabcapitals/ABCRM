@@ -29,8 +29,14 @@ apply "$HERE/../migrations/001_router.sql" "001_router.sql pass 2"
 echo "migration pass 2 ok"
 [ "$(runtime)" = "gateway" ] && echo "ok BD gateway left unchanged" || { echo "FAILED BD runtime is $(runtime), expected gateway"; exit 1; }
 
+apply "$HERE/../migrations/002_recent_agent.sql" "002_recent_agent.sql pass 1"
+apply "$HERE/../migrations/002_recent_agent.sql" "002_recent_agent.sql pass 2"
 "${PSQL[@]}" -t -f "$HERE/010_router_test.sql" 2>&1 | grep -E 'ok |FAILED|ERROR|passed' | sed 's/.*NOTICE:  //'
 status=${PIPESTATUS[0]}
+apply "$HERE/../migrations/rollback/002_rollback.sql" "rollback 002"
+out002="$("${PSQL[@]}" -t -A -c "select case when pg_get_functiondef('public.router_context(uuid)'::regprocedure) !~ 'agent_id.,\s*r\.agent_id' then 'ok rollback 002 removes agent_id' else 'FAILED rollback 002 left agent_id' end")"
+echo "$out002"
+case "$out002" in "ok "*) ;; *) exit 1 ;; esac
 apply "$HERE/../migrations/rollback/001_rollback.sql" "rollback"
 left=$("${PSQL[@]}" -t -A -c "select (select count(*) from pg_namespace where nspname = 'router') + (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'router\_%')")
 [ "$left" = "0" ] && echo "rollback ok" || { echo "FAILED rollback left $left objects"; exit 1; }

@@ -133,7 +133,7 @@ select t.is_true('recent has 6 rows', jsonb_array_length(router_context('0000000
 select t.is_true('recent is the newest, oldest first, without the fixed reply',
   (select array_agg(r->>'content' order by o) from jsonb_array_elements(router_context('00000000-0000-0000-0000-00000000000e')->'recent') with ordinality x(r, o))
   = array['m50', 'm51', 'm52', 'm53', 'm54', 'm55']);
-select t.is_true('recent rows hold only role and content', (select count(*) from jsonb_array_elements(router_context('00000000-0000-0000-0000-00000000000e')->'recent') r where r ?& array['role', 'content']) = 6);
+select t.is_true('recent rows hold role, content and agent_id', (select count(*) from jsonb_array_elements(router_context('00000000-0000-0000-0000-00000000000e')->'recent') r where r ?& array['role', 'content', 'agent_id']) = 6);
 reset role;
 
 -- Schema guard and AI Base
