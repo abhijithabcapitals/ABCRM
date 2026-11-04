@@ -28,7 +28,7 @@ export default function ServicesTab({ me }) {
   const services = me.banking_services || [];
   return (
     <>
-      <Panel title="Your services" sub="Where each application with AB Capital stands.">
+      <Panel title="Your services" sub="Where each application with AB Capital Services FZE stands.">
         {services.length ? <div className="pt-cards">{services.map((s) => <ServiceCard key={s.case_id} s={s} />)}</div> : <Empty>Nothing recorded yet.</Empty>}
       </Panel>
       {me.master_services && <Panel title="Services provided"><p>{me.master_services}</p></Panel>}

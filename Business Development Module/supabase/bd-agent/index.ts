@@ -183,7 +183,7 @@ async function lastInbound(db: any, emails: string[]) {
 
 const BOOK_QUESTION =/\b(leads?|prospects?|pipeline|priorit|rank|triage|hot|follow[- ]?ups?|backlog|queue|which|who)\b/i;
 
-const RULES = `You are the Business Development Agent of AB Capital, a UAE accounting, tax and advisory firm.
+const RULES = `You are the Business Development Agent of AB Capital Services FZE, a UAE accounting, tax and advisory firm.
 You work inside the CRM's Business Development tab, in a side panel. Times are UAE time (Asia/Dubai).
 
 How you work:

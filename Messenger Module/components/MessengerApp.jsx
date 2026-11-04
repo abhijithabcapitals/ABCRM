@@ -65,7 +65,7 @@ function Inner({ profile, onSignOut }) {
   return (
     <div className={`abm-app${paneOpen && section === "chats" ? " abm-pane-open" : ""}`}>
       <header className="abm-top">
-        <img className="abm-logo" src={logo} alt="AB Capital" />
+        <img className="abm-logo" src={logo} alt="AB Capital Services FZE" />
         <span className="abm-name">Messenger</span>
         <input className="abm-search" type="search" value={query} placeholder="Search chats and messages" aria-label="Search chats and messages" onChange={(e) => search(e.target.value)} />
         <StatusMenu name={profile?.full_name} status={presence.mine} onStatus={presence.setStatus} onSettings={() => go("settings")} />

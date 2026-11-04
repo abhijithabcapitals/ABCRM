@@ -55,7 +55,7 @@ export default function SetupForm({ form, api, onChange }) {
   return (
     <Panel title="Your details and documents" sub={STATUS[form.status]} actions={saving ? <small className="bk-muted" role="status">Saving…</small> : null}>
       <ErrorNote message={error} onClose={() => setError(null)} />
-      {form.status === "Returned" && form.return_note && <div className="bk-alert bk-alert-warn">Message from AB Capital: {form.return_note}</div>}
+      {form.status === "Returned" && form.return_note && <div className="bk-alert bk-alert-warn">Message from AB Capital Services FZE: {form.return_note}</div>}
       {visibleSections(form.definition, answers).map((s) => (
         <fieldset className="bk-fieldset" key={s.key} disabled={!editable}>
           <legend>{s.title}</legend>

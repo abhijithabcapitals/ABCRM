@@ -10,7 +10,7 @@ export const STEPS = [
   ["Client Bank Selection", "Client selects the preferred bank and account scheme."],
   ["Bank-Specific Document Checklist", "Generate the required document checklist based on the selected bank."],
   ["Document Collection & Verification", "Request, receive, review and verify documents."],
-  ["Quotation Generation", "Generate an offer with bank charges, AB Capital fees and supplementary services."],
+  ["Quotation Generation", "Generate an offer with bank charges, AB Capital Services FZE fees and supplementary services."],
   ["Payment Collection", "Receive advance or instalment payments and issue receipts."],
   ["Client Offer Acceptance", "Obtain formal acceptance of the quotation."],
   ["Engagement Letter Generation", "Generate and send the engagement letter."],
@@ -56,7 +56,7 @@ export const GATE_LABELS = {
 export const REPORTS = [
   { group: "Sales", items: [["leads_received", "Leads Received"], ["lead_sources", "Lead Sources"], ["conversion_rate", "Conversion Rate"], ["lost_leads", "Lost Leads"], ["employee_performance", "Employee Performance"], ["quotations_issued", "Quotations Issued"], ["quotation_conversion", "Quotation Conversion"]] },
   { group: "Banking", items: [["applications_by_bank", "Applications by Bank"], ["applications_by_scheme", "Applications by Scheme"], ["under_process", "Applications Under Process"], ["accounts_opened", "Accounts Opened / Approved"], ["rejected", "Rejected Applications"], ["returned", "Returned Applications"], ["approval_rate", "Approval Rate"], ["average_processing", "Average Processing Time"]] },
-  { group: "Financial", finance: true, items: [["quotation_value", "Total Quotation Value"], ["bank_fees", "Bank Fees"], ["ab_revenue", "AB Capital Revenue"], ["supplementary_revenue", "Supplementary Service Revenue"], ["payments_received", "Payments Received"], ["outstanding", "Outstanding Payments"], ["refunds", "Refunds"]] },
+  { group: "Financial", finance: true, items: [["quotation_value", "Total Quotation Value"], ["bank_fees", "Bank Fees"], ["ab_revenue", "AB Capital Services FZE Revenue"], ["supplementary_revenue", "Supplementary Service Revenue"], ["payments_received", "Payments Received"], ["outstanding", "Outstanding Payments"], ["refunds", "Refunds"]] },
   { group: "Operational", items: [["pending_documents", "Pending Documents"], ["overdue_followups", "Overdue Follow-ups"], ["pending_agreements", "Pending Agreements"], ["pending_appointments", "Pending Bank Appointments"], ["awaiting_bank", "Awaiting Bank Response"], ["cases_by_employee", "Cases Pending by Employee"]] },
 ];
 

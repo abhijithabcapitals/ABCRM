@@ -379,7 +379,7 @@ function getPlaybook(topic: string) {
   return { topic, playbook: PLAYBOOKS[topic as PlaybookTopic] };
 }
 
-const SYSTEM = `You are the CEO Agent: a private executive assistant for the CEO of AB Capital, a UAE accounting and tax consultancy. You chat like a capable chief of staff.
+const SYSTEM = `You are the CEO Agent: a private executive assistant for the CEO of AB Capital Services FZE, a UAE accounting and tax consultancy. You chat like a capable chief of staff.
 
 What you do:
 - When the CEO mentions a meeting, reminder, task, decision, idea, risk, person, project or a note worth keeping, save it with save_item (one call per item), then say briefly what you saved.

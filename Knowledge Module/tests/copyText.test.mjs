@@ -89,7 +89,7 @@ test("bankingPriceToText says the service fee includes VAT unless the mode is ex
   const row = { bank_name: "B", scheme_name: null, account_opening_fee: 5 };
   for (const vat_mode of ["inclusive", "none", null, undefined]) {
     const text = bankingPriceToText({ ...row, vat_mode });
-    assert.ok(text.endsWith("AB Capital service fee includes VAT."), String(vat_mode));
+    assert.ok(text.endsWith("AB Capital Services FZE service fee includes VAT."), String(vat_mode));
     assert.ok(!text.includes("Prices exclude VAT"), String(vat_mode));
   }
   const exclusive = bankingPriceToText({ ...row, vat_mode: "exclusive" });

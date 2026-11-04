@@ -57,7 +57,7 @@ function Commercial() {
     <div>
       <ErrorNote message={s.error} />
       <Panel title="Pricing defaults" actions={manage && <Button variant="primary" onClick={() => setEdit("pricing")}>Edit</Button>}>
-        <dl className="bk-kv"><div><dt>Default AB Capital service fee</dt><dd>{money(byKey.default_service_fee)}</dd></div><div><dt>VAT</dt><dd>{byKey.vat?.mode}, {byKey.vat?.rate}%</dd></div><div><dt>Quotation validity</dt><dd>{byKey.quotation_validity_days} days</dd></div><div><dt>Discount approval above</dt><dd>{byKey.discount_approval_percent}%</dd></div><div><dt>Payment required before submission</dt><dd>{byKey.require_payment_before_submission ? "Yes" : "No"}</dd></div></dl>
+        <dl className="bk-kv"><div><dt>Default AB Capital Services FZE service fee</dt><dd>{money(byKey.default_service_fee)}</dd></div><div><dt>VAT</dt><dd>{byKey.vat?.mode}, {byKey.vat?.rate}%</dd></div><div><dt>Quotation validity</dt><dd>{byKey.quotation_validity_days} days</dd></div><div><dt>Discount approval above</dt><dd>{byKey.discount_approval_percent}%</dd></div><div><dt>Payment required before submission</dt><dd>{byKey.require_payment_before_submission ? "Yes" : "No"}</dd></div></dl>
       </Panel>
       <Panel title="All settings" sub="Lists, letterhead, payment details and engagement letter wording. Edit as JSON.">
         <DataTable rows={s.data || []} onRow={manage ? (r) => setEdit(r) : undefined} columns={[{ key: "key", label: "Setting" }, { key: "description", label: "Meaning" }, { key: "updated_at", label: "Updated", render: (r) => fmtDate(r.updated_at) }]} />

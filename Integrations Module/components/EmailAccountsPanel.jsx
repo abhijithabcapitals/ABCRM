@@ -109,7 +109,7 @@ export default function EmailAccountsPanel({ supabase }) {
               <input style={inputStyle} type="password" required={!form.id} value={form.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" />
             </label>
             <label style={labelStyle}>Sender name
-              <input style={inputStyle} value={form.display_name} onChange={(e) => set("display_name", e.target.value)} placeholder="e.g. AB Capital" />
+              <input style={inputStyle} value={form.display_name} onChange={(e) => set("display_name", e.target.value)} placeholder="e.g. AB Capital Services FZE" />
             </label>
             <label style={labelStyle}>Mailbox owner (who sees this mail)
               <select style={inputStyle} value={form.owner_user_id} onChange={(e) => set("owner_user_id", e.target.value)}>

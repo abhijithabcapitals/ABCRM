@@ -397,7 +397,7 @@ export default function BusinessDevelopment({ profile }) {
     <div className="bd-workspace">
       <header className="bd-header">
         <div>
-          <div className="bd-eyebrow">AB CAPITAL · SALES WORKSPACE</div>
+          <div className="bd-eyebrow">AB CAPITAL SERVICES FZE · SALES WORKSPACE</div>
           <h1>Business Development</h1>
           <p>Manage prospects, pipeline conversations, and onboarding handovers.</p>
         </div>

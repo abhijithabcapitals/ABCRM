@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
     if (action === "login") {
       const { data, error } = await admin.rpc("client_portal_login", { p_username: String(body.username || "").slice(0, 100), p_password: String(body.password || "").slice(0, 200) });
       if (error) throw new Error(error.message);
-      if (!data?.ok) return json({ error: "Wrong username or password, or too many attempts. Try again in 15 minutes, or contact AB Capital." }, 401);
+      if (!data?.ok) return json({ error: "Wrong username or password, or too many attempts. Try again in 15 minutes, or contact AB Capital Services FZE." }, 401);
       return json({ token: data.token });
     }
 

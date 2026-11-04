@@ -214,7 +214,7 @@ function PlanPicker({ c, reload, goTo }) {
     await reload();
   };
   return (
-    <Panel title="Choose a bank and plan" sub="Charges and conditions come from AB Capital's internal data, not verified bank policy. Showing a plan never implies approval: the bank decides."
+    <Panel title="Choose a bank and plan" sub="Charges and conditions come from AB Capital Services FZE's internal data, not verified bank policy. Showing a plan never implies approval: the bank decides."
       actions={<select aria-label="Filter by bank" value={bank} onChange={(e) => setBank(e.target.value)}><option value="">All banks</option>{banks.map((b) => <option key={b.bank_id} value={b.bank_id}>{b.bank_name}</option>)}</select>}>
       <ErrorNote message={cat.error || sel.error} />
       {cat.loading && !cat.data ? <Spinner /> : shown.map((b) => {
@@ -223,7 +223,7 @@ function PlanPicker({ c, reload, goTo }) {
         const range = b.bank_pricing;
         return (
           <section className="bk-bank" key={b.bank_id}>
-            <header><h4><BankName bank={b} /></h4>{range?.service_fee_min != null && <span className="bk-muted">AB Capital fee guide: AED {range.service_fee_min}–{range.service_fee_max}</span>}</header>
+            <header><h4><BankName bank={b} /></h4>{range?.service_fee_min != null && <span className="bk-muted">AB Capital Services FZE fee guide: AED {range.service_fee_min}–{range.service_fee_max}</span>}</header>
             {notes.length > 0 && <div className="bk-consider"><strong>Considerations for this client (internal, unverified):</strong><ul>{notes.map((n, i) => <li key={i}>{n.note}</li>)}</ul></div>}
             <div className="bk-compare">
               {cards.map((p) => {
@@ -374,7 +374,7 @@ function Documents({ c, reload }) {
     <Panel title="Document checklist" sub={current[0] ? `${current[0].banking_partners?.bank_name || "Standard"}: ${verified} verified, ${missing} missing of ${current.length}` : "Select a bank to generate the checklist."}
       actions={can("docs.manage") && current.length > 0 && <><Button busy={busy} onClick={() => act(async () => { for (const l of current.filter((x) => x.status === "Not Requested")) await rpc("banking_checklist_set_status", { p_checklist: l.id, p_status: "Requested" }); })}>Mark all as requested</Button><Button busy={busy} onClick={() => act(() => rpc("banking_regenerate_checklist", { p_case: c.id }))}>Regenerate from KYC</Button></>}>
       <ErrorNote message={list.error || error} />
-      <p className="bk-note">Requirements come from AB Capital's internal list and are not verified bank policy. Uploading a file never verifies it.</p>
+      <p className="bk-note">Requirements come from AB Capital Services FZE's internal list and are not verified bank policy. Uploading a file never verifies it.</p>
       <DataTable pageSize={60} rows={current} empty="No checklist yet." columns={[
         { key: "requirement_label", label: "Requirement", render: (r) => <>{r.requirement_label}{!r.is_mandatory && <small className="bk-muted"> (conditional)</small>}{r.condition_state === "To Confirm" && <> <Badge tone="warn">To Confirm</Badge></>}</> },
         { key: "status", label: "Status", render: (r) => <Badge>{r.status}</Badge> },
@@ -494,7 +494,7 @@ function QuoteEditor({ q, onClose, onSaved }) {
               <td data-label="Type">{l.item_type}</td>
               <td data-label="Description"><input aria-label="Description" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></td>
               <td data-label="Amount" className="bk-right"><input aria-label="Amount" type="number" min="0" step="any" value={l.unit_amount} onChange={(e) => setLine(i, { unit_amount: e.target.value })} /> {Number(l.quantity ?? 1) !== 1 && `= ${lineAmount(l)}`}</td>
-              <td data-label="Paid to">{l.item_type === "Bank Fee" ? <select aria-label="Collection" value={l.collected_through_ab === false ? "direct" : "ab"} onChange={(e) => setLine(i, { collected_through_ab: e.target.value === "ab" })}><option value="ab">Bank, collected through AB Capital</option><option value="direct">Bank, client pays directly (not in total)</option></select> : "AB Capital"}</td>
+              <td data-label="Paid to">{l.item_type === "Bank Fee" ? <select aria-label="Collection" value={l.collected_through_ab === false ? "direct" : "ab"} onChange={(e) => setLine(i, { collected_through_ab: e.target.value === "ab" })}><option value="ab">Bank, collected through AB Capital Services FZE</option><option value="direct">Bank, client pays directly (not in total)</option></select> : "AB Capital Services FZE"}</td>
               <td data-label="Reason">{l.default_amount != null && Number(l.unit_amount) !== Number(l.default_amount) ? <input aria-label="Reason" placeholder={`Default ${l.default_amount}`} value={l.override_reason || ""} onChange={(e) => setLine(i, { override_reason: e.target.value })} /> : "–"}</td>
               <td><button type="button" className="bk-link" onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Remove</button></td>
             </tr>
@@ -514,7 +514,7 @@ function QuoteEditor({ q, onClose, onSaved }) {
         <div className="bk-field bk-full"><label htmlFor="q-t">Payment terms</label><textarea id="q-t" rows={2} value={fields.payment_terms} onChange={(e) => setFields({ ...fields, payment_terms: e.target.value })} /></div>
         <div className="bk-field bk-full"><label htmlFor="q-r">Remarks</label><textarea id="q-r" rows={2} value={fields.remarks} onChange={(e) => setFields({ ...fields, remarks: e.target.value })} /></div>
       </div>
-      <KeyVals items={[["Bank fees", money(totals.bank_fee_total)], ["Of which paid directly to bank", money(totals.direct_to_bank_total)], ["AB Capital service fees", money(totals.service_fee_total)], ["Supplementary services", money(totals.supplementary_total)], ["Discount", money(totals.discount_total)], ["VAT", money(totals.vat_amount)], ["Total quotation", <strong key="t">{money(totals.total_amount)}</strong>]]} />
+      <KeyVals items={[["Bank fees", money(totals.bank_fee_total)], ["Of which paid directly to bank", money(totals.direct_to_bank_total)], ["AB Capital Services FZE service fees", money(totals.service_fee_total)], ["Supplementary services", money(totals.supplementary_total)], ["Discount", money(totals.discount_total)], ["VAT", money(totals.vat_amount)], ["Total quotation", <strong key="t">{money(totals.total_amount)}</strong>]]} />
       <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button variant="primary" busy={busy} onClick={save}>Save draft</Button></div>
     </Modal>
   );
@@ -543,7 +543,7 @@ function Payments({ c, client, finance, reload }) {
   return (
     <div>
       <Panel title="Payment summary">
-        <KeyVals items={[["Total quotation", money(finance?.total)], ["Bank fees", money(finance?.bank_fees)], ["AB Capital fees", money(finance?.service_fees)], ["Supplementary fees", money(finance?.supplementary)], ["Discount", money(finance?.discount)], ["Total received", money(finance?.received)], ["Outstanding", money(finance?.outstanding)], ["Paid", `${finance?.paid_percent ?? 0}%`]]} />
+        <KeyVals items={[["Total quotation", money(finance?.total)], ["Bank fees", money(finance?.bank_fees)], ["AB Capital Services FZE fees", money(finance?.service_fees)], ["Supplementary fees", money(finance?.supplementary)], ["Discount", money(finance?.discount)], ["Total received", money(finance?.received)], ["Outstanding", money(finance?.outstanding)], ["Paid", `${finance?.paid_percent ?? 0}%`]]} />
       </Panel>
       <Panel title="Payment ledger" sub="Each entry is its own record. Mistakes are reversed, never edited."
         actions={<>{can("payments.manage") && <Button variant="primary" onClick={() => setAdding(true)}>Record payment</Button>}{can("payments.refund") && <Button onClick={() => setAdjust(true)}>Adjustment</Button>}</>}>

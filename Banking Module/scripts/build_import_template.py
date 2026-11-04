@@ -70,7 +70,7 @@ for col, (header, required, kind, list_name, help_text) in enumerate(COLUMNS, st
     cell.font, cell.fill = Font(bold=True, color="FFFFFF"), navy if required else grey
     cell.alignment = Alignment(wrap_text=True, vertical="center")
     if help_text:
-        cell.comment = Comment(help_text, "AB Capital")
+        cell.comment = Comment(help_text, "AB Capital Services FZE")
     letter = cell.column_letter
     leads.column_dimensions[letter].width = 26 if col in (1, 26) else 16
     span = f"{letter}2:{letter}{ROWS + 1}"
@@ -96,7 +96,7 @@ leads.protection.formatColumns = False
 
 guide = wb.create_sheet("How to fill", 0)
 for i, line in enumerate([
-    "AB Capital lead import template",
+    "AB Capital Services FZE lead import template",
     "1. Fill the Leads sheet, one lead per row. Dark blue columns are required.",
     "2. Choose list values from the dropdowns. Do not paste over them.",
     "3. Do not rename, add, move or delete columns or sheets. The CRM refuses a changed file.",

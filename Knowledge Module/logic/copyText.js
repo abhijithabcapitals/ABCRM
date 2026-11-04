@@ -1,6 +1,6 @@
 // Builds the plain text staff copy to email or WhatsApp. Never includes basis, confidence, payee, status or Internal lines.
 export const VAT_SENTENCE = "Prices exclude VAT unless stated otherwise.";
-export const BANKING_VAT_INCLUDED = "AB Capital service fee includes VAT.";
+export const BANKING_VAT_INCLUDED = "AB Capital Services FZE service fee includes VAT.";
 
 export const canCopy = (item) => item.visibility === "Shareable";
 export const needsConfirm = (item) => item.status === "Draft";

@@ -33,7 +33,7 @@ export default function InformationTab({ me, api, readOnly, reload }) {
   const edit = editing && { name: "value", label: editing.label, type: editing.type === "date" ? "date" : "text", required: true, full: true };
   return (
     <>
-      <p className="pt-muted bk-mb">If something is wrong, ask for a change. AB Capital checks each change before it is saved.</p>
+      <p className="pt-muted bk-mb">If something is wrong, ask for a change. AB Capital Services FZE checks each change before it is saved.</p>
       {GROUPS.map((g) => (
         <Panel key={g} title={g}>
           {fields.filter((f) => f.group === g).map((f) => (
@@ -44,7 +44,7 @@ export default function InformationTab({ me, api, readOnly, reload }) {
       {editing && !readOnly && (
         <FormModal title={`Change ${editing.label}`} submitLabel="Send for review" onClose={() => setEditing(null)}
           fields={[edit]} initial={{ value: editing.type === "date" ? toIso(record[editing.key]) : record[editing.key] ?? "" }}
-          note="AB Capital will check this before it is saved to your record."
+          note="AB Capital Services FZE will check this before it is saved to your record."
           onSubmit={async (v) => {
             if (!v.value) throw new Error("Enter the new value.");
             await api.submitChange(editing.key, v.value);

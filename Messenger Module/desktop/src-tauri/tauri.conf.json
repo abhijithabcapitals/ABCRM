@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AB Capital Messenger",
+  "productName": "AB Capital Services FZE Messenger",
   "version": "0.1.0",
   "identifier": "ae.abcapital.messenger",
   "build": {
@@ -20,7 +20,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "AB Capital Messenger",
+        "title": "AB Capital Services FZE Messenger",
         "url": "desktop.html",
         "width": 1280,
         "height": 800,

@@ -4,7 +4,7 @@ import { insertRow, listAll, rpc, run, table, updateRow } from "../services/bank
 import { VERIFICATION } from "../logic/constants";
 import { money } from "../logic/pricing";
 
-const NOT_POLICY = "Internal CRM data supplied by AB Capital. Not verified or current official bank policy unless marked Verified with a date and reviewer.";
+const NOT_POLICY = "Internal CRM data supplied by AB Capital Services FZE. Not verified or current official bank policy unless marked Verified with a date and reviewer.";
 
 const SCHEME_FIELDS = [
   ["minimum_balance", "Minimum balance", "number"], ["initial_deposit", "Initial deposit", "number"], ["monthly_fee", "Monthly maintenance fee", "number"], ["minimum_average_balance", "Minimum average balance", "number"], ["below_balance_fee", "Fee if below balance", "number"],
@@ -52,8 +52,8 @@ export function BankPricing({ bankId }) {
     { name: "scheme_id", label: "Plan", type: "select", placeholder: "All plans of this bank", options: (schemes.data || []).filter((s) => s.bank_id === bankId).map((s) => ({ value: s.id, label: s.scheme_name })) },
     { name: "account_opening_fee", label: "Bank account opening fee", type: "number", required: true }, { name: "other_bank_charges", label: "Other bank charges", type: "number", required: true },
     { name: "initial_deposit", label: "Initial deposit (never revenue)", type: "number" }, { name: "minimum_balance", label: "Minimum balance (never revenue)", type: "number" },
-    { name: "bank_fee_collected_by_ab", label: "Bank fee collected through AB Capital", type: "bool", help: "Off: the client pays the bank directly." },
-    { name: "service_fee", label: "AB Capital service fee", type: "number", help: "Blank uses the default in Settings." }, { name: "service_fee_min", label: "Guide: lowest service fee", type: "number" }, { name: "service_fee_max", label: "Guide: highest service fee", type: "number" },
+    { name: "bank_fee_collected_by_ab", label: "Bank fee collected through AB Capital Services FZE", type: "bool", help: "Off: the client pays the bank directly." },
+    { name: "service_fee", label: "AB Capital Services FZE service fee", type: "number", help: "Blank uses the default in Settings." }, { name: "service_fee_min", label: "Guide: lowest service fee", type: "number" }, { name: "service_fee_max", label: "Guide: highest service fee", type: "number" },
     { name: "effective_date", label: "Effective date", type: "date", required: true }, { name: "expiry_date", label: "Expiry date", type: "date" }, { name: "source", label: "Source" }, { name: "remarks", label: "Remarks", type: "textarea", full: true },
   ];
   return (
@@ -62,7 +62,7 @@ export function BankPricing({ bankId }) {
       <ErrorNote message={pricing.error} />
       <DataTable rows={(pricing.data || []).filter((r) => r.bank_id === bankId)} onRow={manage ? (r) => setEdit({ ...r, id: undefined }) : undefined} empty="No pricing recorded for this bank. The default service fee from Settings applies." columns={[
         { key: "s", label: "Plan", render: (r) => r.banking_schemes?.scheme_name || "All" }, { key: "account_opening_fee", label: "Opening fee", right: true, render: (r) => money(r.account_opening_fee) }, { key: "other_bank_charges", label: "Other", right: true, render: (r) => money(r.other_bank_charges) },
-        { key: "c", label: "Collected", render: (r) => (r.bank_fee_collected_by_ab ? "Through AB Capital" : "Client pays bank") }, { key: "service_fee", label: "Service fee", right: true, render: (r) => money(r.service_fee) }, { key: "g", label: "Guide range", render: (r) => (r.service_fee_min != null ? `${r.service_fee_min}–${r.service_fee_max}` : "–") },
+        { key: "c", label: "Collected", render: (r) => (r.bank_fee_collected_by_ab ? "Through AB Capital Services FZE" : "Client pays bank") }, { key: "service_fee", label: "Service fee", right: true, render: (r) => money(r.service_fee) }, { key: "g", label: "Guide range", render: (r) => (r.service_fee_min != null ? `${r.service_fee_min}–${r.service_fee_max}` : "–") },
         { key: "effective_date", label: "From", render: (r) => fmtDate(r.effective_date) }, { key: "expiry_date", label: "To", render: (r) => fmtDate(r.expiry_date) }, { key: "source", label: "Source" },
       ]} />
       {edit && <FormModal wide title="New price (copies the row you opened)" fields={fields} initial={edit} onClose={() => setEdit(null)} onSubmit={async (v) => { await insertRow("banking_pricing", { ...v, bank_id: bankId }); await pricing.reload(); }} />}

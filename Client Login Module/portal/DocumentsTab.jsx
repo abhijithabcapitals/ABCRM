@@ -5,7 +5,7 @@ import { DOC_TYPES } from "./portalApi";
 import { fmtSize, showDate } from "./format";
 
 const STATUS = { pending: ["Received", "warn"], in_review: ["Under review", "warn"], validated: ["Accepted", "good"], rejected: ["Please re-upload", "bad"] };
-const CATEGORIES = [["all", "All"], ["sent", "Sent by you"], ["kyc", "Your KYC documents"], ["ab", "From AB Capital"]];
+const CATEGORIES = [["all", "All"], ["sent", "Sent by you"], ["kyc", "Your KYC documents"], ["ab", "From AB Capital Services FZE"]];
 
 // One shape for the three sources. A sensitive document carries its type only: its title or file name can name a person.
 function toCards(me) {
@@ -22,9 +22,9 @@ function Card({ card, readOnly, onOpen }) {
     <article className="pt-card">
       {card.sensitive ? <h4>{card.type}</h4> : <h4>{card.name}</h4>}
       {!card.sensitive && <span className="pt-muted">{[card.type, showDate(card.date), fmtSize(card.size)].filter(Boolean).join(" · ")}</span>}
-      {card.sensitive && <Badge tone="plain">Held by AB Capital</Badge>}
+      {card.sensitive && <Badge tone="plain">Held by AB Capital Services FZE</Badge>}
       {s && <Badge tone={s[1]}>{s[0]}</Badge>}
-      {card.message && <small>Message from AB Capital: {card.message}</small>}
+      {card.message && <small>Message from AB Capital Services FZE: {card.message}</small>}
       {!card.sensitive && !readOnly && card.canOpen && <Button onClick={() => onOpen(card)}>Open</Button>}
     </article>
   );
@@ -83,7 +83,7 @@ function Upload({ api, onDone }) {
       <div className="bk-grid">
         <div className="bk-field"><label htmlFor="pt-type">Document type <em>*</em></label><select id="pt-type" value={docType} onChange={(e) => setDocType(e.target.value)}><option value="">Select…</option>{DOC_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
         <div className="bk-field"><label htmlFor="pt-file">File <em>*</em></label><input id="pt-file" ref={input} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.doc,.docx,.xls,.xlsx,.csv,.txt,.eml,.msg" /></div>
-        <div className="bk-field bk-full"><label htmlFor="pt-note">Note for AB Capital</label><input id="pt-note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} /></div>
+        <div className="bk-field bk-full"><label htmlFor="pt-note">Note for AB Capital Services FZE</label><input id="pt-note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} /></div>
       </div>
       <div className="bk-actions bk-mt"><Button variant="primary" busy={busy} onClick={send}>Upload</Button>{sent > 0 && !busy && <span role="status">Sent {sent} {sent === 1 ? "file" : "files"}. We will review {sent === 1 ? "it" : "them"} shortly.</span>}</div>
     </Panel>

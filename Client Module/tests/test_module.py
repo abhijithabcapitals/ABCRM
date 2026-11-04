@@ -40,7 +40,7 @@ def test_pages_carry_branding(env):
     for page in ("/", "/tax"):
         html = c.get(page).text
         assert "/brand/logo.webp" in html
-        assert "All Rights Reserved, AB Capital Services FZC Dubai, UAE" in html
+        assert "All Rights Reserved, AB Capital Services FZE Dubai, UAE" in html
 
 
 def upload(c, batch, name):
