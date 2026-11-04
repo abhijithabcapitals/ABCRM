@@ -334,10 +334,14 @@
 .bk-admin-bar i { display: block; height: 8px; min-width: 2px; border-radius: 4px; background: #0f6f73; }
 .bk-admin-bar b { font-weight: 500; white-space: nowrap; }
 
-/* Tables that keep every row on one line; long text is cut and shows in full on hover. */
-.bk-oneline .bk-table td { white-space: nowrap; }
-.bk-clip { display: inline-block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
-@media (max-width: 760px) {
-  .bk-oneline .bk-table td { white-space: normal; }
-  .bk-clip { max-width: none; white-space: normal; }
+/* Tables that fit the page with every row on one line; long text is cut and shows in full on hover.
+   Columns take the width given in DataTable, and those without one share the rest. */
+.bk-oneline .bk-table { table-layout: fixed; }
+.bk-oneline .bk-table td, .bk-oneline .bk-table th { overflow: hidden; padding-inline: 7px; white-space: nowrap; text-overflow: ellipsis; }
+.bk-clip { display: block; overflow: hidden; text-overflow: ellipsis; }
+/* Too narrow for one line: rows wrap instead, still with no sideways scroll. */
+@media (max-width: 1200px) {
+  .bk-oneline .bk-table { table-layout: auto; }
+  .bk-oneline .bk-table td { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+  .bk-clip { white-space: normal; }
 }

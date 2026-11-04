@@ -34,7 +34,7 @@ Apply migrations in order to the CRM Supabase project. Migration 005 adds full c
 message-body storage, assigns the provisioned CEO owner, resets the mailbox
 cursors for the historical backfill, and redirects the schedule to the CRM
 function. Expose the `email_base` schema through the Data API, and deploy `ceo-mail-sync` from
-`CEO Agent Module/supabase/ceo-mail-sync`. Configure each mailbox password as
+`Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ceo-mail-sync`. Configure each mailbox password as
 an Edge Function secret named `MAIL_PASSWORD_INFO_ABCAPITAL_AE` or
 `MAIL_PASSWORD_BHARAT_ARDENTAXIT_TAX`, plus `OPENROUTER_API_KEY`.
 

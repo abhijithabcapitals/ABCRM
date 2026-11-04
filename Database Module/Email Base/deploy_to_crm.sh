@@ -22,7 +22,7 @@ run_sql "001 Email Base"            -f "$HERE/migrations/001_email_base.sql"
 run_sql "002 full message history"  -f "$HERE/migrations/002_full_message_history.sql"
 run_sql "003 body search"           -f "$HERE/migrations/003_body_search.sql"
 run_sql "004 BD drafts"             -f "$HERE/migrations/004_business_development_drafts.sql"
-run_sql "CEO inbox assistant"       -f "$CRM/CEO Agent Module/supabase/migrations/202610300003_email_base_mail_assistant.sql"
+run_sql "CEO inbox assistant"       -f "$CRM/Agent Module/11_Personal_Agent/CEO Agent Module/supabase/migrations/202610300003_email_base_mail_assistant.sql"
 run_sql "005 full capture"          -f "$HERE/migrations/005_full_capture.sql"
 # The old schedule calls the function with a secret the new version does not accept.
 run_sql "retire old cron job"       "select cron.unschedule(jobid) from cron.job where jobname = 'ceo-mail-sync'"

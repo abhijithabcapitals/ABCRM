@@ -43,3 +43,43 @@ test("a step returns keyboard focus to a move button, falling back when it is di
   assert.match(src, /\.disabled/);
   assert.match(src, /\.focus\(/);
 });
+
+const repo = fileURLToPath(new URL("../../", import.meta.url));
+
+test("Dashboard only starts the Zoho read and refresh when the cards are live", () => {
+  const src = read("Dashboard.jsx");
+  assert.match(src, /import \{ ZOHO_CARDS_LIVE \} from "\.\.\/logic\/summaryLayout\.js"/);
+  assert.match(src, /useZohoFinance\(isAdmin && ZOHO_CARDS_LIVE\)/);
+});
+
+test("every layout save on the board waits for the tabs", () => {
+  const src = read("SummaryBoard.jsx");
+  const saves = src.match(/saveLayout\(userId/g) || [];
+  const guarded = src.match(/if \(saveAllowed\) saveLayout\(userId/g) || [];
+  assert.ok(saves.length >= 2, "the board should save the layout");
+  assert.equal(guarded.length, saves.length);
+  assert.match(src, /if \(saveAllowed\) clearLayout\(userId\)/);
+});
+
+test("the Accounting and Tax cards read past the 1,000 row cap, with a stable order", () => {
+  const src = readFileSync(join(repo, "Dashboard Module/services/summaryApi.js"), "utf8");
+  assert.doesNotMatch(src, /\.limit\(5000\)/);
+  assert.match(src, /allRows\(\(\) => supabase\.from\("accounting_job_list"\)[^\n]*\.order\("id"\)/);
+  assert.match(src, /allRows\(\(\) => supabase\.from\("client_master"\)[^\n]*\.order\("client_id"\)/);
+});
+
+test("the Business Development screen uses the shared open lead rule, with no copy of its own", () => {
+  const src = readFileSync(join(repo, "Business Development Module/components/BusinessDevelopment.jsx"), "utf8");
+  assert.match(src, /import \{ isOpen \} from "\.\.\/logic\/leadRules\.js"/);
+  assert.doesNotMatch(src, /const isOpen =/);
+});
+
+test("the Zoho hook reads the row again once after a busy result, and the row's error is not treated as a login state", () => {
+  const src = read("ZohoSection.jsx");
+  assert.equal((src.match(/setTimeout\(/g) || []).length, 1);
+  assert.match(src, /clearTimeout\(reread\.current\);\s*reread\.current = setTimeout/);
+  assert.doesNotMatch(src, /(r|next)\.error === "not_connected"/);
+  // The delayed read only reads: it must not start another refresh.
+  const timer = src.slice(src.indexOf("reread.current = setTimeout"), src.indexOf("BUSY_REREAD_MS);"));
+  assert.doesNotMatch(timer, /run\(|refreshSnapshot/);
+});

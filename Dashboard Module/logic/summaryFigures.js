@@ -1,17 +1,33 @@
 // Turns what each source returns into the plain numbers a summary card shows.
-// No imports, so node --test can load it.
+// Imports only plain logic, so node --test can load it.
+import { isOpen } from "../../Business Development Module/logic/leadRules.js";
+
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const list = (v) => (Array.isArray(v) ? v : []);
 const obj = (v) => (v && typeof v === "object" ? v : {});
 
-// Stages not in `stages` are counted under "Other".
+// Supabase caps a response at 1,000 rows, so a list is read page by page until a short page. The caller must order by
+// something unique, so pages never overlap. Same approach as Accounting Module/services/jobsApi.js.
+export const PAGE_SIZE = 1000;
+export async function readPages(fetchPage) {
+  const out = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const page = list(await fetchPage(from, from + PAGE_SIZE - 1));
+    out.push(...page);
+    if (page.length < PAGE_SIZE) return out;
+  }
+}
+
+// Open leads only, as the Business Development screen counts them. `cap` is how many leads, open or not, were asked
+// for: reaching it means the read was cut off. Stages not in `stages` are counted under "Other".
 export function bdFigures(rows, stages, cap = 500) {
-  const items = list(rows);
+  const all = list(rows);
+  const items = all.filter(isOpen);
   const known = list(stages);
   const out = known.map((label) => ({ label, value: items.filter((r) => r.stage === label).length }));
   const other = items.filter((r) => !known.includes(r.stage)).length;
   if (other) out.push({ label: "Other", value: other });
-  return { total: items.length >= cap ? `${cap}+` : items.length, stages: out };
+  return { total: all.length >= cap ? `${cap}+` : items.length, stages: out };
 }
 
 // Same labels as the Business Banking dashboard.
@@ -63,10 +79,47 @@ export function taxFigures(result) {
   return { overdue: num(s.overdue), due14: num(s.due_14), due30: num(s.due_30), missing: num(s.missing), clients: num(x.clientsChecked) };
 }
 
+// Only the newest NOTIFICATION_LIMIT are read. All of them unread means there may be more.
+export const NOTIFICATION_LIMIT = 50;
 export function notificationFigures(rows) {
   const items = list(rows);
-  return { unread: items.filter((n) => !n.read).length, latest: items.slice(0, 5) };
+  const unread = items.filter((n) => !n.read).length;
+  return { unread: unread >= NOTIFICATION_LIMIT ? `${NOTIFICATION_LIMIT}+` : unread, latest: items.slice(0, 5) };
 }
 
 // Postgres "insufficient privilege".
 export const isNoAccess = (error) => error?.code === "42501";
+
+// ---- Zoho financial snapshot ----
+const MINUTE = 60_000;
+const FRESH_MINUTES = 60;
+const REFRESH_WAIT_MINUTES = 5;
+const stamp = (v) => (v ? Date.parse(v) : NaN);
+
+// "empty" has no figures yet, "failed" is the last attempt failing (the old figures stay), "stale" is over an hour old.
+export function snapshotState(row, now) {
+  const asOf = stamp(row?.as_of);
+  if (Number.isNaN(asOf)) return "empty";
+  if (row.status === "failed") return "failed";
+  return now - asOf > FRESH_MINUTES * MINUTE ? "stale" : "fresh";
+}
+
+// "n/a" for an unknown ratio. Never zero.
+export const fmtRatio = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? "n/a" : Number(v).toFixed(2));
+
+// Whole minutes until the Refresh button works: the function allows it once both the figures and the last attempt are 5 minutes old.
+export function refreshWaitMinutes(row, now) {
+  const newest = Math.max(stamp(row?.as_of) || 0, stamp(row?.last_attempt_at) || 0);
+  if (!newest) return 0;
+  return Math.max(0, Math.ceil((newest + REFRESH_WAIT_MINUTES * MINUTE - now) / MINUTE));
+}
+
+// The table is not there yet (migration not applied): Postgres 42P01, or PostgREST's schema-cache miss.
+export const isMissingTable = (error) => error?.code === "42P01" || error?.code === "PGRST205";
+
+// The line under the header after a failed refresh, or null. A first-ever failure has no earlier figures to point to.
+export function failureNote(row) {
+  if (row?.status !== "failed") return null;
+  const why = row.error || "The last refresh failed.";
+  return Number.isNaN(stamp(row.as_of)) ? `${why} There are no earlier figures.` : `${why} The figures below are from the last good refresh.`;
+}

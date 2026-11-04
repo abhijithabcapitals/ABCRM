@@ -708,9 +708,9 @@ function SetupCard() {
         </p>
         <ol className="ceo-steps">
           <li>Create a dedicated Supabase project (choose the region after reviewing UAE data-residency needs).</li>
-          <li>Apply <code>CEO Agent Module/supabase/migrations/202610290001_initial_ceo_schema.sql</code>.</li>
+          <li>Apply <code>Agent Module/11_Personal_Agent/CEO Agent Module/supabase/migrations/202610290001_initial_ceo_schema.sql</code>.</li>
           <li>Add <code>ceo</code> to Settings → Data API → Exposed schemas, and keep public sign-ups off.</li>
-          <li>Invite the owner in Auth, then insert their row in <code>ceo.profiles</code> (see <code>CEO Agent Module/CONFIGURATION.md</code>).</li>
+          <li>Invite the owner in Auth, then insert their row in <code>ceo.profiles</code> (see <code>Agent Module/11_Personal_Agent/CEO Agent Module/CONFIGURATION.md</code>).</li>
           <li>Set <code>VITE_CEO_SUPABASE_URL</code> and <code>VITE_CEO_SUPABASE_PUBLISHABLE_KEY</code> in the Main Module <code>.env</code> and as GitHub repository secrets, then redeploy.</li>
         </ol>
       </section>

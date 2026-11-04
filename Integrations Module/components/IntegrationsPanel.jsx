@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import registry from "../registry.json";
 import ZohoConnection from "./ZohoConnection.jsx";
+import ZohoFinanceConnection from "./ZohoFinanceConnection.jsx";
 import ChatBoundary from "@messenger/components/ChatBoundary";
 
 // The Microsoft screens belong to the Messenger Module and load only when the microsoft row is open.
@@ -160,6 +161,7 @@ export default function IntegrationsPanel({ supabase }) {
               </ChatBoundary>
             )}
             {i.id === "zoho-books" && tab?.id === "invoices" && <ZohoConnection supabase={supabase} onSaved={load} />}
+            {i.id === "zoho-books" && tab?.id === "financials" && <ZohoFinanceConnection supabase={supabase} />}
           </div>
         )}
       </div>

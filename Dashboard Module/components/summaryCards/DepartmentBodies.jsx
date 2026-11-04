@@ -32,10 +32,10 @@ function Bars({ rows }) {
 const Empty = ({ children }) => <div className="sum-note">{children}</div>;
 
 export function BdBody({ data }) {
-  if (!data.total) return <Empty>No leads yet</Empty>;
+  if (!data.total) return <Empty>No open leads</Empty>;
   return (
     <>
-      <div className="sum-stats"><Stat label="Total leads" value={data.total} /></div>
+      <div className="sum-stats"><Stat label="Open leads" value={data.total} /></div>
       <div className="sum-section"><Bars rows={data.stages} /></div>
     </>
   );
