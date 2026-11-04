@@ -1,6 +1,7 @@
 // What needs attention across the department. Each card opens the page that deals with it.
 import { DataTable, ErrorNote, PageHead, Panel, Badge, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { useSetup } from "./SetupContext";
+import { visibleNav } from "../logic/nav";
 import { dashboard, expiries } from "../services/businessSetupApi";
 import { expiryNote } from "../logic/expiries";
 import { aedMoney as money } from "@app/money";
@@ -18,7 +19,8 @@ const figure = (k, d) => (k === "receivables" ? money(d.receivables) : k === "pi
 const sub = (k, d) => (k === "receivables" ? `Advances ${money(d.advances)}` : k === "cases_completed_month" ? `This month. ${d.cases_completed_total ?? 0} in total` : "");
 
 export default function Dashboard() {
-  const { goTo } = useSetup();
+  const { goTo, can } = useSetup();
+  const allowed = new Set(visibleNav(can).map(([k]) => k));
   const d = useLoad(() => dashboard(), []);
   const e = useLoad(() => expiries(), []);
   if (d.loading && !d.data) return <Spinner />;
@@ -30,11 +32,19 @@ export default function Dashboard() {
         <>
           <div className="bk-cards">
             {FIGURES.map(([k, label, page]) => (
-              <button type="button" className="bk-card bk-click" key={k} onClick={() => goTo(page)}>
-                <span>{label}</span>
-                <strong>{figure(k, d.data)}</strong>
-                {sub(k, d.data) && <small>{sub(k, d.data)}</small>}
-              </button>
+              allowed.has(page) ? (
+                <button type="button" className="bk-card bk-click" key={k} onClick={() => goTo(page)}>
+                  <span>{label}</span>
+                  <strong>{figure(k, d.data)}</strong>
+                  {sub(k, d.data) && <small>{sub(k, d.data)}</small>}
+                </button>
+              ) : (
+                <div className="bk-card" key={k}>
+                  <span>{label}</span>
+                  <strong>{figure(k, d.data)}</strong>
+                  {sub(k, d.data) && <small>{sub(k, d.data)}</small>}
+                </div>
+              )
             ))}
           </div>
           <Panel title="Cases by stage" sub="Open cases only. Completed, cancelled and lost cases are not counted.">

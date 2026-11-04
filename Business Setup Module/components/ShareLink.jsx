@@ -6,6 +6,7 @@ import { rpc } from "@banking/services/bankingApi";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { caseLinkClient, caseShared, loginSave, loginState } from "../services/businessSetupApi";
 import { generatePassword, suggestUsername } from "../logic/loginSecret";
+import { shareStep } from "../logic/shareStep";
 
 const validEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
 // The login mail goes through the same Edge Function action the client portal admin uses. It stores the password for later Resend.
@@ -19,18 +20,26 @@ export default function ShareLink({ c, onClose, onDone }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [issued, setIssued] = useState(null);
+  const admin = useLoad(() => rpc("client_portal_is_admin"), []);
+  const [note, setNote] = useState(null);
+  const [confirming, setConfirming] = useState(false);
   const login = useLoad(() => (client ? loginState(client) : Promise.resolve(null)), [client]);
   const a = login.data;
   const run = async (fn) => { setBusy(true); setError(null); try { await fn(); } catch (e) { setError(e.message); } setBusy(false); };
   const link = (clientId, allowDuplicate = false) => run(async () => { setClient(await caseLinkClient(c.id, clientId || null, allowDuplicate)); setDuplicate(false); });
   const finish = async () => { await caseShared(c.id); await onDone(); };
+  // The password is kept on screen from the moment the login is saved until the email is known to have gone, or the modal closes.
   const send = async (username, password) => {
-    const reply = await emailLogin(client, username, password, email);
-    if (!reply.emailed) { setIssued({ username, password }); throw new Error(`The login is saved, but the email to ${email.trim()} did not send: ${reply.email_error || "unknown error"}. Use Resend, or give the login to the client yourself.`); }
-    await finish();
+    setIssued({ username, password });
+    let result = null; let thrown = null;
+    if (admin.data) { try { result = await emailLogin(client, username, password, email); } catch (e) { thrown = e; } }
+    const step = shareStep({ isAdmin: !!admin.data, result, thrown });
+    setNote(step.note || null);
+    if (step.advance) { setIssued(null); await finish(); return; }
+    if (step.error) throw new Error(step.error);
   };
   const issue = () => run(async () => {
-    if (!validEmail(email)) throw new Error("Enter the client's email address. The login is sent there.");
+    if (admin.data && !validEmail(email)) throw new Error("Enter the client's email address. The login is sent there.");
     const username = suggestUsername(c.client_name || c.lead_name) || "client";
     const password = generatePassword();
     await loginSave(client, username, password);
@@ -40,6 +49,7 @@ export default function ShareLink({ c, onClose, onDone }) {
   // The saved password is read back from the vault (admins only); nothing is saved again.
   const resend = () => run(async () => {
     if (!validEmail(email)) throw new Error("Enter the client's email address. The login is sent there.");
+    if (!admin.data) throw new Error("Only an admin can email a login. Give it to the client yourself, or ask an admin.");
     const password = issued?.password || await rpc("client_portal_admin_password", { p_account: a.id });
     if (!password) throw new Error("The saved password cannot be read back. Reset the password on the client's Client Login tab, then use Share link again.");
     await send(a.username, password);
@@ -62,10 +72,13 @@ export default function ShareLink({ c, onClose, onDone }) {
           <p className="bk-note">This client already has the login <strong>{a.username}</strong>. It is kept as it is.</p>
           <div className="bk-actions bk-mt">
             <Button variant="primary" busy={busy} onClick={resend}>Resend login email</Button>
-            <Button busy={busy} onClick={() => run(finish)}>I gave the login myself: mark shared</Button>
+            <Button busy={busy} onClick={() => setConfirming(true)}>I gave the login myself: mark shared</Button>
           </div>
         </>}
-        {issued && <p className="bk-note">Username <code>{issued.username}</code>, password <code>{issued.password}</code>. Shown only on this screen.</p>}
+        {confirming && <div className="bk-alert bk-alert-warn">Mark this case as shared? Its stage moves on and this cannot be undone here. Confirm only if the client already has the login.
+          <div className="bk-actions bk-mt"><Button variant="primary" busy={busy} onClick={() => run(finish)}>Yes, mark shared</Button><Button onClick={() => setConfirming(false)}>Cancel</Button></div></div>}
+        {note && <p className="bk-note">{note}</p>}
+        {issued && <p className="bk-note">Username <code>{issued.username}</code>, password <code>{issued.password}</code>. Shown only on this screen; closing it removes the password.</p>}
       </>}
       <div className="bk-modal-actions"><Button onClick={onClose}>Close</Button></div>
     </Modal>
