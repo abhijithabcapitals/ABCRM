@@ -46,3 +46,12 @@ test("Leads and Cases render", { skip }, async () => {
   assert.match(await html("Leads.jsx", "default", {}), /Leads/);
   assert.match(await html("Cases.jsx", "default", {}), /Cases/);
 });
+
+test("the quote screen renders a fresh line and a revision, with net, VAT and total and no VAT select", { skip }, async () => {
+  const w = { client: { legal_name: "Acme", email: "a@b.ae", phone: "050", data: {} }, kyc: {} };
+  const fresh = await html("NewServiceFlow.jsx", "default", { w, clientId: "CL000001", caseId: "c1", onClose() {}, onDone() {} });
+  assert.match(fresh, /Scope of work/); assert.match(fresh, /Net: AED 0/); assert.match(fresh, /VAT: AED 0/); assert.match(fresh, /Total: AED 0/);
+  assert.doesNotMatch(fresh, /id="bs-vat"/);
+  const revise = await html("NewServiceFlow.jsx", "default", { w, clientId: "CL000001", revises: { id: "q1", document_number: "Q1", lines: [{ service_name: "Visa", description: "Visa", amount: 1000 }] }, onClose() {}, onDone() {} });
+  assert.match(revise, /Revise Q1/); assert.match(revise, /Net: AED 1,000/); assert.match(revise, /VAT: AED 50/); assert.match(revise, /Total: AED 1,050/);
+});

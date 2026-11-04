@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expiryNote } from "../logic/expiries.js";
 import { kycMissing } from "../logic/kyc.js";
-import { buildLines } from "../logic/lines.js";
+import { buildLines, lineTotals, lineError, withRates } from "../logic/lines.js";
 import { balance, canStart, canComplete, isRegistration } from "../logic/balances.js";
 import { SERVICE_STATUSES } from "../logic/statuses.js";
 import { contactChoice } from "../logic/contact.js";
@@ -25,7 +25,7 @@ test("KYC names each required field and needs no licence for a new company", () 
 
 test("lines carry their service, action and fee item, and the description shows the action except for New", () => {
   const [a, b] = buildLines([{ service_name: "Trade licence", action: "New", fee_item_id: "f1", amount: "100" }, { service_name: "Visa", action: "Renewal", amount: 50, remarks: "x" }]);
-  assert.deepEqual(a, { service_name: "Trade licence", action: "New", fee_item_id: "f1", description: "Trade licence", amount: 100, remarks: "" });
+  assert.deepEqual(a, { service_name: "Trade licence", action: "New", fee_item_id: "f1", description: "Trade licence", amount: 100, remarks: "", scope: "", vat_rate: 5 });
   assert.equal(b.description, "Renewal Visa");
   assert.equal(b.fee_item_id, null);
   assert.equal(b.remarks, "x");
@@ -143,4 +143,48 @@ test("pages use the decided rules: superseded is not live, Share link needs the 
   for (const f of ["DocumentationPage", "Cases", "Leads"]) assert.match(rd(`../components/${f}.jsx`), /LostDialog/);
   for (const f of ["DocumentationPage", "Cases", "Leads"]) assert.match(rd(`../components/${f}.jsx`), /ReassignActions/);
   assert.match(rd("../components/DocumentationPage.jsx"), /caseLinkClient/);
+});
+
+// ── Phase 2, Task 7: suggested amounts and line VAT ──
+test("line totals add VAT line by line, rounded per line", () => {
+  assert.deepEqual(lineTotals([{ amount: 1000, vat_rate: 5 }, { amount: 500, vat_rate: 0 }]), { net: 1500, vat: 50, total: 1550 });
+  assert.deepEqual(lineTotals([{ amount: 33.33, vat_rate: 5 }]), { net: 33.33, vat: 1.67, total: 35 });
+  assert.deepEqual(lineTotals([{ amount: "100" }, { amount: "" }]), { net: 100, vat: 5, total: 105 });
+  assert.deepEqual(lineTotals([]), { net: 0, vat: 0, total: 0 });
+});
+
+test("a line needs a service and a typed fee: the grey stored amount is not a fee, and zero is", () => {
+  assert.equal(lineError([{ service_name: "Visa", amount: "", stored_amount: 900 }]), "Each line needs a service and a fee.");
+  assert.equal(lineError([{ service_name: "Visa", amount: 0 }]), null);
+  assert.equal(lineError([{ service_name: " ", amount: 10 }]), "Each line needs a service and a fee.");
+  assert.equal(lineError([{ service_name: "Visa", amount: -1 }]), "Each line needs a service and a fee.");
+  assert.equal(lineError([{ service_name: "Visa", amount: "12" }, { service_name: "Fee", amount: "" }]), "Each line needs a service and a fee.");
+  assert.equal(lineError([]), "Add at least one service.");
+});
+
+test("lines carry scope and the rate; a fee item's rate wins over one stored on an older line", () => {
+  const [a] = buildLines([{ service_name: "Visa", amount: 10, scope: " Employment visa ", vat_rate: 0 }]);
+  assert.equal(a.scope, "Employment visa");
+  assert.equal(a.vat_rate, 0);
+  const rows = withRates([{ service_name: "A", fee_item_id: "f0", vat_rate: 5 }, { service_name: "B", vat_rate: 0 }, { service_name: "C" }], [{ id: "f0", vat_rate: 0 }]);
+  assert.deepEqual(rows.map((r) => r.vat_rate), [0, 0, 5]);
+});
+
+test("the quote screen shows the stored amount as a placeholder with a Use button, has no VAT select, and shows net, VAT and total", () => {
+  const flow = readFileSync(fileURLToPath(new URL("../components/NewServiceFlow.jsx", import.meta.url)), "utf8");
+  assert.match(flow, /placeholder=\{r\.stored_amount/);
+  assert.match(flow, /Use \{/);
+  assert.match(flow, /Scope of work/);
+  assert.doesNotMatch(flow, /id="bs-vat"/);
+  assert.doesNotMatch(flow, /amount: f\.default_amount/);
+  assert.match(flow, /lineError\(/);
+  for (const w of ["Net", "VAT", "Total"]) assert.ok(flow.includes(w), w);
+  assert.doesNotMatch(flow, /vat_mode: vat/);
+});
+
+test("the fee list handles an empty amount and edits the VAT rate", () => {
+  const fm = readFileSync(fileURLToPath(new URL("../components/FeeMaster.jsx", import.meta.url)), "utf8");
+  assert.match(fm, /vat_rate/);
+  assert.doesNotMatch(fm, /name: "default_amount"[^}]*required: true/);
+  assert.match(fm, /r\.default_amount === null/);
 });

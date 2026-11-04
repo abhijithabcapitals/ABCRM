@@ -12,9 +12,12 @@ LETTERHEAD, PAYMENT, logo = b["LETTERHEAD"], b["PAYMENT"], b["logo"]
 OUT = ROOT / "Template Module" / "templates"
 OUT.mkdir(exist_ok=True)
 
+# The Net and VAT rows show only when show_breakdown is set (a Business Setup quote or letter with line VAT); every other document keeps one Total row.
 FEES = lambda total_label: table([
     [cell("#", 500, True, fill="EEF2F3"), cell("Service", 6700, True, fill="EEF2F3"), cell("Fee (AED)", 1800, True, "right", "EEF2F3")],
     [cell("{#lines}{no}", 500), cell("{description}", 6700), cell("{amount}{/lines}", 1800, align="right")],
+    [cell("{#show_breakdown}", 500), cell("Net amount", 6700, True), cell("{net}{/show_breakdown}", 1800, True, "right")],
+    [cell("{#show_breakdown}", 500), cell("VAT", 6700, True), cell("{vat}{/show_breakdown}", 1800, True, "right")],
     [cell("", 500, fill="EEF2F3"), cell(total_label, 6700, True, fill="EEF2F3"), cell("{total}", 1800, True, "right", "EEF2F3")],
 ], [500, 6700, 1800])
 
