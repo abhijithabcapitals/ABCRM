@@ -257,7 +257,13 @@ async function loadSource(deps: Deps, table: string, id: string): Promise<Source
   if (table === "accounting_jobs") {
     const job = await readRow(deps, table, "id", id);
     if (!job) throw new UserError("That job was not found.");
-    const src = fromJob(job);
+    // The linked quote decides whether the fee holds VAT.
+    let quote: Json = null;
+    if (job.quote_id) {
+      quote = await readRow(deps, "hub_documents", "id", job.quote_id, "vat_mode, vat_rate");
+      if (!quote) throw new UserError("Could not read this job's quote.");
+    }
+    const src = fromJob(job, quote);
     if (src.invoiceRecorded) {
       // Only the invoice this CRM made may stand in for the recorded one. A typed number that differs still blocks.
       const made = await deps.db.from("zoho_documents").select("zoho_number").eq("source_table", table).eq("source_id", id).eq("kind", "invoice");

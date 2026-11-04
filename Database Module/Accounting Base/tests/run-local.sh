@@ -37,6 +37,12 @@ for t in "$HERE"/[0-9][0-9][0-9]_*_test.sql; do
   grep -qE 'FAILED|ERROR' "$DATA/out" && status=1
   [ "$status" -eq 0 ] || grep -vE 'NOTICE:  ok ' "$DATA/out" | tail -5
 done
+# Rollback of 005 twice: the fee-plus-VAT helper goes, the 003 view and functions come back, and 005 applies again.
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../migrations/rollback/005_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAILED rollback 005"; cat "$DATA/err"; status=1; }; done
+OUT005="$("${PSQL[@]}" -t -A -c "select case when to_regprocedure('public.accounting_fee_with_vat(numeric,uuid)') is null and to_regprocedure('public.accounting_quote_vat_mode(uuid)') is null and to_regclass('public.accounting_job_list') is not null then 'ok rollback 005 clean' else 'FAILED rollback 005 left objects' end")"
+echo "$OUT005"
+case "$OUT005" in "ok "*) ;; *) status=1 ;; esac
+"${PSQL[@]}" -f "$HERE/../migrations/005_job_fee_vat.sql" >/dev/null 2>"$DATA/err" && echo "ok 005 reapplies after rollback" || { echo "FAILED 005 reapply"; cat "$DATA/err"; status=1; }
 # Rollback of Admin 013 twice with an Accounting row still in zoho_documents: it must not fail, and must leave the old rules.
 RB="$HERE/../../Admin Base/migrations/rollback/013_zoho_accounting_rollback.sql"
 for i in 1 2; do "${PSQL[@]}" -f "$RB" >/dev/null 2>"$DATA/err" || { echo "FAILED rollback 013"; cat "$DATA/err"; status=1; }; done

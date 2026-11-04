@@ -165,7 +165,7 @@ function makeDeps(over: Record<string, unknown> = {}) {
       vat_amount: 5,
       lines: [{ service_name: "Setup", amount: 105 }],
       revises_id: null,
-    }],
+    }, { id: "q1", doc_type: "quote", vat_mode: "exclusive", vat_rate: 5 }],
     banking_quotations: [{
       id: "b1",
       case_id: "case1",
@@ -2095,4 +2095,25 @@ Deno.test("a failed quote-linked job retries and total_warning follows the quote
   // The quote total changes after the draft.
   m.db.accounting_jobs[0].fee_amount = "1200.00";
   assertEquals(((await handle("document_state", JOB_STATE, m.deps)) as Row).rows[0].total_warning, true);
+});
+
+Deno.test("a No VAT quote makes a job invoice with no tax code and the fee as the total", async () => {
+  const m = makeDeps({ vatTaxId: () => Promise.resolve(null) });
+  m.db.hub_documents.push({ id: "qn", doc_type: "quote", vat_mode: "none", vat_rate: 0 });
+  Object.assign(m.db.accounting_jobs[0], { quote_id: "qn", fee_amount: "900.00" });
+  const r = ref(await handle("document_create", JOB, m.deps));
+  assertEquals(r.state, "created");
+  assertEquals(m.posts[0].body.line_items, [{ name: "VAT Return - Q3 2026", rate: 900, quantity: 1 }]);
+  assertEquals(m.db.zoho_documents[0].crm_total, 900);
+});
+
+Deno.test("a job whose quote can't be read, or has another VAT rate, is refused before anything is sent", async () => {
+  const gone = makeDeps();
+  Object.assign(gone.db.accounting_jobs[0], { quote_id: "missing", fee_amount: "900.00" });
+  await assertRejects(() => handle("document_create", JOB, gone.deps), UserError, "Could not read this job's quote.");
+  const odd = makeDeps();
+  odd.db.hub_documents.push({ id: "q7", doc_type: "quote", vat_mode: "exclusive", vat_rate: 7 });
+  Object.assign(odd.db.accounting_jobs[0], { quote_id: "q7", fee_amount: "900.00" });
+  await assertRejects(() => handle("document_create", JOB, odd.deps), UserError, "VAT rate other than 5%");
+  assertEquals([gone.posts.length, odd.posts.length, gone.db.zoho_documents.length, odd.db.zoho_documents.length], [0, 0, 0, 0]);
 });

@@ -112,15 +112,17 @@ export function fromBanking(row: Record<string, any>, clientMasterId: string | n
   };
 }
 
-// A job linked to a quote has the quote's total as its fee, VAT already in it, so nothing is added.
-// A typed fee is before VAT, so 5% goes on top. Both are worked in cents, VAT rounded half up.
-export function fromJob(row: Record<string, any>): Source {
+// A job linked to a quote has the quote's total as its fee, so nothing is added: VAT is already in it,
+// or the quote is No VAT and the invoice carries none. A typed fee is before VAT, so 5% goes on top.
+// Both are worked in cents, VAT rounded half up. The linked quote's row is passed in by the caller.
+export function fromJob(row: Record<string, any>, quote: Record<string, any> | null = null): Source {
   const raw = row.fee_amount;
   const blank = raw === null || raw === undefined || raw === "";
   const ok = !blank && readable(raw);
   const cents = ok ? Math.round(Number(raw) * 100) : 0;
   const fromQuote = !!row.quote_id;
-  const vatCents = fromQuote ? Math.floor((cents * 5 + 52) / 105) : Math.floor((cents * 5 + 50) / 100);
+  const noVat = fromQuote && quote?.vat_mode === "none";
+  const vatCents = noVat ? 0 : fromQuote ? Math.floor((cents * 5 + 52) / 105) : Math.floor((cents * 5 + 50) / 100);
   const service = String(row.service_name ?? "").trim();
   const period = String(row.period_label ?? "").trim();
   return {
@@ -129,8 +131,8 @@ export function fromJob(row: Record<string, any>): Source {
     reference: String(row.job_number ?? ""),
     status: String(row.work_status ?? ""),
     total: (fromQuote ? cents : cents + vatCents) / 100,
-    vatMode: fromQuote ? "inclusive" : "exclusive",
-    vatRate: 5,
+    vatMode: noVat ? "none" : fromQuote ? "inclusive" : "exclusive",
+    vatRate: fromQuote ? Number(quote?.vat_rate) : 5,
     vatAmount: vatCents / 100,
     lines: [{ name: period ? `${service} - ${period}` : service, amount: cents / 100, taxable: true }],
     unreadable: !blank && !ok,
@@ -195,6 +197,7 @@ function canCreateJob(src: Source, kind: Kind): string | null {
   if (src.feeMissing) return JOB_NO_FEE;
   if (!src.clientId) return JOB_NO_CLIENT;
   if (!src.reference.trim()) return JOB_NO_NUMBER;
+  if (src.vatMode !== "none" && src.vatRate !== 5) return OTHER_RATE;
   if (src.invoiceRecorded) return JOB_RECORDED;
   return null;
 }

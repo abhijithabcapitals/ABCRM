@@ -68,23 +68,23 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
     client: job.client_name, service: job.service_name,
     ...Object.fromEntries(["contact", "email", "phone", "address", "license", "trn"].filter((k) => match?.[k]).map((k) => [k, match[k]])),
   };
-  // Called by ServiceDesk once a quotation or letter is filed. A quote total that differs from the fee asks which to keep.
+  // Called by ServiceDesk once a quotation or letter is filed. A quote total that differs from the fee asks before the fee changes.
   const linkNow = (doc) => {
     const current = jobRef.current;
     if (doc.doc_type === "quote" && feeConflict(current, doc)) { setPendingQuote(doc); return; }
     run(() => linkDocument(current.id, doc.doc_type, doc.id));
   };
-  // Called by ServiceDesk once a quotation or letter is filed. Another client's document asks first; a differing fee asks which to keep.
+  // Called by ServiceDesk once a quotation or letter is filed. Another client's document asks first; a differing fee asks before it changes.
   const onDocument = (doc) => {
     if (!sameClientName(doc.client_name, jobRef.current.client_name)) { setPendingOther(doc); return; }
     linkNow(doc);
   };
-  // Closing the fee question without choosing still links the quote, keeping the job fee.
-  const settleQuote = async (useTotal) => {
+  // Linking a quotation always takes its total as the fee. Closing the question links nothing.
+  const settleQuote = async () => {
     const d = pendingQuote;
     setPendingQuote(null);
-    const ok = await run(() => linkDocument(job.id, "quote", d.id, useTotal));
-    if (ok) setNotice(useTotal ? `Quotation ${d.document_number} linked and the job fee changed to the quotation total.` : `Quotation ${d.document_number} linked. The job fee was kept.`);
+    const ok = await run(() => linkDocument(job.id, "quote", d.id, true));
+    if (ok) setNotice(`Quotation ${d.document_number} linked and the job fee changed to the quotation total.`);
   };
 
   const checks = [
@@ -171,7 +171,7 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
 
       {modal === "edit" && <JobForm job={job} onClose={() => setModal(null)} onSaved={async () => { setModal(null); await loaded.reload(); }} />}
       {modal === "fee" && (
-        <FormModal title="Fee" initial={{ amount: job.fee_amount ?? "" }} onClose={() => setModal(null)} note={job.quote_id ? "AED, including VAT, as in the quotation. The change is recorded in the history." : "AED, before VAT. 5% is added on the invoice. The change is recorded in the history."}
+        <FormModal title="Fee" initial={{ amount: job.fee_amount ?? "" }} onClose={() => setModal(null)} note={job.quote_id ? `AED, ${job.quote_vat_mode === "none" ? "no VAT" : "including VAT"}, as in the quotation. The change is recorded in the history.` : "AED, before VAT. 5% is added on the invoice. The change is recorded in the history."}
           fields={[{ name: "amount", label: feeLabel(job), type: "number", required: true }]}
           onSubmit={async (v) => { await setFee(job.id, v.amount); await loaded.reload(); }} />
       )}
@@ -214,17 +214,17 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
         </Modal>
       )}
       {pendingQuote && (
-        <Modal title="Which fee to keep?" onClose={() => settleQuote(false)}>
-          <p>The job fee is AED {money(job.fee_amount)}. The quotation total is AED {money(pendingQuote.total_amount)}. Closing this keeps the job fee.</p>
+        <Modal title="Link this quotation?" onClose={() => setPendingQuote(null)}>
+          <p>Linking this quotation changes the job fee from AED {money(job.fee_amount)} to the quotation total, AED {money(pendingQuote.total_amount)}. A quotation total already holds its VAT. Closing this does not link the quotation.</p>
           <div className="bk-modal-actions">
-            <Button onClick={() => settleQuote(false)}>Keep job fee</Button>
-            <Button variant="primary" onClick={() => settleQuote(true)}>Use quotation total</Button>
+            <Button onClick={() => setPendingQuote(null)}>Do not link</Button>
+            <Button variant="primary" onClick={settleQuote}>Link and change the fee</Button>
           </div>
         </Modal>
       )}
       {modal === "invoice" && (
         <FormModal title="Record invoice" submitLabel="Record invoice" initial={{ number: "", date: dubaiToday(), amount: feeWithVat(job) ?? "" }} onClose={() => setModal(null)}
-          note={job.fee_amount == null ? "The job has no fee yet." : `The fee is AED ${money(job.fee_amount)}${job.quote_id ? ", which already includes VAT" : " before VAT, so the amount starts at the fee plus 5% VAT"}. A different amount is allowed and the difference is shown.`}
+          note={job.fee_amount == null ? "The job has no fee yet." : `The fee is AED ${money(job.fee_amount)}${job.quote_id ? (job.quote_vat_mode === "none" ? ", which has no VAT" : ", which already includes VAT") : " before VAT, so the amount starts at the fee plus 5% VAT"}. A different amount is allowed and the difference is shown.`}
           fields={[
             { name: "number", label: "Zoho invoice number", required: true },
             { name: "date", label: "Invoice date", type: "date", required: true },

@@ -155,10 +155,13 @@ test("feeWithVat adds 5% to a typed fee and leaves a quote fee alone", () => {
   assert.equal(feeWithVat({ fee_amount: 0.1 }), 0.11);
   assert.equal(feeWithVat({ fee_amount: 0.09 }), 0.09);
   assert.equal(feeWithVat({ fee_amount: 1050, quote_id: "q1" }), 1050);
+  assert.equal(feeWithVat({ fee_amount: 900, quote_id: "q1", quote_vat_mode: "none" }), 900);
   assert.equal(feeWithVat({ fee_amount: null }), null);
   assert.equal(feeWithVat({ fee_amount: "" }), null);
 });
 test("feeLabel names where the fee comes from", () => {
   assert.equal(feeLabel({ quote_id: null }), "Fee (AED, before VAT)");
   assert.equal(feeLabel({ quote_id: "q1" }), "Fee (AED, including VAT, from the quote)");
+  assert.equal(feeLabel({ quote_id: "q1", quote_vat_mode: "exclusive" }), "Fee (AED, including VAT, from the quote)");
+  assert.equal(feeLabel({ quote_id: "q1", quote_vat_mode: "none" }), "Fee (AED, no VAT, from the quote)");
 });

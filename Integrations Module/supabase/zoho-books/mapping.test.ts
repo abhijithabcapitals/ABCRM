@@ -237,6 +237,8 @@ Deno.test("vatDiffers uses a one cent tolerance and is null when unchecked", () 
 
 // ---- Accounting jobs ----
 
+const Q5 = { vat_mode: "exclusive", vat_rate: 5 };
+
 const jobRow = (over: Record<string, unknown> = {}) => ({
   id: "j1",
   job_number: "JOB-000007",
@@ -306,7 +308,7 @@ Deno.test("a job's recorded invoice no longer blocks once the handler clears the
 });
 
 Deno.test("a job linked to a quote is inclusive: nothing is added to the fee", () => {
-  const s = fromJob(jobRow({ quote_id: "q1", fee_amount: "1050.00" }));
+  const s = fromJob(jobRow({ quote_id: "q1", fee_amount: "1050.00" }), Q5);
   assertEquals([s.vatMode, s.vatRate, s.vatAmount, s.total], ["inclusive", 5, 50, 1050]);
   assertEquals(s.lines, [{ name: "VAT Return - Q3 2026", amount: 1050, taxable: true }]);
   const b = toZohoBody(s, "cust", "tax", "2026-11-05") as any;
@@ -316,17 +318,40 @@ Deno.test("a job linked to a quote is inclusive: nothing is added to the fee", (
 });
 
 Deno.test("a quote-linked job's VAT is round(fee * 5 / 105, 2)", () => {
-  const v = (fee: string) => fromJob(jobRow({ quote_id: "q1", fee_amount: fee })).vatAmount;
+  const v = (fee: string) => fromJob(jobRow({ quote_id: "q1", fee_amount: fee }), Q5).vatAmount;
   assertEquals(v("100.00"), 4.76);
   assertEquals(v("105.00"), 5);
   assertEquals(v("1234.56"), 58.79);
   assertEquals(v("0.21"), 0.01);
   assertEquals(v("0.20"), 0.01);
   assertEquals(v("0.10"), 0);
-  assertEquals(fromJob(jobRow({ quote_id: "q1", fee_amount: "1234.56" })).total, 1234.56);
+  assertEquals(fromJob(jobRow({ quote_id: "q1", fee_amount: "1234.56" }), Q5).total, 1234.56);
 });
 
 Deno.test("a typed fee is still exclusive when quote_id is empty", () => {
   const s = fromJob(jobRow({ quote_id: null }));
   assertEquals([s.vatMode, s.vatAmount, s.total], ["exclusive", 50, 1050]);
+});
+
+Deno.test("a job linked to a No VAT quote carries no VAT and needs no tax code", () => {
+  const s = fromJob(jobRow({ quote_id: "q1", fee_amount: "900.00" }), { vat_mode: "none", vat_rate: 0 });
+  assertEquals([s.vatMode, s.vatAmount, s.total], ["none", 0, 900]);
+  assertEquals(canCreate(s, "invoice"), null);
+  assertEquals(vatMissing(s, null), null);
+  const b = toZohoBody(s, "cust", "tax", "2026-11-05") as any;
+  assertEquals(b.line_items[0], { name: "VAT Return - Q3 2026", rate: 900, quantity: 1 });
+  assertEquals(b.is_inclusive_tax, false);
+});
+
+Deno.test("an inclusive quote and an exclusive quote both make an inclusive invoice", () => {
+  for (const mode of ["inclusive", "exclusive"]) {
+    const s = fromJob(jobRow({ quote_id: "q1", fee_amount: "1050.00" }), { vat_mode: mode, vat_rate: 5 });
+    assertEquals([s.vatMode, s.total], ["inclusive", 1050]);
+  }
+});
+
+Deno.test("a quote with another VAT rate, or no readable rate, uses the existing refusal", () => {
+  const other = "This quote uses a VAT rate other than 5%, which the saved Zoho VAT code doesn't match.";
+  assertEquals(canCreate(fromJob(jobRow({ quote_id: "q1" }), { vat_mode: "exclusive", vat_rate: 7 }), "invoice"), other);
+  assertEquals(canCreate(fromJob(jobRow({ quote_id: "q1" }), { vat_mode: "exclusive", vat_rate: null }), "invoice"), other);
 });

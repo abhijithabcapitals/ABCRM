@@ -84,3 +84,14 @@ test("fee labels say before VAT for a typed fee, and the invoice default and dif
   assert.match(w, /before VAT, so the amount starts at the fee plus 5% VAT/);
   assert.match(w, /which already includes VAT/);
 });
+
+test("linking a quotation always changes the fee: no keep option, and closing links nothing", () => {
+  const w = component("JobWorkspace.jsx");
+  assert.doesNotMatch(w, /Keep job fee|Which fee to keep/);
+  assert.match(w, /changes the job fee from AED/);
+  assert.match(w, /Closing this does not link the quotation/);
+  assert.match(w, /linkDocument\(job\.id, "quote", d\.id, true\)/);
+  assert.match(w, /<Modal title="Link this quotation\?" onClose=\{\(\) => setPendingQuote\(null\)\}>/);
+  const api = readFileSync(join(here, "services/jobsApi.js"), "utf8");
+  assert.match(api, /accounting_quote_vat_mode/);
+});

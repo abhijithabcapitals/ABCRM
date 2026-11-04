@@ -19,7 +19,7 @@ language sql immutable set search_path = pg_catalog as $$
   select nullif(btrim(case when v like '% (Provided – Verification Required)' then left(v, length(v) - length(' (Provided – Verification Required)')) else v end), '')
    where coalesce(v, '') not in ('Not Provided', 'N/A', 'None', 'Provided – Verification Required')
 $$;
-create table public.hub_documents (id uuid primary key default gen_random_uuid(), doc_type text not null check (doc_type in ('quote','letter','mail')), document_number text, total_amount numeric);
+create table public.hub_documents (id uuid primary key default gen_random_uuid(), doc_type text not null check (doc_type in ('quote','letter','mail')), document_number text, total_amount numeric, vat_mode text, vat_rate numeric);
 create table public.hub_settings (key text primary key, value jsonb);
 insert into public.hub_settings values ('document_numbering',
   '{"Accounting":{"quote":{"digits":3,"format":"ABC/{YYYY}/{MM}/ACQ{SERIAL}","restart":"never"}}}');

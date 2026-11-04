@@ -124,9 +124,13 @@ export function feeWithVat(job) {
 }
 
 // The fee label, by where the fee comes from.
-export const feeLabel = (job) => (job?.quote_id ? "Fee (AED, including VAT, from the quote)" : "Fee (AED, before VAT)");
+// quote_vat_mode comes with the job from getJob: a No VAT quote has no VAT in its total.
+export const feeLabel = (job) => {
+  if (!job?.quote_id) return "Fee (AED, before VAT)";
+  return job.quote_vat_mode === "none" ? "Fee (AED, no VAT, from the quote)" : "Fee (AED, including VAT, from the quote)";
+};
 
-// When a quote is linked to a job that already has a different fee, staff choose which to keep.
+// Linking a quote sets the fee to its total, so staff are asked first when the job already has a different fee.
 export const feeConflict = (job, doc) => job.fee_amount != null && Number(doc.total_amount) > 0 && Number(job.fee_amount) !== Number(doc.total_amount);
 
 // A quotation or letter filed for another client should not link to a job silently.
