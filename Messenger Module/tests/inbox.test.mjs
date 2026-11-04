@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { CHANNELS, MAIL_WINDOW_DAYS, cleanSearch, sandboxDoc, senderLabel, threadPeople, windowStart } from "../logic/inbox.js";
+import { CHANNELS, CONNECT_INFO, MAIL_WINDOW_DAYS, cleanSearch, connectProblem, contactLabel, replyWindowOpen, sandboxDoc, senderLabel, threadPeople, windowStart } from "../logic/inbox.js";
 import { createInboxApi } from "../services/inboxApi.js";
 
 const here = fileURLToPath(new URL("..", import.meta.url));
@@ -20,6 +20,49 @@ function fakeClient(result = { data: [], error: null }) {
   return { calls, client: { schema: (s) => { calls.push(["schema", s]); return chain; }, storage: { from: () => ({ createSignedUrl: async (...a) => { calls.push(["sign", ...a]); return result; } }) } } };
 }
 const called = (calls, name) => calls.filter((c) => c[0] === name);
+
+test("each channel asks for its own fields, and every secret field hides what is typed", () => {
+  assert.deepEqual(Object.keys(CONNECT_INFO), ["whatsapp", "telegram", "instagram"]);
+  assert.match(connectProblem("telegram", { label: "x" }), /bot token/);
+  assert.equal(connectProblem("telegram", { label: "x", token: "t" }), null);
+  assert.match(connectProblem("whatsapp", { label: "x", token: "t", app_secret: "s" }), /phone number id/);
+  assert.match(connectProblem("instagram", { label: "x", token: "t" }), /app secret/);
+  for (const c of Object.values(CONNECT_INFO)) {
+    assert.ok(c.fields.filter((f) => f.key === "token" || f.key === "app_secret").every((f) => f.secret));
+    assert.ok(!c.fields.some((f) => f.key === "label" && f.secret));
+  }
+});
+
+test("the 24-hour window applies to WhatsApp and Instagram only", () => {
+  const now = Date.parse("2026-11-04T12:00:00Z");
+  const recent = { last_inbound_at: "2026-11-04T01:00:00Z" };
+  const old = { last_inbound_at: "2026-11-03T01:00:00Z" };
+  assert.equal(replyWindowOpen(recent, "whatsapp", now), true);
+  assert.equal(replyWindowOpen(old, "whatsapp", now), false);
+  assert.equal(replyWindowOpen(old, "instagram", now), false);
+  assert.equal(replyWindowOpen(old, "telegram", now), true);
+  assert.equal(replyWindowOpen({}, "whatsapp", now), false);
+  assert.equal(contactLabel({ contact_name: null, external_id: "9715" }), "9715");
+});
+
+test("browser code never reads or stores a channel token", () => {
+  const screen = readFileSync(join(here, "components", "InboxConnections.jsx"), "utf8");
+  assert.match(screen, /setValues\(\{\}\)/);
+  assert.doesNotMatch(screen, /localStorage/);
+  const api = readFileSync(join(here, "services", "inboxApi.js"), "utf8");
+  assert.doesNotMatch(api, /secret_get|vault/i);
+  const fn = readFileSync(join(here, "supabase", "messenger-inbox", "index.ts"), "utf8");
+  assert.doesNotMatch(fn, /console\.(error|log)\([^)]*\be\b\)/);
+});
+
+test("Settings offers the connection, and only the admin sees it", () => {
+  const settings = readFileSync(join(here, "components", "SettingsSection.jsx"), "utf8");
+  assert.match(settings, /isAdmin && \(/);
+  const crm = readFileSync(join(here, "..", "Integrations Module", "components", "IntegrationsPanel.jsx"), "utf8");
+  assert.match(crm, /i\.id === "messenger-inbox"/);
+  const registry = JSON.parse(readFileSync(join(here, "..", "Integrations Module", "registry.json"), "utf8"));
+  assert.ok(registry.groups.flatMap((g) => g.integrations).some((i) => i.id === "messenger-inbox"));
+});
 
 test("a search cannot carry filter or pattern characters", () => {
   assert.equal(cleanSearch("50% off, (now)*"), "50 off now");

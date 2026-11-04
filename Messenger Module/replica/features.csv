@@ -59,7 +59,7 @@ Shared channels with other companies,channels,skip,yes,skip,Not needed for one c
 Webinars and town halls,meetings,skip,yes,skip,Not needed
 App store and live Office co-editing,apps,skip,yes,skip,Too large; not core
 Unified inbox: email,inbox,must,no,partial,Read, reply, archive, search subjects; never run on real mail; no assignment yet
-Unified inbox: WhatsApp,inbox,must,no,partial,Link out only; connection needs a Business number through Meta's Cloud API
-Unified inbox: Telegram,inbox,must,no,partial,Link out only; connection would be a bot; a bot cannot message first
-Unified inbox: Instagram,inbox,must,no,partial,Link out only; connection needs a professional account; 24-hour reply window
+Unified inbox: WhatsApp,inbox,must,no,partial,Connect in Settings; text only; never run on a real account
+Unified inbox: Telegram,inbox,must,no,partial,Connect in Settings; a bot; text only; never run on a real account
+Unified inbox: Instagram,inbox,must,no,partial,Connect in Settings; 24-hour window; text only; never run on a real account
 Unified inbox: LinkedIn,inbox,should,no,partial,Link out only; approved partners only

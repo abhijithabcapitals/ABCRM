@@ -161,3 +161,24 @@
   .abi-link-out .abi-out { align-self: stretch; }
   .abi .abm-pane-empty { display: none; }
 }
+
+/* Connected channels: the Inbox's conversations and the Settings screen. */
+.abi-bubble { display: flex; flex-direction: column; width: fit-content; max-width: 80%; margin-bottom: var(--abm-space-2); padding: var(--abm-space-2) var(--abm-space-3); border-radius: var(--abm-radius-md); background: var(--abm-bg); border: 1px solid var(--abm-border); }
+.abi-bubble-out { margin-left: auto; background: var(--abm-accent-weak); }
+.abi-bubble-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.abi-bubble small { align-self: flex-end; margin-top: var(--abm-space-1); color: var(--abm-text-muted); font-size: var(--abm-xs); }
+.abi-reply { display: flex; align-items: flex-end; gap: var(--abm-space-2); padding: var(--abm-space-2) var(--abm-space-3); border-top: 1px solid var(--abm-border); background: var(--abm-bg); }
+.abi-reply .abm-field { flex: 1; resize: none; }
+.abi-out-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--abm-space-2); }
+.abm-app-inline { display: flex; flex-direction: column; gap: var(--abm-space-3); color: var(--abm-text); font-family: var(--abm-font); font-size: var(--abm-sm); line-height: var(--abm-sm-line); }
+.abm-app-inline .abm-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--abm-space-2); padding: var(--abm-space-1) 0; overflow-wrap: anywhere; }
+.abm-app-inline .abm-inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--abm-space-2); min-width: 0; }
+.abm-app-inline ul { list-style: none; }
+.abm-app-inline button { cursor: pointer; }
+.abm-app-inline .abm-btn { align-self: flex-start; }
+.abm-app-inline .abm-field { width: 100%; }
+.abi-connect { padding: var(--abm-space-2) var(--abm-space-3); border: 1px solid var(--abm-border); border-radius: var(--abm-radius-md); background: var(--abm-bg); }
+.abi-on { color: var(--abm-success); font-weight: var(--abm-lg-weight); }
+.abi-account { padding-top: var(--abm-space-1); border-top: 1px solid var(--abm-border); }
+.abi-account-last { display: block; }
+.abi-steps { margin: 0; padding-left: var(--abm-space-4); color: var(--abm-text-muted); }

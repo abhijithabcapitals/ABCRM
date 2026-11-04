@@ -4,7 +4,7 @@ import { checkName } from "../logic/teams.js";
 import PeoplePicker from "./PeoplePicker.jsx";
 
 // Says what will be lost, and asks once more in place.
-function Danger({ label, warning, onConfirm }) {
+export function Danger({ label, warning, onConfirm }) {
   const [asking, setAsking] = useState(false);
   if (!asking) return <button type="button" className="abm-btn-danger" onClick={() => setAsking(true)}>{label}</button>;
   return (

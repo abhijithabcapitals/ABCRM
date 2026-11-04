@@ -9,7 +9,7 @@ import callRoom from "@messenger/services/callRoom.js";
 import inboxApi from "@messenger/services/inboxClient.js";
 
 const state = new URLSearchParams(location.search).get("state");
-const me = { id: "me", full_name: "Preview Person" };
+const me = { id: "me", full_name: "Preview Person", role: new URLSearchParams(location.search).get("role") || "admin" };
 const at = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
 const LONG = "A very long group name that keeps going to test how the list copes";
 const ROWS = [
@@ -52,6 +52,28 @@ let THREADS = [
 const fail = () => { if (mailMode === "error") throw new Error("Could not load your mail. Please try again."); };
 inboxApi.mailboxes = async () => { fail(); return mailMode === "none" ? [] : BOXES; };
 inboxApi.threads = async ({ mailboxId, archived, query } = {}) => { fail(); return THREADS.filter((t) => (archived ? t.status === "archived" : t.status !== "archived") && (!mailboxId || t.mailbox_id === mailboxId) && (!query || t.subject.toLowerCase().includes(query.trim().toLowerCase()))).map((t) => ({ ...t })); };
+// Connected channels on fake data: ?channels=none starts with nothing connected.
+let LINKED = new URLSearchParams(location.search).get("channels") === "none" ? [] : [{ id: "acc1", channel: "whatsapp", label: "Sales line", external_id: "pn1", display_name: "Sample Co", last_event_at: at(10), people: ["me"] }, { id: "acc2", channel: "telegram", label: "Support bot", external_id: "42", display_name: "@sample_bot", last_event_at: null, people: ["me"] }];
+let LIVE_THREADS = [
+  { id: "lt1", account_id: "acc1", external_id: "971500000001", contact_name: "Sample Buyer", status: "new", assigned_to: null, last_preview: "Is the licence ready?", last_message_at: at(10), last_inbound_at: at(10), channel: "whatsapp" },
+  { id: "lt2", account_id: "acc1", external_id: "971500000002", contact_name: null, status: "read", assigned_to: null, last_preview: "Thanks", last_message_at: at(4000), last_inbound_at: at(4000), channel: "whatsapp" },
+];
+const LIVE_MSGS = { lt1: [{ id: "lm1", direction: "in", body: "Is the licence ready?", status: "received", created_at: at(10) }], lt2: [{ id: "lm2", direction: "in", body: "Thanks", status: "received", created_at: at(4000) }] };
+inboxApi.channelAccounts = async () => LINKED.map(({ id, channel, label, display_name }) => ({ id, channel, label, display_name }));
+inboxApi.channelThreads = async (channel) => LIVE_THREADS.filter((t) => t.channel === channel && t.status !== "archived").map((t) => ({ ...t }));
+inboxApi.channelMessages = async (id) => [...(LIVE_MSGS[id] || [])];
+inboxApi.channelSend = async (id, body) => { if (body === "fail") throw new Error("The platform did not accept this. Check the details and try again."); (LIVE_MSGS[id] ||= []).push({ id: `o${Date.now()}`, direction: "out", body, status: "sent", created_at: at(0) }); };
+inboxApi.channelStatus = async (id, status) => { LIVE_THREADS = LIVE_THREADS.map((t) => (t.id === id ? { ...t, status } : t)); };
+inboxApi.channelAssign = async (id, person) => { LIVE_THREADS = LIVE_THREADS.map((t) => (t.id === id ? { ...t, assigned_to: person } : t)); };
+inboxApi.channelUnread = async () => LIVE_THREADS.filter((t) => t.status === "new").length;
+inboxApi.subscribeInbox = () => () => {};
+inboxApi.adminAccounts = async () => LINKED.map((a) => ({ ...a }));
+inboxApi.setAccountPeople = async (id, people) => { LINKED = LINKED.map((a) => (a.id === id ? { ...a, people } : a)); };
+inboxApi.connectAccount = async ({ channel, label, token }) => { window.__lastToken = token; if (token === "bad") throw new Error("The platform did not accept this. Check the details and try again."); LINKED = [...LINKED, { id: `n${Date.now()}`, channel, label, external_id: "9", display_name: null, last_event_at: null, people: ["me"] }]; return channel === "telegram" ? { account_id: "x" } : { account_id: "x", webhook_url: "https://sample.invalid/functions/v1/messenger-inbox?account=x", verify_token: "sampleverify" }; };
+inboxApi.accountInfo = async () => ({ webhook_url: "https://sample.invalid/functions/v1/messenger-inbox?account=acc1", verify_token: "sampleverify" });
+inboxApi.testAccount = async () => ({ ok: true });
+inboxApi.disconnectAccount = async (id) => { const was = LINKED.find((a) => a.id === id); LINKED = LINKED.filter((a) => a.id !== id); return { ok: true, meta_webhook_left: was?.channel !== "telegram" }; };
+inboxApi.staffList = async () => [{ id: "me", full_name: me.full_name }, { id: "p1", full_name: "Sample Colleague" }];
 inboxApi.newCount = async () => THREADS.filter((t) => t.status === "new").length;
 inboxApi.setStatus = async (id, status) => { THREADS = THREADS.map((t) => (t.id === id ? { ...t, status } : t)); };
 inboxApi.messages = async (id) => (id === "m2"

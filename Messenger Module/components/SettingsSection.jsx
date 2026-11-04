@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { readPrefs, savePrefs } from "../logic/desktop.js";
 import { appVersion, autostartEnabled, isDesktop, setAutostart } from "../services/desktop.js";
 
+const InboxConnections = lazy(() => import("./InboxConnections.jsx"));
+
 // This person's own settings, kept on this computer. Windows settings show only in the Windows app.
-export default function SettingsSection({ name, onSignOut }) {
+export default function SettingsSection({ name, onSignOut, isAdmin }) {
   const desktop = isDesktop();
   const [prefs, setPrefs] = useState(readPrefs);
   const [autostart, setStart] = useState(null);
@@ -55,6 +57,12 @@ export default function SettingsSection({ name, onSignOut }) {
             )}
           </>
         ) : <p className="abm-list-note">Notifications and start-up settings are in the Windows app. Your status is in the menu under your initials.</p>}
+        {isAdmin && (
+          <section aria-label="Connected accounts">
+            <h3 className="abm-found">Connected accounts</h3>
+            <Suspense fallback={null}><InboxConnections /></Suspense>
+          </section>
+        )}
       </div>
     </section>
   );

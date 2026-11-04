@@ -30,7 +30,7 @@ function Inner({ profile, onSignOut }) {
   const presence = usePresence(profile?.id);
   const teamsData = useTeams(profile?.id, onMessage);
   const [mailCount, setMailCount] = useState(0);
-  const countMail = useCallback(() => inboxApi.newCount().then(setMailCount, () => {}), []);
+  const countMail = useCallback(() => Promise.all([inboxApi.newCount(), inboxApi.channelUnread()]).then(([mail, other]) => setMailCount(mail + other), () => {}), []);
   useEffect(() => {
     const first = setTimeout(countMail, 0);
     const timer = setInterval(countMail, 60000); // the mail store syncs every two minutes
@@ -91,10 +91,10 @@ function Inner({ profile, onSignOut }) {
         </div>
         {current?.phase && <SectionNote section={current} />}
         {section === "activity" && <ActivitySection {...activity} onOpen={openActivity} onMarkAll={() => activity.markRead()} onRetry={activity.reload} />}
-        {section === "inbox" && <InboxSection onCountChanged={countMail} />}
+        {section === "inbox" && <InboxSection me={profile?.id} isAdmin={profile?.role === "admin"} onCountChanged={countMail} onOpenSettings={() => go("settings")} />}
         {section === "files" && <FilesSection chats={rows} />}
         {section === "calls" && <CallsSection />}
-        {section === "settings" && <SettingsSection name={profile?.full_name} onSignOut={onSignOut} />}
+        {section === "settings" && <SettingsSection name={profile?.full_name} onSignOut={onSignOut} isAdmin={profile?.role === "admin"} />}
       </div>
     </div>
   );

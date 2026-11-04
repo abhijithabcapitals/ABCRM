@@ -1,7 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import ChannelThread from "./ChannelThread.jsx";
+import useChannelThreads from "./useChannelThreads.js";
 import inboxApi from "../services/inboxClient.js";
 import { openLink } from "../services/desktop.js";
-import { CHANNELS, MAIL_WINDOW_DAYS, sandboxDoc, senderLabel, threadPeople } from "../logic/inbox.js";
+import { CHANNELS, MAIL_WINDOW_DAYS, contactLabel, sandboxDoc, senderLabel, threadPeople } from "../logic/inbox.js";
 import { formatBytes } from "../logic/parity.js";
 import { rowTime } from "../logic/app.js";
 
@@ -10,12 +12,15 @@ const SEARCH_WAIT_MS = 300;
 const WHEN = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const when = (iso) => (iso ? WHEN.format(new Date(iso)) : "");
 
-function ChannelOut({ channel }) {
+function ChannelOut({ channel, onSettings }) {
   return (
     <div className="abi-out">
       <h2>{channel.label}</h2>
       <p>{channel.note}</p>
-      <a className="abm-btn abi-out-link" href={channel.href} target="_blank" rel="noopener noreferrer">Open {channel.label}</a>
+      <div className="abi-out-actions">
+        <a className="abm-btn abi-out-link" href={channel.href} target="_blank" rel="noopener noreferrer">Open {channel.label}</a>
+        {onSettings && channel.key !== "linkedin" && <button type="button" className="abm-btn-quiet" onClick={onSettings}>Connect in Settings</button>}
+      </div>
     </div>
   );
 }
@@ -95,7 +100,7 @@ function MailThread({ thread, people, onClose, onStatus }) {
 }
 
 // One list for every channel. Email is live; the other channels say plainly what they can do today.
-export default function InboxSection({ onCountChanged }) {
+export default function InboxSection({ me, isAdmin, onCountChanged, onOpenSettings }) {
   const [channel, setChannel] = useState("email");
   const [mailboxes, setMailboxes] = useState(null);
   const [mailboxId, setMailboxId] = useState("");
@@ -104,6 +109,16 @@ export default function InboxSection({ onCountChanged }) {
   const [threads, setThreads] = useState(null);
   const [selected, setSelected] = useState(null);
   const [problem, setProblem] = useState("");
+  const [accounts, setAccounts] = useState([]);
+  const [picked, setPicked] = useState(null); // an open WhatsApp, Telegram or Instagram conversation, by id
+  const connected = accounts.filter((a) => a.channel === channel);
+  const live = useChannelThreads(channel, connected.length > 0);
+
+  useEffect(() => {
+    let on = true;
+    inboxApi.channelAccounts().then((list) => { if (on) setAccounts(list); }, () => {});
+    return () => { on = false; };
+  }, []);
 
   const loadMailboxes = useCallback(async () => {
     try {
@@ -150,15 +165,26 @@ export default function InboxSection({ onCountChanged }) {
   }
 
   const out = CHANNELS.find((c) => c.key === channel && c.href);
+  const liveThread = live.threads?.find((t) => t.id === picked) || null;
+  const accountOf = (id) => accounts.find((a) => a.id === id);
+  async function openLive(thread) {
+    setPicked(thread.id);
+    if (thread.status === "new") {
+      await inboxApi.channelStatus(thread.id, "read").catch(() => {});
+      live.reload();
+      onCountChanged();
+    }
+  }
+  const showLive = out && connected.length > 0;
   const failed = mailboxes?.filter((m) => m.last_error) || [];
 
   return (
-    <div className={`abi${selected ? " abi-open" : ""}${out ? " abi-link-out" : ""}`}>
+    <div className={`abi${selected || (showLive && liveThread) ? " abi-open" : ""}${out && !showLive ? " abi-link-out" : ""}`}>
       <section className="abm-side abi-side" aria-label="Inbox">
         <header className="abm-side-head"><h2>Inbox</h2></header>
         <div className="abi-chips" role="group" aria-label="Channel">
           {CHANNELS.map((c) => (
-            <button key={c.key} type="button" className="abi-chip" aria-pressed={channel === c.key} onClick={() => { setChannel(c.key); setSelected(null); }}>{c.label}</button>
+            <button key={c.key} type="button" className="abi-chip" aria-pressed={channel === c.key} onClick={() => { setChannel(c.key); setSelected(null); setPicked(null); }}>{c.label}</button>
           ))}
         </div>
         {!out && (
@@ -174,6 +200,30 @@ export default function InboxSection({ onCountChanged }) {
           </div>
         )}
         <div className="abm-side-body">
+          {showLive && (
+            <>
+              {live.problem && <div className="abm-list-note" role="alert"><p>{live.problem}</p><button type="button" className="abm-btn" onClick={live.reload}>Try again</button></div>}
+              {!live.problem && live.threads === null && <div aria-label="Loading conversations" role="status"><div className="abm-skeleton" /><div className="abm-skeleton" /></div>}
+              {!live.problem && live.threads?.length === 0 && <p className="abm-list-note">No conversations yet. Messages will show here as they arrive.</p>}
+              {!live.problem && live.threads?.length > 0 && (
+                <ul className="abm-list">
+                  {live.threads.map((t) => (
+                    <li key={t.id}>
+                      <button type="button" className={`abm-row abi-row${t.status === "new" ? " abi-row-new" : ""}${picked === t.id ? " abi-row-on" : ""}`} aria-current={picked === t.id ? "true" : undefined}
+                        aria-label={`${t.status === "new" ? "Unread. " : ""}${contactLabel(t)}`} onClick={() => openLive(t)}>
+                        <span className="abm-row-main">
+                          <strong>{contactLabel(t)}</strong>
+                          <span className="abi-row-subject">{t.last_preview}</span>
+                          {connected.length > 1 && <span className="abm-row-sub">{accountOf(t.account_id)?.label}</span>}
+                        </span>
+                        <span className="abm-row-side">{rowTime(t.last_message_at)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
           {!out && (
             <>
               {problem && <div className="abm-list-note" role="alert"><p>{problem}</p><button type="button" className="abm-btn" onClick={() => { loadMailboxes(); load(); }}>Try again</button></div>}
@@ -202,7 +252,11 @@ export default function InboxSection({ onCountChanged }) {
           )}
         </div>
       </section>
-      {out ? <ChannelOut channel={out} /> : selected
+      {showLive
+        ? liveThread
+          ? <ChannelThread key={liveThread.id} thread={liveThread} account={accountOf(liveThread.account_id)} me={me} onClose={() => setPicked(null)} onChanged={() => { live.reload(); onCountChanged(); }} />
+          : <p className="abm-pane-empty">Pick a conversation to read it here.</p>
+        : out ? <ChannelOut channel={out} onSettings={isAdmin ? onOpenSettings : undefined} /> : selected
         ? <MailThread key={selected.id} thread={selected} people={threadPeople(selected, addressOf(selected.mailbox_id))} onClose={() => setSelected(null)} onStatus={changeStatus} />
         : <p className="abm-pane-empty">Pick a conversation to read it here.</p>}
     </div>
