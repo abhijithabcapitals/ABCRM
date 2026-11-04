@@ -58,6 +58,16 @@ folder to deploy. `secrets.ts` already sits next to `index.ts`, so nothing else 
 
 Deploy this function before the front end ships. Without it the card shows "In use" and its Test fails.
 
+### Zoho Books financials (zoho-finance)
+
+A separate, read-only function for the Dashboard's financial cards. It reads `ZOHO_FINANCE_CLIENT_ID`,
+`ZOHO_FINANCE_CLIENT_SECRET` and `ZOHO_FINANCE_REFRESH_TOKEN` (plus the shared `ZOHO_BOOKS_ORG_ID` and `ZOHO_DC`) and never
+the drafts login used by `zoho-books`. It only sends GET requests to the Books API. Admins use
+**Settings -> Integrations -> Zoho Books -> Financial Dashboard**: **Test** shows the organisation name, and the temporary
+**Run check** shows the structure of the Zoho data (no amounts, names or IDs) as text to copy.
+
+Deploy from a `supabase/functions/` folder: `supabase functions deploy zoho-finance --project-ref pnnakrhfzyxudjaghoxx --use-api`
+
 ## Deploying crm-connections
 
 It imports the IMAP and SMTP clients from its siblings, so copy these into one `supabase/functions` folder and

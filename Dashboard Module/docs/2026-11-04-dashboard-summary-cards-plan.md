@@ -225,7 +225,7 @@ Expected: the `deploy-pages.yml` run for that commit concludes `success`, and th
 ### Task 5: Snapshot table
 
 **Files:**
-- Create: `Database Module/Admin Base/migrations/008_zoho_finance.sql`, `migrations/rollback/008_rollback.sql`, `tests/050_zoho_finance_test.sql`
+- Create: `Database Module/Admin Base/migrations/009_zoho_finance.sql`, `migrations/rollback/009_zoho_finance_rollback.sql`, `tests/050_zoho_finance_test.sql`
 - Modify: `Database Module/Admin Base/tests/run-local.sh`
 
 **Interfaces:**
@@ -324,7 +324,7 @@ Needs the user. Stop if any answer is no. No amounts or names go into chat or th
 
 - [ ] **Step 1: Ask the user to approve three live steps**
 
-Apply `008_zoho_finance.sql`, deploy `zoho-finance`, and push to `main` to publish the Test button. State each in full.
+Apply `009_zoho_finance.sql`, deploy `zoho-finance`, and push to `main` to publish the Test button. State each in full.
 
 - [ ] **Step 2: Confirm the three values are saved**
 

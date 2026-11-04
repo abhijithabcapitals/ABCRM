@@ -1,5 +1,8 @@
 import { moveTab } from "../../Main Module/src/tabs.js";
 
+// On since 2026-11-04 at the owner's request, with the accuracy check against Zoho still open. Set false to hide the cards.
+export const ZOHO_CARDS_LIVE = true;
+
 const card = (id, title, group, tab = null) => ({ id, title, group, tab, view: tab });
 export const SUMMARY_CARDS = [
   card("bd", "Business Development", "departments", "business-development"),
@@ -43,6 +46,27 @@ export function mergeLayout(saved, cards) {
 
 // Each person's own layout, kept in this browser.
 const layoutKey = (userId) => `crm-dashboard-layout:${userId}`;
+
+// A member's tabs load after the first paint, and until then only the cards with no tab show. An admin's tabs are never
+// loaded and an admin sees every card, so an admin is always ready.
+export const canSaveLayout = ({ isAdmin, tabs }) => isAdmin === true || Array.isArray(tabs);
+
+// What to store: the shown cards in their new order, with each hidden card kept in the slot it had, so it is back where
+// it was when it shows again. Hidden cards also keep their collapsed state.
+export function layoutToStore(stored, layout, cards = SUMMARY_CARDS) {
+  const all = mergeLayout(stored, cards);
+  const order = {};
+  const shown = new Set();
+  for (const g of GROUPS) {
+    const ids = Array.isArray(layout?.order?.[g]) ? layout.order[g] : [];
+    ids.forEach((id) => shown.add(id));
+    const queue = [...ids];
+    const slots = all.order[g].map((id) => (ids.includes(id) ? queue.shift() : id));
+    order[g] = [...slots, ...queue];
+  }
+  const collapsed = [...all.collapsed.filter((id) => !shown.has(id)), ...(layout?.collapsed ?? [])];
+  return { order, collapsed };
+}
 export function readLayout(userId, cards) {
   try {
     return mergeLayout(JSON.parse(localStorage.getItem(layoutKey(userId))), cards);
@@ -50,11 +74,25 @@ export function readLayout(userId, cards) {
     return mergeLayout(null, cards);
   }
 }
-export function saveLayout(userId, layout) {
+export function saveLayout(userId, layout, cards = SUMMARY_CARDS) {
   try {
-    localStorage.setItem(layoutKey(userId), JSON.stringify(layout));
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(layoutKey(userId)));
+    } catch {
+      // Unreadable: start from the default order.
+    }
+    localStorage.setItem(layoutKey(userId), JSON.stringify(layoutToStore(stored, layout, cards)));
   } catch {
     // The layout still applies until the page reloads.
+  }
+}
+// Reset forgets the whole layout, including where hidden cards were.
+export function clearLayout(userId) {
+  try {
+    localStorage.removeItem(layoutKey(userId));
+  } catch {
+    // The reset still applies until the page reloads.
   }
 }
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const app = fileURLToPath(new URL("..", import.meta.url));
 const WRANGLER = "npx --yes wrangler@4.151.2";
-const PROJECT = "abcrm";
+const PROJECTS = ["abcrm"];
 const run = (command, env = {}) => execSync(command, { cwd: app, stdio: "inherit", env: { ...process.env, ...env } });
 
 let settings = "";
@@ -20,4 +20,5 @@ if (missing.length) {
 
 // GITHUB_PAGES empty: this site lives at the root of its address, not under /ABCRM/.
 run("npm run build", { GITHUB_PAGES: "" });
-run(`${WRANGLER} deploy --name ${PROJECT} --assets dist --compatibility-date 2026-10-19`);
+for (const project of PROJECTS) run(`${WRANGLER} deploy --name ${project} --assets dist --compatibility-date 2026-10-19`);
+run(`${WRANGLER} pages deploy dist --project-name crm-abcapital --branch main --commit-dirty=true`);

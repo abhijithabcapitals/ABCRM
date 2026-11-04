@@ -58,3 +58,31 @@ test("zoho-books/secrets.ts matches the shared copy", () => {
   assert.ok(shared.trim().length > 0, "shared secrets.ts is empty");
   assert.equal(norm(read("supabase", "zoho-books", "secrets.ts")), shared);
 });
+
+test("zoho-finance has no PUT or DELETE outside tests", () => {
+  const dir = join(here, "supabase", "zoho-finance");
+  const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+  assert.ok(files.length > 0, "no function files found");
+  for (const f of files) {
+    assert.ok(!/\b(PUT|DELETE)\b/.test(readFileSync(join(dir, f), "utf8")), `${f} has PUT or DELETE`);
+  }
+});
+
+test("zoho-finance/secrets.ts matches the shared copy", () => {
+  const norm = (s) => s.replace(/\r\n/g, "\n");
+  const shared = norm(read("supabase", "_shared", "secrets.ts"));
+  assert.ok(shared.trim().length > 0, "shared secrets.ts is empty");
+  assert.equal(norm(read("supabase", "zoho-finance", "secrets.ts")), shared);
+});
+
+test("zoho-finance reads only the finance login and sends one POST", () => {
+  const dir = join(here, "supabase", "zoho-finance");
+  const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+  for (const f of files) {
+    assert.ok(!/ZOHO_(REFRESH_TOKEN|CLIENT_ID|CLIENT_SECRET)/.test(readFileSync(join(dir, f), "utf8")), `${f} names a drafts-login value`);
+  }
+  const index = read("supabase", "zoho-finance", "index.ts");
+  assert.ok(index.includes("ZOHO_FINANCE_REFRESH_TOKEN"));
+  const client = read("supabase", "zoho-finance", "zohoClient.ts");
+  assert.equal((client.match(/method: "POST"/g) || []).length, 1, "zohoClient.ts must hold exactly one POST (the token refresh)");
+});
