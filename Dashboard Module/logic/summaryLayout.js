@@ -1,7 +1,7 @@
 import { moveTab } from "../../Main Module/src/tabs.js";
 
-// Stays off until the accuracy check against Zoho passes. Edit this one line to try the cards locally.
-export const ZOHO_CARDS_LIVE = false;
+// On since 2026-11-04 at the owner's request, with the accuracy check against Zoho still open. Set false to hide the cards.
+export const ZOHO_CARDS_LIVE = true;
 
 const card = (id, title, group, tab = null) => ({ id, title, group, tab, view: tab });
 export const SUMMARY_CARDS = [

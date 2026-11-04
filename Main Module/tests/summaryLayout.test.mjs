@@ -109,8 +109,8 @@ test("nextDragMove clears the last card over a gap and moves on to a different c
   assert.deepEqual(nextDragMove("b", "c", "a"), { move: "c", lastTarget: "c" });
 });
 
-test("the Zoho cards stay off until the accuracy check passes", () => {
-  assert.equal(ZOHO_CARDS_LIVE, false);
+test("the Zoho cards are switched on", () => {
+  assert.equal(ZOHO_CARDS_LIVE, true);
 });
 
 test("canSaveLayout waits for a member's tabs, and never for an admin", () => {
