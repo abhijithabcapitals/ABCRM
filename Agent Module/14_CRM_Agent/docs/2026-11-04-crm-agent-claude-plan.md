@@ -239,7 +239,7 @@ Same command. Expected: all pass.
 const src = read("supabase/crm-agent/index.ts");
 test("data calls use the person's login", () => assert.match(src, /Authorization: authHeader/));
 test("the key comes from credential_get", () => assert.match(src, /credential_get[\s\S]*AGENT_KEY_AGT_14_CRM/));
-test("the service role is never used for data", () => assert.doesNotMatch(src, /admin\s*\.\s*(schema|from)\(/));
+test("the service role is never used for data", () => assert.doesNotMatch(src, /admin\s*\.\s*(schema\(|from\(\s*"(?!agents"))/));
 test("rounds are capped", () => assert.match(src, /MAX_ROUNDS/));
 test("refusals become NO_INFO", () => assert.match(src, /refusal[\s\S]*NO_INFO/));
 test("logs hold no message text", () => assert.doesNotMatch(src, /console\.\w+\([^)]*(message|content|reply|rows)/));
@@ -247,7 +247,7 @@ test("anything read is data", () => assert.match(src, /never instructions/));
 test("changes need the person's own request", () => assert.match(src, /own message/));
 ```
 
-Exception: the settings read uses `admin.from("agents")`. Add a one-line helper `readAgentSettings` that calls `admin.rpc` on no table, or narrow the regex to allow only `agents`. Use the narrower regex: `/admin\s*\.\s*from\(\s*"(?!agents")/` must not match, and `admin.schema(` must not appear.
+The one allowed service-role table read is `admin.from("agents")`, for the agent's settings. The test above permits only that.
 
 - [ ] **Step 2: Run to verify they fail**
 
