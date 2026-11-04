@@ -32,9 +32,9 @@ export default function ClaudeConnectionPanel() {
         {copied && <span role="status" style={{ fontSize: 12.5, color: "#6b7280" }}>{copied}</span>}
       </div>
       <p style={mutedStyle}>
-        The three tools (get_crm_lead_status, update_crm_lead, trigger_agent_workflow) are placeholders. They
-        return "not implemented" and do not read or change CRM records. Claude subscription usage and tool
-        activity are not tracked here.
+        get_crm_lead_status reads a lead's stage, status, owner and follow-up dates. update_crm_lead and
+        trigger_agent_workflow are placeholders: they return "not implemented" and change nothing. Claude
+        subscription usage and tool activity are not tracked here.
       </p>
     </section>
   );

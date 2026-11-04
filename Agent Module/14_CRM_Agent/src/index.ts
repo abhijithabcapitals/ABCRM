@@ -1,7 +1,8 @@
 // Cloudflare Worker "crm-agent": the MCP endpoint of the CRM Agent, at /mcp.
 //
-// Clients send the MCP_AUTH_TOKEN Worker secret as a Bearer token. The three tools
-// are placeholders: they read nothing, change nothing and return not_implemented
+// Clients send the MCP_AUTH_TOKEN Worker secret as a Bearer token. get_crm_lead_status
+// reads through the crm_agent_lead_status database function using a separate read token.
+// The other two tools are placeholders: they change nothing and return not_implemented
 // until they are connected to authorized CRM handlers.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -9,9 +10,13 @@ import { z } from "zod";
 
 interface Env {
   MCP_AUTH_TOKEN?: string;
+  CRM_READ_TOKEN?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_PUBLISHABLE_KEY?: string;
 }
 
 const MAX_REQUEST_BODY_SIZE = 64 * 1024;
+const CRM_READ_TIMEOUT_MS = 10_000;
 const encoder = new TextEncoder();
 
 function jsonError(message: string, status: number, headers: Record<string, string> = {}) {
@@ -51,17 +56,47 @@ function unavailableToolResult(toolName: string) {
   };
 }
 
-function createMcpServer() {
+function jsonToolResult(body: unknown, isError = false) {
+  return { isError, content: [{ type: "text" as const, text: JSON.stringify(body) }] };
+}
+
+async function getLeadStatus(env: Env, lead: string) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY || !env.CRM_READ_TOKEN) {
+    return jsonToolResult({ error: "not_configured", message: "CRM read access is not configured." }, true);
+  }
+
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/crm_agent_lead_status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: env.SUPABASE_PUBLISHABLE_KEY },
+      body: JSON.stringify({ p_token: env.CRM_READ_TOKEN, p_lead: lead }),
+      signal: AbortSignal.timeout(CRM_READ_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.error("CRM read failed", response.status);
+      return jsonToolResult({ error: "crm_unavailable", message: "The CRM could not be read." }, true);
+    }
+
+    const result = (await response.json()) as { error?: string };
+    return jsonToolResult(result, Boolean(result.error));
+  } catch (error) {
+    console.error("CRM read failed", error instanceof Error ? error.name : "Unknown error");
+    return jsonToolResult({ error: "crm_unavailable", message: "The CRM could not be read." }, true);
+  }
+}
+
+function createMcpServer(env: Env) {
   const server = new McpServer({ name: "crm-agent", version: "1.0.0" }, { capabilities: { tools: {} } });
 
   server.registerTool(
     "get_crm_lead_status",
     {
-      description: "Placeholder for reading a lead's current status from the CRM. Not connected to CRM data yet.",
+      description:
+        "Read a Business Development lead's current stage, status, priority, owner and follow-up dates. Takes the exact lead number (LD-2026-000002) or lead id. Does not search by name and does not return contact details.",
       inputSchema: z.object({ lead_id: z.string().trim().min(1).max(128) }).strict(),
       annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    async () => unavailableToolResult("get_crm_lead_status"),
+    async ({ lead_id }) => getLeadStatus(env, lead_id),
   );
 
   server.registerTool(
@@ -121,7 +156,7 @@ export default {
       return jsonError("Authentication required.", 401, { "WWW-Authenticate": 'Bearer realm="MCP"' });
     }
 
-    const server = createMcpServer();
+    const server = createMcpServer(env);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       maxRequestBodySize: MAX_REQUEST_BODY_SIZE,

@@ -14,8 +14,14 @@ The main agent that handles the CRM (agent `AGT-14-CRM`). The CEO Agent is a sep
 Stateless Streamable HTTP at `https://crm-agent.ceo-intelligence-agent.workers.dev/mcp`. It advertises
 `get_crm_lead_status`, `update_crm_lead` and `trigger_agent_workflow`.
 
-These are authenticated placeholders. They return `not_implemented` and do not read or change CRM data or
-start workflows. Real handlers still have to be connected through the router and authorized CRM procedures.
+`get_crm_lead_status` is live and read-only. It calls the database function `crm_agent_lead_status`
+(`Database Module/migrations/bd/011_bd_crm_agent_lead_status.sql`) with the `CRM_READ_TOKEN` secret, whose SHA-256
+hash is stored in `crm_agent_access`. It takes an exact lead number or id, and returns stage, status, priority, owner
+and follow-up dates only. Contact details, tax numbers, budgets and notes are not returned.
+
+`update_crm_lead` and `trigger_agent_workflow` are authenticated placeholders. They return `not_implemented` and do
+not change CRM data or start workflows. Real handlers still have to be connected through the router and authorized
+CRM procedures.
 
 Claude OAuth, subscription usage and tool activity reporting are not implemented.
 
@@ -26,6 +32,7 @@ Run from this folder:
 ```powershell
 npm install
 npx wrangler secret put MCP_AUTH_TOKEN
+npx wrangler secret put CRM_READ_TOKEN
 npm run deploy
 ```
 
