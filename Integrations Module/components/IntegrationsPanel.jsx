@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import registry from "../registry.json";
 import ZohoConnection from "./ZohoConnection.jsx";
+
+// The Microsoft screens belong to the Messenger Module and load only when the microsoft row is open.
+const MicrosoftConnection = lazy(() => import("@messenger/components/MicrosoftConnection"));
 
 // Settings > Integrations: every app the CRM can connect to, plus any custom app. Values are
 // encrypted in Supabase Vault and write-only: this screen shows whether one is saved, never what it is.
@@ -24,7 +27,7 @@ export default function IntegrationsPanel({ supabase }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(() => (new URLSearchParams(location.search).has("ms") ? "microsoft" : null));
   const [drafts, setDrafts] = useState({});
   const [busy, setBusy] = useState("");
   const [customName, setCustomName] = useState("");
@@ -132,6 +135,7 @@ export default function IntegrationsPanel({ supabase }) {
                 </div>
               );
             })}
+            {i.id === "microsoft" && <Suspense fallback={null}><MicrosoftConnection /></Suspense>}
             {i.id === "zoho-books" && <ZohoConnection supabase={supabase} onSaved={load} />}
           </div>
         )}

@@ -1,1 +1,1 @@
-export { default } from "./components/MessengerModule";
+export { default, default as MessengerBubble } from "./components/MessengerBubble";

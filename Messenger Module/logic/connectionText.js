@@ -37,13 +37,3 @@ export function secretExpiryNote(date, now = Date.now()) {
   if (days === 0) return { tone: "error", text: "The Microsoft client secret expires today. Create a new one in Entra and save it in Settings > Integrations." };
   return { tone: "warn", text: `The Microsoft client secret expires in ${days} day${days === 1 ? "" : "s"}. Create a new one in Entra and save it in Settings > Integrations.` };
 }
-
-// One line for the Overview tab, from the connection_status reply.
-export function connectionLine(s) {
-  if (!s) return "Not connected";
-  if (s.status !== "active") return "Not connected. An admin must connect Microsoft first.";
-  if (!s.link) return "Your account is not connected. Open Settings to connect.";
-  if (s.link.status === "review") return "Waiting for an admin to review your account.";
-  if (s.link.status === "active" && !s.needs_connect) return `Connected as ${s.link.upn}`;
-  return "Your account is not connected. Open Settings to connect.";
-}

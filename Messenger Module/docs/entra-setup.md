@@ -20,7 +20,7 @@ Phase 2 asks for sign-in and the person's basic profile only. It never asks to r
 1. **Certificates & secrets > Client secrets > New client secret**.
 2. Pick a description and an expiry (shorter than 24 months). Write the expiry date down.
 3. Copy the secret **Value** now. Microsoft shows it once.
-4. Enter the expiry date in the CRM: Messenger > Settings > "Client secret expiry date". The screen warns from 30 days before it.
+4. Enter the expiry date in the CRM: Settings > Integrations > the Microsoft row > "Client secret expiry date". The screen warns from 30 days before it.
 
 ## 3. Add the permissions (Phase 2)
 
@@ -81,19 +81,19 @@ Saved values go to Supabase Vault and are never shown again. The tenant ID must 
 
 ## 5. First connection
 
-1. An admin opens Messenger > Settings and presses **Connect Microsoft**, signing in with the work account.
+1. An admin opens Settings > Integrations, opens the Microsoft row and presses **Connect Microsoft**, signing in with the work account.
 2. Members can connect only after an admin has. Before that they see "An admin must connect Microsoft first."
 
 ### When the Microsoft email differs from the CRM email
 
-The person's link is held for review. **No sign-in is stored at that point.** An admin sees the person under Settings > People and presses **Accept** or **Reject**. Accepting does not store a sign-in either: the person must press **Connect** again, and only then is a sign-in stored. If the account or email differs again on that second sign-in, the link goes back to review.
+The person's link is held for review. **No sign-in is stored at that point.** An admin sees the person under People (Settings > Integrations > Microsoft) and presses **Accept** or **Reject**. Accepting does not store a sign-in either: the person must press **Connect** again, and only then is a sign-in stored. If the account or email differs again on that second sign-in, the link goes back to review.
 This also applies to the first admin: if the admin's Microsoft email differs from their CRM email, the link waits in review. The function does not stop an admin from accepting their own link, so with one admin the admin can accept it themselves. Preferably have a second admin accept it, or correct the profile email first. After accepting, the admin presses Connect again.
 
 ## 6. Renewing the secret
 
-Create a new secret in Entra before the old one expires, save the new value in Settings > Integrations, then record the new expiry date in Messenger > Settings. Delete the old secret in Entra afterwards.
+Create a new secret in Entra before the old one expires, save the new value in Settings > Integrations, then record the new expiry date in Settings > Integrations > Microsoft. Delete the old secret in Entra afterwards.
 
 ## 7. Removing access
 
-- A person: Messenger > Settings > **Disconnect**, or an admin removes the person's consent in Entra. The next Microsoft call sees the refused token, clears it, and the person sees Connect again.
+- A person: Settings > Integrations > Microsoft > **Disconnect**, or an admin removes the person's consent in Entra. The next Microsoft call sees the refused token, clears it, and the person sees Connect again.
 - Everyone: delete the app registration or the secret in Entra.

@@ -363,7 +363,7 @@ async function exchangeCode(
 function backAddress(app: string, query: Record<string, string>): string {
   const u = new URL(app);
   if (u.protocol !== "https:" && u.protocol !== "http:") throw new TypeError("MESSENGER_APP_URL is not a web address.");
-  u.searchParams.set("view", "messenger");
+  u.searchParams.set("view", "settings");
   for (const [k, v] of Object.entries(query)) u.searchParams.set(k, v);
   return u.toString();
 }

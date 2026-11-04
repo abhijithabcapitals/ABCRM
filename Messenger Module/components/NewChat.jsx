@@ -55,7 +55,7 @@ export default function NewChat({ me, onOpened, onBack, onClose }) {
         <button type="button" className={`msgr-tab${group ? "" : " msgr-tab-on"}`} onClick={() => { setGroup(false); setProblem(""); }}>Direct</button>
         <button type="button" className={`msgr-tab${group ? " msgr-tab-on" : ""}`} onClick={() => { setGroup(true); setProblem(""); }}>Group</button>
       </div>
-      {group && <input className="msgr-search" placeholder="Group name" aria-label="Group name" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} />}
+      {group && <input className="msgr-search" placeholder="Group name" aria-label="Group name" maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} />}
       <input className="msgr-search" type="search" placeholder="Search staff" aria-label="Search staff" value={search} onChange={(e) => setSearch(e.target.value)} />
       {problem && <p className="msgr-problem" role="alert">{problem}</p>}
       <ul className="msgr-rows">

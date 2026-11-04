@@ -30,7 +30,7 @@ function UsageCard({ label, value, sub, tone }) {
 }
 
 export default function Settings({ currentUser, profile, spaces = [], onAccessChanged }) {
-  const [activeTab, setActiveTab] = useState("health");
+  const [activeTab, setActiveTab] = useState(() => (new URLSearchParams(location.search).has("ms") ? "integrations" : "health"));
 
   // ── Members state ──
   const [members, setMembers] = useState([]);

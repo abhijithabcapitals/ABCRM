@@ -5,8 +5,8 @@ Nothing in this guide has been run on the live system. **Every live step needs t
 Order of the whole rollout. **Merging to `main` means live**: `.github/workflows/deploy-pages.yml` deploys every push to `main`, and until migration `001` has run the Teams panel on client and lead pages cannot load its saved chats. So the database comes first.
 1. Checks A, B and D below (read-only), then report. Check C waits for migration `002`.
 2. Migration `001`, then migration `002`, each approved on its own. Then check C.
-3. Push and merge `messenger-module` (this deploys the screens).
-4. Redeploy the `admin-users` Edge Function from `Main Module/db/edge-function-admin-users.ts` (its own approval). Until then, admins cannot grant the Messenger tab to members, because the old function drops the `messenger` key.
+3. Push and merge (this deploys the screens). For the chat bubble, first run `003_chat.sql` on the live database with Realtime on (see "Chat bubble rollout" below). The merge from `messenger-bubble` removes the Messenger tab.
+4. The `admin-users` redeploy is no longer needed: the Messenger tab no longer exists, so nothing grants it.
 5. Deploy `ms365`.
 6. Entra setup by the tenant admin (`entra-setup.md`) and settings saved.
 7. Run `tests/browser-check.md` on the tenant.
@@ -59,7 +59,16 @@ Local rehearsal (a throwaway Postgres, nothing live): `bash "Database Module/Mes
 Not a migration. It schedules `ms365_prune_logs()` daily at 03:00 UTC with pg_cron, deleting log rows older than 90 days. The test runner never runs it. It needs pg_cron enabled on the live database and **its own approval**.
 
 ## Redeploying `admin-users`
-`Main Module/db/edge-function-admin-users.ts` now lists `messenger` among the allowed tabs. The repo copy is edited only; the deployed function is unchanged until this step is approved and run. Deploy it as the project does for this function (same project ref and flags as before; check the earlier deploy of the Knowledge tab, commit fcd79d2). After it, an admin can tick Messenger for a member and the grant is kept.
+No longer needed. The `messenger` tab key is removed from `Main Module/db/edge-function-admin-users.ts`, so the deployed function can stay as it is. Any `messenger` grant already stored on a member is ignored by the CRM.
+
+## Chat bubble rollout
+Each step needs its own approval, in this order:
+1. Run `Database Module/Messanger Base/migrations/003_chat.sql` on the live database **before the merge**, with Realtime enabled for the chat tables. Rehearse first with `tests/run-local.sh`.
+2. Check the Realtime limits on the live project (concurrent connections, messages per second) against the number of staff.
+3. Merge to `main`. This deploys the bubble and removes the Messenger tab.
+4. Change the Desktop shortcut to the plain CRM address (no `?view=messenger`). The installed app's `start_url` is now `./`.
+5. Schedule the prune: `schedule_chat_prune.sql` is not a migration and needs its own approval (and pg_cron).
+Then run the bubble section of `tests/browser-check.md` with two real staff logins.
 
 ## Deploying `ms365`
 
@@ -73,13 +82,13 @@ supabase functions deploy ms365 --project-ref pnnakrhfzyxudjaghoxx --use-api --n
 
 ## Settings
 Saved in Settings > Integrations: `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_STATE_SECRET`, `MESSENGER_APP_URL`. Steps in `entra-setup.md`. `MESSENGER_APP_URL` must be the live CRM address; set it before the first connect, or the return fails with a plain-text 500.
-Then, in Messenger > Settings, an admin records the client secret expiry date.
+Then, in Settings > Integrations > Microsoft, an admin records the client secret expiry date.
 
 ## Connection status `revoked`
 `microsoft_connection.status` is `revoked` only if someone sets it by SQL; no screen or action sets it. It only blocks new connects by members: `connect_start` and the callback refuse a non-admin with "An admin must connect Microsoft first." while the status is not `active`. People already connected keep working. An admin can still connect, and a successful admin connect writes the status back to `active`. To reopen without an admin sign-in, set it to `active` by SQL.
 
 ## Rollback
-1. Undeploy or stop using the function: `supabase functions delete ms365 --project-ref pnnakrhfzyxudjaghoxx` (approval needed). The Settings tab then shows an error; Chats keep working.
+1. Undeploy or stop using the function: `supabase functions delete ms365 --project-ref pnnakrhfzyxudjaghoxx` (approval needed). The Microsoft row in Settings > Integrations then shows an error; the Teams panels and the chat bubble keep working.
 2. If scheduled, remove the prune job: `select cron.unschedule('ms365-prune-logs');`.
 3. `rollback/002_rollback.sql` (also drops the token clean-up trigger). **It deletes every stored Microsoft sign-in (`ms_rt:%` in Vault)**, the connection, the links and the log. People connect again after a redeploy.
 4. `rollback/001_rollback.sql` only if the chat links must go too; it deletes the saved chat links.

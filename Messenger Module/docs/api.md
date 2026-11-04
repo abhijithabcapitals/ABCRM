@@ -67,7 +67,7 @@ Admin only. Body: `{ "date": "YYYY-MM-DD" | null }`. Saves the client secret exp
 
 ## Callback (GET, no JWT)
 
-`GET .../ms365?code=...&state=...` or `?error=...&state=...`. Always answers 302 to `MESSENGER_APP_URL` with `view=messenger` and one of:
+`GET .../ms365?code=...&state=...` or `?error=...&state=...`. Always answers 302 to `MESSENGER_APP_URL` with `view=settings` and one of:
 
 | Query on return | Meaning |
 |---|---|

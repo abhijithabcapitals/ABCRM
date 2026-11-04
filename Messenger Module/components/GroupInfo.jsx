@@ -52,7 +52,7 @@ export default function GroupInfo({ row, me, reload, onBack, onClose, onLeft }) 
       {problem && <p className="msgr-problem" role="alert">{problem}</p>}
       {owner && (
         <div className="msgr-field-row">
-          <input className="msgr-search" aria-label="Group name" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input className="msgr-search" aria-label="Group name" maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} />
           <button type="button" className="msgr-send" disabled={working} onClick={rename}>Rename</button>
         </div>
       )}

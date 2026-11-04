@@ -1,14 +1,31 @@
-// The Microsoft connection. Everyone connects or disconnects their own account; admins also see the
-// connection, review people whose Microsoft email differs, test the link and record the secret expiry.
-import { useState } from "react";
+// The Microsoft connection, shown under the microsoft row in Settings > Integrations (admins only). An admin
+// connects or disconnects their own account, sees the connection, reviews people whose Microsoft email
+// differs, tests the link and records the secret expiry. The sync log sits below.
+import { useEffect, useState } from "react";
 import "@banking/components/banking.css";
-import { Badge, Button, DataTable, Empty, ErrorNote, KeyVals, Panel, Spinner, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
-import { secretExpiryNote } from "../logic/connectionText.js";
+import { Badge, Button, DataTable, ErrorNote, KeyVals, Panel, Spinner, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
+import SyncLogs from "./SyncLogs.jsx";
+import { connectionMessage, secretExpiryNote } from "../logic/connectionText.js";
 import { connectStart, connectionStatus, disconnectMicrosoft, listStaff, reviewLink, saveSecretExpiry, testConnection } from "../services/messengerApi.js";
 
 const LINK_TEXT = { active: "Active", review: "Waiting for review", revoked: "Disconnected" };
 
-export default function Settings() {
+// Microsoft sends the person back with ms and reason in the address. They are read once, then removed.
+const fromAddress = () => {
+  const q = new URLSearchParams(location.search);
+  return connectionMessage(q.get("ms"), q.get("reason"));
+};
+
+export default function MicrosoftConnection() {
+  const [notice, setNotice] = useState(fromAddress);
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    if (q.has("ms") || q.has("reason")) {
+      q.delete("ms");
+      q.delete("reason");
+      history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash);
+    }
+  }, []);
   const status = useLoad(async () => ({ s: await connectionStatus(), staff: await listStaff().catch(() => []) }), []);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
@@ -44,34 +61,34 @@ export default function Settings() {
     : "Not connected";
 
   return (
-    <>
+    <div className="bk-root" style={{ padding: 0, background: "transparent" }}>
+      {notice && (
+        <div className={`bk-alert bk-alert-${notice.tone}`} role="status">
+          {notice.text} <button type="button" className="bk-btn bk-btn-secondary" onClick={() => setNotice(null)}>Dismiss</button>
+        </div>
+      )}
       <ErrorNote message={error || status.error} onClose={error ? () => setError(null) : undefined} />
       <Panel title="Your Microsoft account" sub="Connects the CRM to Teams on your behalf. The CRM never sees your Microsoft password.">
-        {s.status !== "active" && !s.admin ? (
-          <Empty>An admin must connect Microsoft first.</Empty>
-        ) : (
-          <>
-            <KeyVals items={[["Status", state], ["Account", link?.upn]]} />
-            {link?.status === "review" && (
-              <div className="bk-alert bk-alert-warn">Your Microsoft email differs from your CRM email. Nothing is stored yet. An admin must accept it, then you connect again.</div>
-            )}
-            <div className="bk-actions bk-mt">
-              {connected ? (
-                <>
-                  <Button busy={busy === "connect"} onClick={connect}>Reconnect</Button>
-                  <Button busy={busy === "disconnect"} onClick={disconnect}>Disconnect</Button>
-                </>
-              ) : link?.status === "review" ? (
-                <Button busy={busy === "disconnect"} onClick={disconnect}>Cancel and disconnect</Button>
-              ) : (
-                <Button variant="primary" busy={busy === "connect"} onClick={connect}>{link?.status === "active" ? "Connect again" : "Connect Microsoft"}</Button>
-              )}
-            </div>
-          </>
+        <KeyVals items={[["Status", state], ["Account", link?.upn]]} />
+        {link?.status === "review" && (
+          <div className="bk-alert bk-alert-warn">Your Microsoft email differs from your CRM email. Nothing is stored yet. An admin must accept it, then you connect again.</div>
         )}
+        <div className="bk-actions bk-mt">
+          {connected ? (
+            <>
+              <Button busy={busy === "connect"} onClick={connect}>Reconnect</Button>
+              <Button busy={busy === "disconnect"} onClick={disconnect}>Disconnect</Button>
+            </>
+          ) : link?.status === "review" ? (
+            <Button busy={busy === "disconnect"} onClick={disconnect}>Cancel and disconnect</Button>
+          ) : (
+            <Button variant="primary" busy={busy === "connect"} onClick={connect}>{link?.status === "active" ? "Connect again" : "Connect Microsoft"}</Button>
+          )}
+        </div>
       </Panel>
       {s.admin && <AdminPanels s={s} nameOf={nameOf} act={act} busy={busy} testResult={testResult} setTestResult={setTestResult} />}
-    </>
+      {s.admin && <SyncLogs />}
+    </div>
   );
 }
 

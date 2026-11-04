@@ -33,11 +33,15 @@ test("window.open does not use noopener, which would make a opened window look b
 
 const main = (p) => readFileSync(join(here, "..", "Main Module", p), "utf8");
 
-test("Messenger is wired into the Main Module", () => {
+test("the Messenger tab is gone but the alias stays for TeamsPanel and ChatStarter", () => {
   assert.match(main("vite.config.js"), /'@messenger'/);
-  assert.match(main("src/App.jsx"), /lazy\(\(\) => import\("@messenger"\)\)/);
-  assert.match(main("src/tabs.js"), /key: "messenger"/);
-  assert.match(main("src/components/Sidebar.jsx"), /key: "messenger"/);
+  assert.doesNotMatch(main("src/App.jsx"), /view === "messenger"/);
+  assert.doesNotMatch(main("src/App.jsx"), /lazy\(\(\) => import\("@messenger"\)\)/);
+  assert.doesNotMatch(main("src/tabs.js"), /key: "messenger"/);
+  assert.doesNotMatch(main("src/components/Sidebar.jsx"), /key: "messenger"/);
+  for (const f of ["MessengerModule", "Chats", "Overview"]) assert.ok(!existsSync(join(here, `components/${f}.jsx`)), f);
+  assert.doesNotMatch(read("index.js"), /MessengerModule/);
+  assert.match(read("index.js"), /MessengerBubble/);
 });
 
 test("every link_type in messengerApi.js is a value the database accepts", () => {
@@ -48,15 +52,24 @@ test("every link_type in messengerApi.js is a value the database accepts", () =>
   assert.deepEqual(found.filter((v) => !allowed.includes(v)), []);
 });
 
-test("Settings and Logs sit inside the lazy module, and Logs is admin only", () => {
-  assert.match(main("src/App.jsx"), /lazy\(\(\) => import\("@messenger"\)\)/);
-  assert.ok(existsSync(join(here, "components/Settings.jsx")));
+test("the Microsoft screens live under Settings > Integrations, which only admins open", () => {
+  const panel = readFileSync(join(here, "..", "Integrations Module/components/IntegrationsPanel.jsx"), "utf8");
+  assert.match(panel, /MicrosoftConnection/);
+  assert.match(panel, /lazy\(/);
+  assert.ok(existsSync(join(here, "components/MicrosoftConnection.jsx")));
+  assert.ok(!existsSync(join(here, "components/Settings.jsx")));
   assert.ok(existsSync(join(here, "components/SyncLogs.jsx")));
-  const shell = read("components/MessengerModule.jsx");
-  assert.match(shell, /import Settings from/);
-  assert.match(shell, /import SyncLogs from/);
-  assert.match(shell, /\["logs", "Logs", SyncLogs, true\]/);
-  assert.match(shell, /profile\?\.role === "admin"/);
+  assert.match(read("components/MicrosoftConnection.jsx"), /import SyncLogs from/);
+  assert.match(main("src/components/Settings.jsx"), /has\("ms"\) \? "integrations"/);
+  assert.match(main("src/components/Settings.jsx"), /profile\?\.role === "admin" && <IntegrationsPanel/);
+});
+
+test("the Microsoft return goes to Settings", () => {
+  assert.match(readFileSync(join(here, "supabase/ms365/handlers.ts"), "utf8"), /set\("view", "settings"\)/);
+});
+
+test("group title inputs match the database limit of 80", () => {
+  for (const f of ["NewChat", "GroupInfo"]) assert.match(read(`components/${f}.jsx`), /aria-label="Group name" maxLength=\{80\}/, f);
 });
 
 test("browser code asks for no message-reading scope", () => {
@@ -65,17 +78,17 @@ test("browser code asks for no message-reading scope", () => {
 });
 
 test("the sign-in return keeps ms and reason out of the address after reading", () => {
-  const shell = read("components/MessengerModule.jsx");
+  const shell = read("components/MicrosoftConnection.jsx");
   assert.match(shell, /history\.replaceState/);
   assert.match(shell, /q\.delete\("ms"\)/);
   assert.match(shell, /q\.delete\("reason"\)/);
 });
 
-test("the admin-users edge function lets admins grant the messenger tab", () => {
+test("the admin-users edge function no longer lists the messenger tab", () => {
   const edge = main("db/edge-function-admin-users.ts");
   const tabs = edge.match(/const TABS = \[([^\]]*)\]/);
   assert.ok(tabs, "TABS list not found");
-  assert.ok(tabs[1].includes('"messenger"'), "messenger missing from TABS");
+  assert.ok(!tabs[1].includes('"messenger"'), "messenger still in TABS");
 });
 
 test("the lead page passes no prospect name to the Teams panel", () => {
@@ -98,7 +111,7 @@ test("App.jsx keeps view in abc_view and does not use URLSearchParams.size", () 
   const app = main("src/App.jsx");
   assert.match(app, /localStorage\.setItem\("abc_view"/);
   assert.doesNotMatch(app, /q\.size/);
-  assert.doesNotMatch(read("components/MessengerModule.jsx"), /q\.size/);
+  assert.doesNotMatch(read("components/MicrosoftConnection.jsx"), /q\.size/);
 });
 
 test("the bubble is mounted once in App.jsx, lazily, by path", () => {

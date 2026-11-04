@@ -167,7 +167,7 @@ async function params(profile: string, extra: Record<string, string> = {}): Prom
 function outcome(redirect: string) {
   const u = new URL(redirect);
   assertEquals(u.origin + u.pathname, APP);
-  assertEquals(u.searchParams.get("view"), "messenger");
+  assertEquals(u.searchParams.get("view"), "settings");
   return { ms: u.searchParams.get("ms"), reason: u.searchParams.get("reason") };
 }
 
