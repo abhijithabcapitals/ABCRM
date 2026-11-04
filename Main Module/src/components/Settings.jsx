@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { IconClose } from "./icons";
-import IntegrationsPanel, { EmailAccountsPanel } from "@integrations";
+import IntegrationsPanel, { AgentsPanel, EmailAccountsPanel } from "@integrations";
 import ClientPortalAdmin from "@client-login/admin/ClientPortalAdmin";
 import { AiUsagePanel, AuditPanel, AuditTrailPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
 
@@ -245,6 +245,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             { key: "usage", label: "📊 Email Usage" },
             { key: "email-accounts", label: "📧 Email Accounts" },
             { key: "integrations", label: "🔌 Integrations" },
+            { key: "agents", label: "🧠 Agents" },
             { key: "client-portal", label: "🔑 Client Portal" },
             { key: "audit-trail", label: "🕵 Audit Trail" },
             { key: "audit", label: "📜 Admin Actions" },
@@ -510,6 +511,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
         {/* ── INTEGRATIONS TAB (admin only) ── */}
         {activeTab === "email-accounts" && profile?.role === "admin" && <EmailAccountsPanel supabase={supabase} />}
         {activeTab === "integrations" && profile?.role === "admin" && <IntegrationsPanel supabase={supabase} />}
+        {activeTab === "agents" && profile?.role === "admin" && <AgentsPanel supabase={supabase} />}
         {activeTab === "client-portal" && profile?.role === "admin" && <ClientPortalAdmin />}
 
         {/* ── USAGE TAB (admin only) ── */}
