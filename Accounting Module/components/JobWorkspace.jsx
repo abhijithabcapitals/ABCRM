@@ -4,7 +4,7 @@ import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, Modal, Panel, 
 import { flagMissing } from "@banking/components/Attention";
 import { profiles } from "@banking/services/bankingApi";
 import ServiceDesk from "@template-hub/components/ServiceDesk";
-import { RECEIPT_MODES, STALE_MESSAGE, WORK_STATUSES, assigneeText, dubaiToday, feeConflict, findLookupRow, hasUnreversedPayment, isStaleSave, needsRemarks, parseFileNames, sameClientName } from "../logic/jobs";
+import { RECEIPT_MODES, STALE_MESSAGE, WORK_STATUSES, assigneeText, dubaiToday, feeConflict, feeLabel, feeWithVat, findLookupRow, hasUnreversedPayment, isStaleSave, needsRemarks, parseFileNames, sameClientName } from "../logic/jobs";
 import { addBatch, clearInvoice, clientOptions, getJob, linkClient, linkDocument, setBatchSaved, setFee, setInvoice, setStatus } from "../services/jobsApi";
 import { FollowUpLog } from "./FollowUps";
 import JobForm from "./JobForm";
@@ -61,7 +61,7 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
   const match = findLookupRow(clients, job.client_name);
   const master = clients.filter((c) => Number(c.rank) === 1 && c.ref);
   const done = job.work_status === "Completed";
-  const diff = job.invoice_amount != null && job.fee_amount != null ? Number(job.invoice_amount) - Number(job.fee_amount) : null;
+  const diff = job.invoice_amount != null && job.fee_amount != null ? Number(job.invoice_amount) - feeWithVat(job) : null;
 
   // Details the quotation form starts from, taken from the client lookup when the name matches.
   const deskInitial = {
@@ -171,8 +171,8 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
 
       {modal === "edit" && <JobForm job={job} onClose={() => setModal(null)} onSaved={async () => { setModal(null); await loaded.reload(); }} />}
       {modal === "fee" && (
-        <FormModal title="Fee" initial={{ amount: job.fee_amount ?? "" }} onClose={() => setModal(null)} note="AED, including any VAT. The change is recorded in the history."
-          fields={[{ name: "amount", label: "Fee (AED)", type: "number", required: true }]}
+        <FormModal title="Fee" initial={{ amount: job.fee_amount ?? "" }} onClose={() => setModal(null)} note={job.quote_id ? "AED, including VAT, as in the quotation. The change is recorded in the history." : "AED, before VAT. 5% is added on the invoice. The change is recorded in the history."}
+          fields={[{ name: "amount", label: feeLabel(job), type: "number", required: true }]}
           onSubmit={async (v) => { await setFee(job.id, v.amount); await loaded.reload(); }} />
       )}
       {modal === "client" && (
@@ -223,8 +223,8 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
         </Modal>
       )}
       {modal === "invoice" && (
-        <FormModal title="Record invoice" submitLabel="Record invoice" initial={{ number: "", date: dubaiToday(), amount: job.fee_amount ?? "" }} onClose={() => setModal(null)}
-          note={job.fee_amount == null ? "The job has no fee yet." : `The fee is AED ${money(job.fee_amount)}. A different amount is allowed and the difference is shown.`}
+        <FormModal title="Record invoice" submitLabel="Record invoice" initial={{ number: "", date: dubaiToday(), amount: feeWithVat(job) ?? "" }} onClose={() => setModal(null)}
+          note={job.fee_amount == null ? "The job has no fee yet." : `The fee is AED ${money(job.fee_amount)}${job.quote_id ? ", which already includes VAT" : " before VAT, so the amount starts at the fee plus 5% VAT"}. A different amount is allowed and the difference is shown.`}
           fields={[
             { name: "number", label: "Zoho invoice number", required: true },
             { name: "date", label: "Invoice date", type: "date", required: true },

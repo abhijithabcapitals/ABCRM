@@ -112,13 +112,15 @@ export function fromBanking(row: Record<string, any>, clientMasterId: string | n
   };
 }
 
-// The fee is in whole cents, so the 5% is worked in cents too and rounded half up.
+// A job linked to a quote has the quote's total as its fee, VAT already in it, so nothing is added.
+// A typed fee is before VAT, so 5% goes on top. Both are worked in cents, VAT rounded half up.
 export function fromJob(row: Record<string, any>): Source {
   const raw = row.fee_amount;
   const blank = raw === null || raw === undefined || raw === "";
   const ok = !blank && readable(raw);
   const cents = ok ? Math.round(Number(raw) * 100) : 0;
-  const vatCents = Math.floor((cents * 5 + 50) / 100);
+  const fromQuote = !!row.quote_id;
+  const vatCents = fromQuote ? Math.floor((cents * 5 + 52) / 105) : Math.floor((cents * 5 + 50) / 100);
   const service = String(row.service_name ?? "").trim();
   const period = String(row.period_label ?? "").trim();
   return {
@@ -126,8 +128,8 @@ export function fromJob(row: Record<string, any>): Source {
     clientId: row.client_id ? String(row.client_id) : null,
     reference: String(row.job_number ?? ""),
     status: String(row.work_status ?? ""),
-    total: (cents + vatCents) / 100,
-    vatMode: "exclusive",
+    total: (fromQuote ? cents : cents + vatCents) / 100,
+    vatMode: fromQuote ? "inclusive" : "exclusive",
     vatRate: 5,
     vatAmount: vatCents / 100,
     lines: [{ name: period ? `${service} - ${period}` : service, amount: cents / 100, taxable: true }],

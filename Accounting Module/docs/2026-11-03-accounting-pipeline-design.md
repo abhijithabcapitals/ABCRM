@@ -71,7 +71,7 @@ This is worked out, never typed. The first row that fits applies.
 | Invoiced | Invoice recorded, nothing paid |
 | Not invoiced | Fee known, no invoice recorded, nothing paid |
 
-**Amount due** is the invoice amount once recorded, otherwise the fee. **Balance** is the amount due minus payments, counting reversals. All amounts are AED totals including any VAT. A fee taken from a quote is the quote's `total_amount`, and a typed fee is treated the same way.
+**Amount due** is the invoice amount once recorded, otherwise the fee. **Balance** is the amount due minus payments, counting reversals. Where VAT stands in a fee depends on its source (user, 2026-11-05). A job linked to a quote has the quote's `total_amount` as its fee, which already includes VAT. A typed fee, on a job with no quote, is before VAT, and 5% is added on the Zoho invoice. Amount due is the invoice amount once recorded, so the typed fee alone is the amount due until then. Typed invoice entry starts from the fee plus 5%.
 
 A job paid in full before invoicing shows Settled and still appears under To invoice, because that filter looks only at whether an invoice is recorded.
 

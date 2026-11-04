@@ -71,3 +71,16 @@ test("Voucher Base 002 keeps all five sources in the check", () => {
   const list = v.match(/check \(source in \(([^)]*)\)\)/)[1];
   for (const s of ["banking", "hub", "template", "business_setup", "accounting"]) assert.ok(list.includes(`'${s}'`), s);
 });
+
+test("fee labels say before VAT for a typed fee, and the invoice default and difference use fee plus VAT", () => {
+  const form = component("JobForm.jsx");
+  assert.match(form, /Fee \(AED, before VAT\)/);
+  assert.doesNotMatch(form, /including any VAT/);
+  const w = component("JobWorkspace.jsx");
+  assert.doesNotMatch(w, /including any VAT/);
+  assert.match(w, /label: feeLabel\(job\)/);
+  assert.match(w, /amount: feeWithVat\(job\) \?\? ""/);
+  assert.match(w, /Number\(job\.invoice_amount\) - feeWithVat\(job\)/);
+  assert.match(w, /before VAT, so the amount starts at the fee plus 5% VAT/);
+  assert.match(w, /which already includes VAT/);
+});

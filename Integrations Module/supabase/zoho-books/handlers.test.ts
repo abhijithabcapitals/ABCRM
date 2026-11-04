@@ -2072,3 +2072,27 @@ Deno.test("job users see job wording", async () => {
     await assertRejects(() => handle("document_create", JOB, e.deps), UserError, "Could not read the job.");
   });
 });
+
+Deno.test("a quote-linked job is sent inclusive, with the fee as the total", async () => {
+  const m = makeDeps();
+  Object.assign(m.db.accounting_jobs[0], { quote_id: "q1", fee_amount: "1050.00" });
+  const r = ref(await handle("document_create", JOB, m.deps));
+  assertEquals(r.state, "created");
+  assertEquals(m.posts[0].body.is_inclusive_tax, true);
+  assertEquals((m.posts[0].body.line_items as Row[])[0].rate, 1050);
+  assertEquals(m.db.zoho_documents[0].crm_total, 1050);
+});
+
+Deno.test("a failed quote-linked job retries and total_warning follows the quote total", async () => {
+  const m = makeDeps();
+  Object.assign(m.db.accounting_jobs[0], { quote_id: "q1", fee_amount: "1050.00" });
+  seed(m.db, jobDoc({ kind: "invoice", state: "failed", zoho_id: null, zoho_number: null }));
+  m.state.postImpl = () => Promise.resolve({ invoice: { invoice_id: "9001", invoice_number: "INV-0001", total: 1050, status: "draft" } });
+  const r = ref(await handle("document_create", JOB, m.deps));
+  assertEquals([r.state, r.total_warning, m.posts.length], ["created", false, 1]);
+  m.replies["/invoices/9001"] = invoiceReply("draft", { total: 1050 });
+  assertEquals(((await handle("document_state", JOB_STATE, m.deps)) as Row).rows[0].total_warning, false);
+  // The quote total changes after the draft.
+  m.db.accounting_jobs[0].fee_amount = "1200.00";
+  assertEquals(((await handle("document_state", JOB_STATE, m.deps)) as Row).rows[0].total_warning, true);
+});

@@ -304,3 +304,29 @@ Deno.test("a job's recorded invoice no longer blocks once the handler clears the
   assertEquals(s.invoiceRecorded, true);
   assertEquals(canCreate({ ...s, invoiceRecorded: false }, "invoice"), null);
 });
+
+Deno.test("a job linked to a quote is inclusive: nothing is added to the fee", () => {
+  const s = fromJob(jobRow({ quote_id: "q1", fee_amount: "1050.00" }));
+  assertEquals([s.vatMode, s.vatRate, s.vatAmount, s.total], ["inclusive", 5, 50, 1050]);
+  assertEquals(s.lines, [{ name: "VAT Return - Q3 2026", amount: 1050, taxable: true }]);
+  const b = toZohoBody(s, "cust", "tax", "2026-11-05") as any;
+  assertEquals(b.is_inclusive_tax, true);
+  assertEquals(b.line_items[0], { name: "VAT Return - Q3 2026", rate: 1050, quantity: 1, tax_id: "tax" });
+  assertEquals(canCreate(s, "invoice"), null);
+});
+
+Deno.test("a quote-linked job's VAT is round(fee * 5 / 105, 2)", () => {
+  const v = (fee: string) => fromJob(jobRow({ quote_id: "q1", fee_amount: fee })).vatAmount;
+  assertEquals(v("100.00"), 4.76);
+  assertEquals(v("105.00"), 5);
+  assertEquals(v("1234.56"), 58.79);
+  assertEquals(v("0.21"), 0.01);
+  assertEquals(v("0.20"), 0.01);
+  assertEquals(v("0.10"), 0);
+  assertEquals(fromJob(jobRow({ quote_id: "q1", fee_amount: "1234.56" })).total, 1234.56);
+});
+
+Deno.test("a typed fee is still exclusive when quote_id is empty", () => {
+  const s = fromJob(jobRow({ quote_id: null }));
+  assertEquals([s.vatMode, s.vatAmount, s.total], ["exclusive", 50, 1050]);
+});

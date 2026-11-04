@@ -114,6 +114,18 @@ export function paymentRowState(payment, payments) {
   return { reversal, reversed, canReverse: !reversal && !reversed };
 }
 
+// The fee with VAT. A fee from a linked quote already includes VAT; a typed fee is before VAT, so 5% is added
+// (worked in cents, rounded half up, the same way the zoho-books function does). Null when there is no fee.
+export function feeWithVat(job) {
+  if (job?.fee_amount == null || job.fee_amount === "" || !Number.isFinite(Number(job.fee_amount))) return null;
+  const cents = Math.round(Number(job.fee_amount) * 100);
+  if (job.quote_id) return cents / 100;
+  return (cents + Math.floor((cents * 5 + 50) / 100)) / 100;
+}
+
+// The fee label, by where the fee comes from.
+export const feeLabel = (job) => (job?.quote_id ? "Fee (AED, including VAT, from the quote)" : "Fee (AED, before VAT)");
+
 // When a quote is linked to a job that already has a different fee, staff choose which to keep.
 export const feeConflict = (job, doc) => job.fee_amount != null && Number(doc.total_amount) > 0 && Number(job.fee_amount) !== Number(doc.total_amount);
 
