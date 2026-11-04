@@ -333,3 +333,11 @@
 .bk-admin-bar { display: grid; grid-template-columns: 90px 1fr auto; align-items: center; gap: 10px; padding: 3px 0; font-size: 12px; }
 .bk-admin-bar i { display: block; height: 8px; min-width: 2px; border-radius: 4px; background: #0f6f73; }
 .bk-admin-bar b { font-weight: 500; white-space: nowrap; }
+
+/* Tables that keep every row on one line; long text is cut and shows in full on hover. */
+.bk-oneline .bk-table td { white-space: nowrap; }
+.bk-clip { display: inline-block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+@media (max-width: 760px) {
+  .bk-oneline .bk-table td { white-space: normal; }
+  .bk-clip { max-width: none; white-space: normal; }
+}
