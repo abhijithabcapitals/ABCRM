@@ -40,7 +40,7 @@ test("an amount is checked before a client is created for a payment", () => {
 test("the quote screen reads the login with the quote right, and Payments links through the payment right", () => {
   const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8");
   assert.match(read("../components/workspace/PortalMessage.jsx"), /loginName\(/);
-  assert.doesNotMatch(read("../components/workspace/PortalMessage.jsx"), /loginState(/);
+  assert.doesNotMatch(read("../components/workspace/PortalMessage.jsx"), /loginState[(]/);
   const pay = read("../components/workspace/Payments.jsx");
   assert.match(pay, /caseLinkClientForPayment\(caseId\)/); assert.doesNotMatch(pay, /caseLinkClient\(/);
   assert.ok(pay.indexOf("validAmount(v.amount)") < pay.indexOf("caseLinkClientForPayment(caseId)"), "the amount is checked before the client is linked");
