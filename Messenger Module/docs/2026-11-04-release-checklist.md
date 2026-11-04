@@ -27,13 +27,14 @@ On the merged code: 146 Messenger tests, 15 function tests, all database checks 
 
 Run in this order. Each is safe to run twice, and removes nothing.
 
-1. `Database Module/Messanger Base/migrations/004_chat_parity.sql`
-2. `Database Module/Messanger Base/migrations/005_teams_channels.sql`
-3. `Database Module/Messanger Base/migrations/006_calls.sql`
+1. Done 2026-11-04: `Database Module/Messanger Base/migrations/004_chat_parity.sql`
+2. Done 2026-11-04: `004b_chat_audit_private.sql`. Chat text no longer enters the audit trail, at the user's decision
+3. `Database Module/Messanger Base/migrations/005_teams_channels.sql`
+4. `Database Module/Messanger Base/migrations/006_calls.sql`
 
 After each, confirm the live chat dock still lists chats and sends a message.
 
-Undo: `migrations/rollback/006`, `005`, then `004`, newest first. These delete what the new features stored, and cannot restore the text of a deleted message.
+Undo: `migrations/rollback/006`, `005`, `004b`, then `004`, newest first. These delete what the new features stored, and cannot restore the text of a deleted message.
 
 ### 2. Release the screens
 
@@ -75,5 +76,6 @@ An admin and a member, in two windows. Use test wording; these are real chats.
 
 - **Database size.** Above the plan size noted earlier. Decide on a plan or a clean-up before chat volume grows.
 - **Load.** Each new message makes every open window reload its chat, team and activity lists. Fine for a small staff; revisit if it grows.
-- **Open questions.** Admin compliance access to chats, outside guests in meetings, and whether channels follow the 365-day limit. Channels are outside it for now.
+- **Audit trail.** Chat stays private from admins, so the log shows who changed which fields and when, never the text. Rows written before 004b still hold text.
+- **Open questions.** Outside guests in meetings, and whether channels follow the 365-day limit. Channels are outside it for now.
 - **Public repository.** No keys in code. Migrations and docs are readable by anyone.
