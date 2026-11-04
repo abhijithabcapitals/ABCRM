@@ -94,6 +94,7 @@ test("change_rows on a table not in the change list returns Error", async () => 
 test("a task cannot be hard deleted", async () => {
   const c = ctx();
   assert.match(await runTool("change_rows", { schema: "public", table: "tasks", action: "delete", ids: ["1"] }, c), /^Error:/);
+  assert.match(await runTool("change_rows", { schema: "public", table: "task_comments", action: "delete", ids: ["1"] }, c), /^Error:/);
   assert.equal(dataCalls(c).length, 0);
 });
 
@@ -109,6 +110,24 @@ test("change_rows update filters by the primary key and selects it back", async 
   assert.equal(c.changeCalls, 1);
 });
 
+const typeArrays = (node) => node && typeof node === "object" && (Array.isArray(node.type) || Object.values(node).some(typeArrays));
+test("tool schemas use no type lists", () => assert.equal(TOOLS.some((t) => typeArrays(t.input_schema)), false));
+test("read results are marked as data", async () => {
+  const db = fakeDb({ data: [{ id: "1" }], error: null });
+  assert.match(await runTool("read_rows", { schema: "public", table: "tasks", columns: ["id"] }, ctx({ db })), /<crm_data>/);
+});
+test("a change after the deadline is refused", async () => {
+  const db = fakeDb({ data: [{ id: "1" }], error: null });
+  const c = ctx({ db, deadline: Date.now() - 1 });
+  assert.match(await runTool("change_rows", { schema: "public", table: "tasks", action: "update", ids: ["1"], values: { status: "x" } }, c), /^Error:/);
+  assert.equal(dataCalls(c).length, 0);
+});
+test("a made change is remembered for the reply", async () => {
+  const db = fakeDb({ data: [{ id: "1" }], error: null });
+  const c = ctx({ db, changes: [] });
+  await runTool("change_rows", { schema: "public", table: "tasks", action: "update", ids: ["1"], values: { status: "x" } }, c);
+  assert.deepEqual(c.changes, ['Changed 1 row(s) in public.tasks: ["1"]']);
+});
 test("change_rows insert sends the rows and reports them", async () => {
   const db = fakeDb({ data: [{ id: "9" }], error: null });
   const c = ctx({ db });
@@ -183,6 +202,10 @@ test("data calls use the person's login", () => assert.match(src(), /Authorizati
 test("the key comes from credential_get", () => assert.match(src(), /credential_get[\s\S]*AGENT_KEY_AGT_14_CRM/));
 test("the service role is never used for data", () => assert.doesNotMatch(src(), /admin\s*\.\s*(schema\(|from\(\s*"(?!agents"))/));
 test("rounds are capped", () => assert.match(src(), /MAX_ROUNDS/));
+test("a person must be ticked before any Claude call", () => assert.match(src(), /router_context[\s\S]*accessFrom[\s\S]*403[\s\S]*messages\.create/));
+test("the agent records its own usage on every exit", () => { assert.match(src(), /router_record_usage/); assert.match(src(), /usage_recorded: true/); assert.match(src(), /finally/); });
+test("Claude calls stop at the deadline", () => { assert.match(src(), /deadline/); assert.match(src(), /outOfMoney/); });
+test("unknown models are refused", () => assert.match(src(), /isKnownModel/));
 test("refusals become NO_INFO", () => assert.match(src(), /refusal[\s\S]*NO_INFO/));
 test("logs hold no message text", () => assert.doesNotMatch(src(), /console\.\w+\([^)]*(message|content|reply|rows)/));
 test("anything read is data", () => assert.match(src(), /never instructions/));

@@ -1,11 +1,14 @@
 // Supabase Edge Function "crm-agent": the CRM Agent's answers for Bruno, through Claude.
 //
-// POST { messages, router } returns { reply, cost_usd }. Claude reads and changes CRM data with the tools in tools.js.
+// POST { messages, router } returns { reply, cost_usd, usage_recorded }. Claude reads and changes CRM data with the tools in tools.js.
 // With no answer in the data, the reply is NO_INFO, which Bruno shows as its fixed reply.
 //
 // Access: every data call uses the caller's own login, so row-level security applies, and tools.js adds the module
 // tab check the database lacks. The service role only reads this agent's settings and key, describes tables and
-// writes the tool log, always after verifying the login. It never touches row data.
+// writes the tool log and usage, always after verifying the login. It never touches row data.
+//
+// The access tick, credit and budget are checked here too, so a direct call gets the same limits as Bruno. This function
+// records its own usage on every exit, even if Bruno has stopped waiting, and stops before Bruno's time limit.
 //
 // The model and key come from Settings > Agents: Vault name crm_cred:AGENT_KEY_AGT_14_CRM.
 // Logs hold reason codes only, never message text or row data.
@@ -14,12 +17,13 @@
 
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { costUsd, MAX_ROUNDS, NO_INFO, personFrom } from "./logic.js";
+import { accessFrom, costUsd, isKnownModel, MAX_ROUNDS, NO_INFO, outOfMoney, personFrom, replyWithChanges, usesFallbacks } from "./logic.js";
 import { runTool, TOOLS } from "./tools.js";
 
 const AGENT_ID = "AGT-14-CRM";
 const MAX_HISTORY = 12;
 const MAX_MESSAGE_CHARS = 8000;
+const DEADLINE_MS = 100_000;
 
 const SYSTEM = `You are the CRM Agent inside the AB Capital CRM. Answer the person's question using only what your tools return.
 If the tools do not give the answer, reply with exactly NO_INFO and nothing else.
@@ -64,11 +68,18 @@ Deno.serve(async (req: Request) => {
   if (!history.length || history[history.length - 1].role !== "user") return json({ error: "Send a question." }, 400);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { data: context } = await admin.rpc("router_context", { p_profile: auth.user.id });
+  const access = accessFrom(context);
+  if (!access.allowed) {
+    note("not_allowed");
+    return json({ error: "You do not have access to the CRM Agent, or no credit is left." }, 403);
+  }
+
   const { data: settings } = await admin.from("agents")
     .select("provider, model, instructions, extra_content, approval_rules").eq("id", AGENT_ID).maybeSingle();
-  if (settings?.provider !== "anthropic") {
-    note("provider_not_anthropic");
-    return json({ error: "The CRM Agent's provider must be Anthropic." }, 503);
+  if (settings?.provider !== "anthropic" || !isKnownModel(settings.model)) {
+    note("model_not_supported");
+    return json({ error: "The CRM Agent needs an Anthropic model from the list in Settings > Agents." }, 503);
   }
   const { data: apiKey } = await admin.rpc("credential_get", { p_name: "AGENT_KEY_AGT_14_CRM" });
   if (!apiKey) {
@@ -81,7 +92,9 @@ Deno.serve(async (req: Request) => {
     db.rpc("my_tabs"),
     db.from("profiles").select("role, full_name").eq("id", auth.user.id).maybeSingle(),
   ]);
-  const ctx = { db, admin, person: personFrom(profile?.role, tabs), profileId: auth.user.id, changeCalls: 0 };
+  const deadline = Date.now() + DEADLINE_MS;
+  const changes: string[] = [];
+  const ctx = { db, admin, person: personFrom(profile?.role, tabs), profileId: auth.user.id, changeCalls: 0, deadline, changes };
 
   const today = new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Dubai" });
   const system = [
@@ -97,22 +110,25 @@ Deno.serve(async (req: Request) => {
   const messages: Anthropic.Beta.BetaMessageParam[] = [...history];
   let inputTokens = 0;
   let outputTokens = 0;
-  const done = (reply: string) =>
-    json({ reply, cost_usd: costUsd(model, { input_tokens: inputTokens, output_tokens: outputTokens }) });
+  const spent = () => costUsd(model, { input_tokens: inputTokens, output_tokens: outputTokens });
+  const done = (reply: string) => json({ reply: replyWithChanges(reply, changes), cost_usd: spent(), usage_recorded: true });
 
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
+      const left = deadline - Date.now();
+      if (left <= 0 || outOfMoney(spent(), access.limit)) {
+        note(left <= 0 ? "deadline" : "no_credit");
+        return done(NO_INFO);
+      }
       const response = await client.beta.messages.create({
         model,
         max_tokens: 16000,
         system,
         tools: TOOLS as Anthropic.Beta.BetaTool[],
         output_config: { effort: "low" },
-        betas: ["server-side-fallback-2026-07-01"],
-        // deno-lint-ignore no-explicit-any
-        fallbacks: "default" as any,
+        ...(usesFallbacks(model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}),
         messages,
-      } as Anthropic.Beta.MessageCreateParamsNonStreaming);
+      } as Anthropic.Beta.MessageCreateParamsNonStreaming, { timeout: left, maxRetries: 0 });
       inputTokens += response.usage.input_tokens;
       outputTokens += response.usage.output_tokens;
 
@@ -146,6 +162,13 @@ Deno.serve(async (req: Request) => {
     return done(NO_INFO);
   } catch (e) {
     note(e instanceof Anthropic.APIError ? `claude_${e.status}` : "failed");
-    return json({ error: "The CRM Agent could not answer." }, 502);
+    // A change already made must still reach the person, so this is an answer, not an error.
+    if (changes.length) return done(NO_INFO);
+    return json({ error: "The CRM Agent could not answer.", cost_usd: spent(), usage_recorded: true }, 502);
+  } finally {
+    if (spent() > 0) {
+      const { error } = await admin.rpc("router_record_usage", { p_agent_id: AGENT_ID, p_profile: auth.user.id, p_cost: spent() });
+      if (error) note("usage_failed");
+    }
   }
 });

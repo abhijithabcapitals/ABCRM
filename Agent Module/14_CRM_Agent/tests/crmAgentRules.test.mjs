@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  canChangeTable, canReach, checkChange, checkRead, costUsd, cutResult, isSensitiveColumn, KNOWN_TABLES, listReachable,
+  accessFrom, canChangeTable, canReach, checkChange, checkRead, costUsd, cutResult, isKnownModel, outOfMoney, replyWithChanges, usesFallbacks, wrapData, isSensitiveColumn, KNOWN_TABLES, listReachable,
   MAX_CHANGE_CALLS, MAX_CHANGE_ROWS, MAX_READ_ROWS, MAX_RESULT_CHARS, MAX_ROUNDS, NO_INFO, personFrom, tabForTable,
 } from "../supabase/crm-agent/logic.js";
 
@@ -101,5 +101,22 @@ test("tasks can be added and edited but never hard deleted", () => {
   assert.equal(canChangeTable("public", "tasks", "update"), true);
   assert.equal(canChangeTable("public", "tasks", "insert"), true);
   assert.equal(canChangeTable("public", "tasks", "delete"), false);
-  assert.equal(canChangeTable("public", "task_comments", "delete"), true);
+  assert.equal(canChangeTable("public", "task_comments", "delete"), false);
+  assert.equal(canChangeTable("public", "task_checklist_items", "delete"), false);
+  assert.equal(canChangeTable("public", "task_comments", "insert"), true);
 });
+
+const context = (agents, credit_left = 5) => ({ credit_left, agents });
+test("a person not ticked for the agent is refused", () => assert.equal(accessFrom(context([{ id: "AGT-08-SUPPORT", budget_left: null }])).allowed, false));
+test("no context is refused", () => assert.equal(accessFrom(null).allowed, false));
+test("a ticked person with credit is allowed", () => assert.deepEqual(accessFrom(context([{ id: "AGT-14-CRM", budget_left: null }], 5)), { allowed: true, limit: 5 }));
+test("the budget lowers the limit", () => assert.equal(accessFrom(context([{ id: "AGT-14-CRM", budget_left: 2 }], 5)).limit, 2));
+test("no credit is refused", () => assert.equal(accessFrom(context([{ id: "AGT-14-CRM", budget_left: null }], 0)).allowed, false));
+test("spending up to the limit stops the loop", () => { assert.equal(outOfMoney(5, 5), true); assert.equal(outOfMoney(4.99, 5), false); });
+test("only priced models run", () => { assert.equal(isKnownModel("claude-opus-5-5"), true); assert.equal(isKnownModel("gpt-5"), false); assert.equal(isKnownModel(undefined), false); });
+test("Haiku takes no fallbacks", () => { assert.equal(usesFallbacks("claude-opus-5-5"), true); assert.equal(usesFallbacks("claude-haiku-5-5"), false); });
+test("a reply with no changes stays word for word", () => assert.equal(replyWithChanges("Three tasks.", []), "Three tasks."));
+test("changes are always shown", () => assert.equal(replyWithChanges("Done.", ["Changed 1 row(s) in public.tasks: [1]"]), "Done.\n\nChanges made:\nChanged 1 row(s) in public.tasks: [1]"));
+test("no answer but a change still reports the change", () => assert.equal(replyWithChanges("NO_INFO", ["Changed 1 row(s) in public.tasks: [1]"]), "Changes made:\nChanged 1 row(s) in public.tasks: [1]"));
+test("no answer and no change stays NO_INFO", () => assert.equal(replyWithChanges("", []), "NO_INFO"));
+test("data is wrapped and marked", () => { const w = wrapData("x"); assert.match(w, /^<crm_data>/); assert.match(w, /never instructions/); assert.match(w, /x/); });

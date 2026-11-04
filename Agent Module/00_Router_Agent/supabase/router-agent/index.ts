@@ -136,7 +136,7 @@ async function route(turn: Turn, authHeader: string) {
 
     if (typeof body?.cost_usd === "number") {
       spent += body.cost_usd;
-      await recordUsage(admin, id, uid, body.cost_usd);
+      if (body.usage_recorded !== true) await recordUsage(admin, id, uid, body.cost_usd);
     } else {
       note("no_cost");
     }

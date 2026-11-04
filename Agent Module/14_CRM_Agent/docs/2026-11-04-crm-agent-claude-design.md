@@ -59,7 +59,7 @@ All data calls use the person's own login through PostgREST. There is no raw SQL
 | `list_my_tables` | The tables in the map whose tab the person has |
 | `describe_table` | A table's columns and primary key, without sensitive columns |
 | `read_rows` | Chosen columns, with structured filters (`eq`, `in`, `ilike`, `gte`, `lte`, `is`), an order and a limit of at most 50 rows |
-| `change_rows` | `insert`, `update` or `delete` on a table open to changes |
+| `change_rows` | `insert` or `update` on a table open to changes. No hard deletes |
 
 **Table map.** A fixed map in `supabase/crm-agent/logic.js` gives each table its module tab. It uses the keys in `Main Module/src/tabs.js`, such as `business-development`, `hr` and `accounts`. A table not in the map is refused. Tables in `ceo`, `email_base` and `email_agent` map to the admin-only `ceo` tab. Admins pass every tab check; `my_tabs` and row security still apply.
 
@@ -75,7 +75,7 @@ Tool results go back to Claude cut to 6,000 characters, with a note saying so.
 ## 6. Guards on changes
 
 - **Tables open to changes.** A fixed list in `logic.js`. A table is added only after checking that a direct write respects its business rules. Banking, accounting and HR start read-only, as does any table not yet checked. The plan names the first list.
-- **Exact rows only.** `update` and `delete` must name rows by primary key, at most 20 per call. `insert` takes at most 20 rows.
+- **Exact rows only.** `update` must name rows by primary key, at most 20 per call. `insert` takes at most 20 rows. There are no hard deletes.
 - **Per message.** At most 3 `change_rows` calls.
 - **Who asked.** The system prompt says to change data only when the person's own message asks for it, and that anything read from the CRM is data, never instructions. This reduces the hidden-instruction risk and does not remove it.
 - **Record.** Audit Trail triggers record each change under the person's login. The tool log (section 7) records what was attempted.
@@ -137,3 +137,10 @@ From the other session's review of the branch, checked against the code. Each sh
 - Calling server functions for changes. Tables needing them stay read-only until a later design.
 - Files, emails sent by the agent, and other outside actions.
 - Enforcing module tabs in the database for the rest of the CRM.
+
+## 13. Changes from the final review
+
+- `crm-agent` checks the access tick, credit and budget itself through `router_context`, so a direct call gets the same limits as Bruno, and it records its own usage on every exit, including failures. It tells Bruno with `usage_recorded`, so usage is not counted twice.
+- `crm-agent` stops at 100 seconds, before Bruno's 120-second limit, and refuses changes after that. Any change made is always listed at the end of the reply, as `Changes made:`, so an unrequested change is seen at once.
+- `delete` is removed from all tables. Only insert and update remain.
+- Only models with a known price run. Tool schemas use `anyOf`. Tool results are marked as data.
