@@ -287,6 +287,17 @@ select public.bs_check('staff may call the signed and override functions, anon m
   and has_function_privilege('authenticated', 'public.business_setup_case_paid_override(uuid, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_signed_add(uuid, text)', 'execute'));
 
 
+-- ── a confirm that the accept refuses leaves the copy waiting ──
+select public.bs_as(null);
+select pg_temp.mkcase('cH', 'CL990092');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select pg_temp.mk('qH', 'Business Setup', '[{"description":"S","amount":100}]', jsonb_build_object('client_id', 'CL990092', 'case_id', pg_temp.fx('cH'), 'valid_until', (current_date - 3)::text));
+insert into f90 values ('sH', public.business_setup_signed_add(pg_temp.fx('qH')::uuid, 'staff/CL990092/signed-h.pdf')::text);
+select public.bs_expect_error(format($$select business_setup_signed_decide('%s', true, null)$$, pg_temp.fx('sH')), 'expired');
+select public.bs_check('a refused accept rolls the confirmation back: the copy waits and the quote stays issued', pg_temp.sgst('sH') = 'Uploaded' and pg_temp.qst('qH') = 'issued');
+select public.business_setup_signed_decide(pg_temp.fx('sH')::uuid, true, null, true);
+select public.bs_check('with the expiry confirmed the copy is Confirmed and the quote accepted', pg_temp.sgst('sH') = 'Confirmed' and pg_temp.qst('qH') = 'accepted');
+
 -- ── a case with no client shows its quote and letter numbers (read-only) ──
 select public.bs_as(null);
 select pg_temp.mkcase('cX', null);
