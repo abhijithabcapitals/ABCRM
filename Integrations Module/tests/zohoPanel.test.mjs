@@ -65,6 +65,14 @@ test("not connected keeps the current notice, and hides the missing-credentials 
   assert.deepEqual(panelNotes({ connected: true, readError: "Zoho is busy, try again shortly." }), []);
 });
 
+test("a VAT difference warns, and an unchecked draft says nothing", () => {
+  const text = (v) => rowNotes({ state: "created", vat_warning: v }, "created").map((n) => n.text);
+  assert.deepEqual(text(true), ["VAT on this draft differs from the CRM. Check it in Zoho before sending."]);
+  assert.deepEqual(text(false), []);
+  assert.deepEqual(text(null), []);
+  assert.deepEqual(text(undefined), []);
+});
+
 test("row notes: total and earlier draft are warnings, read errors stay on their row", () => {
   const notes = rowNotes({ state: "created", total_warning: true, earlier_draft: "EST-0007", read_error: "Zoho is busy, try again shortly." }, "created");
   assert.equal(notes.length, 3);
@@ -121,9 +129,31 @@ test("both screens use the panel and keep their handover buttons", () => {
   assert.doesNotMatch(quotes + bank, /ZohoInvoicePanel/);
 });
 
-test("the old placeholder is gone and the module exports the panel", () => {
+test("the old placeholder is gone and the module index does not pull the panel into Settings", () => {
   assert.equal(existsSync(file("../../Business Setup Module/components/ZohoInvoicePanel.jsx")), false);
-  assert.match(read("../index.js"), /ZohoPanel/);
+  assert.doesNotMatch(read("../index.js"), /ZohoPanel/);
+});
+
+test("the panel is mounted for issued and accepted quotes, outside the handover conditions", () => {
+  const quotes = read("../../Business Setup Module/components/workspace/Quotes.jsx");
+  const at = quotes.indexOf("<ZohoPanel");
+  assert.ok(at > 0);
+  assert.equal((quotes.match(/<ZohoPanel/g) || []).length, 1);
+  const before = quotes.slice(at - 120, at);
+  assert.match(before, /\["issued", "accepted"\]\.includes\(q\.status\)/);
+  assert.doesNotMatch(before, /h\.ready|!held/);
+  assert.match(quotes, /zohoProps\(q\.status/);
+});
+
+test("Banking and Accounting screens show the panel read-only", () => {
+  const bank = read("../../Banking Module/components/BankProcess.jsx");
+  const readOnly = bank.slice(bank.indexOf("if (!editable)"), bank.indexOf("<Panel title=\"Account details\" sub="));
+  assert.match(readOnly, /<ZohoPanel[^>]*sourceId=\{quoteId\}[^>]*canCreate=\{false\}/);
+  const setup = read("../../Accounting Module/components/SetupValidation.jsx");
+  assert.match(setup, /<ZohoPanel[^>]*sourceTable="hub_documents"[^>]*sourceId=\{row\.quote_id\}[^>]*clientId=\{row\.client_id\}[^>]*canCreate=\{false\}/);
+  const bv = read("../../Accounting Module/components/BankingValidation.jsx");
+  assert.match(bv, /<ZohoPanel[^>]*sourceTable="banking_quotations"[^>]*clientId=\{row\.client_master_id\}[^>]*canCreate=\{false\}/);
+  assert.match(bv, /eq\("status", "Accepted"\)\.maybeSingle\(\)\)\.catch\(\(\) => "error"\)/);
 });
 
 const pdfBlob = () => new Blob(["%PDF"], { type: "application/pdf" });
@@ -136,6 +166,11 @@ test("a failed call gives the function's own message, else the library's", async
   const supabase = (result) => ({ functions: { invoke: async () => result } });
   await assert.rejects(callZoho(supabase({ data: null, error: { message: "x", context: { json: async () => ({ error: "Zoho is busy, try again shortly." }) } } }), {}), /Zoho is busy/);
   await assert.rejects(callZoho(supabase({ data: { error: "Unknown action." }, error: null }), {}), /Unknown action/);
+  const off = { data: { connected: false, message: "Zoho credentials are missing. Add them in Settings > Integrations." }, error: null };
+  await assert.rejects(callZoho(supabase(off), { action: "contact_link" }), /credentials are missing/);
+  await assert.rejects(callZoho(supabase(off), { action: "contacts_search" }), /credentials are missing/);
+  await assert.rejects(callZoho(supabase({ data: { connected: false }, error: null }), { action: "document_create" }), /not connected/);
+  assert.deepEqual(await callZoho(supabase({ data: { rows: [], connected: false }, error: null }), { action: "document_state" }), { rows: [], connected: false });
   const blob = pdfBlob();
   assert.equal(await callZoho(supabase({ data: blob, error: null }), {}), blob);
 });

@@ -44,6 +44,7 @@ export function rowNotes(row, mode) {
   const notes = [];
   if (!row) return notes;
   if (row.total_warning) notes.push({ tone: "warn", text: "The total in Zoho does not match the CRM total. Check the draft in Zoho before using it." });
+  if (row.vat_warning === true) notes.push({ tone: "warn", text: "VAT on this draft differs from the CRM. Check it in Zoho before sending." });
   if (row.earlier_draft) notes.push({ tone: "warn", text: `An earlier draft, ${row.earlier_draft}, may still exist in Zoho. Check that it is not used by mistake.` });
   if (row.error) notes.push({ tone: mode === "failed" ? "error" : "warn", text: String(row.error) });
   if (row.read_error && row.read_error !== row.error) notes.push({ tone: "warn", text: String(row.read_error) });
@@ -108,6 +109,10 @@ export async function callZoho(supabase, body) {
   const { data, error } = await supabase.functions.invoke("zoho-books", { body });
   if (error) throw new Error(await readInvokeError(error));
   if (data && typeof data === "object" && typeof data.error === "string") throw new Error(data.error);
+  // The function answers "not connected" with a normal reply. Only the state read treats that as a result.
+  if (data?.connected === false && body?.action !== "document_state") {
+    throw new Error(typeof data.message === "string" && data.message ? data.message : "Zoho is not connected.");
+  }
   return data;
 }
 

@@ -165,6 +165,7 @@ function AccountDetails({ c, app, account, kyc, client, history, missingCount, q
       <Panel title="Account details">
         <ErrorNote message={fileError} />
         <KeyVals items={[["Bank", app.banking_partners?.bank_name], ...ACCOUNT_FIELDS.map((f) => [f.label, f.type === "date" ? fmtDate(account?.[f.name]) : account?.[f.name]]), ["Welcome letter", account?.welcome_letter_path ? <button type="button" className="bk-link" key="w" onClick={() => fileAct(() => openFile(account.welcome_letter_path))}>{account.welcome_letter_name || "Open"}</button> : null]]} />
+        <ZohoPanel key={`${quoteId}:${client.client_master_id}`} noSourceNote={quoteNote} supabase={supabase} department="banking" sourceTable="banking_quotations" sourceId={quoteId} clientId={client.client_master_id} kinds={["estimate", "invoice"]} canCreate={false} />
       </Panel>
     );
   }

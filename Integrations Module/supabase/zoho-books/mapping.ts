@@ -12,6 +12,10 @@ export type Source = {
   status: string;
   total: number;
   vatMode: VatMode;
+  // The VAT rate on the quote, as a number. NaN when it can't be read.
+  vatRate: number;
+  // The VAT amount on the quote, or null when the row has none to compare.
+  vatAmount: number | null;
   lines: Line[];
   // True when an amount was missing, not a number, or negative.
   unreadable: boolean;
@@ -21,6 +25,7 @@ const NAME_MAX = 100; // Zoho's line item name limit
 const NO_CLIENT = "This client has no Client Master record, so it can't be linked to Zoho.";
 const BAD_AMOUNT = "This quote has an amount that can't be read. Fix it before creating a Zoho draft.";
 const NO_NUMBER = "This quote has no number, so it can't be sent to Zoho.";
+const OTHER_RATE = "This quote uses a VAT rate other than 5%, which the saved Zoho VAT code doesn't match.";
 const NO_LINES = "This quote has no lines to send to Zoho.";
 
 const num = (v: unknown): number => {
@@ -31,6 +36,8 @@ const num = (v: unknown): number => {
 // A usable amount is a finite number, not negative. Anything else is reported, not zeroed.
 const readable = (v: unknown): boolean =>
   v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0;
+
+const vatAmountOf = (v: unknown): number | null => (readable(v) ? Number(v) : null);
 
 const mode = (v: unknown): VatMode => (v === "exclusive" || v === "none" ? v : "inclusive");
 
@@ -43,6 +50,8 @@ export function fromHub(row: Record<string, any>): Source {
     status: String(row.status ?? ""),
     total: num(row.total_amount),
     vatMode: mode(row.vat_mode),
+    vatRate: Number(row.vat_rate),
+    vatAmount: vatAmountOf(row.vat_amount),
     lines: lines.map((l: any) => ({
       name: String(l?.service_name || l?.description || "Service"),
       amount: num(l?.amount),
@@ -85,6 +94,8 @@ export function fromBanking(row: Record<string, any>, clientMasterId: string | n
     status: String(row.status ?? ""),
     total: num(row.total_amount),
     vatMode: mode(row.vat_mode),
+    vatRate: Number(row.vat_rate),
+    vatAmount: vatAmountOf(row.vat_amount),
     lines,
     unreadable,
   };
@@ -122,6 +133,14 @@ export function totalsMatch(crm: number, zoho: number): boolean {
   return Math.abs(Math.round(crm * 100) - Math.round(zoho * 100)) <= 1;
 }
 
+// True when Zoho's VAT differs from the CRM's. Null when either side is missing, so it is unchecked.
+export function vatDiffers(crm: number | null, zoho: unknown): boolean | null {
+  if (crm === null || zoho === null || zoho === undefined || zoho === "") return null;
+  const z = Number(zoho);
+  if (!Number.isFinite(z)) return null;
+  return !totalsMatch(crm, z);
+}
+
 const ESTIMATE_OK: Record<Source["department"], string[]> = {
   "Business Setup": ["issued", "accepted"],
   "Banking": ["Issued", "Sent", "Accepted"],
@@ -136,6 +155,7 @@ export function canCreate(src: Source, kind: Kind): string | null {
   if (!src.reference.trim()) return NO_NUMBER;
   if (src.unreadable) return BAD_AMOUNT;
   if (src.lines.length === 0) return NO_LINES;
+  if (src.vatMode !== "none" && src.vatRate !== 5) return OTHER_RATE;
   const ok = (kind === "invoice" ? INVOICE_OK : ESTIMATE_OK)[src.department];
   if (ok.includes(src.status)) return null;
   return kind === "invoice"

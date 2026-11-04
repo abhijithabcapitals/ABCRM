@@ -7,7 +7,7 @@ export class UserError extends Error {
   }
 }
 
-import { canCreate, clientVisible, dubaiToday, fromBanking, fromHub, type Kind, type Source, toZohoBody, totalsMatch, vatMissing } from "./mapping.ts";
+import { canCreate, clientVisible, dubaiToday, fromBanking, fromHub, type Kind, type Source, toZohoBody, totalsMatch, vatDiffers, vatMissing } from "./mapping.ts";
 import { ZohoAccessError, ZohoHttpError, ZohoTimeoutError } from "./zohoClient.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -48,6 +48,8 @@ const RPC: Record<Department, string> = { business_setup: "business_setup_can", 
 const MANAGE: Record<Department, string> = { business_setup: "setup.quotes.manage", banking: "cases.manage" };
 const VIEW: Record<Department, string> = { business_setup: "setup.access", banking: "cases.view" };
 
+const ACCOUNTS_VIEW = "accounts.review";
+
 type Rpc = (name: string, args: { p_permission: string }) => Promise<{ data: unknown; error: unknown }>;
 
 // Fails closed: an unknown department, a missing function, an error or anything but true means no.
@@ -71,6 +73,13 @@ async function needPermission(deps: Deps, department: Department, permission: st
   if (!(await deps.can(department, permission))) {
     throw new UserError("You do not have permission to do this.");
   }
+}
+
+// Accounts staff may also view, through accounts.review. banking_can is the function that checks it.
+async function needView(deps: Deps, department: Department) {
+  if (await deps.can(department, VIEW[department])) return;
+  if (await deps.can("banking", ACCOUNTS_VIEW)) return;
+  throw new UserError("You do not have permission to do this.");
 }
 
 async function requireAdmin(deps: Deps) {
@@ -159,6 +168,9 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
     const zoho = await deps.zoho();
     const contact = (await zoho.get(`/contacts/${contactId}`))?.contact;
     if (!contact) throw new UserError("Zoho did not return that contact.");
+    if (String(contact.contact_type ?? "").toLowerCase() === "vendor") {
+      throw new UserError("That Zoho contact is a supplier, so it can't be billed.");
+    }
     if (contact.currency_code !== "AED") {
       throw new UserError("Only a Zoho contact billed in AED can be linked, because CRM amounts are in AED.");
     }
@@ -185,7 +197,7 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
 
   if (action === "contact_get") {
     const department = departmentOf(body);
-    await needPermission(deps, department, VIEW[department]);
+    await needView(deps, department);
     const clientId = text(body.client_id);
     if (!clientId) throw new UserError("Choose a client first.");
     const { data, error } = await deps.db
@@ -437,7 +449,10 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
   try {
     // A repeat must never make a second copy, so look in Zoho first.
     const found = await zoho.get(path, { reference_number: src.reference });
-    const listed = (found?.[`${kind}s`] ?? []) as Json[];
+    const list = found?.[`${kind}s`];
+    // A reply that is not a list can't show whether a copy exists, so it stops here too.
+    if (!Array.isArray(list)) throw new Ambiguous();
+    const listed = list as Json[];
     // Only the first page is read, so a doubtful answer stops here instead of risking a copy.
     if (found?.page_context?.has_more_page === true || listed.some((d) => d?.reference_number == null || d?.customer_id == null)) {
       throw new Ambiguous();
@@ -476,7 +491,10 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
     if (saved.error) {
       throw new UserError("Zoho has the draft, but the CRM could not save it. Wait two minutes and press Create again to link it.");
     }
-    return await shape(saved.row, matches[0] ? { adopted_count: matches.length } : {});
+    return await shape(saved.row, {
+      vat_warning: vatDiffers(src.vatAmount, doc.tax_total),
+      ...(matches[0] ? { adopted_count: matches.length } : {}),
+    });
   } catch (e) {
     if (e instanceof UserError) throw e;
     return await fail(e, posted);
@@ -577,7 +595,7 @@ async function markGone(deps: Deps, row: Json, kind: Kind): Promise<boolean> {
 
 async function documentState(body: Json, deps: Deps): Promise<object> {
   const { table, id, department } = sourceOf(body);
-  await needPermission(deps, department, VIEW[department]);
+  await needView(deps, department);
   const force = body.force === true;
 
   const found = await deps.db.from("zoho_documents").select("*").eq("source_table", table).eq("source_id", id).order("kind");
@@ -688,7 +706,7 @@ export function pdfFileName(label: unknown): string {
 async function documentPdf(body: Json, deps: Deps): Promise<object> {
   const { table, id, department } = sourceOf(body);
   const kind = kindOf(body);
-  await needPermission(deps, department, VIEW[department]);
+  await needView(deps, department);
 
   // The Zoho id comes from the saved row only, never from the request.
   const found = await deps.db.from("zoho_documents").select("*").eq("source_table", table).eq("source_id", id).eq("kind", kind)

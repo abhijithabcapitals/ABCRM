@@ -6,7 +6,7 @@ import { expiryNote } from "../logic/expiries.js";
 import { kycMissing } from "../logic/kyc.js";
 import { buildLines } from "../logic/lines.js";
 import { balance, canStart, canComplete, isRegistration } from "../logic/balances.js";
-import { SERVICE_STATUSES } from "../logic/statuses.js";
+import { SERVICE_STATUSES, zohoProps } from "../logic/statuses.js";
 import { contactChoice } from "../logic/contact.js";
 
 test("a past date asks staff to check it, because imported dates may be stale", () => {
@@ -107,4 +107,20 @@ test("private price files are ignored by the repository itself", () => {
   const ignore = readFileSync(fileURLToPath(new URL("../../.gitignore", import.meta.url)), "utf8");
   assert.match(ignore, /Database Module\/Business Setup Base\/private\//);
   assert.match(ignore, /\.superpowers\//);
+});
+
+test("Zoho panel: issued quotes get the estimate only, accepted get both", () => {
+  const ok = { quotes: true, held: false, ready: true, invoiceRight: true };
+  assert.deepEqual(zohoProps("issued", ok), { kinds: ["estimate"], canCreate: { estimate: true, invoice: false } });
+  assert.deepEqual(zohoProps("accepted", ok), { kinds: ["estimate", "invoice"], canCreate: { estimate: true, invoice: true } });
+});
+
+test("Zoho panel: a held quote is read-only, and the invoice needs a ready accepted quote", () => {
+  const held = zohoProps("accepted", { quotes: true, held: true, ready: true, invoiceRight: true });
+  assert.deepEqual(held.canCreate, { estimate: false, invoice: false });
+  assert.deepEqual(held.kinds, ["estimate", "invoice"]);
+  assert.equal(zohoProps("accepted", { quotes: true, held: false, ready: false, invoiceRight: true }).canCreate.invoice, false);
+  assert.equal(zohoProps("accepted", { quotes: true, held: false, ready: true, invoiceRight: false }).canCreate.invoice, false);
+  assert.equal(zohoProps("accepted", { quotes: false, held: false, ready: true, invoiceRight: true }).canCreate.estimate, false);
+  assert.equal(zohoProps("accepted", { quotes: true, held: false, ready: false, known: false, invoiceRight: true }).canCreate.estimate, false);
 });

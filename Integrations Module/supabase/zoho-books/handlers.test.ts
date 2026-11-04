@@ -135,6 +135,8 @@ function makeDeps(over: Record<string, unknown> = {}) {
       status: "issued",
       total_amount: 105,
       vat_mode: "inclusive",
+      vat_rate: 5,
+      vat_amount: 5,
       lines: [{ service_name: "Setup", amount: 105 }],
       revises_id: null,
     }],
@@ -145,6 +147,8 @@ function makeDeps(over: Record<string, unknown> = {}) {
       version: 1,
       status: "Accepted",
       vat_mode: "inclusive",
+      vat_rate: 5,
+      vat_amount: 5,
       total_amount: 205,
       bank_fee_total: 100,
       direct_to_bank_total: 0,
@@ -591,6 +595,7 @@ Deno.test("the row is written as creating before the POST", async () => {
     total_warning: false,
     earlier_draft: null,
     url: "https://books.zoho.ae/app/ORG1#/quotes/7001",
+    vat_warning: null,
   });
 });
 
@@ -1517,4 +1522,121 @@ Deno.test("an error saved on a created row is not a failure for document_create"
   assertEquals(res.state, "created");
   assertEquals(res.zoho_number, "EST-1");
   assertEquals(posts.length, 0);
+});
+
+// ---- Final review fixes ----
+
+const taxed = (tax_total?: number) => ({ estimate: { estimate_id: "7001", estimate_number: "EST-0001", total: 105, status: "draft", ...(tax_total === undefined ? {} : { tax_total }) } });
+
+Deno.test("create returns vat_warning false when Zoho's VAT matches the CRM within a cent", async () => {
+  for (const t of [5, 5.01]) {
+    const m = makeDeps();
+    m.state.postImpl = () => Promise.resolve(taxed(t));
+    assertEquals(ref(await handle("document_create", hub, m.deps)).vat_warning, false);
+  }
+});
+
+Deno.test("create returns vat_warning true when Zoho's VAT differs", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.resolve(taxed(4.5));
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.state, r.vat_warning], ["created", true]);
+  assertEquals(m.db.zoho_documents[0].vat_warning, undefined);
+});
+
+Deno.test("create returns vat_warning null when the reply has no tax_total or the quote has no VAT amount", async () => {
+  const a = makeDeps();
+  a.state.postImpl = () => Promise.resolve(taxed());
+  assertEquals(ref(await handle("document_create", hub, a.deps)).vat_warning, null);
+  const b = makeDeps();
+  delete b.db.hub_documents[0].vat_amount;
+  b.state.postImpl = () => Promise.resolve(taxed(5));
+  assertEquals(ref(await handle("document_create", hub, b.deps)).vat_warning, null);
+});
+
+Deno.test("Banking create compares the quote's VAT amount too", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.resolve(taxed(9));
+  assertEquals(ref(await handle("document_create", bank, m.deps)).vat_warning, true);
+});
+
+Deno.test("a quote with a VAT rate other than 5 is refused before anything is written", async () => {
+  const m = makeDeps();
+  m.db.hub_documents[0].vat_rate = 15;
+  await assertRejects(() => handle("document_create", hub, m.deps), UserError, "VAT rate other than 5%");
+  assertEquals([m.posts.length, m.db.zoho_documents.length], [0, 0]);
+  const n = makeDeps();
+  n.db.hub_documents[0].vat_mode = "none";
+  n.db.hub_documents[0].vat_rate = 0;
+  await handle("document_create", hub, n.deps);
+  assertEquals(n.posts.length, 1);
+});
+
+Deno.test("a list reply that is not a list stops with nothing sent", async () => {
+  for (const reply of [{}, null, { estimates: null }, { estimates: "x" }, { estimates: {} }]) {
+    const m = makeDeps();
+    m.replies["/estimates"] = reply;
+    await quiet(async () => {
+      const r = ref(await handle("document_create", hub, m.deps));
+      assertEquals([r.state, r.error, m.posts.length], [
+        "failed",
+        "Zoho returned too many possible matches, so no draft was created. Check Zoho, then try again.",
+        0,
+      ]);
+    });
+  }
+});
+
+Deno.test("contact_link refuses a supplier and tolerates a missing contact_type", async () => {
+  const v = makeDeps();
+  v.replies["/contacts/11"] = { contact: { contact_id: "11", contact_name: "Acme LLC", currency_code: "AED", contact_type: "vendor" } };
+  await assertRejects(
+    () => handle("contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, v.deps),
+    UserError,
+    "That Zoho contact is a supplier, so it can't be billed.",
+  );
+  assertEquals(v.saved.length, 0);
+  const c = makeDeps();
+  c.replies["/contacts/11"] = { contact: { contact_id: "11", contact_name: "Acme LLC", currency_code: "AED", contact_type: "customer" } };
+  await handle("contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, c.deps);
+  assertEquals(c.saved.length, 1);
+  const m = makeDeps();
+  await handle("contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, m.deps);
+  assertEquals(m.saved.length, 1);
+});
+
+// A fake that answers by permission name, to show which one opened the door.
+const onlyCan = (allowed: string[]) => (d: string, p: string) => Promise.resolve(allowed.includes(`${d}:${p}`));
+
+Deno.test("Accounts staff (accounts.review through banking_can) can read state, the PDF and the link", async () => {
+  const m = makeDeps({ can: onlyCan(["banking:accounts.review"]) });
+  seed(m.db);
+  m.replies["/invoices/9001"] = invoiceReply("sent");
+  const res = await handle("document_state", STATE, m.deps) as Row;
+  assertEquals(res.rows[0].state, "created");
+  const pdf = await handle("document_pdf", { ...STATE, kind: "invoice" }, m.deps) as Row;
+  assertEquals(typeof pdf.filename, "string");
+  assertEquals(await handle("contact_get", { client_id: "CL000001", department: "business_setup" }, m.deps), {
+    linked: true,
+    zoho_contact_id: "11",
+    zoho_contact_name: "Acme LLC",
+  });
+});
+
+Deno.test("accounts.review does not widen create or search rights", async () => {
+  const m = makeDeps({ can: onlyCan(["banking:accounts.review"]) });
+  await assertRejects(() => handle("document_create", hub, m.deps), UserError, "permission");
+  await assertRejects(() => handle("document_create", bank, m.deps), UserError, "permission");
+  await assertRejects(() => handle("contacts_search", { query: "a", department: "banking" }, m.deps), UserError, "permission");
+  await assertRejects(() => handle("contact_link", { client_id: "c1", zoho_contact_id: "11", department: "banking" }, m.deps), UserError, "permission");
+  assertEquals([m.posts.length, m.calls.length], [0, 0]);
+});
+
+Deno.test("someone with neither the view permission nor accounts.review still cannot read", async () => {
+  const m = makeDeps({ can: onlyCan([]) });
+  seed(m.db);
+  await assertRejects(() => handle("document_state", STATE, m.deps), UserError, "permission");
+  await assertRejects(() => handle("document_pdf", { ...STATE, kind: "invoice" }, m.deps), UserError, "permission");
+  await assertRejects(() => handle("contact_get", { client_id: "c1", department: "banking" }, m.deps), UserError, "permission");
+  assertEquals(m.calls.length, 0);
 });

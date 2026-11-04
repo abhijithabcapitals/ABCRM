@@ -8,6 +8,7 @@ import {
   type Source,
   toZohoBody,
   totalsMatch,
+  vatDiffers,
   vatMissing,
 } from "./mapping.ts";
 
@@ -200,4 +201,35 @@ Deno.test("a revised Banking quote gets its own reference; version 1 keeps the n
 Deno.test("a quote with no number is refused", () => {
   const src = fromHub(hubRow({ document_number: "  " }));
   assertEquals(canCreate(src, "estimate"), "This quote has no number, so it can't be sent to Zoho.");
+});
+
+Deno.test("a VAT rate other than 5 is refused unless the quote has no VAT", () => {
+  const msg = "This quote uses a VAT rate other than 5%, which the saved Zoho VAT code doesn't match.";
+  for (const mode of ["inclusive", "exclusive"]) {
+    assertEquals(canCreate(fromHub(hubRow({ vat_mode: mode, vat_rate: 15 })), "estimate"), msg);
+    assertEquals(canCreate(fromHub(hubRow({ vat_mode: mode, vat_rate: null })), "estimate"), msg);
+    assertEquals(canCreate(fromHub(hubRow({ vat_mode: mode, vat_rate: "5.00" })), "estimate"), null);
+  }
+  assertEquals(canCreate(fromHub(hubRow({ vat_mode: "none", vat_rate: 0 })), "estimate"), null);
+  assertEquals(canCreate(fromBanking(bankRow({ vat_rate: 15 }), "c1"), "estimate"), msg);
+  assertEquals(canCreate(fromBanking(bankRow(), "c1"), "estimate"), null);
+});
+
+Deno.test("the source carries the rate and the VAT amount", () => {
+  const h = fromHub(hubRow({ vat_amount: 50 }));
+  assertEquals([h.vatRate, h.vatAmount], [5, 50]);
+  assertEquals(fromHub(hubRow()).vatAmount, null);
+  assertEquals(fromHub(hubRow({ vat_amount: -1 })).vatAmount, null);
+  assertEquals(fromBanking(bankRow({ vat_amount: 12.5 }), "c1").vatAmount, 12.5);
+});
+
+Deno.test("vatDiffers uses a one cent tolerance and is null when unchecked", () => {
+  assertEquals(vatDiffers(5, 5), false);
+  assertEquals(vatDiffers(5, 5.01), false);
+  assertEquals(vatDiffers(5, 5.02), true);
+  assertEquals(vatDiffers(5, "4"), true);
+  assertEquals(vatDiffers(5, undefined), null);
+  assertEquals(vatDiffers(5, null), null);
+  assertEquals(vatDiffers(5, "abc"), null);
+  assertEquals(vatDiffers(null, 5), null);
 });
