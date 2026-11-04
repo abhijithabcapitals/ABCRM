@@ -8,7 +8,7 @@ import { DATA_ROLES, GRANTABLE_TABS, NEEDS_DATA_ROLE, toggleAllTabs } from "../t
 import { TriggersPanel } from "./AdminTriggers";
 import { cronText } from "./triggerSchedule";
 import { EMP_FIELDS } from "../empFields";
-import { ACTION_LABEL, auditDetail, auditFields, auditPeople, auditPersonFilter, auditWho, cleanSearch, dayEnd, dayStart } from "./auditTrail";
+import { ACTION_LABEL, adminActionLabel, adminDetail, adminPerson, auditDetail, auditFields, auditPeople, auditPersonFilter, auditWho, cleanSearch, dayEnd, dayStart } from "./auditTrail";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
@@ -150,10 +150,41 @@ export function JobsPanel() {
 
 export function AuditPanel() {
   const log = useLoad(async () => check(await supabase.from("admin_audit").select("*").order("id", { ascending: false }).limit(500)), []);
+  const people = useLoad(async () => check(await supabase.from("profiles").select("id, full_name, email")), []);
+  const [action, setAction] = useState("");
+  const [who, setWho] = useState("");
+  const rows = useMemo(() => {
+    const names = Object.fromEntries((people.data || []).map((p) => [p.id, p.full_name || p.email]));
+    return (log.data || []).map((r) => ({
+      id: r.id, at: r.at, action: r.action, actor: r.actor,
+      whoText: adminPerson(r.actor, names),
+      actionText: adminActionLabel(r.action),
+      targetText: r.target ? adminPerson(r.target, names) : "–",
+      detailText: adminDetail(r.detail, names),
+    }));
+  }, [log.data, people.data]);
+  const distinct = (key, label) => [...new Map(rows.map((r) => [r[key], r[label]])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const shown = rows.filter((r) => (!action || r.action === action) && (!who || r.actor === who));
   return (
     <div>
-      <ErrorNote message={log.error} />
-      {log.loading && !log.data ? <Spinner /> : <DataTable search="Search…" rows={log.data || []} empty="No admin actions recorded yet." columns={[{ key: "at", label: "When", render: (r) => when(r.at) }, { key: "action", label: "Action" }, { key: "target", label: "Target" }, { key: "detail", label: "Detail", render: (r) => (r.detail ? JSON.stringify(r.detail) : "–") }]} />}
+      <ErrorNote message={log.error || people.error} />
+      <div className="bk-filter">
+        <select aria-label="Action" value={action} onChange={(e) => setAction(e.target.value)}>
+          <option value="">All actions</option>
+          {distinct("action", "actionText").map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
+        <select aria-label="Done by" value={who} onChange={(e) => setWho(e.target.value)}>
+          <option value="">Everyone</option>
+          {distinct("actor", "whoText").filter(([k]) => k).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
+      </div>
+      {log.loading && !log.data ? <Spinner /> : <DataTable search="Search…" rows={shown} empty="No admin actions match." columns={[
+        { key: "at", label: "When", render: (r) => <span style={{ whiteSpace: "nowrap" }}>{when(r.at)}</span> },
+        { key: "whoText", label: "Done by", render: (r) => <span style={{ whiteSpace: "nowrap" }}>{r.whoText}</span> },
+        { key: "actionText", label: "Action", render: (r) => <span style={{ whiteSpace: "nowrap" }}>{r.actionText}</span> },
+        { key: "targetText", label: "Target" },
+        { key: "detailText", label: "Detail" },
+      ]} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { auditFields, auditValue, auditWho, cleanSearch, dayEnd, dayStart } from "../src/components/auditTrail.js";
+import { adminActionLabel, adminDetail, adminPerson, auditFields, auditValue, auditWho, cleanSearch, dayEnd, dayStart } from "../src/components/auditTrail.js";
 
 test("names the person, then their email, then the system", () => {
   assert.equal(auditWho({ actor_name: "Mo", actor_email: "m@x", actor: "u" }), "Mo");
@@ -26,4 +26,22 @@ test("filters use Dubai days and safe search text", () => {
   assert.equal(dayStart("2026-11-03"), "2026-11-03T00:00:00+04:00");
   assert.equal(dayEnd("2026-11-03"), "2026-11-03T23:59:59.999+04:00");
   assert.equal(cleanSearch(" a,b(c)* "), "a b c");
+});
+
+test("admin actions read in plain words, and a new kind still reads sensibly", () => {
+  assert.equal(adminActionLabel("credential.set"), "Saved integration credential");
+  assert.equal(adminActionLabel("some_new.action"), "Some new action");
+});
+test("an id shows the person's name, or shortened if unknown; other targets stay as they are", () => {
+  const id = "65bc518e-bd1b-426c-ba61-d67833000000";
+  assert.equal(adminPerson(id, { [id]: "Mo" }), "Mo");
+  assert.equal(adminPerson(id, {}), "65bc518e…");
+  assert.equal(adminPerson("ZOHO_DC", {}), "ZOHO_DC");
+  assert.equal(adminPerson(null, {}), "System");
+});
+test("admin action detail replaces raw JSON and leaves out empty values", () => {
+  assert.equal(adminDetail({ integration: "Zoho Books" }), "Integration: Zoho Books");
+  assert.equal(adminDetail({ tabs: ["hr", "tax"], data_role: null, reset: true }), "Tabs: hr, tax · Reset: Yes");
+  assert.equal(adminDetail(null), "–");
+  assert.equal(adminDetail({}), "–");
 });
