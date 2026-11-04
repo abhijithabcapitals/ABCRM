@@ -25,3 +25,8 @@ test("panel falls back to a visible link when the pop-up is blocked", () => {
   assert.match(src, /window\.open\(/);
   assert.match(src, /blocked/i);
 });
+
+test("window.open does not use noopener, which would make a opened window look blocked", () => {
+  const src = read("components/TeamsPanel.jsx");
+  assert.doesNotMatch(src, /window\.open\([^)]*noopener/);
+});

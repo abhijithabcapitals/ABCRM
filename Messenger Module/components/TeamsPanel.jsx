@@ -29,8 +29,10 @@ export default function TeamsPanel({ recordType, recordId, displayId, label, cur
     let url;
     try { url = buildChatLink({ emails, topic: chatTopic, message: text }); } catch (e) { setError(e.message); return; }
     // Opened straight from the click so the browser allows it.
-    const win = window.open(url, "_blank", "noopener");
-    if (!win) setBlockedUrl(url);
+    // No "noopener" feature: it makes window.open return null even when the window opened.
+    const win = window.open(url, "_blank");
+    if (win) win.opener = null;
+    else setBlockedUrl(url);
     saveChatLink({ recordType, recordId, reference: participantsKey(emails), label: savedLabel })
       .then(() => links.reload())
       .catch((e) => setError(`The chat opened, but it could not be saved to this record: ${e.message}`));
