@@ -113,7 +113,7 @@ Both tables have row level security. Only the Edge Function reads and writes the
 
 A unique index on `(source_table, source_id, kind)` allows one Zoho draft per quote and kind. A revised quote is a new row in `hub_documents`, so it gets its own draft, and the panel warns that the earlier draft still exists in Zoho.
 
-`business_setup_invoices` already feeds Client Login. A row is added there only once Zoho reports an invoice as sent, unpaid, partially paid, overdue or paid. Any other status stays hidden, which keeps drafts away from clients. If an invoice is later voided or removed in Zoho, the row is removed. A Banking invoice gets a row with `quote_id` empty.
+`business_setup_invoices` already feeds Client Login. A row is added there only once Zoho reports an invoice as sent, unpaid, partially paid, overdue or paid. Any other status stays hidden, which keeps drafts away from clients. If an invoice is later voided or removed in Zoho, the row is removed. A Banking invoice gets a row with `quote_id` empty. A row is added only when Zoho's customer on the invoice matches the client's saved contact link; otherwise any row is removed and staff see why.
 
 If Zoho says a document no longer exists, its row becomes `gone` and staff can create a new draft.
 

@@ -219,9 +219,9 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
       bytes.set(c, at);
       at += c.length;
     }
-    const isPdfType = (res.headers.get("Content-Type") ?? "").toLowerCase().includes("application/pdf");
     const hasPdfMark = bytes.length >= 4 && String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) === "%PDF";
-    if (!isPdfType && !hasPdfMark) throw new Error("Zoho did not send a PDF.");
+    // Even a reply labelled as a PDF must be one: an empty body or a JSON error page is refused.
+    if (bytes.length === 0 || !hasPdfMark) throw new Error("Zoho did not send a PDF.");
     return bytes;
   }
 

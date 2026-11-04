@@ -143,7 +143,7 @@ export function canCreate(src: Source, kind: Kind): string | null {
     : "An estimate can only be made from an issued, sent or accepted quote.";
 }
 
-const VISIBLE = new Set(["sent", "overdue", "paid", "unpaid", "partially_paid"]);
+const VISIBLE = new Set(["sent", "viewed", "overdue", "paid", "unpaid", "partially_paid"]);
 
 // Unknown statuses stay hidden from clients.
 export function clientVisible(zohoStatus: string): boolean {

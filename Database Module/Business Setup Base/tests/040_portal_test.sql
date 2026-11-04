@@ -95,6 +95,7 @@ select public.bs_check('rows with no Zoho id are not limited', (select count(*) 
 select public.bs_check('rollback drops the index', to_regclass('public.business_setup_invoices_zoho_uq') is null);
 \ir '../../Admin Base/migrations/010_zoho_invoices.sql'
 select public.bs_check('the index is back after reapplying', to_regclass('public.business_setup_invoices_zoho_uq') is not null);
+select public.bs_check('the service role can write invoices', has_table_privilege('service_role', 'public.business_setup_invoices', 'insert') and has_table_privilege('service_role', 'public.business_setup_invoices', 'delete') and has_table_privilege('service_role', 'public.business_setup_invoices', 'update'));
 delete from public.business_setup_invoices where client_id in ('CL900080', 'CL900081');
 select public.bs_check('service fields', (select e ->> 'name' = 'Trade licence' and e ->> 'action' = 'New' and e ->> 'status' = 'In progress' from jsonb_array_elements(pg_temp.v() -> 'services') e));
 select public.bs_check('payment fields and receipt', (select e ->> 'reference' = 'TT-A' and e ->> 'receipt_number' = 'BSR-A' and (e ->> 'amount')::numeric = 400 from jsonb_array_elements(pg_temp.v() -> 'payments') e));

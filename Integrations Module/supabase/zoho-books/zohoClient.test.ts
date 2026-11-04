@@ -357,3 +357,10 @@ Deno.test("getPdf allows 30 seconds, other calls 20", async () => {
   }
   assertEquals(seen, [20000, 30000, 20000]);
 });
+
+Deno.test("getPdf refuses an empty body and non-PDF bytes even under application/pdf", async () => {
+  for (const body of ["", '{"code":5,"message":"error"}']) {
+    const z = createZohoClient(cfg, fakeFetch([], pdfReply(body)));
+    await assertRejects(() => z.getPdf("/invoices/9001"), Error, "did not send a PDF");
+  }
+});

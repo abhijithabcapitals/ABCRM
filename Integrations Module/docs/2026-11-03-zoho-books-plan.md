@@ -230,7 +230,7 @@ Deno.test("429 says Zoho is busy and leaves the row retryable");
 ### Task 9: Read-back and Client Login
 
 **Files:**
-- Create: `Database Module/Admin Base/migrations/006_zoho_invoices.sql`, `Database Module/Admin Base/migrations/rollback/005_rollback.sql`
+- Create: `Database Module/Admin Base/migrations/010_zoho_invoices.sql`, `Database Module/Admin Base/migrations/rollback/005_rollback.sql`
 - Modify: `Integrations Module/supabase/zoho-books/handlers.ts`, `handlers.test.ts`, `Database Module/Business Setup Base/tests/040_portal_test.sql`
 
 **Interfaces:**
@@ -268,7 +268,7 @@ Add to `040_portal_test.sql`: the portal view shows only that client's rows, and
 
 Needs the user at each step.
 
-- [ ] **Step 1: Ask the user to approve** applying `006_zoho_invoices.sql`, deploying the function, and releasing the panel. State each in full.
+- [ ] **Step 1: Ask the user to approve** applying `010_zoho_invoices.sql`, deploying the function, and releasing the panel. State each in full.
 - [ ] **Step 2: The user names one client.** Create one estimate and one invoice. Expected: both in Zoho as unsent drafts, totals equal, and no row in Client Login.
 - [ ] **Step 3: The user presses View PDF on both drafts,** signed out of Zoho. Expected: each opens in a new tab and matches Zoho.
 - [ ] **Step 4: The user sends the invoice in Zoho,** then presses Refresh. Expected: it appears in Client Login for that client only.

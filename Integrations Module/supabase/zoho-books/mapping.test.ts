@@ -180,8 +180,8 @@ Deno.test("canCreate: no client record is refused", () => {
   assertEquals(canCreate(src, "estimate"), "This client has no Client Master record, so it can't be linked to Zoho.");
 });
 
-Deno.test("clientVisible: sent, overdue, paid, unpaid, partially_paid true; draft, void, pending_approval, unknown false", () => {
-  for (const s of ["sent", "overdue", "paid", "unpaid", "partially_paid"]) assert(clientVisible(s), s);
+Deno.test("clientVisible: sent, viewed, overdue, paid, unpaid, partially_paid true; draft, void, pending_approval, unknown false", () => {
+  for (const s of ["sent", "viewed", "overdue", "paid", "unpaid", "partially_paid"]) assert(clientVisible(s), s);
   for (const s of ["draft", "void", "pending_approval", "weird", ""]) assert(!clientVisible(s), s);
 });
 

@@ -8,7 +8,7 @@ export class UserError extends Error {
 }
 
 import { canCreate, clientVisible, dubaiToday, fromBanking, fromHub, type Kind, type Source, toZohoBody, totalsMatch, vatMissing } from "./mapping.ts";
-import { ZohoAccessError, ZohoHttpError } from "./zohoClient.ts";
+import { ZohoAccessError, ZohoHttpError, ZohoTimeoutError } from "./zohoClient.ts";
 
 // deno-lint-ignore no-explicit-any
 type Json = any;
@@ -488,6 +488,9 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
 const READ_EVERY_MS = 15 * 60_000;
 const NOT_READY = "This draft isn't available yet.";
 const NO_LONGER = "Zoho no longer has this document.";
+const OTHER_CONTACT = "This invoice is billed to a different Zoho contact, so Client Login won't show it.";
+const NO_MASTER = "This client has no Client Master record, so Client Login cannot show this invoice.";
+const GONE_NOT_SAVED = "Zoho no longer has this document, but Client Login could not be updated. Try again.";
 const CLIENT_LOGIN_FAILED = "The Zoho status was read, but Client Login could not be updated. Press Refresh to try again.";
 
 function sourceOf(body: Json): { table: string; id: string; department: Department } {
@@ -513,11 +516,27 @@ async function removeInvoiceRow(deps: Deps, zohoId: string): Promise<boolean> {
 
 // Adds or refreshes the row Client Login shows. An upsert cannot name a partial unique index, so this reads
 // first, then updates or inserts, and falls back to an update if another call added the row in between.
-async function saveInvoiceRow(deps: Deps, table: string, sourceId: string, zohoId: string, doc: Json): Promise<boolean> {
+// ok is false when a write failed (so the read time is held back). message is shown to staff.
+type Sync = { ok: boolean; message: string | null };
+const SYNC_OK: Sync = { ok: true, message: null };
+const SYNC_FAILED: Sync = { ok: false, message: CLIENT_LOGIN_FAILED };
+
+// The row is removed and the reason is reported. A failed removal is a failure, so it is retried.
+async function hideInvoiceRow(deps: Deps, zohoId: string, message: string): Promise<Sync> {
+  return (await removeInvoiceRow(deps, zohoId)) ? { ok: true, message } : SYNC_FAILED;
+}
+
+async function saveInvoiceRow(deps: Deps, table: string, sourceId: string, zohoId: string, doc: Json): Promise<Sync> {
   const src = await loadSource(deps, table, sourceId);
   if (!src.clientId) {
     console.error("zoho-books: invoice has no Client Master record, so Client Login cannot show it");
-    return false;
+    return await hideInvoiceRow(deps, zohoId, NO_MASTER);
+  }
+  // The invoice must be billed to the contact linked to this client, or another company could see it.
+  const link = await readRow(deps, "zoho_contact_links", "client_id", src.clientId, "zoho_contact_id");
+  if (!link || doc.customer_id == null || String(doc.customer_id) !== String(link.zoho_contact_id)) {
+    console.error(`zoho-books: invoice customer ${!link ? "has no link" : doc.customer_id == null ? "is missing" : "does not match the link"}`);
+    return await hideInvoiceRow(deps, zohoId, OTHER_CONTACT);
   }
   const total = Number(doc.total);
   const date = typeof doc.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(doc.date) ? doc.date : null;
@@ -535,11 +554,24 @@ async function saveInvoiceRow(deps: Deps, table: string, sourceId: string, zohoI
   const found = await rows().select("id").eq("zoho_id", zohoId).maybeSingle();
   if (found.error) {
     console.error("zoho-books: invoice row read failed:", found.error.code, found.error.message);
-    return false;
+    return SYNC_FAILED;
   }
   let res = found.data ? await update() : await rows().insert(fields);
   if (res.error?.code === "23505") res = await update();
   if (res.error) console.error("zoho-books: invoice row save failed:", res.error.code, res.error.message);
+  return res.error ? SYNC_FAILED : SYNC_OK;
+}
+
+// Zoho reports a missing document as 404, or as its own code 1002.
+function isMissing(e: unknown): boolean {
+  return e instanceof ZohoHttpError && (e.status === 404 || e.code === 1002);
+}
+
+// Marks a row gone. The invoice row goes first: if it can't be removed the row stays created, so a later read retries.
+async function markGone(deps: Deps, row: Json, kind: Kind): Promise<boolean> {
+  if (kind === "invoice" && !(await removeInvoiceRow(deps, String(row.zoho_id)))) return false;
+  const res = await deps.db.from("zoho_documents").update({ state: "gone", error: null }).eq("id", row.id).eq("state", "created");
+  if (res.error) console.error("zoho-books: gone save failed:", res.error.code, res.error.message);
   return !res.error;
 }
 
@@ -558,9 +590,12 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
   // Saved rows are shown even when Zoho cannot be reached.
   let zoho: ZohoLike | null = null;
   let readError: string | null = null;
+  // Set after trouble that would hit every row too: a busy Zoho, lost access, a timeout, or no connection.
+  let stop = false;
   try {
     zoho = await deps.zoho();
   } catch (e) {
+    stop = true;
     if ((e as Error)?.name === "MissingSecretError") {
       readError = "Zoho credentials are missing.";
     } else {
@@ -575,8 +610,8 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
     const kind = row.kind as Kind;
     const fresh = row.last_read_at && now.getTime() - Date.parse(row.last_read_at) < READ_EVERY_MS;
     const readable = row.state === "created" && /^\d+$/.test(String(row.zoho_id ?? ""));
-    // After one Zoho failure the rest of the rows are not tried.
-    if (zoho && !readError && readable && (force || !fresh)) {
+    let rowError: string | null = null;
+    if (zoho && !stop && readable && (force || !fresh)) {
       try {
         const doc = (await zoho.get(`/${kind}s/${row.zoho_id}`))?.[kind];
         if (!doc) throw new Error("Zoho reply had no document");
@@ -585,39 +620,43 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
           total: Number.isFinite(Number(doc.total)) ? Number(doc.total) : null,
           balance: Number.isFinite(Number(doc.balance)) ? Number(doc.balance) : null,
         };
-        let synced = true;
+        let sync = SYNC_OK;
         if (kind === "invoice") {
           const status = String(doc.status ?? "").toLowerCase();
           try {
-            synced = clientVisible(status)
+            sync = clientVisible(status)
               ? await saveInvoiceRow(deps, table, id, String(row.zoho_id), doc)
-              : await removeInvoiceRow(deps, String(row.zoho_id));
+              : (await removeInvoiceRow(deps, String(row.zoho_id)) ? SYNC_OK : SYNC_FAILED);
           } catch (e) {
             console.error("zoho-books: invoice row failed:", (e as Error)?.name);
-            synced = false;
+            sync = SYNC_FAILED;
           }
         }
-        // The read time is held back after a Client Login failure, so the next open tries again.
-        if (synced) patch.last_read_at = now.toISOString();
-        else readError = CLIENT_LOGIN_FAILED;
+        // The read time is held back after a failed write, so the next open tries again.
+        if (sync.ok) patch.last_read_at = now.toISOString();
+        rowError = sync.message;
         const res = await deps.db.from("zoho_documents").update(patch).eq("id", row.id);
         if (res.error) {
           console.error("zoho-books: read-back save failed:", res.error.code, res.error.message);
-          readError ??= "The Zoho status was read but could not be saved.";
+          rowError ??= "The Zoho status was read but could not be saved.";
         }
         Object.assign(row, patch);
       } catch (e) {
-        if (e instanceof ZohoHttpError && e.status === 404) {
-          const patch = { state: "gone", error: null };
-          const res = await deps.db.from("zoho_documents").update(patch).eq("id", row.id).eq("state", "created");
-          if (res.error) console.error("zoho-books: gone save failed:", res.error.code, res.error.message);
-          if (kind === "invoice") await removeInvoiceRow(deps, String(row.zoho_id));
-          Object.assign(row, patch);
+        if (isMissing(e)) {
+          if (await markGone(deps, row, kind)) {
+            Object.assign(row, { state: "gone", error: null });
+          } else {
+            rowError = CLIENT_LOGIN_FAILED;
+          }
         } else {
           console.error("zoho-books: document_state read:", (e as Error)?.name, (e as ZohoHttpError)?.status ?? "");
-          readError = browserMessage(e);
+          rowError = browserMessage(e);
+          if (e instanceof ZohoAccessError || e instanceof ZohoTimeoutError || (e instanceof ZohoHttpError && e.status === 429)) {
+            stop = true;
+          }
         }
       }
+      readError ??= rowError;
     }
     rows.push(
       await shapeRow(deps, zoho, table, id, kind, row, {
@@ -627,6 +666,7 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
         balance: row.balance ?? null,
         last_read_at: row.last_read_at ?? null,
         error: row.error ?? null,
+        read_error: rowError,
       }),
     );
   }
@@ -659,10 +699,7 @@ async function documentPdf(body: Json, deps: Deps): Promise<object> {
     const pdf = await zoho.getPdf(`/${kind}s/${row.zoho_id}`);
     return { pdf, filename: pdfFileName(row.zoho_number || row.reference) };
   } catch (e) {
-    if (!(e instanceof ZohoHttpError) || e.status !== 404) throw e;
-    const res = await deps.db.from("zoho_documents").update({ state: "gone", error: null }).eq("id", row.id).eq("state", "created");
-    if (res.error) console.error("zoho-books: gone save failed:", res.error.code, res.error.message);
-    if (kind === "invoice") await removeInvoiceRow(deps, String(row.zoho_id));
-    throw new UserError(NO_LONGER);
+    if (!isMissing(e)) throw e;
+    throw new UserError((await markGone(deps, row, kind)) ? NO_LONGER : GONE_NOT_SAVED);
   }
 }
