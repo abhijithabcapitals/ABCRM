@@ -15,6 +15,7 @@ SONNET = ("anthropic", "claude-sonnet-5-5")
 # Agents already running on their own code. Their functions do not read these settings yet.
 OWN_CODE = {
     "AGT-08-SUPPORT": ("anthropic", "claude-opus-5-5"),
+    "AGT-05-BIZDEV": ("openrouter", "deepseek/deepseek-v4.1-flash"),
     "AGT-13-EMAIL": ("openrouter", "deepseek/deepseek-v4.1-flash"),
 }
 
