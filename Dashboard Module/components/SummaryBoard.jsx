@@ -18,7 +18,8 @@ const waitForSlide = (d) => {
   d.waitUntil = performance.now() + SLIDE_MS;
 };
 
-// The cards below the Dashboard, in groups. `zoho` is null, or { header, bodies: { [cardId]: Component }, load }.
+// The cards below the Dashboard, in groups. `zoho` is null, or { header, bodies: { [cardId]: Component }, load, epoch }.
+// A new epoch starts the Zoho cards again, so a card stuck in error recovers after a successful refresh.
 export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
   const userId = profile?.id;
   const visible = useMemo(() => visibleCards(SUMMARY_CARDS, { isAdmin: profile?.role === "admin", tabs }), [profile?.role, tabs]);
@@ -172,6 +173,7 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
                     }}
                   >
                     <SummaryCard
+                      key={group.id === "zoho" ? zoho.epoch ?? 0 : undefined}
                       card={card}
                       collapsed={layout.collapsed.includes(card.id)}
                       onToggle={() => change(toggleCollapsed(layout, card.id))}

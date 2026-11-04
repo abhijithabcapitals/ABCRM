@@ -94,3 +94,13 @@ export function refreshWaitMinutes(row, now) {
   if (!newest) return 0;
   return Math.max(0, Math.ceil((newest + REFRESH_WAIT_MINUTES * MINUTE - now) / MINUTE));
 }
+
+// The table is not there yet (migration not applied): Postgres 42P01, or PostgREST's schema-cache miss.
+export const isMissingTable = (error) => error?.code === "42P01" || error?.code === "PGRST205";
+
+// The line under the header after a failed refresh, or null. A first-ever failure has no earlier figures to point to.
+export function failureNote(row) {
+  if (row?.status !== "failed") return null;
+  const why = row.error || "The last refresh failed.";
+  return Number.isNaN(stamp(row.as_of)) ? `${why} There are no earlier figures.` : `${why} The figures below are from the last good refresh.`;
+}

@@ -104,6 +104,8 @@
 .sum-rating.is-poor { background: #fee2e2; color: #b91c1c; }
 .sum-bar-fill.tone-warn { background: #d97706; }
 .sum-bar-fill.tone-danger { background: #dc2626; }
+.sum-bar-fill.tone-credit { background: #6b7280; }
+.sum-center { text-align: center; }
 
 .sum-gauge { position: relative; max-width: 220px; margin: 0 auto; --tone: #9ca3af; }
 .sum-gauge.tone-good { --tone: #16a34a; }

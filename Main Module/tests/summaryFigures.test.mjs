@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes,
+  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes, isMissingTable, failureNote,
 } from "../../Dashboard Module/logic/summaryFigures.js";
 
 const rows = (n, stage = "New") => Array.from({ length: n }, () => ({ stage }));
@@ -105,4 +105,19 @@ test("refreshWaitMinutes: Refresh waits 5 minutes from the last figures or attem
   assert.equal(refreshWaitMinutes({ as_of: minutesAgo(10), last_attempt_at: minutesAgo(10) }, NOW), 0);
   assert.equal(refreshWaitMinutes({ as_of: minutesAgo(1), last_attempt_at: minutesAgo(1) }, NOW), 4);
   assert.equal(refreshWaitMinutes({ as_of: minutesAgo(400), last_attempt_at: minutesAgo(2.5) }, NOW), 3);
+});
+
+test("failureNote: shows the error for a first-ever failure, and says there are no earlier figures", () => {
+  assert.equal(failureNote(null), null);
+  assert.equal(failureNote({ as_of: minutesAgo(5), status: "ok", error: null }), null);
+  assert.equal(failureNote({ as_of: null, status: "failed", error: "Zoho did not answer." }), "Zoho did not answer. There are no earlier figures.");
+  assert.equal(failureNote({ as_of: null, status: "failed", error: null }), "The last refresh failed. There are no earlier figures.");
+  assert.equal(failureNote({ as_of: minutesAgo(300), status: "failed", error: "x" }), "x The figures below are from the last good refresh.");
+});
+
+test("isMissingTable recognises a missing table and nothing else", () => {
+  assert.equal(isMissingTable({ code: "42P01" }), true);
+  assert.equal(isMissingTable({ code: "PGRST205" }), true);
+  assert.equal(isMissingTable({ code: "42501" }), false);
+  assert.equal(isMissingTable(null), false);
 });

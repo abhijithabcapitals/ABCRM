@@ -27,14 +27,15 @@ function Figure({ label, value, format, auto }) {
 
 // Horizontal bars, as the department cards draw them, with money labels.
 function MoneyBars({ rows, currency }) {
-  const shown = rows.filter((r) => r.value > 0);
-  const top = Math.max(...shown.map((r) => r.value), 1);
+  // A credit (negative bucket) stays visible, drawn by its size, so the rows still account for the total.
+  const shown = rows.filter((r) => r.value !== 0);
+  const top = Math.max(...shown.map((r) => Math.abs(r.value)), 1);
   return (
     <div className="sum-bars">
       {shown.map((r, i) => (
         <div className="sum-bar-row" key={r.label} style={{ "--j": i }}>
           <div className="sum-bar-label"><span>{r.label}</span><strong><AnimatedNumber value={r.value} format={(n) => amount(n, currency)} /></strong></div>
-          <div className="sum-bar-track"><div className={`sum-bar-fill${r.tone ? ` tone-${r.tone}` : ""}`} style={{ "--w": r.value / top }} /></div>
+          <div className="sum-bar-track"><div className={`sum-bar-fill${r.value < 0 ? " tone-credit" : r.tone ? ` tone-${r.tone}` : ""}`} style={{ "--w": Math.abs(r.value) / top }} /></div>
         </div>
       ))}
     </div>
@@ -60,7 +61,7 @@ function Ranked({ rows, currency }) {
   if (!rows.length) return <Note>None</Note>;
   return (
     <ul className="sum-list">
-      {rows.map((r) => <li key={r.name}><span>{r.name || "(no name)"}</span><strong>{amount(r.amount, currency)}</strong></li>)}
+      {rows.map((r, i) => <li key={i}><span>{r.name || "(no name)"}</span><strong>{amount(r.amount, currency)}</strong></li>)}
     </ul>
   );
 }
@@ -106,6 +107,7 @@ export function HealthBody({ data }) {
       {(d) => (
         <>
           <Gauge score={d.health.score} band={d.health.band} />
+          <div className="sum-foot sum-center">This is the CRM's own score, not a Zoho figure.</div>
           <ul className="sum-list sum-section">
             {d.health.factors.map((f) => (
               <li key={f.key}>
@@ -133,7 +135,7 @@ function Documents({ data, id, noun, who }) {
         return (
           <>
             <div className="sum-stats is-single"><Figure label={`Total ${noun}`} value={s.total} format={(n) => amount(n, d.currency)} /></div>
-            <div className="sum-section">{s.total > 0 ? <MoneyBars rows={rows} currency={d.currency} /> : <Note>Nothing open</Note>}</div>
+            <div className="sum-section">{rows.some((r) => r.value !== 0) ? <MoneyBars rows={rows} currency={d.currency} /> : <Note>Nothing open</Note>}</div>
             <div className="sum-subhead">Top overdue {who}</div>
             <Ranked rows={s.top} currency={d.currency} />
             {s.difference !== null && (
@@ -223,7 +225,7 @@ export function CashBody({ data }) {
             <div className="sum-stats is-single"><Figure label="Total cash" value={d.cash.total} format={money} auto /></div>
             {d.cash.accounts.length > 0 ? (
               <ul className="sum-list sum-section">
-                {d.cash.accounts.map((a) => <li key={a.name}><span>{a.name}</span><strong>{known(a.balance) ? money(a.balance) : "n/a"}</strong></li>)}
+                {d.cash.accounts.map((a, i) => <li key={i}><span>{a.name}</span><strong>{known(a.balance) ? money(a.balance) : "n/a"}</strong></li>)}
               </ul>
             ) : <Note>No cash or bank accounts</Note>}
           </>
