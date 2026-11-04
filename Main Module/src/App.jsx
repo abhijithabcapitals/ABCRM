@@ -8,6 +8,7 @@ import { resolveView, startView } from "./tabs";
 import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
+import { BrunoPet } from "@router-agent";
 import "./App.css";
 
 // Code-split the heavy views so the initial load only downloads the one in use
@@ -454,6 +455,7 @@ export default function App() {
     <div className="app-layout">
       <GlobalAttention />
       <ReadingWidget owner={profile?.id} onOpen={(v) => { setView(v); localStorage.setItem("abc_view", v); }} />
+      {profile && <BrunoPet key={profile.id} supabase={supabase} />}
       <Sidebar
         allowedTabs={tabs}
         spaces={spaces}

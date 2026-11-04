@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabase";
+import { AgentNameField } from "@router-agent";
 
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const EMPTY = { id: null, name: "", body_text: "", logo_url: "", is_default: false, sender_mailbox_address: "" };
@@ -101,6 +102,7 @@ export default function Profile({ profile }) {
       </div>
 
       <div className="content-area" style={{ maxWidth: 820 }}>
+        <AgentNameField supabase={supabase} />
         <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
             <div>
