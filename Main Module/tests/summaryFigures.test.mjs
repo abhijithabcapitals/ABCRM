@@ -1,18 +1,53 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes, isMissingTable, failureNote,
+  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, readPages, PAGE_SIZE, NOTIFICATION_LIMIT, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes, isMissingTable, failureNote,
 } from "../../Dashboard Module/logic/summaryFigures.js";
 
-const rows = (n, stage = "New") => Array.from({ length: n }, () => ({ stage }));
+const rows = (n, stage = "New", status = "active") => Array.from({ length: n }, () => ({ stage, status }));
 
 test("bdFigures caps the total at 500", () => {
   assert.equal(bdFigures(rows(500), ["New"]).total, "500+");
   assert.equal(bdFigures(rows(3), ["New"]).total, 3);
 });
 test("bdFigures counts per stage and puts unknown stages under Other", () => {
-  const r = bdFigures([{ stage: "New" }, { stage: "New" }, { stage: "Odd" }], ["New", "Won"]);
+  const r = bdFigures([...rows(2), ...rows(1, "Odd")], ["New", "Won"]);
   assert.deepEqual(r.stages, [{ label: "New", value: 2 }, { label: "Won", value: 0 }, { label: "Other", value: 1 }]);
+});
+test("bdFigures counts open leads only, as the screen does, in the total and the stages", () => {
+  const r = bdFigures([...rows(2), ...rows(1, "New", "won"), ...rows(1, "Odd", "lost")], ["New"]);
+  assert.equal(r.total, 2);
+  assert.deepEqual(r.stages, [{ label: "New", value: 2 }]);
+});
+test("bdFigures says 500+ when the read was cut off, even if some of those leads are closed", () => {
+  assert.equal(bdFigures([...rows(499), ...rows(1, "New", "lost")], ["New"]).total, "500+");
+  assert.equal(bdFigures([...rows(498), ...rows(1, "New", "lost")], ["New"]).total, 498);
+});
+
+test("readPages reads until a short page, and asks for each range", async () => {
+  const asked = [];
+  const sizes = [PAGE_SIZE, PAGE_SIZE, 3];
+  const out = await readPages(async (from, to) => {
+    asked.push([from, to]);
+    return Array.from({ length: sizes[asked.length - 1] }, (_, i) => from + i);
+  });
+  assert.equal(out.length, 2 * PAGE_SIZE + 3);
+  assert.deepEqual(asked, [[0, 999], [1000, 1999], [2000, 2999]]);
+  assert.equal(out[PAGE_SIZE], PAGE_SIZE);
+});
+test("readPages stops after an exactly full last page and an empty one", async () => {
+  let calls = 0;
+  const out = await readPages(async () => (++calls === 1 ? Array(PAGE_SIZE).fill(1) : []));
+  assert.equal(out.length, PAGE_SIZE);
+  assert.equal(calls, 2);
+});
+test("readPages passes a failure up, never a short total", async () => {
+  await assert.rejects(readPages(async () => { throw new Error("no"); }), /no/);
+});
+test("accountingFigures totals rows past the 1,000 cap", async () => {
+  const pages = [Array(PAGE_SIZE).fill({ balance: 2 }), [{ balance: 5 }]];
+  const r = accountingFigures(await readPages(async () => pages.shift()));
+  assert.equal(r.balanceDue, 2 * PAGE_SIZE + 5);
 });
 
 test("bankingFigures uses the banking dashboard labels", () => {
@@ -57,6 +92,14 @@ test("notificationFigures counts unread and keeps the first five", () => {
   const r = notificationFigures(list);
   assert.equal(r.unread, 2);
   assert.equal(r.latest.length, 5);
+});
+
+test("notificationFigures says 50+ when all 50 rows read are unread", () => {
+  const unread = (n) => Array.from({ length: n }, (_, i) => ({ id: i, read: false }));
+  assert.equal(NOTIFICATION_LIMIT, 50);
+  assert.equal(notificationFigures(unread(50)).unread, "50+");
+  assert.equal(notificationFigures(unread(49)).unread, 49);
+  assert.equal(notificationFigures([...unread(49), { id: 99, read: true }]).unread, 49);
 });
 
 test("isNoAccess is true only for permission denied", () => {

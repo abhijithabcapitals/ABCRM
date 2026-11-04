@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  SUMMARY_CARDS, visibleCards, readLayout, saveLayout, mergeLayout, moveCard, stepCard, toggleCollapsed, setGroupCollapsed, nextDragMove,
+  SUMMARY_CARDS, visibleCards, readLayout, saveLayout, clearLayout, canSaveLayout, mergeLayout, moveCard, stepCard, toggleCollapsed, setGroupCollapsed, nextDragMove,
 } from "../logic/summaryLayout.js";
 import SummaryCard from "./SummaryCard";
 import { BdBody, BankingBody, SetupBody, AccountingBody, HrBody, TaxBody, NotificationsBody } from "./summaryCards/DepartmentBodies";
@@ -73,10 +73,12 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     }
     setLayout(next);
   };
+  // Until a member's tabs load, only some cards show, so nothing is stored yet.
+  const saveAllowed = canSaveLayout({ isAdmin: profile?.role === "admin", tabs });
   const change = (next) => {
     if (next === layout) return;
     show(next);
-    saveLayout(userId, next);
+    if (saveAllowed) saveLayout(userId, next);
   };
 
   const step = (id, group, delta) => {
@@ -85,7 +87,10 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     change(next);
   };
 
-  const reset = () => change(mergeLayout(null, visible));
+  const reset = () => {
+    show(mergeLayout(null, visible));
+    if (saveAllowed) clearLayout(userId);
+  };
 
   // All Zoho cards share one request. A failure clears it so Retry asks again.
   const loadZoho = () => {
@@ -134,7 +139,7 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
     if (!d || d.group !== group) return;
     e.preventDefault();
     d.dropped = true;
-    saveLayout(userId, layout);
+    if (saveAllowed) saveLayout(userId, layout);
   };
 
   const groups = [

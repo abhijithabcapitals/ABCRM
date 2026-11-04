@@ -16,6 +16,7 @@ import {
   updateBusinessDevelopmentService,
   updatePlatformProspect,
 } from "../logic/businessDevelopmentData";
+import { isOpen } from "../logic/leadRules.js";
 import BdAgentPanel from "./BdAgentPanel";
 import BdCalendarView from "./BdCalendarView";
 import LeadGenerationView from "./LeadGenerationView";
@@ -100,7 +101,6 @@ const leadPotentialEntries = (lead) => {
   if (serviceEntries.length || (lead.bd_lead_services || []).length) return serviceEntries;
   return lead.estimated_budget ? [{ amount: lead.estimated_budget, currency: lead.budget_currency }] : [];
 };
-const isOpen = (lead) => lead.status === "active";
 const isLate = (date) => date && new Date(date) < new Date();
 const stageClass = (stage) => stage?.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "new-lead";
 const genericSummaries = ["called client", "called customer", "followed up", "spoke to client", "no answer", "sent email"];

@@ -1,17 +1,33 @@
 // Turns what each source returns into the plain numbers a summary card shows.
-// No imports, so node --test can load it.
+// Imports only plain logic, so node --test can load it.
+import { isOpen } from "../../Business Development Module/logic/leadRules.js";
+
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const list = (v) => (Array.isArray(v) ? v : []);
 const obj = (v) => (v && typeof v === "object" ? v : {});
 
-// Stages not in `stages` are counted under "Other".
+// Supabase caps a response at 1,000 rows, so a list is read page by page until a short page. The caller must order by
+// something unique, so pages never overlap. Same approach as Accounting Module/services/jobsApi.js.
+export const PAGE_SIZE = 1000;
+export async function readPages(fetchPage) {
+  const out = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const page = list(await fetchPage(from, from + PAGE_SIZE - 1));
+    out.push(...page);
+    if (page.length < PAGE_SIZE) return out;
+  }
+}
+
+// Open leads only, as the Business Development screen counts them. `cap` is how many leads, open or not, were asked
+// for: reaching it means the read was cut off. Stages not in `stages` are counted under "Other".
 export function bdFigures(rows, stages, cap = 500) {
-  const items = list(rows);
+  const all = list(rows);
+  const items = all.filter(isOpen);
   const known = list(stages);
   const out = known.map((label) => ({ label, value: items.filter((r) => r.stage === label).length }));
   const other = items.filter((r) => !known.includes(r.stage)).length;
   if (other) out.push({ label: "Other", value: other });
-  return { total: items.length >= cap ? `${cap}+` : items.length, stages: out };
+  return { total: all.length >= cap ? `${cap}+` : items.length, stages: out };
 }
 
 // Same labels as the Business Banking dashboard.
@@ -63,9 +79,12 @@ export function taxFigures(result) {
   return { overdue: num(s.overdue), due14: num(s.due_14), due30: num(s.due_30), missing: num(s.missing), clients: num(x.clientsChecked) };
 }
 
+// Only the newest NOTIFICATION_LIMIT are read. All of them unread means there may be more.
+export const NOTIFICATION_LIMIT = 50;
 export function notificationFigures(rows) {
   const items = list(rows);
-  return { unread: items.filter((n) => !n.read).length, latest: items.slice(0, 5) };
+  const unread = items.filter((n) => !n.read).length;
+  return { unread: unread >= NOTIFICATION_LIMIT ? `${NOTIFICATION_LIMIT}+` : unread, latest: items.slice(0, 5) };
 }
 
 // Postgres "insufficient privilege".
