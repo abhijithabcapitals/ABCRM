@@ -228,6 +228,12 @@ select pg_temp.mkform('CL970108', 'bf_i_f', 'Returned');
 select pg_temp.mkform('CL970109', 'bf_j_f', 'Submitted');
 select pg_temp.mkform('CL970110', 'bf_k_f', 'Draft');
 select pg_temp.mkform('CL970111', 'bf_l_f', 'In review');
+-- M: a finished quote chain and a Draft form (the live TEST client): the form stays unattached. N: only a Lost case and a form.
+select pg_temp.mkquote('bf_m', 'T70-BF-M', 'CL970120', null, 'accepted');
+select pg_temp.mkservice('CL970120', 'bf_m', 'Completed');
+select pg_temp.mkform('CL970120', 'bf_m_f', 'Draft');
+select pg_temp.mkcase('bf_n_case', 'CL970121', 'Lost');
+select pg_temp.mkform('CL970121', 'bf_n_f', 'Draft');
 select pg_temp.casecount() as n0 \gset
 \ir ../migrations/013_cases.sql
 select pg_temp.casecount() as n1 \gset
@@ -254,6 +260,10 @@ select public.bs_check('backfill: returned form is Contact', (select stage from 
 select public.bs_check('backfill: submitted form is Review', (select stage from public.business_setup_cases where client_id = 'CL970109') = 'Review');
 select public.bs_check('backfill: draft form is Contact', (select stage from public.business_setup_cases where client_id = 'CL970110') = 'Contact');
 select public.bs_check('backfill: in-review form is Review', (select stage from public.business_setup_cases where client_id = 'CL970111') = 'Review');
+select public.bs_check('backfill: a Draft form of a finished client is left unattached and makes no case', (select case_id is null from public.business_setup_onboarding_forms where id = pg_temp.fx('bf_m_f')::uuid)
+  and (select count(*) = 1 and bool_and(stage = 'Completed') from public.business_setup_cases where client_id = 'CL970120'));
+select public.bs_check('backfill: a form of a client with only a Lost case stays unattached', (select case_id is null from public.business_setup_onboarding_forms where id = pg_temp.fx('bf_n_f')::uuid)
+  and (select count(*) from public.business_setup_cases where client_id = 'CL970121') = 1);
 select public.bs_check('backfill: lead details come from the records', (select lead_name = 'CL970107 LLC' from public.business_setup_cases where client_id = 'CL970107'));
 select public.bs_check('backfill: only Business Setup documents get a case', not exists (select 1 from public.hub_documents where department <> 'Business Setup' and case_id is not null));
 select public.bs_check('backfill: a stage already moved is not reset by a re-run', pg_temp.stage('doc') = 'Assignment' and pg_temp.stage('lost') = 'Lost');

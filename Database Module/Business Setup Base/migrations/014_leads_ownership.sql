@@ -61,7 +61,11 @@ begin
   if c.owner_id is not null then raise exception 'This case was already taken by %', business_setup_person_name(c.owner_id); end if;
   update business_setup_cases set owner_id = auth.uid() where id = p_case;
   perform business_setup_audit('business_setup_cases', p_case::text, 'case_take', null, jsonb_build_object('owner_id', auth.uid()));
-  if c.stage = 'Assignment' then perform business_setup_case_set_stage(p_case, 'In service', 'The owner took the case'); end if;
+  if c.stage = 'Assignment' then
+    perform business_setup_case_set_stage(p_case, 'In service', 'The owner took the case');
+    -- Every service may already be closed: the case then completes now instead of waiting for a service change that never comes.
+    perform business_setup_case_sync(p_case);
+  end if;
 end $$;
 
 -- ── The client row ───────────────────────────────────────────────────
@@ -92,6 +96,8 @@ begin
     v_client := r ->> 'id';
   end if;
   update business_setup_cases set client_id = v_client where id = p_case;
+  -- The case's quotes and letters that have no client follow it, so the quote can then be accepted.
+  update hub_documents set client_id = v_client where case_id = p_case and client_id is null;
   perform business_setup_audit('business_setup_cases', p_case::text, 'case_link_client', null, jsonb_build_object('client_id', v_client));
   return v_client;
 end $$;
@@ -118,10 +124,12 @@ begin
     if f.id is null then raise exception 'This client has no form to send'; end if;
   end if;
   if f.id is not null then
-    if f.case_id is not null and f.case_id <> p_case then
+    -- A form on a case that is Lost, Completed or Cancelled is free: it moves to this case.
+    if f.case_id is not null and f.case_id <> p_case
+       and (select stage from business_setup_cases where id = f.case_id) not in ('Completed', 'Cancelled', 'Lost') then
       raise exception 'This client already has an open form on case %', (select case_number from business_setup_cases where id = f.case_id);
     end if;
-    update business_setup_onboarding_forms set case_id = p_case where id = f.id and case_id is null;
+    update business_setup_onboarding_forms set case_id = p_case where id = f.id and case_id is distinct from p_case;
   end if;
   if c.stage = 'Lead' then
     v_to := case when v_done then 'Services' when f.status in ('Submitted', 'In review') then 'Review' else 'Contact' end;
@@ -132,9 +140,11 @@ begin
 end $$;
 
 -- ── Lost ─────────────────────────────────────────────────────────────
--- Refused with a net payment above zero or once the case reaches In service. The client's login is revoked only when
--- nothing else of theirs is open: the login is shared across the portal. This revoke is internal, so it does not need
--- setup.portal.manage; it does what business_setup_portal_login_status does.
+-- Refused with a net payment above zero, with an accepted quote (cancel its services instead), or once the case reaches In
+-- service. A case with no client and no login can be closed too. The client's login is revoked only when the client has no
+-- other open case and no service or Banking case at all, finished or not: past work keeps its outputs and invoices reachable
+-- through the shared login. This revoke is internal, so it does not need setup.portal.manage; it does what
+-- business_setup_portal_login_status does.
 create or replace function public.business_setup_case_lost(p_case uuid, p_reason text) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare c business_setup_cases; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_net numeric; v_acct uuid;
@@ -145,14 +155,17 @@ begin
   if c.id is null then raise exception 'Case not found'; end if;
   if c.stage in ('Completed', 'Cancelled', 'Lost') then raise exception 'This case is closed'; end if;
   if c.stage = 'In service' then raise exception 'A case in service cannot be marked lost'; end if;
+  if exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted') then
+    raise exception 'This case has an accepted quote and cannot be marked lost: cancel its services instead';
+  end if;
   select coalesce(sum(case when type = 'Payment' then amount else -amount end), 0) into v_net from business_setup_payments where case_id = p_case;
   if v_net > 0 then raise exception 'This case has a net payment of %: refund it before marking the case lost', v_net; end if;
   update business_setup_cases set lost_reason = v_reason where id = p_case;
   perform business_setup_case_set_stage(p_case, 'Lost', v_reason);
   if c.client_id is not null
      and not exists (select 1 from business_setup_cases where client_id = c.client_id and id <> p_case and stage not in ('Completed', 'Cancelled', 'Lost'))
-     and not exists (select 1 from business_setup_services where client_id = c.client_id and status not in ('Completed', 'Cancelled'))
-     and not exists (select 1 from banking_cases bc join banking_clients bk on bk.id = bc.client_id where bk.client_master_id = c.client_id and bc.outcome is null) then
+     and not exists (select 1 from business_setup_services where client_id = c.client_id)
+     and not exists (select 1 from banking_cases bc join banking_clients bk on bk.id = bc.client_id where bk.client_master_id = c.client_id) then
     v_acct := business_setup_portal_account(c.client_id);
     update client_portal_accounts set status = 'revoked', revoked_at = now(), revoked_by = auth.uid(), failed_attempts = 0, locked_until = null where id = v_acct and status = 'active';
     if found then
@@ -176,6 +189,7 @@ begin
     raise exception 'Only the owner (%) or a manager can confirm this case', business_setup_person_name(c.owner_id);
   end if;
   perform business_setup_case_set_stage(p_case, 'In service', 'Confirmed by ' || business_setup_person_name(auth.uid()));
+  perform business_setup_case_sync(p_case);
 end $$;
 
 -- ── Direct change of owner, by an approver ───────────────────────────
@@ -360,10 +374,11 @@ begin
     if p ->> 'department' is distinct from 'Business Setup' then raise exception 'Only a Business Setup document can belong to a case'; end if;
     select client_id into v_case_client from business_setup_cases where id = v_case;
     if v_client is not null and v_case_client is not null and v_client <> v_case_client then raise exception 'This client does not match the client of the case'; end if;
-    -- A case is one lead, one quote and its revisions. A new quote is allowed only when every earlier quote of the case was rejected.
+    -- A case is one lead, one quote and its revisions. A new quote is allowed only when every earlier quote of the case was rejected
+    -- or replaced by a revision (a replaced quote is not live: Q1 revised to Q2 and Q2 rejected leaves nothing live).
     if v_type = 'quote' and v_revises is null then
       perform 1 from business_setup_cases where id = v_case for update;
-      if exists (select 1 from hub_documents where case_id = v_case and doc_type = 'quote' and status <> 'rejected') then
+      if exists (select 1 from hub_documents where case_id = v_case and doc_type = 'quote' and status not in ('rejected', 'superseded')) then
         raise exception 'This case already has a quote: revise that quote, or open a new case';
       end if;
     end if;
@@ -404,6 +419,10 @@ begin
       if v_case is null then v_case := o.case_id;
       elsif v_case <> o.case_id then raise exception 'A revision must keep the case of the quote it replaces'; end if;
     end if;
+  end if;
+  -- The case may have closed meanwhile, or the document inherits it from its quote or revision: no new document in a closed case.
+  if v_case is not null and (select stage from business_setup_cases where id = v_case) in ('Lost', 'Completed', 'Cancelled') then
+    raise exception 'This case is % and takes no new documents', lower((select stage from business_setup_cases where id = v_case));
   end if;
   if v_type = 'quote' then v_root := coalesce(o.root_quote_id, o.id, v_id); end if;
   if v_type in ('quote','letter') then v_number := hub_next_number(p ->> 'department', v_type);
@@ -520,6 +539,9 @@ begin
   if exists (select 1 from hub_documents where doc_type = 'quote' and status = 'accepted' and coalesce(root_quote_id, id) = v_root) then
     raise exception 'A quote in this revision chain is already accepted';
   end if;
+  if q.case_id is not null and (select stage from business_setup_cases where id = q.case_id) in ('Lost', 'Completed', 'Cancelled') then
+    raise exception 'This case is % and cannot take an accepted quote', lower((select stage from business_setup_cases where id = q.case_id));
+  end if;
   if q.case_id is not null and exists (select 1 from hub_documents where case_id = q.case_id and doc_type = 'quote' and status = 'accepted' and id <> q.id) then
     raise exception 'Another quote of this case is already accepted: a case holds one quote and its revisions';
   end if;
@@ -563,3 +585,50 @@ begin
 end $$;
 revoke all on function public.business_setup_quote_accept(uuid, boolean) from public, anon;
 grant execute on function public.business_setup_quote_accept(uuid, boolean) to authenticated;
+
+-- ── Linking an older quote to a client ───────────────────────────────
+-- As in 006, plus: the quote's case takes the client when it has none, so the case and its quote agree. A case that already
+-- has a different client refuses the link. A repeat call with the same client still fills a case that was left empty.
+create or replace function public.business_setup_quote_link(p_id uuid, p_client text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; v_case_client text;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  select * into q from hub_documents where id = p_id for update;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  if q.doc_type <> 'quote' or q.department <> 'Business Setup' then raise exception 'Only a Business Setup quote can be linked to a client'; end if;
+  if not exists (select 1 from client_master where client_id = p_client) then raise exception 'Client % not found', p_client; end if;
+  if q.client_id is not null and q.client_id <> p_client then raise exception 'This quote is already linked to a different client'; end if;
+  if q.case_id is not null then
+    select client_id into v_case_client from business_setup_cases where id = q.case_id for update;
+    if v_case_client is not null and v_case_client <> p_client then raise exception 'The case of this quote is linked to a different client'; end if;
+    if v_case_client is null then
+      update business_setup_cases set client_id = p_client where id = q.case_id;
+      perform business_setup_audit('business_setup_cases', q.case_id::text, 'case_link_client', null, jsonb_build_object('client_id', p_client, 'via_quote', q.id));
+    end if;
+  end if;
+  if q.client_id = p_client then return; end if;
+  update hub_documents set client_id = p_client where id = q.id;
+  perform business_setup_audit('hub_documents', q.id::text, 'quote_link', null,
+          jsonb_build_object('client_id', p_client, 'document_number', q.document_number));
+end $$;
+revoke all on function public.business_setup_quote_link(uuid, text) from public, anon;
+grant execute on function public.business_setup_quote_link(uuid, text) to authenticated;
+
+-- ── Staff uploads to the client portal bucket ────────────────────────
+-- Staff add files for a client from the browser (business_setup_form_doc_add then records the path). The bucket has no policy
+-- for this, so one is added: INSERT only, under staff/, for a holder of setup.kyc.manage. No SELECT, UPDATE or DELETE.
+-- The check is a function so it can be tested without the storage service. storage.objects is owned by supabase_storage_admin
+-- on live: the apply step confirms the policy exists afterwards.
+create or replace function public.business_setup_staff_upload_ok(p_bucket text, p_path text) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(p_bucket = 'client-portal' and split_part(p_path, '/', 1) = 'staff' and p_path like 'staff/%/%'
+                  and not ('..' = any (string_to_array(p_path, '/')))
+                  and public.business_setup_can('setup.kyc.manage'), false)
+$$;
+revoke all on function public.business_setup_staff_upload_ok(text, text) from public, anon;
+grant execute on function public.business_setup_staff_upload_ok(text, text) to authenticated;
+drop policy if exists business_setup_staff_upload on storage.objects;
+create policy business_setup_staff_upload on storage.objects for insert to authenticated
+  with check (public.business_setup_staff_upload_ok(bucket_id, name));

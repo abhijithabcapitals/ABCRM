@@ -291,10 +291,18 @@ begin
   update business_setup_payments p set case_id = q.case_id from hub_documents q
    where p.case_id is null and q.id = p.quote_id and q.case_id is not null;
 
-  -- A form joins the client's oldest case, or starts one.
+  -- A form joins the client's oldest case that is not closed, or starts one when the client has no case at all. A client
+  -- whose cases are all closed keeps the form unattached: the next Share link picks it up. A case counts as closed when its
+  -- stage says so, or (for a case made just now, still at Lead) when it has services and every one is Completed or Cancelled.
   for r in select f.id, f.client_id, f.answers, m.legal_name from business_setup_onboarding_forms f join client_master m on m.client_id = f.client_id
             where f.case_id is null order by f.created_at, f.id loop
-    v_case := (select id from business_setup_cases where client_id = r.client_id order by created_at, id limit 1);
+    v_case := (select c.id from business_setup_cases c
+                where c.client_id = r.client_id and c.stage not in ('Completed', 'Cancelled', 'Lost')
+                  and not (exists (select 1 from business_setup_services s where s.quote_id in (select id from hub_documents where case_id = c.id and doc_type = 'quote'))
+                           and not exists (select 1 from business_setup_services s where s.status not in ('Completed', 'Cancelled')
+                                             and s.quote_id in (select id from hub_documents where case_id = c.id and doc_type = 'quote')))
+                order by c.created_at, c.id limit 1);
+    if v_case is null and exists (select 1 from business_setup_cases where client_id = r.client_id) then continue; end if;
     if v_case is null then
       insert into business_setup_cases (client_id, lead_name, phone, email, source)
       values (r.client_id, coalesce(nullif(r.answers ->> 'client_name', ''), r.legal_name), nullif(r.answers ->> 'phone', ''), nullif(r.answers ->> 'email', ''), 'Existing form') returning id into v_case;

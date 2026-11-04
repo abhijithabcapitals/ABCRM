@@ -32,7 +32,7 @@ create function pg_temp.mkquote(p_key text, p_num text, p_client text, p_case uu
 declare q uuid := gen_random_uuid();
 begin
   insert into public.hub_documents (id, root_quote_id, doc_type, department, client_name, client_id, document_number, total_amount, status, case_id)
-  values (q, q, 'quote', 'Business Setup', p_client, p_client, p_num, 1000, p_status, p_case);
+  values (q, q, 'quote', 'Business Setup', coalesce(p_client, p_num), p_client, p_num, 1000, p_status, p_case);
   insert into f80 values (p_key, q::text);
   return q;
 end $$;
@@ -214,7 +214,15 @@ select public.bs_check('lost_keeps_login: an active service keeps it', pg_temp.l
 select public.business_setup_case_lost(pg_temp.cid('keep_c'), 'Not now');
 select public.bs_check('lost_keeps_login: a Banking case keeps it', pg_temp.login_status('CL980013') = 'active');
 select public.business_setup_case_lost(pg_temp.cid('keep_d'), 'Not now');
-select public.bs_check('finished cases, services and Banking cases do not keep it', pg_temp.login_status('CL980014') = 'revoked');
+select public.bs_check('lost_keeps_login: finished cases, services and Banking cases still keep it (past work stays reachable)', pg_temp.login_status('CL980014') = 'active');
+-- only a finished service, no Banking case: kept
+select public.bs_as(null);
+select pg_temp.mkclient('CL980015', true, false);
+select pg_temp.mkcase('keep_e', 'CL980015', 'Lead');
+insert into public.business_setup_services (client_id, name, status) values ('CL980015', 'Finished only', 'Completed');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_case_lost(pg_temp.cid('keep_e'), 'Not now');
+select public.bs_check('lost_keeps_login: only a finished service keeps it', pg_temp.login_status('CL980015') = 'active');
 
 -- ── confirm ──
 select public.bs_as(null);
@@ -596,6 +604,166 @@ select public.bs_check('revise_nocase: the refused revision left the old quote i
   and not exists (select 1 from public.hub_documents where case_id = pg_temp.cid('h_case')));
 select public.bs_check('revise_nocase: a revision of a case-less quote with no case is still allowed', (select case_id is null and revises_id = pg_temp.cid('hq_nocase')
   from pg_temp.hq(format('{"department":"Business Setup","client_id":"CL980070","revises_id":"%s"}', pg_temp.fx('hq_nocase'))::jsonb)));
+select public.bs_as(null);
+
+
+-- ═════════════════════════════════════════════════════════════════════
+-- Phase 1 whole-branch fixes
+-- ═════════════════════════════════════════════════════════════════════
+
+-- ── 1. Staff upload policy ──
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.bs_check('upload_ok: a holder of kyc.manage may add under staff/ in the portal bucket', public.business_setup_staff_upload_ok('client-portal', 'staff/CL000001/abc-file.pdf'));
+select public.bs_check('upload_ok: not another bucket', not public.business_setup_staff_upload_ok('hub-documents', 'staff/CL000001/abc-file.pdf'));
+select public.bs_check('upload_ok: not another folder', not public.business_setup_staff_upload_ok('client-portal', 'incoming/x/abc-file.pdf')
+  and not public.business_setup_staff_upload_ok('client-portal', 'staffing/CL000001/f.pdf') and not public.business_setup_staff_upload_ok('client-portal', 'staff'));
+select public.bs_check('upload_ok: not a path that climbs out', not public.business_setup_staff_upload_ok('client-portal', 'staff/../incoming/x/f.pdf'));
+select public.bs_check('upload_ok: nulls are refused, not null', public.business_setup_staff_upload_ok(null, null) = false);
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_check('upload_ok: Finance has no kyc.manage, so no upload', not public.business_setup_staff_upload_ok('client-portal', 'staff/CL000001/abc-file.pdf'));
+select public.bs_as('00000000-0000-0000-0000-000000000099');
+select public.bs_check('upload_ok: a user with no Business Setup role cannot upload', not public.business_setup_staff_upload_ok('client-portal', 'staff/CL000001/abc-file.pdf'));
+select public.bs_as(null);
+select public.bs_check('upload policy: exactly one INSERT-only policy for authenticated, using the helper', (select count(*) = 1 and bool_and(cmd = 'INSERT') and bool_and(with_check like '%business_setup_staff_upload_ok%')
+  and bool_and(roles = '{authenticated}') and bool_and(permissive = 'PERMISSIVE') from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'business_setup_staff_upload'));
+select public.bs_check('upload policy: no SELECT, UPDATE or DELETE policy for the portal bucket was added', not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects'
+  and policyname like 'business_setup_staff%' and cmd <> 'INSERT'));
+select public.bs_check('upload_ok: signed-in staff can call it, anon cannot', has_function_privilege('authenticated', 'public.business_setup_staff_upload_ok(text, text)', 'execute')
+  and not has_function_privilege('anon', 'public.business_setup_staff_upload_ok(text, text)', 'execute'));
+
+-- ── 2. A case cannot stick at In service ──
+select pg_temp.mkclient('CL980100', false, false);
+select pg_temp.mkcase('s_conf', 'CL980100', 'Assignment', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkquote('s_conf_q', 'S-CONF', 'CL980100', pg_temp.cid('s_conf'), 'accepted');
+insert into public.business_setup_services (client_id, quote_id, name, status) values ('CL980100', pg_temp.cid('s_conf_q'), 'Done early', 'Completed');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_case_confirm(pg_temp.cid('s_conf'));
+select public.bs_check('confirm: every service already closed, so the case reaches Completed', pg_temp.stage('s_conf') = 'Completed');
+select public.bs_as(null);
+select pg_temp.mkclient('CL980101', false, false);
+select pg_temp.mkcase('s_take', 'CL980101', 'Assignment');
+select pg_temp.mkquote('s_take_q', 'S-TAKE', 'CL980101', pg_temp.cid('s_take'), 'accepted');
+insert into public.business_setup_services (client_id, quote_id, name, status) values ('CL980101', pg_temp.cid('s_take_q'), 'Cancelled early', 'Cancelled');
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.business_setup_case_take(pg_temp.cid('s_take'));
+select public.bs_check('take at Assignment: every service already closed, so the case reaches Cancelled', pg_temp.stage('s_take') = 'Cancelled' and pg_temp.owner('s_take') = '00000000-0000-0000-0000-00000000000d');
+select public.bs_as(null);
+select pg_temp.mkcase('s_open', 'CL980101', 'Assignment', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkquote('s_open_q', 'S-OPEN', 'CL980101', pg_temp.cid('s_open'), 'accepted');
+insert into public.business_setup_services (client_id, quote_id, name, status) values ('CL980101', pg_temp.cid('s_open_q'), 'Still open', 'Not started');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_case_confirm(pg_temp.cid('s_open'));
+select public.bs_check('confirm: an open service keeps the case In service', pg_temp.stage('s_open') = 'In service');
+
+-- ── 3. Quote chain, Mark lost, closed cases ──
+select public.bs_as(null);
+select pg_temp.mkclient('CL980110', false, true);
+select pg_temp.mkcase('c_chain', 'CL980110', 'Services');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 select 'c_q1', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('c_chain'))::jsonb)).id::text;
+insert into f80 select 'c_q2', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","revises_id":"%s"}', pg_temp.fx('c_chain'), pg_temp.fx('c_q1'))::jsonb)).id::text;
+select public.bs_check('chain: Q1 is superseded by Q2', (select status = 'superseded' from public.hub_documents where id = pg_temp.cid('c_q1')));
+select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s"}')$$, pg_temp.fx('c_chain')), 'already has a quote');
+select public.business_setup_quote_reject(pg_temp.cid('c_q2'), 'Client declined');
+select public.bs_check('chain: Q1 superseded and Q2 rejected, so a new quote is allowed', (select case_id = pg_temp.cid('c_chain') and status = 'issued'
+  from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('c_chain'))::jsonb)));
+
+-- Mark lost: an accepted quote refuses, with the way out
+select public.bs_as(null);
+select pg_temp.mkclient('CL980111', false, true);
+select pg_temp.mkcase('c_acc', 'CL980111', 'Documentation');
+select pg_temp.mkquote('c_acc_q', 'C-ACC', 'CL980111', pg_temp.cid('c_acc'), 'accepted');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_case_lost('%s', 'Gone')$$, pg_temp.fx('c_acc')), 'cancel its services');
+select public.bs_check('lost with an accepted quote leaves the case where it was', pg_temp.stage('c_acc') = 'Documentation');
+-- a client-less backfilled case (issued quote, letter, no client, no login) can be closed by Sales
+select public.bs_as(null);
+select pg_temp.mkcase('c_bsq1', null, 'Documentation');
+select pg_temp.mkquote('c_bsq1_q', 'C-BSQ1', null, pg_temp.cid('c_bsq1'), 'issued');
+insert into public.hub_documents (parent_id, doc_type, department, client_name, document_number, case_id) values (pg_temp.cid('c_bsq1_q'), 'letter', 'Business Setup', 'x', 'C-BSQ1-L', pg_temp.cid('c_bsq1'));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_case_lost(pg_temp.cid('c_bsq1'), 'Never went ahead');
+select public.bs_check('lost: a case with no client and no login closes', pg_temp.stage('c_bsq1') = 'Lost');
+-- a Lost / Completed / Cancelled case takes no accepted quote and no new document
+select public.bs_as(null);
+select pg_temp.mkclient('CL980112', false, true);
+select pg_temp.mkcase('c_lostq', 'CL980112', 'Documentation');
+select pg_temp.mkquote('c_lostq_q', 'C-LOSTQ', 'CL980112', pg_temp.cid('c_lostq'), 'issued');
+select pg_temp.mkcase('c_done', 'CL980112', 'Completed');
+select pg_temp.mkcase('c_canc', 'CL980112', 'Cancelled');
+update public.business_setup_cases set stage = 'Lost' where id = pg_temp.cid('c_lostq');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_quote_accept('%s')$$, pg_temp.fx('c_lostq_q')), 'lost');
+select public.bs_check('accept on a Lost case left the quote issued', (select status = 'issued' from public.hub_documents where id = pg_temp.cid('c_lostq_q')));
+select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s"}')$$, pg_temp.fx('c_done')), 'completed');
+select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s"}')$$, pg_temp.fx('c_canc')), 'cancelled');
+select public.bs_as(null);
+select pg_temp.mkcase('c_lost2', 'CL980112', 'Lost');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s"}')$$, pg_temp.fx('c_lost2')), 'lost');
+select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s","revises_id":"%s"}')$$, pg_temp.fx('c_lostq'), pg_temp.fx('c_lostq_q')), 'lost');
+select public.bs_check('no document was created in the closed cases', not exists (select 1 from public.hub_documents where case_id in (pg_temp.cid('c_done'), pg_temp.cid('c_canc')))
+  and (select count(*) from public.hub_documents where case_id = pg_temp.cid('c_lostq')) = 1);
+select public.bs_as(null);
+select pg_temp.mkcase('c_donel', 'CL980112', 'Services');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 select 'c_donel_q', (pg_temp.hq(format('{"department":"Business Setup","client_id":"CL980112","case_id":"%s"}', pg_temp.fx('c_donel'))::jsonb)).id::text;
+select public.bs_as(null);
+update public.hub_documents set status = 'accepted' where id = pg_temp.cid('c_donel_q');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_as(null);
+update public.business_setup_cases set stage = 'Completed' where id = pg_temp.cid('c_donel');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.hub_document_create('{"doc_type":"letter","parent_id":"%s"}')$$, pg_temp.fx('c_donel_q')), 'completed');
+
+-- ── 4. A form on a closed case is free ──
+select public.bs_as(null);
+select pg_temp.mkclient('CL980120', true, false);
+select pg_temp.mkcase('f_old', 'CL980120', 'Contact');
+select public.business_setup_form_create('CL980120', (select id from public.client_portal_accounts where client_master_id = 'CL980120'));
+update public.business_setup_onboarding_forms set case_id = pg_temp.cid('f_old') where client_id = 'CL980120';
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f80 values ('f_new', public.business_setup_case_new('{"lead_name":"Second try","client_id":"CL980120"}')::text);
+select public.bs_expect_error(format($$select business_setup_case_shared('%s')$$, pg_temp.fx('f_new')), 'open form');
+select public.business_setup_case_lost(pg_temp.cid('f_old'), 'Went quiet');
+select public.business_setup_case_shared(pg_temp.cid('f_new'));
+select public.bs_check('form_on_lost_case: Share link moves the form to the new case', (select count(*) = 1 and bool_and(case_id = pg_temp.cid('f_new')) from public.business_setup_onboarding_forms where client_id = 'CL980120')
+  and pg_temp.stage('f_new') = 'Contact');
+select public.bs_check('form_on_lost_case: the lost case keeps no form', not exists (select 1 from public.business_setup_onboarding_forms where case_id = pg_temp.cid('f_old')));
+
+-- ── 9. Link a client-less case from Documentation ──
+select public.bs_as(null);
+select pg_temp.mkclient('CL980130', false, true);
+select pg_temp.mkcase('l_case', null, 'Documentation');
+select pg_temp.mkquote('l_q', 'L-Q1', null, pg_temp.cid('l_case'), 'issued');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_quote_link(pg_temp.cid('l_q'), 'CL980130');
+select public.bs_check('quote_link: the case takes the client too', (select client_id = 'CL980130' from public.business_setup_cases where id = pg_temp.cid('l_case'))
+  and (select client_id = 'CL980130' from public.hub_documents where id = pg_temp.cid('l_q')));
+select public.bs_check('quote_link: the case change is audited', public.bs_audit_count('case_link_client', pg_temp.fx('l_case'), '{"client_id":"CL980130"}') = 1);
+select public.business_setup_quote_link(pg_temp.cid('l_q'), 'CL980130');
+select public.bs_check('quote_link: a repeat changes nothing', public.bs_audit_count('case_link_client', pg_temp.fx('l_case'), '{}') = 1);
+select public.bs_expect_error(format($$select business_setup_quote_link('%s', 'CL980111')$$, pg_temp.fx('l_q')), 'different client');
+-- a quote already linked to the client, in a case that is not: the repeat call fills the case
+select public.bs_as(null);
+select pg_temp.mkcase('l_case2', null, 'Documentation');
+select pg_temp.mkquote('l_q2', 'L-Q2', 'CL980130', pg_temp.cid('l_case2'), 'issued');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_quote_link(pg_temp.cid('l_q2'), 'CL980130');
+select public.bs_check('quote_link: a quote with the client but a case without fills the case', (select client_id = 'CL980130' from public.business_setup_cases where id = pg_temp.cid('l_case2')));
+-- a case with another client refuses
+select public.bs_as(null);
+select pg_temp.mkcase('l_case3', 'CL980111', 'Documentation');
+select pg_temp.mkquote('l_q3', 'L-Q3', null, pg_temp.cid('l_case3'), 'issued');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select business_setup_quote_link('%s', 'CL980130')$$, pg_temp.fx('l_q3')), 'case of this quote');
+-- case link: the case's quote follows, so it can be accepted
+select public.bs_as(null);
+select pg_temp.mkcase('l_case4', null, 'Documentation');
+select pg_temp.mkquote('l_q4', 'L-Q4', null, pg_temp.cid('l_case4'), 'issued');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.business_setup_case_link_client(pg_temp.cid('l_case4'), 'CL980130');
+select public.bs_check('case_link_client: the quote with no client follows the case', (select client_id = 'CL980130' from public.hub_documents where id = pg_temp.cid('l_q4')));
 select public.bs_as(null);
 
 -- ── Summary: raise when anything failed so psql exits non-zero ──

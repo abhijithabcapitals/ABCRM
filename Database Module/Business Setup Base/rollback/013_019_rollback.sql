@@ -5,6 +5,25 @@
 begin;
 
 -- ── 014_leads_ownership.sql ──────────────────────────────────────────
+drop policy if exists business_setup_staff_upload on storage.objects;
+drop function if exists public.business_setup_staff_upload_ok(text, text);
+-- Linking a quote to a client, as Business Setup Base 006 defines it (014 also fills the case).
+create or replace function public.business_setup_quote_link(p_id uuid, p_client text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  select * into q from hub_documents where id = p_id for update;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  if q.doc_type <> 'quote' or q.department <> 'Business Setup' then raise exception 'Only a Business Setup quote can be linked to a client'; end if;
+  if not exists (select 1 from client_master where client_id = p_client) then raise exception 'Client % not found', p_client; end if;
+  if q.client_id is not null and q.client_id <> p_client then raise exception 'This quote is already linked to a different client'; end if;
+  if q.client_id = p_client then return; end if;
+  update hub_documents set client_id = p_client where id = q.id;
+  perform business_setup_audit('hub_documents', q.id::text, 'quote_link', null,
+          jsonb_build_object('client_id', p_client, 'document_number', q.document_number));
+end $$;
 drop trigger if exists business_setup_case_service on public.business_setup_services;
 drop function if exists public.business_setup_case_service_trg();
 drop function if exists public.business_setup_case_new(jsonb);
