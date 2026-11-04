@@ -5,6 +5,7 @@ export const PHASE2_SCOPES = ["openid", "profile", "offline_access", "User.Read"
 
 const STATE_MAX_AGE_MS = 10 * 60_000;
 const STATE_FUTURE_SKEW_MS = 60_000;
+const SHARED_AUTHORITIES = ["common", "organizations", "consumers"];
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -12,6 +13,13 @@ export class StateError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "StateError";
+  }
+}
+
+export class TenantError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TenantError";
   }
 }
 
@@ -55,6 +63,7 @@ export async function signState(key: string, profileId: string, now: number): Pr
 }
 
 export async function verifyState(key: string, state: string, now: number): Promise<{ profileId: string; nonce: string }> {
+  if (!Number.isFinite(now)) throw new StateError("The clock value is not usable.");
   if (typeof state !== "string") throw new StateError("Sign-in state is missing.");
   const parts = state.split(".");
   if (parts.length !== 2 || !parts[0] || !parts[1]) throw new StateError("Sign-in state is malformed.");
@@ -88,13 +97,22 @@ export async function pkceFrom(key: string, nonce: string): Promise<{ verifier: 
   return { verifier, challenge };
 }
 
+// The base address for one tenant. A shared authority would accept accounts from outside it.
+export function tenantAuthority(tenantId: string): string {
+  const t = typeof tenantId === "string" ? tenantId.trim() : "";
+  if (!t || SHARED_AUTHORITIES.includes(t.toLowerCase())) {
+    throw new TenantError("MICROSOFT_TENANT_ID must be the ID of your own tenant.");
+  }
+  return `https://login.microsoftonline.com/${encodeURIComponent(t)}/oauth2/v2.0`;
+}
+
 export function authorizeUrl(
   cfg: { tenantId: string; clientId: string; redirectUri: string },
   state: string,
   challenge: string,
   scopes: string[],
 ): string {
-  const u = new URL(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenantId)}/oauth2/v2.0/authorize`);
+  const u = new URL(`${tenantAuthority(cfg.tenantId)}/authorize`);
   u.searchParams.set("client_id", cfg.clientId);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("redirect_uri", cfg.redirectUri);
@@ -127,6 +145,7 @@ export function readIdToken(idToken: string): { tid: string; oid: string; email:
 }
 
 export function linkStatus(microsoftEmail: string, profileEmail: string | null): "active" | "review" {
-  if (!profileEmail) return "review";
-  return microsoftEmail.trim().toLowerCase() === profileEmail.trim().toLowerCase() ? "active" : "review";
+  const a = (microsoftEmail ?? "").trim().toLowerCase();
+  const b = (profileEmail ?? "").trim().toLowerCase();
+  return a && a === b ? "active" : "review";
 }

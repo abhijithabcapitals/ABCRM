@@ -7,6 +7,8 @@ import {
   readIdToken,
   signState,
   StateError,
+  tenantAuthority,
+  TenantError,
   verifyState,
 } from "./auth.ts";
 
@@ -139,4 +141,30 @@ Deno.test("readIdToken throws a clear error on malformed tokens", () => {
     token({ tid: 1, oid: "O", preferred_username: "a@x.ae" }),
   ];
   for (const t of bad) assertThrows(() => readIdToken(t), Error, "ID token", `token: ${t}`);
+});
+
+Deno.test("linkStatus returns review when either value is blank after trim", () => {
+  assertEquals(linkStatus("   ", "   "), "review");
+  assertEquals(linkStatus("", ""), "review");
+  assertEquals(linkStatus("a@x.ae", "   "), "review");
+  assertEquals(linkStatus("  ", "a@x.ae"), "review");
+});
+
+Deno.test("verifyState refuses a now that is not finite", async () => {
+  const s = await signState("k", "user-1", 1000);
+  for (const now of [NaN, Infinity, -Infinity]) {
+    await assertRejects(() => verifyState("k", s, now), StateError, undefined, `now: ${now}`);
+  }
+});
+
+Deno.test("authorizeUrl refuses a tenant that is empty or shared by many organisations", () => {
+  const cfg = { clientId: "C", redirectUri: "https://r" };
+  for (const tenantId of ["", "   ", "common", "COMMON", " Organizations ", "organizations", "consumers", "Consumers"]) {
+    assertThrows(() => authorizeUrl({ ...cfg, tenantId }, "st", "ch", PHASE2_SCOPES), TenantError, undefined, `tenant: ${tenantId}`);
+  }
+});
+
+Deno.test("tenantAuthority returns the authority for one tenant only", () => {
+  assertEquals(tenantAuthority("T/x"), "https://login.microsoftonline.com/T%2Fx/oauth2/v2.0");
+  assertThrows(() => tenantAuthority("common"), TenantError);
 });
