@@ -30,7 +30,7 @@ The user was told the risk of direct changes: a misunderstood sentence, or instr
 Checked on the live database, 2026-11-04.
 
 - Row security is on for every table staff can reach, so the person's own login applies the database's rules.
-- No row security policy checks `member_tab_access`, and only 5 data functions do, including `banking_can`. Tabs mostly control screens, so the agent checks them itself.
+- No row security policy checks `member_tab_access`, and only 4 data functions do, including `banking_can`. Tabs mostly control screens, so the agent checks them itself.
 - 34 policies let any signed-in person read a table, or in a few cases do more, including `profiles`, `wiki_articles`, `spaces` and `lists`. Most look like shared lists. The table map (section 5) decides whether each is reachable.
 - PostgREST exposes `public`, `acct`, `ceo`, `email_base` and `email_agent`. Schema `router` is not exposed.
 - OpenRouter refuses calls: `Workspace lifetime budget of $1.00 exceeded`. BD and CEO stay on OpenRouter and fail until the user fixes that, which is outside this design.
