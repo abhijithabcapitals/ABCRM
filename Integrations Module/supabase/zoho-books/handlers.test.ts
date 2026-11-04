@@ -34,12 +34,13 @@ function fakeDb(
           }
           const row = { id: `id-${++seq}`, ...payload };
           tables[t].push(row);
-          return { rows: [row], error: null };
+          return { rows: [{ ...row }], error: null };
         }
         if (op === "update") {
+          if (errors[`${t}.update.nomatch`]) return { rows: [], error: null };
           const rows = match();
           for (const r of rows) Object.assign(r, payload);
-          return { rows, error: null };
+          return { rows: rows.map((r) => ({ ...r })), error: null };
         }
         return { rows: match(), error: null };
       };
@@ -123,6 +124,7 @@ function makeDeps(over: Record<string, unknown> = {}) {
       id: "b1",
       case_id: "case1",
       quotation_number: "BQ-1",
+      version: 1,
       status: "Accepted",
       vat_mode: "inclusive",
       total_amount: 205,
@@ -171,7 +173,8 @@ function makeDeps(over: Record<string, unknown> = {}) {
         dc: "ae",
         get: (path: string, query?: Record<string, string>) => {
           calls.push({ path, query });
-          return Promise.resolve(replies[path]);
+          const r = replies[path];
+          return Promise.resolve(typeof r === "function" ? r(query) : r);
         },
         post: (path: string, body: Row) => {
           posts.push({ path, body });
@@ -185,7 +188,7 @@ function makeDeps(over: Record<string, unknown> = {}) {
   };
   const { saved, tables: touched, conflicts } = log;
   // deno-lint-ignore no-explicit-any
-  return { deps: deps as any, calls, posts, saved, asked, tables: touched, conflicts, replies, db: tables, state };
+  return { deps: deps as any, calls, posts, saved, asked, tables: touched, conflicts, replies, db: tables, state, errors };
 }
 
 Deno.test("connection_test and taxes_list are admin only", async () => {
@@ -640,6 +643,7 @@ Deno.test("a timeout after POST sets unknown; retry searches first and adopts", 
   assertEquals(typeof r.error, "string");
   assertEquals(m.db.zoho_documents[0].state, "unknown");
   // Zoho did create it.
+  m.state.now = new Date("2026-11-03T00:03:00Z");
   m.replies["/estimates"] = {
     estimates: [{ estimate_id: "7001", estimate_number: "EST-0001", reference_number: "Q-1", customer_id: "11", total: 105, status: "draft" }],
   };
@@ -770,10 +774,215 @@ Deno.test("an ancestor loop does not hang", async () => {
   assertEquals(ref(await handle("document_create", hub, m.deps)).earlier_draft, null);
 });
 
-Deno.test("Zoho's message is saved as given and nothing else leaks", async () => {
+const doc = (id: string, over: Row = {}) => ({
+  estimate_id: id, estimate_number: `EST-${id}`, reference_number: "Q-1", customer_id: "11", total: 105, status: "draft", ...over,
+});
+const quiet = async (fn: () => Promise<void>) => {
+  const was = console.error;
+  console.error = () => {};
+  try {
+    await fn();
+  } finally {
+    console.error = was;
+  }
+};
+
+Deno.test("a secret inside a failure never reaches the response", async () => {
   const m = makeDeps();
-  m.state.postImpl = () => Promise.reject(new ZohoHttpError(400, "[hidden] is not valid."));
-  const r = await handle("document_create", hub, m.deps);
-  assertEquals(JSON.stringify(r).includes("fake-"), false);
-  assertEquals(m.db.zoho_documents[0].error, "[hidden] is not valid.");
+  m.deps.zoho = () =>
+    Promise.resolve({ orgId: "ORG1", dc: "ae", get: () => Promise.reject(new TypeError("bad host fake-secret-value")), post: () => Promise.resolve({}) });
+  await quiet(async () => {
+    const r = await handle("document_create", hub, m.deps);
+    assertEquals(JSON.stringify(r).includes("fake-secret-value"), false);
+    assertEquals(String(m.db.zoho_documents[0].error).includes("fake-secret-value"), false);
+  });
+});
+
+Deno.test("the search sends the reference number", async () => {
+  const m = makeDeps();
+  let seen: Record<string, string> | undefined;
+  m.replies["/estimates"] = (q: Record<string, string>) => {
+    seen = q;
+    return { estimates: [] };
+  };
+  await handle("document_create", hub, m.deps);
+  assertEquals(seen, { reference_number: "Q-1" });
+});
+
+Deno.test("a revised Banking quote with the same number is not mistaken for the first one", async () => {
+  const m = makeDeps();
+  m.db.banking_quotations.push({ ...m.db.banking_quotations[0], id: "b1v2", version: 2, supersedes_id: "b1" });
+  await handle("document_create", bank, m.deps);
+  assertEquals(m.posts[0].body.reference_number, "BQ-1");
+  m.replies["/estimates"] = (q: Record<string, string>) => ({
+    estimates: q.reference_number === "BQ-1" ? [doc("7001", { reference_number: "BQ-1" })] : [],
+  });
+  m.state.postImpl = () => Promise.resolve({ estimate: { estimate_id: "7002", estimate_number: "EST-0002", total: 205, status: "draft" } });
+  const r = ref(await handle("document_create", { ...bank, source_id: "b1v2" }, m.deps));
+  assertEquals(m.posts[1].body.reference_number, "BQ-1 v2");
+  assertEquals([r.zoho_id, r.zoho_number, r.earlier_draft], ["7002", "EST-0002", "EST-0001"]);
+});
+
+Deno.test("a Zoho draft another CRM row already holds is not adopted", async () => {
+  const m = makeDeps();
+  m.db.zoho_documents.push({ id: "other", source_table: "banking_quotations", source_id: "x", kind: "estimate", state: "created", zoho_id: "7001" });
+  m.replies["/estimates"] = { estimates: [doc("7001")] };
+  m.state.postImpl = () => Promise.resolve({ estimate: { estimate_id: "7002", estimate_number: "EST-0002", total: 105, status: "draft" } });
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.zoho_id, m.posts.length], ["7002", 1]);
+});
+
+Deno.test("a voided, declined or expired match is not adopted", async () => {
+  for (const status of ["void", "VOID", "declined", "Expired"]) {
+    const m = makeDeps();
+    m.replies["/estimates"] = { estimates: [doc("7001", { status })] };
+    const r = ref(await handle("document_create", hub, m.deps));
+    assertEquals([m.posts.length, r.adopted_count], [1, undefined]);
+  }
+});
+
+Deno.test("an immediate retry after a POST timeout waits and calls nothing", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new ZohoTimeoutError());
+  await quiet(async () => {
+    await handle("document_create", hub, m.deps);
+    const gets = m.calls.length;
+    m.state.now = new Date("2026-11-03T00:01:00Z");
+    await assertRejects(() => handle("document_create", hub, m.deps), UserError, "Check again in 2 minutes.");
+    assertEquals([m.calls.length, m.posts.length], [gets, 1]);
+    m.state.now = new Date("2026-11-03T00:02:30Z");
+    await handle("document_create", hub, m.deps);
+    assertEquals(m.calls.length, gets + 1);
+  });
+});
+
+Deno.test("the wait counts from the timeout, not from the start of the attempt", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => {
+    m.state.now = new Date("2026-11-03T00:00:40Z");
+    return Promise.reject(new ZohoTimeoutError());
+  };
+  await quiet(async () => {
+    await handle("document_create", hub, m.deps);
+    m.state.now = new Date("2026-11-03T00:02:30Z");
+    await assertRejects(() => handle("document_create", hub, m.deps), UserError, "2 minutes");
+  });
+});
+
+Deno.test("a failed search on a row that was unknown keeps it unknown and keeps its wait", async () => {
+  const m = makeDeps();
+  m.db.zoho_documents.push({
+    id: "r1", source_table: "hub_documents", source_id: "h1", kind: "estimate", reference: "Q-1",
+    state: "unknown", created_at: "2026-11-02T23:50:00.000Z",
+  });
+  m.deps.zoho = () => Promise.resolve({ orgId: "ORG1", dc: "ae", get: () => Promise.reject(new ZohoTimeoutError()), post: () => Promise.resolve({}) });
+  await quiet(async () => {
+    const r = ref(await handle("document_create", hub, m.deps));
+    assertEquals(r.state, "unknown");
+  });
+  assertEquals([m.db.zoho_documents[0].state, m.db.zoho_documents[0].created_at], ["unknown", "2026-11-02T23:50:00.000Z"]);
+});
+
+Deno.test("a POST 5xx sets unknown, but a 4xx sets failed", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.reject(new ZohoHttpError(502, "Bad gateway"));
+  await quiet(async () => {
+    const r = ref(await handle("document_create", hub, m.deps));
+    assertEquals([r.state, m.db.zoho_documents[0].state], ["unknown", "unknown"]);
+    assertEquals(r.error.includes("2 minutes"), true);
+  });
+});
+
+Deno.test("gone, then a failed retry, then another retry still skips the deleted draft", async () => {
+  const m = makeDeps();
+  m.db.zoho_documents.push({
+    id: "r1", source_table: "hub_documents", source_id: "h1", kind: "estimate", reference: "Q-1",
+    state: "gone", zoho_id: "7001", zoho_number: "EST-0001", created_at: "2026-11-01T00:00:00.000Z",
+  });
+  m.replies["/estimates"] = { estimates: [doc("7001")] };
+  m.state.postImpl = () => Promise.reject(new ZohoHttpError(400, "Customer is inactive."));
+  await quiet(async () => {
+    const r = ref(await handle("document_create", hub, m.deps));
+    assertEquals([r.state, r.zoho_id, r.zoho_number, r.url], ["failed", null, null, null]);
+  });
+  assertEquals(m.db.zoho_documents[0].zoho_id, "7001");
+  m.state.postImpl = () => Promise.resolve({ estimate: { estimate_id: "7002", estimate_number: "EST-0002", total: 105, status: "draft" } });
+  const r2 = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r2.zoho_id, m.posts.length], ["7002", 2]);
+});
+
+Deno.test("more than one page of matches, or a row without reference or customer, stops with nothing sent", async () => {
+  const cases: unknown[] = [
+    { estimates: [], page_context: { has_more_page: true } },
+    { estimates: [{ estimate_id: "1", customer_id: "11" }] },
+    { estimates: [{ estimate_id: "1", reference_number: "Q-1" }] },
+  ];
+  for (const reply of cases) {
+    const m = makeDeps();
+    m.replies["/estimates"] = reply;
+    await quiet(async () => {
+      const r = ref(await handle("document_create", hub, m.deps));
+      assertEquals([r.state, r.error, m.posts.length], [
+        "failed",
+        "Zoho returned too many possible matches, so no draft was created. Check Zoho, then try again.",
+        0,
+      ]);
+    });
+  }
+});
+
+Deno.test("a reply with no document id sets unknown", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => Promise.resolve({ code: 0 });
+  await quiet(async () => {
+    const r = ref(await handle("document_create", hub, m.deps));
+    assertEquals([r.state, m.db.zoho_documents[0].state], ["unknown", "unknown"]);
+  });
+});
+
+Deno.test("a save failure after the POST is reported, and a later press adopts the draft", async () => {
+  const m = makeDeps();
+  m.errors["zoho_documents.update"] = { code: "XX000", message: "db down" };
+  await quiet(async () => {
+    await assertRejects(() => handle("document_create", hub, m.deps), UserError, "could not save it");
+  });
+  delete m.errors["zoho_documents.update"];
+  m.replies["/estimates"] = { estimates: [doc("7001")] };
+  await assertRejects(() => handle("document_create", hub, m.deps), UserError, "already being created");
+  m.state.now = new Date("2026-11-03T00:03:00Z");
+  const r = ref(await handle("document_create", hub, m.deps));
+  assertEquals([r.state, r.zoho_id, m.posts.length], ["created", "7001", 1]);
+});
+
+Deno.test("a takeover that matches no row sends nothing", async () => {
+  const m = makeDeps();
+  m.db.zoho_documents.push({
+    id: "r1", source_table: "hub_documents", source_id: "h1", kind: "estimate", reference: "Q-1",
+    state: "failed", created_at: "2026-11-02T23:00:00.000Z",
+  });
+  m.errors["zoho_documents.update.nomatch"] = true;
+  await assertRejects(() => handle("document_create", hub, m.deps), UserError, "already being created");
+  assertEquals([m.calls.length, m.posts.length], [0, 0]);
+});
+
+Deno.test("a worker that lost its row to a takeover does not report success", async () => {
+  const m = makeDeps();
+  m.state.postImpl = () => {
+    m.db.zoho_documents[0].created_at = "2026-11-03T00:05:00.000Z";
+    return Promise.resolve(estimateReply());
+  };
+  await quiet(async () => {
+    await assertRejects(() => handle("document_create", hub, m.deps), UserError, "already being created");
+  });
+  assertEquals(m.db.zoho_documents[0].state, "creating");
+});
+
+Deno.test("a takeover clears the old read time and keeps the first presser", async () => {
+  const m = makeDeps();
+  m.db.zoho_documents.push({
+    id: "r1", source_table: "hub_documents", source_id: "h1", kind: "estimate", reference: "Q-1",
+    state: "failed", created_by: "first-user", last_read_at: "2026-11-01T00:00:00.000Z", created_at: "2026-11-02T00:00:00.000Z",
+  });
+  await handle("document_create", hub, m.deps);
+  assertEquals([m.db.zoho_documents[0].created_by, m.db.zoho_documents[0].last_read_at], ["first-user", null]);
 });

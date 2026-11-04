@@ -20,6 +20,7 @@ export type Source = {
 const NAME_MAX = 100; // Zoho's line item name limit
 const NO_CLIENT = "This client has no Client Master record, so it can't be linked to Zoho.";
 const BAD_AMOUNT = "This quote has an amount that can't be read. Fix it before creating a Zoho draft.";
+const NO_NUMBER = "This quote has no number, so it can't be sent to Zoho.";
 const NO_LINES = "This quote has no lines to send to Zoho.";
 
 const num = (v: unknown): number => {
@@ -73,10 +74,14 @@ export function fromBanking(row: Record<string, any>, clientMasterId: string | n
     { name: svcCut > 0 ? "Service fee, less discount" : "Service fee", amount: svc, taxable: true },
     { name: suppCut > 0 ? "Supplementary charges, less discount" : "Supplementary charges", amount: supp, taxable: true },
   ].filter((l) => l.amount !== 0);
+  // A revision keeps the quotation number, so later versions get a suffix to stay distinct in Zoho.
+  const number = String(row.quotation_number ?? "");
+  const version = Number(row.version);
+  const reference = number && Number.isFinite(version) && version > 1 ? `${number} v${version}` : number;
   return {
     department: "Banking",
     clientId: clientMasterId ?? null,
-    reference: String(row.quotation_number ?? ""),
+    reference,
     status: String(row.status ?? ""),
     total: num(row.total_amount),
     vatMode: mode(row.vat_mode),
@@ -128,6 +133,7 @@ const INVOICE_OK: Record<Source["department"], string[]> = {
 
 export function canCreate(src: Source, kind: Kind): string | null {
   if (!src.clientId) return NO_CLIENT;
+  if (!src.reference.trim()) return NO_NUMBER;
   if (src.unreadable) return BAD_AMOUNT;
   if (src.lines.length === 0) return NO_LINES;
   const ok = (kind === "invoice" ? INVOICE_OK : ESTIMATE_OK)[src.department];

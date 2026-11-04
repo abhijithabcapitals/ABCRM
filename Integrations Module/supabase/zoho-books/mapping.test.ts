@@ -189,3 +189,15 @@ Deno.test("dubaiToday rolls over at 20:00 UTC", () => {
   assertEquals(dubaiToday(new Date("2026-11-04T19:59:59Z")), "2026-11-04");
   assertEquals(dubaiToday(new Date("2026-11-04T20:00:00Z")), "2026-11-05");
 });
+
+Deno.test("a revised Banking quote gets its own reference; version 1 keeps the number", () => {
+  const v1 = fromBanking(bankRow({ quotation_number: "BQ-7", version: 1 }), "cm1");
+  const v2 = fromBanking(bankRow({ quotation_number: "BQ-7", version: 2 }), "cm1");
+  const none = fromBanking(bankRow({ quotation_number: "BQ-7", version: null }), "cm1");
+  assertEquals([v1.reference, v2.reference, none.reference], ["BQ-7", "BQ-7 v2", "BQ-7"]);
+});
+
+Deno.test("a quote with no number is refused", () => {
+  const src = fromHub(hubRow({ document_number: "  " }));
+  assertEquals(canCreate(src, "estimate"), "This quote has no number, so it can't be sent to Zoho.");
+});

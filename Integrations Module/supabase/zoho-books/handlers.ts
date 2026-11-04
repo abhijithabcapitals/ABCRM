@@ -206,7 +206,17 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
 const SOURCE_DEPARTMENT: Record<string, Department> = { hub_documents: "business_setup", banking_quotations: "banking" };
 const STUCK_MS = 2 * 60_000;
 const BUSY = "This draft is already being created. Try again in a moment.";
-const UNCONFIRMED = "Zoho did not confirm the draft. Press Create again, and the CRM checks Zoho before making a new one.";
+const WAIT = "Zoho may still be creating this draft. Check again in 2 minutes.";
+const UNCONFIRMED = "Zoho did not confirm the draft. Wait 2 minutes, then press Create again. The CRM checks Zoho before making a new one.";
+const TOO_MANY = "Zoho returned too many possible matches, so no draft was created. Check Zoho, then try again.";
+// A voided, declined or expired document is not a live draft to adopt.
+const DEAD = new Set(["void", "declined", "expired"]);
+
+class Ambiguous extends Error {
+  constructor() {
+    super(TOO_MANY);
+  }
+}
 
 function createPermission(department: Department, kind: Kind): string {
   if (department === "banking") return "cases.manage";
@@ -285,17 +295,20 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
   const now = deps.now();
   const docs = () => deps.db.from("zoho_documents");
 
-  const shape = async (row: Json, extra: object = {}) => ({
-    state: row.state,
-    zoho_id: row.zoho_id ?? null,
-    zoho_number: row.zoho_number ?? null,
-    total_warning: row.state === "created" && (row.total == null || !totalsMatch(Number(row.crm_total), Number(row.total))),
-    earlier_draft: await earlierDraft(deps, table, sourceId, kind),
-    url: row.zoho_id
-      ? `https://books.zoho.${zoho.dc}/app/${zoho.orgId}#/${kind === "invoice" ? "invoices" : "quotes"}/${row.zoho_id}`
-      : null,
-    ...extra,
-  });
+  const shape = async (row: Json, extra: object = {}) => {
+    const made = row.state === "created";
+    return {
+      state: row.state,
+      zoho_id: made ? row.zoho_id ?? null : null,
+      zoho_number: made ? row.zoho_number ?? null : null,
+      total_warning: made && (row.total == null || !totalsMatch(Number(row.crm_total), Number(row.total))),
+      earlier_draft: await earlierDraft(deps, table, sourceId, kind),
+      url: made && row.zoho_id
+        ? `https://books.zoho.${zoho.dc}/app/${zoho.orgId}#/${kind === "invoice" ? "invoices" : "quotes"}/${row.zoho_id}`
+        : null,
+      ...extra,
+    };
+  };
 
   const existing = await docs().select("*").eq("source_table", table).eq("source_id", sourceId).eq("kind", kind).maybeSingle();
   if (existing.error) {
@@ -304,24 +317,31 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
   }
 
   let row: Json;
+  // A draft Zoho no longer has must never be adopted again, even after a failed retry.
   let deletedId = "";
+  let priorState = "";
+  let priorCreatedAt = "";
   if (existing.data) {
     const old = existing.data;
     if (old.state === "created") return await shape(old);
-    if (old.state === "creating" && now.getTime() - Date.parse(old.created_at) < STUCK_MS) throw new UserError(BUSY);
+    // created_at is when the last attempt started or timed out, so this is a real wait.
+    const recent = now.getTime() - Date.parse(old.created_at) < STUCK_MS;
+    if (old.state === "creating" && recent) throw new UserError(BUSY);
+    if (old.state === "unknown" && recent) throw new UserError(WAIT);
     // failed, unknown, gone, or stuck in creating: take the row over. Only one caller can win.
-    if (old.state === "gone") deletedId = String(old.zoho_id ?? "");
+    deletedId = String(old.zoho_id ?? "");
+    priorState = old.state;
+    priorCreatedAt = old.created_at;
     const claim = await docs().update({
       state: "creating",
       error: null,
-      zoho_id: null,
       zoho_number: null,
       zoho_status: null,
       total: null,
       balance: null,
+      last_read_at: null,
       reference: src.reference,
       crm_total: src.total,
-      created_by: deps.userId,
       created_at: now.toISOString(),
     }).eq("id", old.id).eq("state", old.state).eq("created_at", old.created_at).select();
     if (claim.error) {
@@ -354,10 +374,13 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
     row = ins.data;
   }
 
+  // Saves only while this worker still owns the row. A takeover changes created_at.
   const save = async (patch: Json): Promise<Json> => {
-    const { error } = await docs().update(patch).eq("id", row.id);
-    if (error) console.error("zoho-books: draft save failed:", error.code, error.message);
-    return { error, row: { ...row, ...patch } };
+    const res = await docs().update(patch).eq("id", row.id).eq("created_at", row.created_at).select();
+    if (res.error) console.error("zoho-books: draft save failed:", res.error.code, res.error.message);
+    const lost = !res.error && !res.data?.length;
+    if (lost) console.error("zoho-books: draft save matched no row; another press took it over");
+    return { error: res.error, lost, row: { ...row, ...patch } };
   };
 
   // Zoho's own text is shown only for a refusal. Other trouble gets fixed wording.
@@ -365,13 +388,30 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
     console.error("zoho-books: document_create:", (e as Error)?.name, (e as ZohoHttpError)?.status ?? "");
     let state = "failed";
     let message = browserMessage(e);
-    if (e instanceof ZohoHttpError && e.status !== 429) {
-      message = e.message.trim().slice(0, 300) || message;
+    const patch: Json = {};
+    if (e instanceof Ambiguous) {
+      message = e.message;
+    } else if (e instanceof ZohoHttpError && e.status !== 429) {
+      if (posted && e.status >= 500) {
+        state = "unknown";
+        message = UNCONFIRMED;
+      } else {
+        message = e.message.trim().slice(0, 300) || message;
+      }
     } else if (posted && !(e instanceof ZohoAccessError) && !(e instanceof ZohoHttpError)) {
       state = "unknown";
       message = UNCONFIRMED;
     }
-    const saved = await save({ state, error: message });
+    if (state === "unknown" && posted) {
+      // Start the wait now, not at the start of the attempt.
+      patch.created_at = deps.now().toISOString();
+    } else if (!posted && priorState === "unknown") {
+      // The check failed, so nothing is known yet. Keep waiting rules as they were.
+      state = "unknown";
+      patch.created_at = priorCreatedAt;
+    }
+    const saved = await save({ ...patch, state, error: message });
+    if (saved.lost) throw new UserError(BUSY);
     return await shape(saved.row, { error: message });
   };
 
@@ -383,12 +423,24 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
   try {
     // A repeat must never make a second copy, so look in Zoho first.
     const found = await zoho.get(path, { reference_number: src.reference });
-    const matches = ((found?.[`${kind}s`] ?? []) as Json[])
+    const listed = (found?.[`${kind}s`] ?? []) as Json[];
+    // Only the first page is read, so a doubtful answer stops here instead of risking a copy.
+    if (found?.page_context?.has_more_page === true || listed.some((d) => d?.reference_number == null || d?.customer_id == null)) {
+      throw new Ambiguous();
+    }
+    const candidates = listed
       .filter((d) =>
-        d?.reference_number === src.reference && String(d.customer_id) === String(link.zoho_contact_id) &&
-        String(d[idKey]) !== deletedId
+        d.reference_number === src.reference && String(d.customer_id) === String(link.zoho_contact_id) &&
+        String(d[idKey]) !== deletedId && !DEAD.has(String(d.status ?? "").toLowerCase())
       )
       .sort((a, b) => (Date.parse(b.created_time ?? b.date) || 0) - (Date.parse(a.created_time ?? a.date) || 0));
+    // A draft another CRM quote already owns is not ours.
+    const matches: Json[] = [];
+    for (const d of candidates) {
+      const held = await docs().select("id").eq("zoho_id", String(d[idKey]));
+      if (held.error) throw new Error("zoho_documents lookup failed");
+      if (!(held.data ?? []).some((r: Json) => r.id !== row.id)) matches.push(d);
+    }
     let doc: Json = matches[0];
     if (!doc) {
       posted = true;
@@ -406,6 +458,7 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
       crm_total: src.total,
       error: null,
     });
+    if (saved.lost) throw new UserError(BUSY);
     if (saved.error) {
       throw new UserError("Zoho has the draft, but the CRM could not save it. Wait two minutes and press Create again to link it.");
     }
