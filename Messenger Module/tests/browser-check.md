@@ -112,3 +112,10 @@ Needs two real staff logins (A and B) and a third (C) who is in neither chat, af
 6. Open the full page lands on the same section. The dock is hidden on the full page.
 7. A half-typed chat message and channel post survive switching section.
 8. A long email is readable at panel width.
+
+## Typing and ticks
+
+1. With two logins, typing in a chat shows "Name is typing…" on the other screen within a second or two, and it clears after sending, or a few seconds after stopping.
+2. Send with the other person's CRM closed: one grey tick. They open the CRM on another page: two grey ticks, with no refresh. They open the chat: two blue ticks, with no refresh.
+3. A group shows two grey or two blue ticks only once every member has reached that point.
+4. A person outside the chat cannot hear its typing. A channel shows typing but no ticks.

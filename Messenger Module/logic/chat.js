@@ -31,11 +31,12 @@ export function mergeMessage(list, message) {
   return out.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
 }
 
-export function tickState(message, myId, othersReadAt) {
+export function tickState(message, myId, othersReadAt, othersDeliveredAt) {
   if (message.sender_id !== myId) return null;
   if (message.status === "sending") return "sending";
   if (message.status === "failed") return "failed";
   if (othersReadAt && Date.parse(othersReadAt) >= Date.parse(message.created_at)) return "read";
+  if (othersDeliveredAt && Date.parse(othersDeliveredAt) >= Date.parse(message.created_at)) return "delivered";
   return "sent";
 }
 
@@ -102,4 +103,12 @@ export function initials(title) {
 export function railTitle(row, myId) {
   const preview = previewText(row, myId);
   return preview ? `${chatTitle(row)}\n${preview}` : chatTitle(row);
+}
+
+// Who is typing, for the chat's header. Empty when nobody is.
+export function typingLabel(names) {
+  if (!names.length) return "";
+  if (names.length === 1) return `${names[0]} is typing…`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
+  return "Several people are typing…";
 }

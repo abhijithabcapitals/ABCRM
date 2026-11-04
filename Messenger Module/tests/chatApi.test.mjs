@@ -98,7 +98,7 @@ test("rpc calls use the exact parameter names", async () => {
   const c = fakeClient({ data: null, error: null });
   const api = createChatApi(c);
   await api.chatList();
-  await api.readState("c1");
+  await api.receiptState("c1");
   await api.markRead("c1");
   await api.startDirect("u2");
   await api.createGroup("Team", ["u2", "u3"]);
@@ -109,7 +109,7 @@ test("rpc calls use the exact parameter names", async () => {
   const rpcs = c.calls.filter((x) => x.rpc).map((x) => [x.rpc, x.args]);
   assert.deepEqual(rpcs, [
     ["messenger_chat_list", undefined],
-    ["messenger_read_state", { p_conversation: "c1" }],
+    ["messenger_receipt_state", { p_conversation: "c1" }],
     ["messenger_mark_read", { p_conversation: "c1" }],
     ["messenger_start_direct", { p_other: "u2" }],
     ["messenger_create_group", { p_title: "Team", p_members: ["u2", "u3"] }],
@@ -271,4 +271,54 @@ test("members embeds names, flattened from profiles", async () => {
   assert.deepEqual(out, [
     { profile_id: "u1", role: "owner", last_read_at: "t", full_name: "Asha" },
     { profile_id: "u2", role: "member", last_read_at: "t", full_name: null }]);
+});
+
+test("receiptState gives the first row, or nothing when the chat has no one else", async () => {
+  const rpc = async (fn, args) => ({ data: fn === "messenger_receipt_state" && args.p_conversation === "c1" ? [{ read_at: "r", delivered_at: "d" }] : [], error: null });
+  const api = createChatApi({ rpc });
+  assert.deepEqual(await api.receiptState("c1"), { read_at: "r", delivered_at: "d" });
+  assert.deepEqual(await api.receiptState("c2"), { read_at: null, delivered_at: null });
+});
+test("markDelivered never throws, as a tick must not break the chat", async () => {
+  await createChatApi({ rpc: async () => { throw new Error("offline"); } }).markDelivered();
+  await createChatApi({ rpc: async () => ({ error: { code: "x" } }) }).markDelivered();
+});
+function fakeChannels() {
+  const made = [];
+  return { made, removed: [], channel(name, opts) {
+    const c = { name, opts, handlers: [], sent: [], on(kind, filter, fn) { c.handlers.push({ kind, filter, fn }); return c; }, subscribe(fn) { c.status = fn; return c; }, send(m) { c.sent.push(m); return Promise.resolve("ok"); } };
+    made.push(c);
+    return c;
+  }, removeChannel(c) { this.removed.push(c); } };
+}
+test("watchReceipts listens to one chat's member rows and stops", () => {
+  const client = fakeChannels();
+  const seen = [];
+  const stop = createChatApi(client).watchReceipts("c1", (row) => seen.push(row.profile_id));
+  const { filter, fn } = client.made[0].handlers[0];
+  assert.equal(filter.table, "messenger_members");
+  assert.equal(filter.event, "UPDATE");
+  assert.equal(filter.filter, "conversation_id=eq.c1");
+  fn({ new: { profile_id: "p1" } });
+  stop();
+  fn({ new: { profile_id: "p2" } });
+  assert.deepEqual(seen, ["p1"]);
+  assert.equal(client.removed.length, 1);
+});
+test("typingChannel is private to the chat, sends only once joined, and stops", () => {
+  const client = fakeChannels();
+  const heard = [];
+  const t = createChatApi(client).typingChannel("c1", (p) => heard.push(p));
+  const c = client.made[0];
+  assert.equal(c.name, "msgr:c1");
+  assert.equal(c.opts.config.private, true);
+  t.send({ id: "me", typing: true });
+  assert.equal(c.sent.length, 0);
+  c.status("SUBSCRIBED");
+  t.send({ id: "me", typing: true });
+  assert.deepEqual(c.sent[0], { type: "broadcast", event: "typing", payload: { id: "me", typing: true } });
+  c.handlers[0].fn({ payload: { id: "p1", typing: true } });
+  assert.deepEqual(heard, [{ id: "p1", typing: true }]);
+  t.stop();
+  assert.equal(client.removed.length, 1);
 });
