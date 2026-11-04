@@ -1,10 +1,12 @@
 // One job: summary and status, file batches, new client steps, payments, invoice and history.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, Modal, Panel, Spinner, fmtDate, fmtDateTime, useAction, useLoad } from "@banking/components/shared";
+import { supabase } from "@app/supabase";
+import ZohoPanel from "@integrations/components/ZohoPanel";
 import { flagMissing } from "@banking/components/Attention";
 import { profiles } from "@banking/services/bankingApi";
 import ServiceDesk from "@template-hub/components/ServiceDesk";
-import { RECEIPT_MODES, STALE_MESSAGE, WORK_STATUSES, assigneeText, dubaiToday, feeConflict, feeLabel, feeWithVat, findLookupRow, hasUnreversedPayment, isStaleSave, needsRemarks, parseFileNames, sameClientName } from "../logic/jobs";
+import { RECEIPT_MODES, STALE_MESSAGE, WORK_STATUSES, assigneeText, canCreateZohoInvoice, dubaiToday, feeConflict, feeLabel, feeWithVat, findLookupRow, hasUnreversedPayment, isStaleSave, needsRemarks, parseFileNames, sameClientName } from "../logic/jobs";
 import { addBatch, clearInvoice, clientOptions, getJob, linkClient, linkDocument, setBatchSaved, setFee, setInvoice, setStatus } from "../services/jobsApi";
 import { FollowUpLog } from "./FollowUps";
 import JobForm from "./JobForm";
@@ -157,6 +159,11 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
           : done && <p className="bk-note">No invoice recorded yet.</p>}
       </Panel>
 
+      <Panel title="Zoho invoice">
+        {/* The contact link needs only the first flag; a draft needs a Completed job. */}
+        <ZohoPanel key={`${job.id}:${job.client_id}`} supabase={supabase} department="accounting" sourceTable="accounting_jobs" sourceId={job.id} clientId={job.client_id} kinds={["invoice"]} canCreate={{ estimate: true, invoice: canCreateZohoInvoice(job) }} onChanged={loaded.reload} />
+      </Panel>
+
       <FollowUpLog job={job} profile={profile} onChange={loaded.reload} />
 
       <Panel title="History">
@@ -215,7 +222,7 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
       )}
       {pendingQuote && (
         <Modal title="Link this quotation?" onClose={() => setPendingQuote(null)}>
-          <p>Linking this quotation changes the job fee from AED {money(job.fee_amount)} to the quotation total, AED {money(pendingQuote.total_amount)}. A quotation total already holds its VAT. Closing this does not link the quotation.</p>
+          <p>Linking this quotation changes the job fee from AED {money(job.fee_amount)} to the quotation total, AED {money(pendingQuote.total_amount)}. A quotation total is the fee as quoted, with VAT included unless the quotation is No VAT. Closing this does not link the quotation.</p>
           <div className="bk-modal-actions">
             <Button onClick={() => setPendingQuote(null)}>Do not link</Button>
             <Button variant="primary" onClick={settleQuote}>Link and change the fee</Button>

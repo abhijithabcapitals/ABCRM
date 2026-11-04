@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, ErrorNote } from "@banking/components/shared";
 import {
-  KIND_LABEL, LINK_READ_FAILED, NO_MASTER, NO_MATCH, NO_QUOTE, callZoho, contactLine, contactLinkable, createRights, formatAmount, linkContact,
+  KIND_LABEL, LINK_READ_FAILED, NO_MASTER, NO_MATCH, NO_QUOTE, callZoho, canReissue, contactLine, contactLinkable, createRights, formatAmount, linkContact,
   makeGuard, openPdf, panelMode, panelNotes, replaceQuestion, rowActions, rowNotes, safeZohoUrl,
 } from "../logic/zohoPanel";
 
@@ -10,7 +10,7 @@ import {
 // Nothing is read from Zoho until staff press Show Zoho details.
 const Note = ({ tone, children }) => <div className={`bk-alert bk-alert-${tone}`} role="note">{children}</div>;
 
-export default function ZohoPanel({ supabase, department, sourceTable, sourceId, clientId, kinds = ["estimate", "invoice"], canCreate, noSourceNote }) {
+export default function ZohoPanel({ supabase, department, sourceTable, sourceId, clientId, kinds = ["estimate", "invoice"], canCreate, noSourceNote, onChanged }) {
   const rights = createRights(canCreate);
   const [opened, setOpened] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -29,6 +29,9 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
   const scope = useRef(makeGuard());
   const loads = useRef(makeGuard());
   const call = useCallback((body) => callZoho(supabase, body), [supabase]);
+  // The screen around the panel is told once when a reply says the job was changed by the read-back.
+  const changed = useRef(onChanged);
+  changed.current = onChanged;
 
   const load = useCallback(async (force) => {
     const inScope = scope.current.token();
@@ -37,6 +40,8 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
     setLoading(true); setError(null);
     try {
       const out = await call({ action: "document_state", source_table: sourceTable, source_id: sourceId, force: !!force });
+      // A newer read does not undo the change, so this is told even when a later read has started.
+      if (out.job_changed === true && scope.current.valid(inScope)) changed.current?.();
       if (!current()) return;
       setRows(Object.fromEntries((out.rows || []).map((r) => [r.kind, r])));
       setInfo({ connected: out.connected, readError: out.read_error || null });
@@ -96,6 +101,7 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
   const create = (kind) => run(`create-${kind}`, async (stale) => {
     const out = await call({ action: "document_create", source_table: sourceTable, source_id: sourceId, kind });
     if (stale()) return;
+    if (out.job_changed === true) changed.current?.();
     if (out.needs_contact) {
       setLink({ known: true, linked: false, name: "", failed: false });
       setError("Link the Zoho contact for this client first.");
@@ -180,7 +186,7 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
         const mode = panelMode({ connected, linked: linkedOk, row });
         if (mode === "needs_contact" || mode === "not_connected") return null;
         const url = safeZohoUrl(row?.url);
-        const actions = rowActions(mode, { canCreate: rights[kind], connected, linked: linkedOk, hasUrl: !!url });
+        const actions = rowActions(mode, { canCreate: rights[kind], connected, linked: linkedOk, hasUrl: !!url, reissue: canReissue(sourceTable, row) });
         const name = KIND_LABEL[kind];
         return (
           <div className="bk-mt" key={kind}>

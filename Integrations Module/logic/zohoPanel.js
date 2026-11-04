@@ -28,12 +28,21 @@ export function createRights(canCreate) {
 
 const CREATE_LABEL = { ready: "Create draft", failed: "Try again", gone: "Create again", unknown: "Check and try again" };
 
-// Which buttons and links one row shows.
-export function rowActions(mode, { canCreate, connected, linked, hasUrl } = {}) {
+// A job invoice voided in Zoho can be made again once its number is no longer on the job. While it is still there,
+// the row's own warning says to clear it on the job, so no button is offered. The server refuses early attempts too.
+export function canReissue(sourceTable, row) {
+  if (sourceTable !== "accounting_jobs" || row?.state !== "created") return false;
+  if (String(row.zoho_status ?? "").toLowerCase() !== "void") return false;
+  return !/clear it on the job/i.test(`${row.error ?? ""} ${row.read_error ?? ""}`);
+}
+
+// Which buttons and links one row shows. reissue: a voided job invoice that may be created again.
+export function rowActions(mode, { canCreate, connected, linked, hasUrl, reissue } = {}) {
   const retry = mode === "failed" || mode === "gone" || mode === "unknown";
-  const canMake = !!canCreate && connected !== false && linked === true && (mode === "ready" || retry);
+  const again = mode === "created" && !!reissue;
+  const canMake = !!canCreate && connected !== false && linked === true && (mode === "ready" || retry || again);
   return {
-    create: canMake ? CREATE_LABEL[mode] : null,
+    create: canMake ? (again ? "Create invoice" : CREATE_LABEL[mode]) : null,
     viewPdf: mode === "created",
     openZoho: mode === "created" && !!hasUrl,
   };

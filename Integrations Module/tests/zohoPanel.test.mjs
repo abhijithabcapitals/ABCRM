@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  NOT_CONNECTED, POPUP_BLOCKED, callZoho, contactLinkable, linkContact, makeGuard, openPdf, readInvokeError, safeZohoUrl, contactLine, createRights, formatAmount, panelMode, panelNotes, pdfReply, replaceQuestion, rowActions, rowNotes,
+  NOT_CONNECTED, POPUP_BLOCKED, callZoho, canReissue, contactLinkable, linkContact, makeGuard, openPdf, readInvokeError, safeZohoUrl, contactLine, createRights, formatAmount, panelMode, panelNotes, pdfReply, replaceQuestion, rowActions, rowNotes,
 } from "../logic/zohoPanel.js";
 
 const file = (rel) => fileURLToPath(new URL(rel, import.meta.url));
@@ -251,4 +251,60 @@ test("the panel waits for a press before reading, and a new quote starts it fres
 test("Banking: the quotation read is guarded and cannot fail the step", () => {
   const bank = read("../../Banking Module/components/BankProcess.jsx");
   assert.match(bank, /can\("quotes\.view"\) \? run\(table\("banking_quotations"\)[^\n]*\.catch\(\(\) => "error"\) : "denied"/);
+});
+
+test("a voided job invoice may be created again once it is off the job", () => {
+  const ok = { canCreate: true, connected: true, linked: true, hasUrl: true };
+  const void1 = { state: "created", zoho_status: "void", error: null, read_error: null };
+  assert.equal(canReissue("accounting_jobs", void1), true);
+  assert.equal(canReissue("accounting_jobs", { ...void1, zoho_status: "VOID" }), true);
+  assert.equal(canReissue("banking_quotations", void1), false);
+  assert.equal(canReissue("accounting_jobs", { ...void1, zoho_status: "sent" }), false);
+  assert.equal(canReissue("accounting_jobs", { ...void1, state: "gone" }), false);
+  assert.equal(canReissue("accounting_jobs", { ...void1, error: "This invoice was voided in Zoho. Clear it on the job if that's right." }), false);
+  assert.equal(canReissue("accounting_jobs", { ...void1, read_error: "This invoice was voided in Zoho. Clear it on the job if that's right." }), false);
+  assert.equal(canReissue("accounting_jobs", undefined), false);
+  const a = rowActions("created", { ...ok, reissue: true });
+  assert.equal(a.create, "Create invoice");
+  assert.equal(a.viewPdf, true);
+  assert.equal(a.openZoho, true);
+  assert.equal(rowActions("created", ok).create, null);
+  assert.equal(rowActions("created", { ...ok, reissue: true, canCreate: false }).create, null);
+  assert.equal(rowActions("created", { ...ok, reissue: true, linked: false }).create, null);
+});
+
+test("a voided row keeps its own warning as the note", () => {
+  const text = "This invoice was voided in Zoho. Clear it on the job if that's right.";
+  const notes = rowNotes({ state: "created", zoho_status: "void", error: text, read_error: text }, "created");
+  assert.deepEqual(notes.map((n) => n.text), [text]);
+});
+
+test("Banking Documentation has a Zoho invoices tab that is not a document type", () => {
+  const doc = read("../../Banking Module/components/Documentation.jsx");
+  assert.match(doc, /\{ key: "zoho", label: "Zoho invoices", perm: "quotes\.view" \}/);
+  assert.doesNotMatch(doc, /key: "zoho"[^}]*create:/);
+  assert.match(doc, /GROUPS\.filter\(\(g\) => g\.create && can\(g\.create\)\)/);
+  assert.match(doc, /\.eq\("status", "Accepted"\)\.order\("created_at", \{ ascending: false \}\)/);
+  assert.match(doc, /\{picked && \(/);
+  assert.match(doc, /<ZohoPanel key=\{`\$\{picked\.id\}:\$\{client\(picked\)\?\.client_master_id\}`\}/);
+  assert.match(doc, /department="banking" sourceTable="banking_quotations" sourceId=\{picked\.id\}/);
+  assert.match(doc, /canCreate=\{can\("cases\.manage"\)\}/);
+  assert.match(doc, /client_master_id/);
+});
+
+test("the Accounting job shows the invoice panel and reloads when the job changed", () => {
+  const job = read("../../Accounting Module/components/JobWorkspace.jsx");
+  assert.match(job, /<Panel title="Zoho invoice">/);
+  assert.match(job, /<ZohoPanel key=\{`\$\{job\.id\}:\$\{job\.client_id\}`\}/);
+  assert.match(job, /department="accounting" sourceTable="accounting_jobs" sourceId=\{job\.id\} clientId=\{job\.client_id\} kinds=\{\["invoice"\]\}/);
+  assert.match(job, /invoice: canCreateZohoInvoice\(job\)/);
+  assert.match(job, /onChanged=\{loaded\.reload\}/);
+  assert.match(job, /Record invoice/);
+  assert.match(job, /Clear invoice/);
+  assert.doesNotMatch(job, /already holds its VAT/);
+  const panel = read("../components/ZohoPanel.jsx");
+  assert.match(panel, /onChanged/);
+  assert.match(panel, /out\.job_changed === true/);
+  assert.match(panel, /reissue: canReissue\(sourceTable, row\)/);
+  assert.match(read("../supabase/zoho-books/handlers.ts"), /accounting: "accounts\.review"/);
 });
