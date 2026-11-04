@@ -2,7 +2,7 @@
 
 Internal workspace for AB Capital Services FZC — built with React, Supabase, and Vite. Temporarily hosted on GitHub Pages; Vercel remains configured for the custom domain.
 
-**Cloudflare Pages:** `npm run deploy:cloudflare` builds on this PC and uploads to Cloudflare with no GitHub Actions. First-time steps are in `scripts/deploy-cloudflare.mjs`. It uses the values in `.env`, not the GitHub repository secrets.
+**Cloudflare:** https://abcrm.ceo-intelligence-agent.workers.dev. `npm run deploy:cloudflare` builds on this PC and uploads to Cloudflare with no GitHub Actions. First-time steps are in `scripts/deploy-cloudflare.mjs`. It uses the values in `.env`, not the GitHub repository secrets.
 
 🔗 **GitHub Pages app:** https://abhijithabcapitals.github.io/ABCRM/
 

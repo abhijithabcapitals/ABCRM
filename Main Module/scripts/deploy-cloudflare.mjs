@@ -1,6 +1,5 @@
-// Builds the CRM on this PC and uploads it straight to Cloudflare Pages, with no GitHub Actions.
-// First time only: npx wrangler@4.151.2 login, then
-//   npx wrangler@4.151.2 pages project create abcrm --production-branch main
+// Builds the CRM on this PC and uploads it straight to Cloudflare as static files, with no GitHub Actions.
+// First time only: npx wrangler@4.151.2 login
 // Every deploy: npm run deploy:cloudflare
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -21,4 +20,4 @@ if (missing.length) {
 
 // GITHUB_PAGES empty: this site lives at the root of its address, not under /ABCRM/.
 run("npm run build", { GITHUB_PAGES: "" });
-run(`${WRANGLER} pages deploy dist --project-name ${PROJECT} --branch main --commit-dirty=true`);
+run(`${WRANGLER} deploy --name ${PROJECT} --assets dist --compatibility-date 2026-10-19`);
