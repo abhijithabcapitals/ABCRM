@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 // https://vite.dev/config/
 export default defineConfig({
   base: process.env.GITHUB_PAGES === 'true' ? '/ABCRM/' : '/',
+  // Development only: the ArdentTax templates load by URL. Keep this list narrow, as secrets sit near this folder.
+  server: { fs: { allow: ['.', '../Template Module/ardentax/templates'] } },
   build: {
     rolldownOptions: {
       output: {
@@ -58,6 +60,9 @@ export default defineConfig({
       'react-dom',
       '@supabase/supabase-js',
       'dompurify',
+      'docx-preview',
+      'html2canvas',
+      'jspdf',
       'livekit-client',
       '@tiptap/react',
       '@tiptap/starter-kit',

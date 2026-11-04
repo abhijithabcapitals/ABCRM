@@ -1,10 +1,11 @@
 // node --test "Template Module/tests/"
 import test from "node:test";
+import { needsPcCopy } from "../logic/helpers.js";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { addLine, checkReady, fileNameFor, folderKind, letterData, listWords, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs.js";
+import { DEPARTMENTS, NUMBERING_DEPARTMENTS, addLine, checkReady, fileNameFor, folderKind, letterData, listWords, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const render = (file, data) => {
@@ -74,4 +75,15 @@ test("master templates are compared by their tags, even when Word splits them", 
   assert.deepEqual(tagsIn("<w:t>{client</w:t><w:t>_name}</w:t> {#lines}{no}{/lines} {notes}"), ["client_name", "lines", "no", "notes"]);
   assert.deepEqual(compareTags("{a}{b}", "{a}{c}"), { missing: ["b"], unknown: ["c"] });
   assert.deepEqual(compareTags("{a}", "<x/>{a}"), { missing: [], unknown: [] });
+});
+
+test("ArdentTax shows on the numbering page, not among the Service Desk departments", () => {
+  assert.ok(NUMBERING_DEPARTMENTS.includes("ArdentTax (ASP)"));
+  assert.ok(!DEPARTMENTS.includes("ArdentTax (ASP)"));
+  for (const d of DEPARTMENTS) assert.ok(NUMBERING_DEPARTMENTS.includes(d));
+});
+
+test("ArdentTax files stay in the CRM, so they never wait for a PC copy", () => {
+  assert.equal(needsPcCopy({ storage_path: "a", local_path: null, source: "ardentax" }), false);
+  assert.equal(needsPcCopy({ storage_path: "a", local_path: null, source: "hub" }), true);
 });

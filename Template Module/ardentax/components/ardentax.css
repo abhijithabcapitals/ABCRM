@@ -1,0 +1,22 @@
+.at-page { flex: 1; display: flex; flex-direction: column; height: calc(100vh - var(--brand-footer-h, 0px)); overflow: hidden; background: #f7f8fa; }
+.at-head { padding: 22px 40px 18px; background: #fff; border-bottom: 1px solid #ebebeb; font-size: 13px; color: #777; }
+.at-head h1 { font-size: 24px; font-weight: 800; color: #1a1a1a; margin: 0 0 4px; letter-spacing: -0.3px; }
+.at-body { flex: 1; overflow-y: auto; padding: 24px 40px; }
+.at-wide { grid-column: 1 / -1; }
+.at-fixed { padding: 8px 0; font-weight: 600; }
+.at-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.at-rows input:not([type="checkbox"]), .at-rows select { width: 100%; min-width: 84px; box-sizing: border-box; padding: 6px 8px; border: 1px solid #d9dce1; border-radius: 6px; font: inherit; }
+.at-rows td { vertical-align: middle; }
+.at-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 24px; margin: 0 0 10px; }
+.at-totals dt { font-size: 12px; color: #777; }
+.at-totals dd { margin: 2px 0 0; font-size: 15px; font-variant-numeric: tabular-nums; }
+.at-warn, .at-stop { margin: 0 0 6px; color: #b42318; font-size: 13px; }
+.at-stop { font-weight: 600; }
+.at-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.at-go { display: flex; justify-content: flex-end; margin: 12px 0 24px; }
+@media (max-width: 760px) {
+  .at-head, .at-body { padding-left: 16px; padding-right: 16px; }
+}
+.at-confirm { grid-template-columns: 1fr; }
+.at-confirm dd { word-break: break-word; }
+.at-field-wide textarea, .bk-field textarea { width: 100%; box-sizing: border-box; font: inherit; }
