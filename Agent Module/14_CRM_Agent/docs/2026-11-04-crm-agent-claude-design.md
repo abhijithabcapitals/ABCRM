@@ -111,7 +111,7 @@ Settings > Agents' `instructions`, `extra_content` and `approval_rules` for this
 
 Each live step needs the user's approval. Bruno's screens go last, so staff keep the Support chat until Bruno is proven.
 
-1. Apply `013_crm_agent_claude.sql`.
+1. Apply `013_crm_agent_claude.sql` and `Router Base/migrations/002_recent_agent.sql`.
 2. Deploy `crm-agent`, then `router-agent`.
 3. The user enters a Console API key in Settings > Agents on the CRM Agent. The key is never pasted in chat.
 4. The user gives testers credit. Opus 5.5 costs more per question.
@@ -121,7 +121,17 @@ Each live step needs the user's approval. Bruno's screens go last, so staff keep
 
 Rollback: restore the previous `router-agent`, delete or disable `crm-agent`, run the migration's rollback.
 
-## 11. Out of scope
+## 11. Bruno fixes included
+
+From the other session's review of the branch, checked against the code. Each ships in this work, before any merge.
+
+- **Private history between agents.** Today `agentHistory` sends every agent's replies to every other agent, as if they were that agent's own. CEO mail results could reach another provider, and text read from the CRM could reach an agent with write tools. An agent will now get the person's questions plus only its own earlier replies. This needs `Database Module/Router Base/migrations/002_recent_agent.sql` so `router_context` returns each message's `agent_id`.
+- **Failed ranking.** Bruno's first design gave the fixed reply here. The user approved trying the first two agents instead, and that stays. Its design document is updated to match. With the CRM Agent ticked, it takes one of those two slots, so Support may not be tried while ranking is failing.
+- **Blank page after a release.** A stale browser tab can fail to load the panel's file, and with no error boundary that could blank the whole CRM. `BrunoPet` gets an error boundary that collapses the pet and leaves the page working.
+- **README go-live order.** Remove `deploy ceo-agent` from step 2's commands, and match section 10.
+- **Test before merge.** Step 5 runs the branch's real screens beside the real Messenger dock, because merging is otherwise their first real test.
+
+## 12. Out of scope
 
 - Fixing the OpenRouter budget, BD and CEO on OpenRouter, and Support's 500 error.
 - Calling server functions for changes. Tables needing them stay read-only until a later design.
