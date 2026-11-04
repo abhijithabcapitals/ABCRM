@@ -29,6 +29,7 @@ const AccountingPage = lazy(() => import("@accounting"));
 const BusinessSetup = lazy(() => import("@business-setup"));
 const Knowledge = lazy(() => import("@knowledge"));
 const Messenger = lazy(() => import("@messenger"));
+const MessengerBubble = lazy(() => import("@messenger/components/MessengerBubble"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
 const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
@@ -557,6 +558,7 @@ export default function App() {
           <Settings currentUser={user} profile={profile} spaces={spaces} onAccessChanged={() => fetchAccessRules(profile)} />
         )}
         </Suspense>
+        <Suspense fallback={null}><MessengerBubble profile={profile} /></Suspense>
       </main>
       <BrandFooter />
       </div>

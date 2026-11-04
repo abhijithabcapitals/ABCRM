@@ -1,0 +1,27 @@
+/* Team chat bubble and panel. Every selector starts .msgr- so nothing here touches the rest of the CRM. */
+.msgr-bubble { position: fixed; right: 20px; bottom: 88px; z-index: 8900; width: 56px; height: 56px; border-radius: 50%; border: 0; padding: 0; background: #0F6E56; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
+.msgr-bubble:hover { filter: brightness(1.08); }
+.msgr-bubble:disabled { opacity: 0.6; cursor: default; }
+.msgr-badge { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 10px; background: #A32D2D; color: #fff; font: 600 11px/20px system-ui, sans-serif; text-align: center; }
+
+.msgr-panel-wrap[hidden], .msgr-panel[hidden] { display: none; }
+.msgr-panel-wrap { position: fixed; right: 20px; bottom: 154px; z-index: 8900; width: min(720px, calc(100vw - 40px)); height: min(620px, calc(100vh - 174px)); }
+.msgr-panel { display: flex; flex-direction: column; width: 100%; height: 100%; box-sizing: border-box; background: #fff; color: #172f35; border: 1px solid #d5dee1; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); overflow: hidden; font: 14px system-ui, sans-serif; }
+.msgr-reconnect { padding: 3px 10px; background: #fff4d6; color: #6b4e00; font-size: 12px; text-align: center; }
+.msgr-panes { display: flex; flex: 1; min-height: 0; }
+.msgr-list-pane { width: 260px; flex: none; border-right: 1px solid #e6ebed; display: flex; flex-direction: column; min-height: 0; }
+.msgr-chat-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f6f8f8; }
+.msgr-pane-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid #e6ebed; }
+.msgr-close { border: 0; background: none; font-size: 22px; line-height: 1; color: #5b6d72; cursor: pointer; display: none; }
+.msgr-note { margin: 12px; color: #5b6d72; font-size: 13px; }
+.msgr-empty { color: #7a8a8f; font-size: 14px; }
+
+@media (max-width: 767px) {
+  .msgr-panel-wrap { right: 0; bottom: 0; width: 100vw; height: 100dvh; }
+  .msgr-panel { border-radius: 0; border: 0; }
+  .msgr-bubble-open { display: none; }
+  .msgr-list-pane { width: 100%; border-right: 0; }
+  .msgr-show-list .msgr-chat-pane { display: none; }
+  .msgr-show-chat .msgr-list-pane { display: none; }
+  .msgr-close { display: block; }
+}

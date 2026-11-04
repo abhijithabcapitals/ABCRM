@@ -100,3 +100,45 @@ test("App.jsx keeps view in abc_view and does not use URLSearchParams.size", () 
   assert.doesNotMatch(app, /q\.size/);
   assert.doesNotMatch(read("components/MessengerModule.jsx"), /q\.size/);
 });
+
+test("the bubble is mounted once in App.jsx, lazily, by path", () => {
+  const app = main("src/App.jsx");
+  assert.match(app, /lazy\(\(\) => import\("@messenger\/components\/MessengerBubble"\)\)/);
+  assert.equal((app.match(/<MessengerBubble /g) || []).length, 1);
+});
+
+test("the bubble loads the panel lazily and wraps it in the error boundary", () => {
+  const src = read("components/MessengerBubble.jsx");
+  assert.match(src, /lazy\(\(\) => import\("\.\/MessengerPanel(\.jsx)?"\)\)/);
+  assert.match(src, /<ChatBoundary/);
+  assert.match(src, /shouldCollapse/);
+  assert.match(src, /pointerdown/);
+});
+
+test("no message HTML is ever rendered", () => {
+  assert.doesNotMatch(readAll("components"), /dangerouslySetInnerHTML/);
+});
+
+test("chat.css holds the bubble position and every selector is scoped under .msgr-", () => {
+  const css = read("components/chat.css");
+  assert.match(css, /right:\s*20px/);
+  assert.match(css, /bottom:\s*88px/);
+  assert.match(css, /z-index:\s*8900/);
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const selectors = [];
+  let depth = 0, buf = "", inMedia = [];
+  for (const ch of stripped) {
+    if (ch === "{") {
+      const head = buf.trim();
+      if (head.startsWith("@")) inMedia.push(depth);
+      else selectors.push(head);
+      depth++; buf = "";
+    } else if (ch === "}") { depth--; buf = ""; }
+    else if (ch === ";") buf = "";
+    else buf += ch;
+  }
+  assert.ok(selectors.length > 0);
+  for (const s of selectors) {
+    for (const part of s.split(",")) assert.match(part.trim(), /^\.msgr-/, `unscoped selector: ${part.trim()}`);
+  }
+});
