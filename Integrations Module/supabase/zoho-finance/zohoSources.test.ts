@@ -321,3 +321,34 @@ Deno.test("readLedger stops starting reads at the first error, waits for the run
   assertEquals((err as Error).message, "boom");
   assertEquals(started, ["A", "B"]);
 });
+
+Deno.test("readLedger keeps the more serious error when the other worker had an unfinished list", async () => {
+  const accounts = ["A", "B"].map((n) => ({ id: n, name: n, type: "income", balance: 0, parentId: null }));
+  for (const order of [["A", "B"], ["B", "A"]]) {
+    const z = {
+      orgId: "ORG1",
+      get: async (_p: string, q: Record<string, string> = {}) => {
+        // The first account to answer is the unfinished one, and the second fails with the serious error.
+        for (let i = 0; i < order.indexOf(q.account_id) * 3; i++) await Promise.resolve();
+        if (q.account_id === order[0]) return { transactions: [] }; // No page_context: an unfinished read.
+        throw new Error("serious");
+      },
+    };
+    const err = await assertRejects(() => readLedger(z, accounts, "2025-12-01", "2026-11-04"), Error);
+    assertEquals(err.message, "serious", order.join());
+  }
+});
+
+Deno.test("readLedger throws when one worker hits a limit while the other finishes, so no rows are returned", async () => {
+  const accounts = ["A", "B", "C"].map((n) => ({ id: n, name: n, type: "income", balance: 0, parentId: null }));
+  const z = {
+    orgId: "ORG1",
+    get: async (_p: string, q: Record<string, string> = {}) => {
+      if (q.account_id === "A") throw new Error("limit");
+      await Promise.resolve();
+      return { transactions: [{ transaction_date: "2026-10-01", credit_amount: 1 }], page_context: { has_more_page: false } };
+    },
+  };
+  const err = await assertRejects(() => readLedger(z, accounts, "2025-12-01", "2026-11-04"), Error);
+  assertEquals(err.message, "limit");
+});

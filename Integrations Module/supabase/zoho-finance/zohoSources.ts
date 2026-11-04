@@ -218,7 +218,8 @@ export async function readLedger(zoho: ZohoReader, accounts: SourceAccount[], fr
         perAccount[i] = await readAccountLedger(zoho, todo[i], from, to);
       } catch (e) {
         // Nothing new starts after the first error. The other worker finishes what it is reading.
-        if (!failed) firstError = e;
+        // An unfinished list is the least serious error, so a limit, time or Zoho error from the other worker wins.
+        if (!failed || (firstError instanceof UnfinishedRead && !(e instanceof UnfinishedRead))) firstError = e;
         failed = true;
       }
     }

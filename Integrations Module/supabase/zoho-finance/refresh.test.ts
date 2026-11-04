@@ -565,3 +565,31 @@ Deno.test("the first error in the ledger stops new reads, waits for those runnin
   assertEquals(db.row.data, { old: true });
   assertEquals(db.row.refreshing_since, null);
 });
+
+Deno.test("a pacing wait longer than the budget left is not started: the budget message is stored at once", async () => {
+  const clock = fakeClock();
+  const z = fakeZoho(190);
+  let sleeps = 0;
+  // The first call ends at 100 s, so the rest start late: 90 starts in the last minute, and the next wait is about 60 s with 25 s left.
+  const late = {
+    ...z,
+    get: (p: string, q?: Record<string, string>) => {
+      if (z.calls.length === 0) clock.advance(100_000);
+      return z.get(p, q);
+    },
+  };
+  const db = fakeDb();
+  const out = await refresh({ force: false }, deps(db, late, {
+    now: clock.now,
+    sleep: (ms: number) => {
+      sleeps++;
+      return clock.sleep(ms);
+    },
+  }));
+  assertEquals(out, { status: "partial" });
+  assertEquals(sleeps, 0);
+  assertEquals(z.calls.length, 91);
+  assertEquals(db.row.error, "Zoho took too long, so some figures are incomplete. Refresh to try again.");
+  assertEquals(db.row.refreshing_since, null);
+  assertEquals(db.row.data.monthly, null);
+});

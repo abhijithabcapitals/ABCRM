@@ -49,7 +49,10 @@ function limited(zoho: ZohoLike, startedAt: number, clock: () => number, sleep: 
             used++;
             return zoho.get(path, query);
           }
-          await sleep(starts[0] + MINUTE - t);
+          // A wait that would outlast the budget is not started: the function is killed at 150 s and nothing would be stored.
+          const wait = starts[0] + MINUTE - t;
+          if (wait >= startedAt + TIME_BUDGET_MS - t) throw new TimeBudgetReached();
+          await sleep(wait);
         }
       },
     },

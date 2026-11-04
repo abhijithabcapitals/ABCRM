@@ -1,5 +1,7 @@
 import { assert, assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
-import { assertAllowed, createFinanceClient, NotAllowedError, ZohoHttpError } from "./zohoClient.ts";
+import { assertAllowed, createFinanceClient, NotAllowedError, REQUEST_TIMEOUT_MS, ZohoHttpError, ZohoTimeoutError } from "./zohoClient.ts";
+import { browserMessage } from "./errors.ts";
+import { TIME_BUDGET_MS } from "./refresh.ts";
 
 const cfg = {
   clientId: "fake-client-id",
@@ -66,4 +68,19 @@ Deno.test("a disallowed path never reaches the network", async () => {
   });
   await assertRejects(() => client.get("/reports/profitandloss"), NotAllowedError);
   assertEquals(calls, 0);
+});
+
+Deno.test("each Zoho call has a 20-second timeout, and a timeout is a plain failure", async () => {
+  const signals: (AbortSignal | undefined | null)[] = [];
+  const fetchFn = (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).includes("/oauth/v2/token")) return Promise.resolve(Response.json({ access_token: "fake-access-token", expires_in: 3600 }));
+    signals.push(init?.signal);
+    return Promise.reject(new DOMException("The signal timed out.", "TimeoutError"));
+  };
+  const client = createFinanceClient(cfg, fetchFn as typeof fetch);
+  const err = await assertRejects(() => client.get("/invoices"), ZohoTimeoutError);
+  assertEquals(browserMessage(err), "Zoho did not answer in time, try again shortly.");
+  assert(signals[0] instanceof AbortSignal && !signals[0].aborted);
+  assertEquals(REQUEST_TIMEOUT_MS, 20_000);
+  assert(TIME_BUDGET_MS + REQUEST_TIMEOUT_MS < 150_000);
 });

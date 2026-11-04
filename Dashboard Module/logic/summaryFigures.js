@@ -92,11 +92,11 @@ export const isNoAccess = (error) => error?.code === "42501";
 
 // ---- Zoho financial snapshot ----
 const MINUTE = 60_000;
-const FRESH_MINUTES = 60;
+const FRESH_MINUTES = 360;
 const REFRESH_WAIT_MINUTES = 5;
 const stamp = (v) => (v ? Date.parse(v) : NaN);
 
-// "empty" has no figures yet, "failed" is the last attempt failing (the old figures stay), "stale" is over an hour old.
+// "empty" has no figures yet, "failed" is the last attempt failing (the old figures stay), "stale" is over 6 hours old.
 export function snapshotState(row, now) {
   const asOf = stamp(row?.as_of);
   if (Number.isNaN(asOf)) return "empty";
