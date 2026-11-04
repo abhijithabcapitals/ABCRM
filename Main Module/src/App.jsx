@@ -9,6 +9,7 @@ import { initialView, resolveView } from "./tabs";
 import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
+import { BrunoPet } from "@router-agent";
 // Static, so a failed chunk load cannot crash the app; the bubble loads its panel lazily itself.
 import MessengerDock from "@messenger/components/MessengerDock";
 import CallHost from "@messenger/components/CallHost";
@@ -35,7 +36,6 @@ const BusinessSetup = lazy(() => import("@business-setup"));
 const Knowledge = lazy(() => import("@knowledge"));
 const MessengerApp = lazy(() => import("@messenger/components/MessengerApp"));
 const CeoAgent = lazy(() => import("./components/CeoAgent"));
-const EmailAgent = lazy(() => import("./components/EmailAgent"));
 const Profile = lazy(() => import("./components/Profile"));
 
 export default function App() {
@@ -459,6 +459,7 @@ export default function App() {
     <div className="app-layout">
       <GlobalAttention />
       <ReadingWidget owner={profile?.id} onOpen={(v) => { setView(v); localStorage.setItem("abc_view", v); }} />
+      {profile && <BrunoPet key={profile.id} supabase={supabase} />}
       <Sidebar
         allowedTabs={tabs}
         spaces={spaces}
@@ -556,7 +557,6 @@ export default function App() {
         {view === "knowledge" && <Knowledge profile={profile} />}
         {view === "team-messenger" && <MessengerApp profile={profile} />}
         {view === "ceo" && profile?.role === "admin" && <CeoAgent />}
-        {view === "email-agent" && profile?.role === "admin" && <EmailAgent />}
         {view === "tax" && (
           <TaxHub profile={profile} />
         )}

@@ -119,7 +119,36 @@ export function createChatApi(client) {
       if (before) q = q.lt("created_at", before);
       return rows(await q.order("created_at", { ascending: false }).limit(limit), "Could not load messages. Please try again.");
     },
-    readState: (conversationId) => call("messenger_read_state", { p_conversation: conversationId }, "Could not check who has read this chat."),
+    // The earliest read and delivered times among the other members.
+    async receiptState(conversationId) {
+      const data = await call("messenger_receipt_state", { p_conversation: conversationId }, "Could not check who has read this chat.");
+      return data?.[0] || { read_at: null, delivered_at: null };
+    },
+    // Says this person's app has received their new messages. A failure here must never disturb the chat.
+    async markDelivered() {
+      try { await client.rpc("messenger_mark_delivered"); } catch { /* the next message tries again */ }
+    },
+    // One chat's member rows, so ticks change as soon as someone receives or reads.
+    watchReceipts(conversationId, onChange) {
+      let stopped = false;
+      const channel = client.channel(`messenger:receipts:${++seq}`)
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messenger_members", filter: `conversation_id=eq.${conversationId}` },
+          (payload) => { if (!stopped) onChange(payload.new); })
+        .subscribe();
+      return () => { stopped = true; client.removeChannel(channel); };
+    },
+    // A chat's typing signal. Private, so only members can join; it is never stored.
+    typingChannel(conversationId, onSignal) {
+      let ready = false;
+      let stopped = false;
+      const channel = client.channel(`msgr:${conversationId}`, { config: { private: true, broadcast: { self: false } } })
+        .on("broadcast", { event: "typing" }, ({ payload }) => { if (!stopped) onSignal(payload); })
+        .subscribe((status) => { ready = status === "SUBSCRIBED"; });
+      return {
+        send(payload) { if (ready && !stopped) Promise.resolve(channel.send({ type: "broadcast", event: "typing", payload })).catch(() => {}); },
+        stop() { stopped = true; client.removeChannel(channel); },
+      };
+    },
     markRead: (conversationId) => call("messenger_mark_read", { p_conversation: conversationId }, "Could not mark this chat as read."),
     // A repeat of the same message id hits the unique rule (23505). That means it already arrived.
     async send({ id, conversationId, senderId, body, link, parentId, mentionIds }) {

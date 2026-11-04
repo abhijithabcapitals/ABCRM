@@ -43,6 +43,7 @@ export default defineConfig({
       '@business-setup': fileURLToPath(new URL('../Business Setup Module', import.meta.url)),
       '@knowledge': fileURLToPath(new URL('../Knowledge Module', import.meta.url)),
       '@messenger': fileURLToPath(new URL('../Messenger Module', import.meta.url)),
+      '@router-agent': fileURLToPath(new URL('../Agent Module/00_Router_Agent', import.meta.url)),
       // The Template Hub lives outside this app folder, so resolve its
       // dependencies from the host app's node_modules.
       'pizzip': fileURLToPath(new URL('./node_modules/pizzip/js/index.js', import.meta.url)),

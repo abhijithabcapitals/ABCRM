@@ -71,3 +71,27 @@ test("Voucher Base 002 keeps all five sources in the check", () => {
   const list = v.match(/check \(source in \(([^)]*)\)\)/)[1];
   for (const s of ["banking", "hub", "template", "business_setup", "accounting"]) assert.ok(list.includes(`'${s}'`), s);
 });
+
+test("fee labels say before VAT for a typed fee, and the invoice default and difference use fee plus VAT", () => {
+  const form = component("JobForm.jsx");
+  assert.match(form, /Fee \(AED, before VAT\)/);
+  assert.doesNotMatch(form, /including any VAT/);
+  const w = component("JobWorkspace.jsx");
+  assert.doesNotMatch(w, /including any VAT/);
+  assert.match(w, /label: feeLabel\(job\)/);
+  assert.match(w, /amount: feeWithVat\(job\) \?\? ""/);
+  assert.match(w, /Number\(job\.invoice_amount\) - feeWithVat\(job\)/);
+  assert.match(w, /before VAT, so the amount starts at the fee plus 5% VAT/);
+  assert.match(w, /which already includes VAT/);
+});
+
+test("linking a quotation always changes the fee: no keep option, and closing links nothing", () => {
+  const w = component("JobWorkspace.jsx");
+  assert.doesNotMatch(w, /Keep job fee|Which fee to keep/);
+  assert.match(w, /changes the job fee from AED/);
+  assert.match(w, /Closing this does not link the quotation/);
+  assert.match(w, /linkDocument\(job\.id, "quote", d\.id, true\)/);
+  assert.match(w, /<Modal title="Link this quotation\?" onClose=\{\(\) => setPendingQuote\(null\)\}>/);
+  const api = readFileSync(join(here, "services/jobsApi.js"), "utf8");
+  assert.match(api, /accounting_quote_vat_mode/);
+});

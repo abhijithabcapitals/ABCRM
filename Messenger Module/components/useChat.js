@@ -32,6 +32,7 @@ export default function useChat(profileId) {
           const next = await chatApi.chatList();
           if (g !== gen.current) return;
           apply(next || []);
+          if ((next || []).some((r) => r.unread > 0)) chatApi.markDelivered();
           setError("");
           setLoadedFor(profileId);
         } catch (e) {

@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   MAX_BODY, badgeText, totalUnread, checkBody, checkWebLink, mergeMessage,
-  tickState, dayKey, previewText, senderName, chatTitle, shouldCollapse, catchUp, personLeft, sortChats, initials, railTitle } from "../logic/chat.js";
+  tickState, dayKey, previewText, senderName, chatTitle, shouldCollapse, catchUp, personLeft, typingLabel, sortChats, initials, railTitle } from "../logic/chat.js";
 
 test("badge", () => {
   assert.equal(badgeText(0), "");
@@ -123,4 +123,20 @@ test("initials", () => {
 test("railTitle gives the full name, with the preview when there is one", () => {
   assert.equal(railTitle({ kind: "group", title: "Tax team", last_body: "Done", last_sender_id: "me" }, "me"), "Tax team\nYou: Done");
   assert.equal(railTitle({ kind: "direct", other_name: "Omar Khan" }, "me"), "Omar Khan");
+});
+
+test("ticks go from sent to delivered to read", () => {
+  const m = { sender_id: "me", created_at: "2026-11-04T10:00:00Z" };
+  assert.equal(tickState(m, "me", null, null), "sent");
+  assert.equal(tickState(m, "me", "2026-11-04T09:00:00Z", "2026-11-04T09:30:00Z"), "sent");
+  assert.equal(tickState(m, "me", "2026-11-04T09:00:00Z", "2026-11-04T10:00:00Z"), "delivered");
+  assert.equal(tickState(m, "me", "2026-11-04T10:00:01Z", "2026-11-04T10:00:01Z"), "read");
+  assert.equal(tickState({ ...m, status: "sending" }, "me", "2026-11-04T11:00:00Z", "2026-11-04T11:00:00Z"), "sending");
+  assert.equal(tickState({ ...m, sender_id: "other" }, "me", null, "2026-11-04T11:00:00Z"), null);
+});
+test("typingLabel names up to two people", () => {
+  assert.equal(typingLabel([]), "");
+  assert.equal(typingLabel(["Omar"]), "Omar is typing…");
+  assert.equal(typingLabel(["Omar", "Sara"]), "Omar and Sara are typing…");
+  assert.equal(typingLabel(["Omar", "Sara", "Lina"]), "Several people are typing…");
 });

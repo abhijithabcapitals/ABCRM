@@ -114,7 +114,23 @@ export function paymentRowState(payment, payments) {
   return { reversal, reversed, canReverse: !reversal && !reversed };
 }
 
-// When a quote is linked to a job that already has a different fee, staff choose which to keep.
+// The fee with VAT. A fee from a linked quote already includes VAT; a typed fee is before VAT, so 5% is added
+// (worked in cents, rounded half up, the same way the zoho-books function does). Null when there is no fee.
+export function feeWithVat(job) {
+  if (job?.fee_amount == null || job.fee_amount === "" || !Number.isFinite(Number(job.fee_amount))) return null;
+  const cents = Math.round(Number(job.fee_amount) * 100);
+  if (job.quote_id) return cents / 100;
+  return (cents + Math.floor((cents * 5 + 50) / 100)) / 100;
+}
+
+// The fee label, by where the fee comes from.
+// quote_vat_mode comes with the job from getJob: a No VAT quote has no VAT in its total.
+export const feeLabel = (job) => {
+  if (!job?.quote_id) return "Fee (AED, before VAT)";
+  return job.quote_vat_mode === "none" ? "Fee (AED, no VAT, from the quote)" : "Fee (AED, including VAT, from the quote)";
+};
+
+// Linking a quote sets the fee to its total, so staff are asked first when the job already has a different fee.
 export const feeConflict = (job, doc) => job.fee_amount != null && Number(doc.total_amount) > 0 && Number(job.fee_amount) !== Number(doc.total_amount);
 
 // A quotation or letter filed for another client should not link to a job silently.
@@ -146,3 +162,9 @@ export function clientEmail(clients, job) {
 }
 
 export const mailtoLink = (to, subject, body) => `mailto:${encodeURIComponent(to || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+// The Zoho draft invoice is for a Completed job. The server also checks the fee and any typed invoice and answers in plain words.
+export const canCreateZohoInvoice = (job) => job?.work_status === "Completed";
+
+// Why Create is not offered yet, or null when it is.
+export const zohoReadyNote = (job) => (canCreateZohoInvoice(job) ? null : "The job must be completed first.");

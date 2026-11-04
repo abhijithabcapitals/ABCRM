@@ -1,14 +1,19 @@
 // Quotations, payments with their vouchers, and agreements in one place. A document always belongs to a banking
 // case, so New Document picks the type and the case, then opens that case at the step that creates it.
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { supabase } from "@app/supabase";
+import ZohoPanel from "@integrations/components/ZohoPanel";
 import { Button, DataTable, ErrorNote, Modal, PageHead, Spinner, useBanking, useLoad } from "./shared";
-import { rpc } from "../services/bankingApi";
+import { rpc, run, table } from "../services/bankingApi";
+import { money } from "../logic/pricing";
 import { AgreementsList, PaymentsPage, QuotationsList } from "./WorkLists";
 
 const GROUPS = [
   { key: "quotes", label: "Quotations", perm: "quotes.view", area: "quotation", create: "quotes.manage", hint: "Opens the Quotation step." },
   { key: "payments", label: "Payments", newLabel: "Payment & Fee Receipt Voucher", perm: "payments.view", area: "payments", create: "payments.manage", hint: "Opens the Payment step. Recording a payment issues its fee receipt voucher." },
   { key: "agreements", label: "Agreements (Engagement Letters)", perm: "agreements.view", area: "agreement", create: "agreements.manage", hint: "Opens the Agreement step. It needs an accepted quotation." },
+  // Not a document type: no create, so New Document never offers it.
+  { key: "zoho", label: "Zoho invoices", perm: "quotes.view" },
 ];
 
 export default function Documentation({ initialTab }) {
@@ -16,7 +21,7 @@ export default function Documentation({ initialTab }) {
   const groups = GROUPS.filter((g) => can(g.perm));
   const [tab, setTab] = useState(groups.some((g) => g.key === initialTab) ? initialTab : groups[0]?.key);
   const [creating, setCreating] = useState(false);
-  const creatable = GROUPS.filter((g) => can(g.create));
+  const creatable = GROUPS.filter((g) => g.create && can(g.create));
   return (
     <div>
       <PageHead title="Documentation" sub="Every quotation, payment with its fee receipt voucher, and agreement.">
@@ -28,7 +33,38 @@ export default function Documentation({ initialTab }) {
       {tab === "quotes" && <QuotationsList />}
       {tab === "payments" && <PaymentsPage onRecord={can("payments.manage") ? () => setCreating("payments") : null} />}
       {tab === "agreements" && <AgreementsList />}
+      {tab === "zoho" && <ZohoInvoices />}
       {creating && <NewDocument types={creatable} defaultType={creating === true ? tab : creating} onClose={() => setCreating(false)} />}
+    </div>
+  );
+}
+
+// Accepted quotations, newest first. Picking one shows its Zoho panel; only that one is mounted.
+function ZohoInvoices() {
+  const { can } = useBanking();
+  const [picked, setPicked] = useState(null);
+  const list = useLoad(() => run(table("banking_quotations").select("id, quotation_number, version, total_amount, banking_cases(case_ref, accounts_status, banking_clients(display_name, client_master_id))").eq("status", "Accepted").order("created_at", { ascending: false }).limit(2000)), []);
+  const client = (q) => q.banking_cases?.banking_clients;
+  // The same lock as the case process: once the case is With Accounts or Closed, nothing new is made here.
+  const locked = (q) => ["With Accounts", "Closed"].includes(q.banking_cases?.accounts_status);
+  const panelRef = useRef(null);
+  const pick = (q) => { setPicked(q); setTimeout(() => panelRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }), 0); };
+  return (
+    <div>
+      <ErrorNote message={list.error} />
+      {picked && (
+        <div className="bk-mb" ref={panelRef}>
+          <p className="bk-note"><strong>{picked.quotation_number} v{picked.version}</strong>{client(picked)?.display_name ? `, ${client(picked).display_name}` : ""}</p>
+          <ZohoPanel key={`${picked.id}:${client(picked)?.client_master_id}`} supabase={supabase} department="banking" sourceTable="banking_quotations" sourceId={picked.id} clientId={client(picked)?.client_master_id} kinds={["estimate", "invoice"]} canCreate={can("cases.manage") && !locked(picked)} noAccess={!(can("cases.view") || can("accounts.review"))} />
+        </div>
+      )}
+      {list.loading && !list.data ? <Spinner /> : (
+        <DataTable search="Search…" rows={list.data || []} onRow={pick} activeId={picked?.id} empty="No accepted quotations yet." columns={[
+          { key: "n", label: "Number", render: (q) => `${q.quotation_number} v${q.version}` },
+          { key: "cl", label: "Client", render: (q) => client(q)?.display_name },
+          { key: "total_amount", label: "Total", right: true, render: (q) => money(q.total_amount) },
+        ]} />
+      )}
     </div>
   );
 }

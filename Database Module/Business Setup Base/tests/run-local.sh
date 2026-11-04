@@ -73,6 +73,8 @@ for pass in 1 2; do
       if [ ${#SEED7[@]} -gt 0 ] && [ -n "$("${PSQL[@]}" -At -c "select to_regclass('public.business_setup_fee_items')")" ]; then run_sql "${SEED7[0]}"; fi ;;
     esac
   done
+  # Admin Base 010 adds the unique index on this module's invoices table.
+  run_sql "$DB/Admin Base/migrations/010_zoho_invoices.sql"
   echo "migrations pass $pass ok"
 done
 

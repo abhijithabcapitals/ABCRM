@@ -2,9 +2,11 @@
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role; end if;
 end $$;
 create schema auth;
-grant usage on schema public, auth to anon, authenticated;
+alter role service_role bypassrls; -- as on Supabase
+grant usage on schema public, auth to anon, authenticated, service_role;
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
 grant execute on function auth.uid() to anon, authenticated;
 
@@ -17,7 +19,11 @@ language sql immutable set search_path = pg_catalog as $$
   select nullif(btrim(case when v like '% (Provided – Verification Required)' then left(v, length(v) - length(' (Provided – Verification Required)')) else v end), '')
    where coalesce(v, '') not in ('Not Provided', 'N/A', 'None', 'Provided – Verification Required')
 $$;
-create table public.hub_documents (id uuid primary key default gen_random_uuid(), doc_type text not null check (doc_type in ('quote','letter','mail')), document_number text, total_amount numeric);
+create table public.hub_documents (id uuid primary key default gen_random_uuid(), doc_type text not null check (doc_type in ('quote','letter','mail')), document_number text, total_amount numeric, vat_mode text, vat_rate numeric);
+-- Banking tables only so the Zoho function's read grants in Admin Base 013 have something to grant on.
+create table public.banking_clients (id uuid primary key default gen_random_uuid());
+create table public.banking_cases (id uuid primary key default gen_random_uuid());
+create table public.banking_quotations (id uuid primary key default gen_random_uuid());
 create table public.hub_settings (key text primary key, value jsonb);
 insert into public.hub_settings values ('document_numbering',
   '{"Accounting":{"quote":{"digits":3,"format":"ABC/{YYYY}/{MM}/ACQ{SERIAL}","restart":"never"}}}');

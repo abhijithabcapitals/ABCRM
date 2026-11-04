@@ -34,6 +34,7 @@
 .msgr-attach { margin-top: 3px; font-size: 12px; font-weight: 600; color: #0F6E56; overflow-wrap: anywhere; }
 .msgr-meta { align-self: flex-end; margin-top: 2px; font-size: 11px; color: #7a8a8f; }
 .msgr-tick-read { color: #1c6fd1; }
+.msgr-head-title .msgr-typing { color: #0F6E56; font-style: italic; }
 .msgr-failed { color: #A32D2D; font-weight: 600; }
 .msgr-fresh { position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); padding: 5px 12px; border: 0; border-radius: 14px; background: #0F6E56; color: #fff; font: 12px system-ui, sans-serif; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
 

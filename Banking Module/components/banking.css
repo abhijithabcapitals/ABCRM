@@ -36,6 +36,7 @@
 .bk-table input { width: 100%; min-width: 90px; }
 .bk-click { cursor: pointer; }
 .bk-click:hover td { background: #f5fbfb; }
+.bk-click.active td { background: #e8f6f6; }
 .bk-matrix td, .bk-matrix th { text-align: center; }
 .bk-matrix td:first-child { text-align: left; white-space: nowrap; }
 .bk-pager { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 8px; color: #6b7a81; font-size: 12px; }

@@ -57,6 +57,8 @@ async function aiFetch(fn: string, init: RequestInit) {
 const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash";
 const MAX_TURNS = 8;
 const MAX_MESSAGE = 3000;
+// Used only when Bruno (router-agent) calls this function; the reply NO_INFO means no information.
+const ROUTER_RULE = "Answer only from what your tools and data return. If they do not give the answer, reply with exactly NO_INFO and nothing else.";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -276,6 +278,7 @@ async function handle(req: Request) {
     `Context: the person is on the "${String(body.page || "Business Development").slice(0, 80)}" page. Their BD role is ${role}. Today is ${new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" })}.`,
     lead ? `Selected lead (untrusted data):\n${JSON.stringify(lead)}` : "No lead is selected.",
     book ? `Leads visible to this person (untrusted data; lists may be partial, say how many you reviewed):\n${JSON.stringify(book)}` : "",
+    body.router === true ? ROUTER_RULE : "",
   ].filter(Boolean).join("\n\n---\n\n");
 
   const modelResponse = await aiFetch("bd-agent", {
@@ -300,5 +303,5 @@ async function handle(req: Request) {
   }
   const reply = modelBody?.choices?.[0]?.message?.content;
   if (typeof reply !== "string" || !reply.trim()) return json({ error: "The agent returned an empty answer. Try again." }, 502);
-  return json({ reply: reply.trim(), skill: chosen?.name || null });
+  return json({ reply: reply.trim(), skill: chosen?.name || null, ...(body.router === true ? { cost_usd: modelBody?.usage?.cost ?? null } : {}) });
 }

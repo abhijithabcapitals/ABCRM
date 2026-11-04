@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { barId, isTabBar } from "../src/jsx/DragTabs.js";
-import { GRANTABLE_TABS, moveTab, orderTabs, readTabOrder, resolveView, toggleAllTabs } from "../src/tabs.js";
+import { GRANTABLE_TABS, moveTab, orderTabs, readTabOrder, resolveView, startView, toggleAllTabs } from "../src/tabs.js";
 
 const every = GRANTABLE_TABS.map((t) => t.key);
 
@@ -46,3 +46,8 @@ test("a member without the ArdentTax tab cannot reach it", () => {
   assert.equal(resolveView("ardentax", false, ["ardentax"]), "ardentax");
   assert.equal(resolveView("ardentax", true, []), "ardentax");
 });
+
+test("a saved Email Agent page is retired", () => assert.equal(startView("", "email-agent"), null));
+test("an Email Agent address is retired", () => assert.equal(startView("?view=email-agent", "hr"), null));
+test("other saved pages still open", () => assert.equal(startView("", "hr"), "hr"));
+test("the address still wins", () => assert.equal(startView("?view=messenger", "hr"), "messenger"));

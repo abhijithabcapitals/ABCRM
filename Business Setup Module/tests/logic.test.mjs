@@ -6,7 +6,7 @@ import { expiryNote } from "../logic/expiries.js";
 import { kycMissing } from "../logic/kyc.js";
 import { buildLines } from "../logic/lines.js";
 import { balance, canStart, canComplete, isRegistration } from "../logic/balances.js";
-import { SERVICE_STATUSES } from "../logic/statuses.js";
+import { SERVICE_STATUSES, zohoProps } from "../logic/statuses.js";
 import { contactChoice } from "../logic/contact.js";
 
 test("a past date asks staff to check it, because imported dates may be stale", () => {
@@ -74,10 +74,23 @@ test("contact: a blank form keeps the master value, a difference asks staff to c
 
 test("the Zoho panel sits before the Banking handover button and blocks nothing", () => {
   const bank = readFileSync(fileURLToPath(new URL("../../Banking Module/components/BankProcess.jsx", import.meta.url)), "utf8");
-  const panel = readFileSync(fileURLToPath(new URL("../components/ZohoInvoicePanel.jsx", import.meta.url)), "utf8");
-  assert.ok(bank.indexOf("<ZohoInvoicePanel />") > 0 && bank.indexOf("<ZohoInvoicePanel />") < bank.indexOf('id="bk-complete"'));
-  assert.doesNotMatch(panel, /disabled|onClick|rpc\(/);
-  assert.match(panel, /You can still send this to Accounts/);
+  const panel = readFileSync(fileURLToPath(new URL("../../Integrations Module/components/ZohoPanel.jsx", import.meta.url)), "utf8");
+  assert.ok(bank.indexOf("<ZohoPanel") > 0 && bank.indexOf("<ZohoPanel") < bank.indexOf('id="bk-complete"'));
+  assert.doesNotMatch(panel, /Send to Accounts|bk-complete/);
+  // The handover controls sit outside the panel and in no condition that reads Zoho state.
+  const quotes = readFileSync(fileURLToPath(new URL("../components/workspace/Quotes.jsx", import.meta.url)), "utf8");
+  const sendLine = quotes.split(/\r?\n/).find((l) => l.includes("Send to Accounts</Button>"));
+  assert.ok(sendLine, "Quotes.jsx lost the Send to Accounts button");
+  assert.doesNotMatch(sendLine, /zoho|quoteId|ZohoPanel/i);
+  assert.match(sendLine, /^\s*\{can\("setup\.services\.manage"\) && <Button variant="primary" onClick=\{\(\) => setDialog\("send"\)\}>Send to Accounts<\/Button>\}\s*$/);
+  const completeLine = bank.split(/\r?\n/).find((l) => l.includes('id="bk-complete"'));
+  assert.ok(completeLine, "BankProcess.jsx lost bk-complete");
+  assert.doesNotMatch(completeLine, /zoho|quoteId|quoteNote/i);
+  for (const src of [quotes, bank]) {
+    const tag = src.match(/<ZohoPanel[\s\S]*?\/>/)?.[0];
+    assert.ok(tag, "the panel must be a self-closing element, with no children");
+    assert.doesNotMatch(tag, /Send to Accounts|bk-complete/);
+  }
 });
 
 test("the quote screen sends every contact field the database asks for", () => {
@@ -94,6 +107,22 @@ test("private price files are ignored by the repository itself", () => {
   const ignore = readFileSync(fileURLToPath(new URL("../../.gitignore", import.meta.url)), "utf8");
   assert.match(ignore, /Database Module\/Business Setup Base\/private\//);
   assert.match(ignore, /\.superpowers\//);
+});
+
+test("Zoho panel: issued quotes get the estimate only, accepted get both", () => {
+  const ok = { quotes: true, held: false, ready: true, invoiceRight: true };
+  assert.deepEqual(zohoProps("issued", ok), { kinds: ["estimate"], canCreate: { estimate: true, invoice: false } });
+  assert.deepEqual(zohoProps("accepted", ok), { kinds: ["estimate", "invoice"], canCreate: { estimate: true, invoice: true } });
+});
+
+test("Zoho panel: a held quote is read-only, and the invoice needs a ready accepted quote", () => {
+  const held = zohoProps("accepted", { quotes: true, held: true, ready: true, invoiceRight: true });
+  assert.deepEqual(held.canCreate, { estimate: false, invoice: false });
+  assert.deepEqual(held.kinds, ["estimate", "invoice"]);
+  assert.equal(zohoProps("accepted", { quotes: true, held: false, ready: false, invoiceRight: true }).canCreate.invoice, false);
+  assert.equal(zohoProps("accepted", { quotes: true, held: false, ready: true, invoiceRight: false }).canCreate.invoice, false);
+  assert.equal(zohoProps("accepted", { quotes: false, held: false, ready: true, invoiceRight: true }).canCreate.estimate, false);
+  assert.equal(zohoProps("accepted", { quotes: true, held: false, ready: false, known: false, invoiceRight: true }).canCreate.estimate, false);
 });
 
 // ── Phase 1 review fixes ──

@@ -48,7 +48,7 @@ select t.ok('payment_makes_job_event', exists (select 1 from accounting_job_even
 select t.mk('nofee');
 select t.fails('payment_needs_fee', format($$select t.pay(%L, 100)$$, t.j('nofee')), 'fee');
 select t.fee('p2', 1000);
-select t.fails('payment_above_balance_refused', format($$select t.pay(%L, 1000.01)$$, t.j('p2')), 'balance');
+select t.fails('payment_above_balance_refused', format($$select t.pay(%L, 1050.01)$$, t.j('p2')), 'balance');
 select t.fails('payment_zero_refused', format($$select t.pay(%L, 0)$$, t.j('p2')), 'amount');
 select t.fails('payment_negative_refused', format($$select t.pay(%L, -5)$$, t.j('p2')), 'amount');
 select t.fails('payment_three_decimals_refused', format($$select t.pay(%L, 1.234)$$, t.j('p2')), 'amount');
@@ -58,13 +58,13 @@ select t.fails('payment_bad_method', format($$select t.pay(%L, 10, 'Bitcoin')$$,
 select t.fails('payment_missing_method', format($$select accounting_payment_add(jsonb_build_object('job_id', %L, 'amount', 10))$$, t.j('p2')), 'method');
 select t.fails('payment_unknown_job', $$select t.pay(gen_random_uuid(), 10)$$, 'Job not found');
 select t.ok('refused_payments_left_nothing', (select count(*) from accounting_payments where job_id = t.j('p2')) = 0);
-select t.pay(t.j('p2'), 1000);
+select t.pay(t.j('p2'), 1050);
 select t.ok('payment_up_to_balance_allowed', (t.l(t.j('p2'))).balance = 0);
 select t.fails('payment_after_settled_refused', format($$select t.pay(%L, 0.01)$$, t.j('p2')), 'balance');
 select t.fee('adv', 1000);
 select t.st(t.j('adv'), 'In Progress');
 select t.pay(t.j('adv'), 250);
-select t.ok('advance_allowed', (t.l(t.j('adv'))).balance = 750);
+select t.ok('advance_allowed', (t.l(t.j('adv'))).balance = 800);
 select t.fails('payments_not_editable', $$update accounting_payments set amount = 1$$, 'permission denied');
 select t.fails('payments_append_only_update', $$select t.tamper('update accounting_payments set note = ''x''')$$, 'cannot be changed');
 select t.fails('payments_append_only_delete', $$select t.tamper('delete from accounting_payments')$$, 'cannot be changed');
@@ -72,12 +72,12 @@ select t.fails('payments_append_only_delete', $$select t.tamper('delete from acc
 -- Reversing
 select t.fee('r1', 1000);
 select t.pay(t.j('r1'), 400);
-select t.ok('balance_after_payment', (t.l(t.j('r1'))).balance = 600);
+select t.ok('balance_after_payment', (t.l(t.j('r1'))).balance = 650);
 select t.fails('reverse_needs_reason', format($$select t.rev(%L, '  ')$$, t.lastpay(t.j('r1'))), 'reason');
 select t.fails('reverse_null_reason', format($$select accounting_payment_reverse(%L, null)$$, t.lastpay(t.j('r1'))), 'reason');
 select t.fails('reverse_unknown_payment', $$select t.rev(gen_random_uuid())$$, 'not found');
 select t.rev(t.lastpay(t.j('r1')), 'Entered twice');
-select t.ok('reverse_restores_balance', (t.l(t.j('r1'))).balance = 1000 and (t.l(t.j('r1'))).paid_total = 0);
+select t.ok('reverse_restores_balance', (t.l(t.j('r1'))).balance = 1050 and (t.l(t.j('r1'))).paid_total = 0);
 select t.ok('reverse_marks_voucher', (select status = 'Reversed' from voucher_register where source = 'accounting' and source_id = t.lastpay(t.j('r1'))));
 select t.ok('reversal_row_negative', (select amount = -400 and reverses_id = t.lastpay(t.j('r1')) and note = 'Entered twice' and method = 'Bank transfer'
   from accounting_payments where job_id = t.j('r1') and reverses_id is not null));
@@ -85,7 +85,7 @@ select t.ok('reversal_makes_no_receipt', (select count(*) from accounting_receip
 select t.ok('reversal_makes_job_event', exists (select 1 from accounting_job_events where job_id = t.j('r1') and event = 'Payment reversed' and remarks = 'Entered twice'));
 select t.fails('double_reverse_refused', format($$select t.rev(%L)$$, t.lastpay(t.j('r1'))), 'already');
 select t.fails('reverse_of_reversal_refused', format($$select t.rev(%L)$$, (select id from accounting_payments where job_id = t.j('r1') and reverses_id is not null)), 'reversal');
-select t.pay(t.j('r1'), 1000);
+select t.pay(t.j('r1'), 1050);
 select t.ok('pay_again_after_reversal', (t.l(t.j('r1'))).balance = 0);
 
 -- Receipt file
@@ -103,7 +103,7 @@ select t.fails('attach_unknown_receipt', $$select accounting_receipt_attach(gen_
 select t.ok('status_not_tracked', (t.l(t.oldjob())).payment_status = 'Not tracked');
 select t.ok('status_no_fee', (t.l(t.j('nofee'))).payment_status = 'No fee');
 select t.fee('sn', 1000);
-select t.ok('status_not_invoiced', (t.l(t.j('sn'))).payment_status = 'Not invoiced' and (t.l(t.j('sn'))).amount_due = 1000);
+select t.ok('status_not_invoiced', (t.l(t.j('sn'))).payment_status = 'Not invoiced' and (t.l(t.j('sn'))).amount_due = 1050);
 select t.mk('si');
 select t.st(t.j('si'), 'Completed');
 select accounting_invoice_set(t.j('si'), 'INV-1', accounting_dubai_date(), 1000);
@@ -126,7 +126,7 @@ select t.ok('job_columns_kept', (t.l(t.j('io'))).job_number is not null and (t.l
 
 -- To invoice and follow-up lists
 select t.fee('sb', 1000);
-select t.pay(t.j('sb'), 1000);
+select t.pay(t.j('sb'), 1050);
 select t.st(t.j('sb'), 'Completed');
 select t.ok('settled_before_invoice_still_needs_invoice', (t.l(t.j('sb'))).payment_status = 'Settled' and (t.l(t.j('sb'))).needs_invoice and not (t.l(t.j('sb'))).follow_up_listed);
 select t.mk('nf2');
@@ -201,6 +201,8 @@ insert into hub_settings values ('document_numbering', '{"Business Setup":{"quot
 \ir ../migrations/003_payments_followups.sql
 select t.ok('numbering_other_keys_kept', (select value #>> '{"Business Setup",quote,digits}' = '4' and value #>> '{Accounting,receipt,format}' = 'ABC/{YYYY}/{MM}/ACR{SERIAL}' from hub_settings where key = 'document_numbering'));
 select t.ok('data_kept_after_rerun', (select count(*) from accounting_receipts) >= 5);
+-- The real order has 005 after 003, so the fee rules are back for the checks that follow and for 060.
+\ir ../migrations/005_job_fee_vat.sql
 
 -- Voucher register source check
 insert into voucher_register (voucher_type, voucher_number, source, source_id) values ('Receipt', 'BS-1', 'business_setup', gen_random_uuid());

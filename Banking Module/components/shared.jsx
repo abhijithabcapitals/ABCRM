@@ -176,7 +176,7 @@ export function useAction(reload) {
 }
 
 // columns: [{ key, label, render, right }]
-export function DataTable({ columns, rows, onRow, pageSize = 25, search, empty = "Nothing here yet." }) {
+export function DataTable({ columns, rows, onRow, pageSize = 25, search, empty = "Nothing here yet.", activeId }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
   const filtered = useMemo(() => {
@@ -195,7 +195,7 @@ export function DataTable({ columns, rows, onRow, pageSize = 25, search, empty =
           <thead><tr>{columns.map((c) => <th key={c.key || c.label} className={c.right ? "bk-right" : ""} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}</tr></thead>
           <tbody>
             {shown.map((r, i) => (
-              <tr key={r.id || i} className={onRow ? "bk-click" : ""} onClick={onRow ? () => onRow(r) : undefined} tabIndex={onRow ? 0 : undefined} onKeyDown={onRow ? (e) => e.key === "Enter" && onRow(r) : undefined}>
+              <tr key={r.id || i} className={onRow ? `bk-click${activeId != null && r.id === activeId ? " active" : ""}` : ""} onClick={onRow ? () => onRow(r) : undefined} tabIndex={onRow ? 0 : undefined} onKeyDown={onRow ? (e) => e.key === "Enter" && onRow(r) : undefined}>
                 {columns.map((c) => <td key={c.key || c.label} data-label={c.label} className={c.right ? "bk-right" : ""}>{c.render ? c.render(r) : r[c.key] ?? "–"}</td>)}
               </tr>
             ))}
