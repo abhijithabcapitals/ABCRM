@@ -94,5 +94,6 @@ export function activitySentence(row) {
   const who = row.actor_name || "Former staff";
   if (row.kind === "mention") return `${who} mentioned you`;
   if (row.kind === "reply") return `${who} replied to you`;
+  if (row.kind === "missed_call") return `Missed call from ${who}`;
   return `${who} reacted ${row.detail || ""} to your message`.replace("  ", " ");
 }

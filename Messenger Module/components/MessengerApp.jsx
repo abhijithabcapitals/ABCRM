@@ -5,6 +5,7 @@ import ChatBoundary from "./ChatBoundary.jsx";
 import PageChatList from "./PageChatList.jsx";
 import MessengerPanel from "./MessengerPanel.jsx";
 import SectionNote from "./SectionNote.jsx";
+import CallsSection from "./CallsSection.jsx";
 import SettingsSection from "./SettingsSection.jsx";
 import useDesktop from "./useDesktop.js";
 import TeamsSection from "./TeamsSection.jsx";
@@ -81,6 +82,7 @@ function Inner({ profile, onSignOut }) {
         {current?.phase && <SectionNote section={current} />}
         {section === "activity" && <ActivitySection {...activity} onOpen={openActivity} onMarkAll={() => activity.markRead()} onRetry={activity.reload} />}
         {section === "files" && <FilesSection chats={rows} />}
+        {section === "calls" && <CallsSection />}
         {section === "settings" && <SettingsSection name={profile?.full_name} onSignOut={onSignOut} />}
       </div>
     </div>

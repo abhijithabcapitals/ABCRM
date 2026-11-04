@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import chatApi from "../services/chatClient.js";
 import { openLink } from "../services/desktop.js";
+import { startCall } from "../services/callBus.js";
 import { catchUp, chatTitle, dayKey, mergeMessage, personLeft, senderName, tickState } from "../logic/chat.js";
 import { replyChange } from "../logic/teams.js";
 import Composer from "./Composer.jsx";
@@ -251,6 +252,8 @@ export default function Conversation({ row, profile, visible, connected, onMessa
           <strong>{title || chatTitle(row)}</strong>
           {thread ? <small>In {chatTitle(row)}</small> : group ? <small>{row.team_name ? `${row.team_name} · ` : ""}{row.member_count} members</small> : status && <small>{status}</small>}
         </span>
+        {!channel && !thread && !personLeft(row) && <button type="button" className="msgr-link msgr-flag" onClick={() => startCall({ conversationId: cid, media: "audio", title: chatTitle(row) })}>Call</button>}
+        {!channel && !thread && !personLeft(row) && <button type="button" className="msgr-link msgr-flag" onClick={() => startCall({ conversationId: cid, media: "video", title: chatTitle(row) })}>Video</button>}
         {onFlags && !noPin && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.pinned} onClick={() => onFlags({ pinned: !row.pinned })}>{row.pinned ? "Unpin" : "Pin"}</button>}
         {onFlags && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.muted} onClick={() => onFlags({ muted: !row.muted })}>{row.muted ? "Unmute" : "Mute"}</button>}
         {group && onInfo && <button type="button" className="msgr-icon-btn" onClick={onInfo} aria-label="Group info">ⓘ</button>}

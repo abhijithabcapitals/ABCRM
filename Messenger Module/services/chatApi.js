@@ -33,6 +33,21 @@ export function createChatApi(client) {
     return res.data;
   }
 
+  async function callCall(body) {
+    const { data, error } = await client.functions.invoke("messenger-calls", { body });
+    if (error || !data) fail("Calls are not available right now.");
+    if (data.error) fail(data.error);
+    return data;
+  }
+
+  // Tells the screen about any change to a call this person is in. Row security limits what arrives.
+  function subscribeCalls(onChange) {
+    const channel = client.channel(`messenger:calls:${++seq}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messenger_calls" }, (payload) => { if (payload.new?.id) onChange(payload.new); })
+      .subscribe();
+    return () => { client.removeChannel(channel); };
+  }
+
   // One copy of the people the caller may see. The picker fetches it once per opening and filters it as the person types.
   async function clientLookup() {
     return rows(await client.rpc("client_lookup"), "Could not search clients. Please try again.") || [];
@@ -158,6 +173,15 @@ export function createChatApi(client) {
     addChannelMembers: (channelId, memberIds) => teamCall("messenger_add_channel_members", { p_channel: channelId, p_members: memberIds }, "Could not add these people. Please try again."),
     removeChannelMember: (channelId, memberId) => teamCall("messenger_remove_channel_member", { p_channel: channelId, p_member: memberId }, "Could not remove this person. Please try again."),
     leaveChannel: (channelId) => teamCall("messenger_leave_channel", { p_channel: channelId }, "Could not leave the channel. Please try again."),
+    startCall: (conversationId, media) => teamCall("messenger_start_call", { p_conversation: conversationId, p_media: media }, "Could not start the call. Please try again."),
+    answerCall: (callId) => teamCall("messenger_answer_call", { p_call: callId }, "Could not join the call. Please try again."),
+    declineCall: (callId) => call("messenger_decline_call", { p_call: callId }, "Could not decline the call."),
+    leaveCall: (callId) => call("messenger_leave_call", { p_call: callId }, "Could not leave the call."),
+    callRingTimeout: (callId) => call("messenger_ring_timeout", { p_call: callId }, "Could not end the ringing."),
+    callsRinging: () => call("messenger_calls_ringing", undefined, "Could not check for calls."),
+    callHistory: () => call("messenger_call_history", undefined, "Could not load your calls. Please try again."),
+    callToken: (callId) => callCall({ action: "token", call_id: callId }),
+    subscribeCalls,
     startDirect: (otherId) => call("messenger_start_direct", { p_other: otherId }, "Could not open this chat. Please try again."),
     createGroup: (title, memberIds) => call("messenger_create_group", { p_title: title, p_members: memberIds }, "Could not create the group. Please try again."),
     addMembers: (conversationId, memberIds) => call("messenger_add_members", { p_conversation: conversationId, p_members: memberIds }, "Could not add these people. Please try again."),

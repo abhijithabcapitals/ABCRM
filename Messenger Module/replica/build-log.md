@@ -42,3 +42,14 @@ Database: real Postgres, all checks and rollback pass. Channels are out of the 3
 | S22 Tray and notifications | Installed and started on this PC | Sign-in, tray clicks, a real notification and links not tried; auto-update; code signing | A missing crate and two wrong build paths on the first attempts |
 
 Installed at D:\\Apps\\AB Capital Messenger. Checked: starts and shows the login, a second launch closes and reopens the first, closing the window keeps it running, the link type is registered. Not checked: anything after sign-in.
+
+## Phase 4, 2026-11-04
+
+| Screen | Status | Missing | Harder than expected |
+|---|---|---|---|
+| S14 Call screen | Done on a stand-in room | Never run on real LiveKit; raise hand, in-call reactions and chat (phase 5) | Calls must survive moving between CRM pages, so the screen sits above every page, outside the Messenger page |
+| S15 Incoming call | Done on fake data | Closed browser tabs cannot ring | Do not disturb is decided in the database |
+| S16 Call history | Done on fake data | None | None |
+| S12 Pre-join | Not built | Moved to phase 5, with meetings. Calls use the default devices, with a picker in the call | None |
+
+Database: real Postgres, all checks and rollback pass. Function: unit tests only. Real LiveKit, real devices and two real people have not been tried. Nothing is live.

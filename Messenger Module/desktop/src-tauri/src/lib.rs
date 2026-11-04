@@ -23,6 +23,12 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+// An incoming call must be seen even when the app sits in the tray.
+#[tauri::command]
+fn show_window(app: AppHandle) {
+    show_main(&app);
+}
+
 #[tauri::command]
 fn set_unread(app: AppHandle, count: u32) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
@@ -97,7 +103,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![START_HIDDEN])))
-        .invoke_handler(tauri::generate_handler![set_unread, notify, open_url, autostart_get, autostart_set, app_version, start_links])
+        .invoke_handler(tauri::generate_handler![show_window, set_unread, notify, open_url, autostart_get, autostart_set, app_version, start_links])
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "Open Messenger", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;

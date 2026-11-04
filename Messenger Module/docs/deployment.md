@@ -108,3 +108,7 @@ Each step needs approval. Run `bash "Database Module/Messanger Base/tests/run-lo
 
 Each step needs approval, and follows the rollout above. Run `005_teams_channels.sql` on the live database first, then merge and run `npm run deploy:cloudflare`.
 Check with two logins that a private channel stays hidden, that a post and a thread reply arrive live, and that unread counts clear.
+
+## Calls rollout
+
+Each step needs approval. Follow `calls-setup.md`.

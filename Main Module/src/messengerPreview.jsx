@@ -4,6 +4,8 @@ import "./index.css";
 import "./App.css";
 import chatApi from "@messenger/services/chatClient.js";
 import MessengerApp from "@messenger/components/MessengerApp.jsx";
+import CallHost from "@messenger/components/CallHost.jsx";
+import callRoom from "@messenger/services/callRoom.js";
 
 const state = new URLSearchParams(location.search).get("state");
 const me = { id: "me", full_name: "Preview Person" };
@@ -38,6 +40,33 @@ let ACTIVITY = state === "empty" ? [] : [
 ];
 const FILES = state === "empty" ? [] : [{ id: "f1", conversation_id: "c2", file_name: "Sample plan.pdf", content_type: "application/pdf", size_bytes: 248000, uploader_name: "Sample Two", created_at: at(90) }];
 chatApi.send = async () => {};
+// Calls on fake data: ?call=incoming rings once, and the room is a stand-in, so no media or server is involved.
+let RINGING = new URLSearchParams(location.search).get("call") === "incoming" ? [{ id: "in1", conversation_id: "c1", media: "video", caller_name: "Sample Colleague", conversation_kind: "direct", started_at: at(0) }] : [];
+const callEvents = [];
+chatApi.subscribeCalls = (fn) => { callEvents.push(fn); window.__emitCall = (row) => callEvents.forEach((f) => f(row)); return () => {}; };
+chatApi.callsRinging = async () => RINGING;
+chatApi.startCall = async (id, media) => { if (id === "c3") throw new Error("There is nobody else in this chat to call"); return [{ call_id: `out-${media}`, joined_existing: false }]; };
+chatApi.answerCall = async () => { RINGING = []; };
+chatApi.declineCall = async () => { RINGING = []; };
+chatApi.leaveCall = async (id) => { (window.__callsLeft ||= []).push(id); };
+chatApi.callRingTimeout = async () => {};
+chatApi.callToken = async () => { if (new URLSearchParams(location.search).get("call") === "unset") throw new Error("Calls are not set up yet."); return { url: "wss://fake", token: "fake" }; };
+chatApi.callHistory = async () => (state === "empty" ? [] : [
+  { id: "h1", conversation_id: "c1", conversation_kind: "direct", other_name: "Sample Colleague", media: "audio", status: "missed", started_by_me: false, my_state: "missed", started_at: at(30) },
+  { id: "h2", conversation_id: "c2", conversation_kind: "group", conversation_title: "Banking team", media: "video", status: "ended", started_by_me: true, my_state: "left", started_at: at(200), answered_at: at(200), ended_at: at(190) },
+]);
+callRoom.connect = async ({ media, onChange }) => {
+  const s = { status: "connected", others: 1, mic: true, camera: media === "video", sharing: false };
+  const tiles = () => [
+    ...(s.sharing ? [{ id: "me:screen", name: me.full_name, local: true, screen: true, attach: null }] : []),
+    { id: "me:camera", name: me.full_name, local: true, muted: !s.mic, attach: null },
+    { id: "p1:camera", name: "Sample Colleague", speaking: true, attach: null },
+  ];
+  const emit = () => onChange({ ...s, tiles: tiles() });
+  emit();
+  const set = (key) => async (on) => { s[key] = on; emit(); };
+  return { setMic: set("mic"), setCamera: set("camera"), setSharing: set("sharing"), devices: async (k) => [{ deviceId: "d1", label: `Sample ${k}` }], setDevice: async () => {}, leave: async () => {} };
+};
 let TEAM_ROWS = state === "empty" ? [] : [
   { team_id: "t1", team_name: state === "long" ? LONG : "Tax desk", description: "Returns and filings", team_role: "owner", channel_id: "ch1", channel_name: "General", visibility: "standard", is_general: true, conversation_id: "cc1", member_count: 3, unread: 3, muted: false },
   { team_id: "t1", team_name: state === "long" ? LONG : "Tax desk", description: "Returns and filings", team_role: "owner", channel_id: "ch2", channel_name: "Partners only", visibility: "private", is_general: false, conversation_id: "cc2", member_count: 2, unread: 0, muted: false },
@@ -94,6 +123,7 @@ chatApi.staff = async () => [{ id: "p1", full_name: "Sample Colleague" }];
 
 createRoot(document.getElementById("root")).render(
   <div className="app-layout">
+    <CallHost profile={me} />
     <div className="app-body">
       <main className="app-main"><MessengerApp profile={me} /></main>
     </div>

@@ -121,3 +121,7 @@
 
 /* Settings in the status menu. */
 .abm-status-sep { margin-top: var(--abm-space-1); padding-top: var(--abm-space-1); border-top: 1px solid var(--abm-border); }
+
+/* Call history. */
+.abm-call-row { display: flex; align-items: center; gap: var(--abm-space-3); padding: var(--abm-space-2) var(--abm-space-3); }
+.abm-row-missed { color: var(--abm-danger); }

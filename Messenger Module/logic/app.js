@@ -6,7 +6,7 @@ export const SECTIONS = [
   { key: "chats", label: "Chats" },
   { key: "teams", label: "Teams" },
   { key: "calendar", label: "Calendar", phase: 5, note: "Your meetings will show here by day and week." },
-  { key: "calls", label: "Calls", phase: 4, note: "Audio and video calls and your call history will live here." },
+  { key: "calls", label: "Calls" },
   { key: "files", label: "Files" },
   { key: "settings", label: "Settings", menuOnly: true }, // opened from the status menu, not the bar
 ];

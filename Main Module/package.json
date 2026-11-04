@@ -33,6 +33,7 @@
     "dompurify": "^3.4.17",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
+    "livekit-client": "^2.23.0",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "4.10.38",
     "pizzip": "^3.2.0",

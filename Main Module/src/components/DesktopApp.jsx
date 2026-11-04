@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import Login from "./Login";
 import { openExternal, isDesktop } from "@messenger/services/desktop.js";
+import CallHost from "@messenger/components/CallHost";
 
 const MessengerApp = lazy(() => import("@messenger/components/MessengerApp"));
 const ForcePasswordChange = lazy(() => import("./ForcePasswordChange"));
@@ -65,6 +66,7 @@ export default function DesktopApp() {
   if (!profile) return null;
   return (
     <div className="app-layout">
+      <CallHost profile={profile} />
       <div className="app-body">
         <main className="app-main">
           <Suspense fallback={null}><MessengerApp key={profile.id} profile={profile} onSignOut={signOut} /></Suspense>

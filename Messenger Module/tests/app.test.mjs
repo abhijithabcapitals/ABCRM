@@ -10,6 +10,7 @@ const here = fileURLToPath(new URL("..", import.meta.url));
 const main = (p) => readFileSync(join(here, "..", "Main Module", p), "utf8");
 const { resolveView } = await import(pathToFileURL(join(here, "..", "Main Module", "src", "tabs.js")).href);
 
+const deskFileEarly = (p) => readFileSync(join(here, "desktop", "src-tauri", p), "utf8");
 const parity = await import(pathToFileURL(join(here, "logic", "parity.js")).href);
 
 test("an @ counts only at the start of a word and while typing the name", () => {
@@ -118,7 +119,7 @@ test("a channel shows its own name, not a person's", async () => {
 
 test("every database call the service makes names real parameters", () => {
   const dir = join(here, "..", "Database Module", "Messanger Base", "migrations");
-  const sql = ["003_chat.sql", "004_chat_parity.sql", "005_teams_channels.sql"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+  const sql = ["003_chat.sql", "004_chat_parity.sql", "005_teams_channels.sql", "006_calls.sql"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
   const api = readFileSync(join(here, "services", "chatApi.js"), "utf8");
   const calls = [...api.matchAll(/"(messenger_\w+)",\s*\{([^}]*)\}/g)];
   assert.ok(calls.length > 20);
@@ -186,6 +187,66 @@ test("the native side offers only the commands the page uses, and opens only htt
   assert.deepEqual(JSON.parse(deskFile("capabilities/default.json")).permissions, ["core:event:default"]);
 });
 
+const callLogic = await import(pathToFileURL(join(here, "logic", "calls.js")).href);
+
+test("call lengths read as minutes and seconds, then hours", () => {
+  assert.equal(callLogic.formatDuration("2026-11-04T10:00:00Z", "2026-11-04T10:01:05Z"), "1:05");
+  assert.equal(callLogic.formatDuration("2026-11-04T10:00:00Z", "2026-11-04T11:02:03Z"), "1:02:03");
+  assert.equal(callLogic.formatDuration("2026-11-04T10:00:05Z", "2026-11-04T10:00:00Z"), "0:00");
+  assert.equal(callLogic.formatDuration("bad", "worse"), "");
+});
+
+test("call history reads from this person's side", () => {
+  const base = { media: "audio", status: "ended", my_state: "left", answered_at: "2026-11-04T10:00:00Z", ended_at: "2026-11-04T10:00:30Z" };
+  assert.equal(callLogic.historyLine(base), "Call, 0:30");
+  assert.equal(callLogic.historyLine({ ...base, media: "video" }), "Video call, 0:30");
+  assert.equal(callLogic.historyLine({ ...base, status: "missed", answered_at: null, my_state: "missed" }), "Missed call");
+  assert.equal(callLogic.historyLine({ ...base, status: "missed", answered_at: null, started_by_me: true }), "Call, no answer");
+  assert.equal(callLogic.historyLine({ ...base, status: "declined", answered_at: null, my_state: "declined" }), "Call, declined");
+  assert.equal(callLogic.historyLine({ ...base, my_state: "missed" }), "Missed call");
+  assert.equal(callLogic.historyLine({ ...base, status: "active", ended_at: null }), "Call in progress");
+  assert.equal(callLogic.wasMissed({ my_state: "missed", started_by_me: false }), true);
+  assert.equal(callLogic.wasMissed({ my_state: "missed", started_by_me: true }), false);
+});
+
+test("calls name the right person or group", () => {
+  assert.equal(callLogic.incomingTitle({ caller_name: "Sara", conversation_kind: "direct" }), "Sara");
+  assert.equal(callLogic.incomingTitle({ caller_name: "Sara", conversation_kind: "group", conversation_title: "Tax" }), "Sara, in Tax");
+  assert.equal(callLogic.incomingTitle({ caller_name: null, conversation_kind: "direct" }), "Former staff");
+  assert.equal(callLogic.historyTitle({ conversation_kind: "direct", other_name: null }), "Former staff");
+  assert.equal(callLogic.historyTitle({ conversation_kind: "group", conversation_title: "Tax" }), "Tax");
+  assert.equal(callLogic.endedNote("missed", true), "No one answered.");
+  assert.equal(callLogic.endedNote("declined", true), "The call was declined.");
+});
+
+test("a blocked device gets a plain sentence, and cancelling a screen share gets none", () => {
+  assert.match(callLogic.mediaProblem({ name: "NotAllowedError" }, "audio"), /microphone is blocked/);
+  assert.match(callLogic.mediaProblem({ name: "NotFoundError" }, "video"), /camera was not found/);
+  assert.match(callLogic.mediaProblem({ name: "NotReadableError" }, "video"), /in use/);
+  assert.equal(callLogic.mediaProblem({ name: "NotAllowedError" }, "screen"), null);
+  assert.equal(callLogic.tileCols(1), 1);
+  assert.equal(callLogic.tileCols(4), 2);
+  assert.equal(callLogic.tileCols(9), 3);
+  assert.equal(callLogic.tileCols(10), 4);
+});
+
+test("a missed call reads naturally in Activity", () => {
+  assert.equal(parity.activitySentence({ kind: "missed_call", actor_name: "Sara" }), "Missed call from Sara");
+});
+
+test("only the call screen loads LiveKit, and only on demand", () => {
+  const room = readFileSync(join(here, "services", "callRoom.js"), "utf8");
+  assert.match(room, /await import\("livekit-client"\)/);
+  assert.doesNotMatch(room, /^import .*livekit/m);
+  assert.match(readFileSync(join(here, "components", "CallHost.jsx"), "utf8"), /lazy\(\(\) => import\("\.\/CallStage\.jsx"\)\)/);
+  assert.match(main("src/App.jsx"), /<CallHost profile=\{profile\} \/>/);
+});
+
+test("the Windows app can reach the call service", () => {
+  const csp = JSON.parse(deskFileEarly("tauri.conf.json")).app.security.csp;
+  assert.match(csp, /wss:\/\/\*\.livekit\.cloud/);
+});
+
 const chat = (title) => ({ id: title, kind: "group", title });
 const person = (other_name) => ({ id: other_name, kind: "direct", other_name });
 
@@ -195,8 +256,8 @@ test("an unknown saved section falls back to Chats", () => {
   assert.equal(validSection("calendar"), "calendar");
 });
 
-test("a section not built yet names its phase and a note; Chats, Activity, Teams, Files and Settings are built", () => {
-  const built = ["activity", "chats", "files", "teams", "settings"];
+test("a section not built yet names its phase and a note; Chats, Activity, Teams, Calls, Files and Settings are built", () => {
+  const built = ["activity", "calls", "chats", "files", "teams", "settings"];
   for (const s of SECTIONS) {
     if (built.includes(s.key)) assert.equal(s.phase, undefined, s.key);
     else assert.ok(s.phase && s.note, s.key);

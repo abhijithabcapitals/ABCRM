@@ -30,12 +30,12 @@ Start with Windows,desktop,should,yes,partial,Compiled; not switched on or tried
 Protocol links,desktop,should,yes,partial,Registered by the installer; no link opened yet
 Auto update,desktop,should,yes,no,
 Code-signed installer,desktop,should,yes,no,Needs a paid certificate; otherwise SmartScreen warns
-One-to-one audio and video,calls,must,yes,no,
-Group calls,calls,must,yes,no,
-Incoming call ring,calls,must,yes,no,Reliable only in the desktop app at first
-Call history,calls,should,yes,no,
-Screen share,meetings,must,yes,no,
-Device picker and pre-join,meetings,must,yes,no,
+One-to-one audio and video,calls,must,yes,partial,Built; never run on a real LiveKit server
+Group calls,calls,must,yes,partial,Built; never run on a real LiveKit server
+Incoming call ring,calls,must,yes,partial,On every CRM page and in the Windows app; closed tabs cannot ring
+Call history,calls,should,yes,yes,
+Screen share,meetings,must,yes,partial,Built; never run on a real LiveKit server
+Device picker and pre-join,meetings,must,yes,partial,Device picker during calls; pre-join comes with meetings
 Meet now,meetings,must,yes,no,
 Calendar day and week views,calendar,must,yes,no,Extend Calendar Module
 Schedule meeting,calendar,must,yes,no,
@@ -58,3 +58,8 @@ Copilot,ai,skip,yes,skip,Licensed; separate decision
 Shared channels with other companies,channels,skip,yes,skip,Not needed for one company
 Webinars and town halls,meetings,skip,yes,skip,Not needed
 App store and live Office co-editing,apps,skip,yes,skip,Too large; not core
+Unified inbox: email,inbox,must,no,no,Our addition; plan in docs/2026-11-04-one-stop-inbox-plan.md
+Unified inbox: WhatsApp,inbox,must,no,no,Business number through Meta's Cloud API
+Unified inbox: Telegram,inbox,must,no,no,Bot API; a bot cannot message first
+Unified inbox: Instagram,inbox,must,no,no,Professional account; 24-hour reply window
+Unified inbox: LinkedIn,inbox,should,no,no,Approved partners only; link out until approved

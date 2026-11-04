@@ -7,6 +7,7 @@ const invoke = (name, args) => (isDesktop() ? native().core.invoke(name, args) :
 export const setUnread = (count) => invoke("set_unread", { count }).catch(() => {});
 export const notify = (title, body) => invoke("notify", { title, body }).catch(() => {});
 export const openExternal = (url) => invoke("open_url", { url });
+export const showWindow = () => invoke("show_window").catch(() => {});
 export const autostartEnabled = () => invoke("autostart_get");
 export const setAutostart = (on) => invoke("autostart_set", { on });
 export const appVersion = () => invoke("app_version");
