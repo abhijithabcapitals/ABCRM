@@ -47,3 +47,26 @@ test("every link_type in messengerApi.js is a value the database accepts", () =>
   const allowed = ["chat", "meeting", "channel"];
   assert.deepEqual(found.filter((v) => !allowed.includes(v)), []);
 });
+
+test("Settings and Logs sit inside the lazy module, and Logs is admin only", () => {
+  assert.match(main("src/App.jsx"), /lazy\(\(\) => import\("@messenger"\)\)/);
+  assert.ok(existsSync(join(here, "components/Settings.jsx")));
+  assert.ok(existsSync(join(here, "components/SyncLogs.jsx")));
+  const shell = read("components/MessengerModule.jsx");
+  assert.match(shell, /import Settings from/);
+  assert.match(shell, /import SyncLogs from/);
+  assert.match(shell, /\["logs", "Logs", SyncLogs, true\]/);
+  assert.match(shell, /profile\?\.role === "admin"/);
+});
+
+test("browser code asks for no message-reading scope", () => {
+  const src = readAll("components", "services", "logic");
+  assert.doesNotMatch(src, /Chat\.Read|ChatMessage\.Read|Mail\.Read|Channel(Message)?\.Read\.All/);
+});
+
+test("the sign-in return keeps ms and reason out of the address after reading", () => {
+  const shell = read("components/MessengerModule.jsx");
+  assert.match(shell, /history\.replaceState/);
+  assert.match(shell, /q\.delete\("ms"\)/);
+  assert.match(shell, /q\.delete\("reason"\)/);
+});
