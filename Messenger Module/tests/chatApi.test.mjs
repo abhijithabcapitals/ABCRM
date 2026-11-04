@@ -224,3 +224,41 @@ test("focus and online call onCatchUp; unsubscribe removes channel and listeners
   w.fire("focus");
   assert.equal(n, 2);
 }));
+
+test("searchRecords clients drops null refs and dedupes by ref before the limit", async () => {
+  const data = [
+    { ref: null, name: "Acme Lead" },
+    { ref: "a", name: "Acme One" },
+    { ref: "a", name: "Acme One (banking)" },
+    { ref: "b", name: "Acme Two" },
+  ];
+  const out = await createChatApi(fakeClient({ data, error: null })).searchRecords("client", "acme");
+  assert.deepEqual(out, [{ ref: "a", label: "Acme One" }, { ref: "b", label: "Acme Two" }]);
+});
+
+test("two subscriptions use different channel names; unsubscribing one leaves the other live", () => withWindow(() => {
+  const c = fakeClient();
+  const api = createChatApi(c);
+  const a = [], b = [];
+  const offA = api.subscribe((m) => a.push(m), () => {});
+  api.subscribe((m) => b.push(m), () => {});
+  assert.equal(c.channels.length, 2);
+  assert.notEqual(c.channels[0].name, c.channels[1].name);
+  offA();
+  c.channels[0].handlers[0].cb({ new: { id: "x" } });
+  c.channels[1].handlers[0].cb({ new: { id: "y" } });
+  assert.deepEqual(a, []);
+  assert.deepEqual(b, [{ id: "y" }]);
+  assert.deepEqual(c.removed, [c.channels[0]]);
+}));
+
+test("members embeds names, flattened from profiles", async () => {
+  const data = [{ profile_id: "u1", role: "owner", last_read_at: "t", profiles: { full_name: "Asha" } },
+    { profile_id: "u2", role: "member", last_read_at: "t", profiles: null }];
+  const c = fakeClient({ data, error: null });
+  const out = await createChatApi(c).members("c1");
+  assert.deepEqual(c.calls.find((x) => x.m === "select").args, ["profile_id, role, last_read_at, profiles(full_name)"]);
+  assert.deepEqual(out, [
+    { profile_id: "u1", role: "owner", last_read_at: "t", full_name: "Asha" },
+    { profile_id: "u2", role: "member", last_read_at: "t", full_name: null }]);
+});

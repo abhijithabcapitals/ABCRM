@@ -3,6 +3,7 @@
 
 const PAGE = 50;
 const PICK_LIMIT = 20;
+let seq = 0; // one channel name per subscription, so two in a window never share a topic
 
 function fail(sentence) {
   throw new Error(sentence);
@@ -22,8 +23,11 @@ export function createChatApi(client) {
       const all = rows(await client.rpc("client_lookup"), "Could not search clients. Please try again.") || [];
       const needle = q.toLowerCase();
       const fields = ["name", "legal_name", "trade_name", "trn", "license", "email", "phone"];
+      // Leads and unlinked banking clients have no ref; a client can appear at two ranks. Keep the first of each ref.
+      const seen = new Set();
       return all
-        .filter((r) => !needle || fields.some((f) => String(r[f] || "").toLowerCase().includes(needle)))
+        .filter((r) => r.ref && (!needle || fields.some((f) => String(r[f] || "").toLowerCase().includes(needle))))
+        .filter((r) => !seen.has(r.ref) && seen.add(r.ref))
         .slice(0, PICK_LIMIT)
         .map((r) => ({ ref: r.ref, label: r.name }));
     }
@@ -46,7 +50,7 @@ export function createChatApi(client) {
     let dropped = false;
     const catchUp = () => { if (!stopped) onCatchUp?.(); };
     const channel = client
-      .channel("messenger:messages")
+      .channel(`messenger:messages:${++seq}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messenger_messages" },
         (payload) => { if (!stopped) onMessage?.(payload.new); })
       .subscribe((status) => {
@@ -94,8 +98,9 @@ export function createChatApi(client) {
     renameGroup: (conversationId, title) => call("messenger_rename_group", { p_conversation: conversationId, p_title: title }, "Could not rename the group. Please try again."),
     leave: (conversationId) => call("messenger_leave", { p_conversation: conversationId }, "Could not leave the group. Please try again."),
     async members(conversationId) {
-      return rows(await client.from("messenger_members").select("profile_id, role, last_read_at").eq("conversation_id", conversationId),
+      const data = rows(await client.from("messenger_members").select("profile_id, role, last_read_at, profiles(full_name)").eq("conversation_id", conversationId),
         "Could not load the members. Please try again.");
+      return (data || []).map(({ profiles, ...m }) => ({ ...m, full_name: profiles?.full_name ?? null }));
     },
     async staff() {
       return rows(await client.from("profiles").select("id, full_name").order("full_name"), "Could not load the staff list. Please try again.");
