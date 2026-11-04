@@ -1,0 +1,60 @@
+[
+  {
+    "name": "standard with onboarding",
+    "details": {
+      "quoteType": "Standard", "selected": "Established",
+      "tiers": { "E": {}, "S": { "docs": 3600, "year": 4199 }, "C": {} },
+      "client": {}, "options": {},
+      "rows": { "ONB": { "inc": true, "fee": 1500, "type": "One-time" }, "ANN": { "inc": true, "type": "Annual" } },
+      "custom": { "items": [] }
+    },
+    "expect": { "one_time": 1500, "annual": 4199, "year1": 5699 }
+  },
+  {
+    "name": "standard with a text fee and an excluded row",
+    "details": {
+      "quoteType": "Standard", "selected": "Corporate",
+      "tiers": { "E": {}, "S": {}, "C": { "docs": 10000, "year": 7500 } },
+      "client": {}, "options": {},
+      "rows": {
+        "ONB": { "inc": true, "fee": "Free", "type": "One-time" },
+        "GAP": { "inc": false, "fee": 3000, "type": "One-time" },
+        "TRN": { "inc": true, "fee": 2400, "type": "One-time" },
+        "ANN": { "inc": true, "type": "Annual" }
+      },
+      "custom": { "items": [] }
+    },
+    "expect": { "one_time": 2400, "annual": 7500, "year1": 9900 }
+  },
+  {
+    "name": "options leave both integrations out of the total",
+    "details": {
+      "quoteType": "Standard", "selected": "Established",
+      "tiers": { "E": {}, "S": { "docs": 1200, "year": 2499 }, "C": {} },
+      "client": {}, "options": { "showOptions": true },
+      "rows": {
+        "SUP": { "inc": true, "fee": 2000, "type": "One-time" },
+        "FULL": { "inc": true, "fee": 5000, "type": "One-time" },
+        "ANN": { "inc": true, "type": "Annual" }
+      },
+      "custom": { "items": [] }
+    },
+    "expect": { "one_time": 0, "annual": 2499, "year1": 2499 }
+  },
+  {
+    "name": "custom items",
+    "details": {
+      "quoteType": "Custom", "selected": "Established",
+      "tiers": { "E": {}, "S": {}, "C": {} },
+      "client": {}, "options": {}, "rows": {},
+      "custom": { "volume": 48000, "items": [
+        { "title": "Training and Demo", "fee": "Free", "type": "One-time" },
+        { "title": "E-Invoicing Gap Assessment", "fee": 2000, "type": "One-time" },
+        { "title": "Additional Invoices", "fee": 0.25, "type": "Per invoice" },
+        { "title": "Scope", "fee": 12000, "type": "Annual" },
+        { "title": "", "fee": 999, "type": "Annual" }
+      ] }
+    },
+    "expect": { "one_time": 2000, "annual": 12000, "year1": 14000 }
+  }
+]
