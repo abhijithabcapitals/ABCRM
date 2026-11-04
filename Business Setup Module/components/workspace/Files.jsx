@@ -1,6 +1,6 @@
 // Files staff uploaded for this client, and outputs of its services.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FilePick, fmtDate } from "@banking/components/shared";
+import { Badge, DataTable, ErrorNote, FilePick, fmtDate } from "@banking/components/shared";
 import { useSetup } from "../SetupContext";
 import { addDocument, openDocument, uploadFile } from "../../services/businessSetupApi";
 

@@ -15,7 +15,7 @@ To deploy a function, copy it from its module folder (the module folder is the s
 
 ```bash
 mkdir -p supabase/functions/ceo-mail-sync
-cp "../../CEO Agent Module/supabase/ceo-mail-sync/"* supabase/functions/ceo-mail-sync/
+cp "../../Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ceo-mail-sync/"* supabase/functions/ceo-mail-sync/
 npx supabase functions deploy ceo-mail-sync --project-ref pnnakrhfzyxudjaghoxx --no-verify-jwt
 ```
 

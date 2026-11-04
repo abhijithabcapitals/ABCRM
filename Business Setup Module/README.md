@@ -5,11 +5,13 @@ The CRM's **Business Setup** tab: from a client's form to a finished service han
 | Path | Purpose |
 |---|---|
 | `components/BusinessSetup.jsx` | Shell, permissions, navigation |
-| `components/{Dashboard,Onboarding,Clients,FeeMaster,Documents,Tasks,Import,Settings}.jsx` | Pages |
-| `components/Workspace.jsx`, `components/workspace/` | One client, one file per tab |
-| `components/NewServiceFlow.jsx` | Services, fees and template, then a quote |
+| `components/{Dashboard,Leads,Onboarding,DocumentationPage,Cases,Clients,FeeMaster,Tasks,Settings}.jsx` | Tabs: Dashboard, Leads, Review (`Onboarding.jsx`), Documentation, Cases, Clients, Services & Fees, Tasks, Settings |
+| `components/ShareLink.jsx` | Leads: link or create the client, issue the login, email it, then mark the case shared. A failed email keeps the login and offers Resend |
+| `components/Documents.jsx`, `components/Import.jsx` | The document register (second view of Documentation) and the old CRM import (inside Settings) |
+| `components/Workspace.jsx`, `components/workspace/` | One client, one file per tab. `ClientCases.jsx` is the Cases tab with + New Case |
+| `components/NewServiceFlow.jsx` | Services, fees and template, then a quote. Takes a `caseId` and passes `case_id` to `createDocument` |
 | `components/ZohoInvoicePanel.jsx` | Reserved for the Zoho invoice step. Also used by Banking |
-| `logic/` | Pure rules, tested with `node --test "Business Setup Module/tests/"` |
+| `logic/` | Pure rules (`nav.js`, `caseWorkspace.js`, `loginSecret.js`, ...), tested with `node --test "Business Setup Module/tests/"` |
 | `services/` | `businessSetupApi.js` for database calls, `documents.js` for Word files |
 | `scripts/fix_templates.py` | Makes corrected copies of the quote templates |
 | `Resources/` | Git-ignored. Client data, prices and templates. Never commit it |

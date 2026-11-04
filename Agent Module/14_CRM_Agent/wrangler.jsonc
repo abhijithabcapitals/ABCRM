@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "crm-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // MCP_AUTH_TOKEN and CRM_READ_TOKEN are Worker secrets (wrangler secret put), never vars.
+  // The publishable key is public: the CRM web app ships it too.
+  "vars": {
+    "SUPABASE_URL": "https://pnnakrhfzyxudjaghoxx.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_eGZmJCITn-6GDF4lhwg31Q_30swdCpt"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

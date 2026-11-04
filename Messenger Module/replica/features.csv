@@ -1,0 +1,65 @@
+feature,area,priority,original,clone,notes
+Direct and group chats,chat,must,yes,yes,Live in CRM dock
+Unread counts,chat,must,yes,yes,Live in CRM dock
+Links to CRM records in chat,chat,should,no,yes,Our addition; live
+Edit and delete message,chat,must,yes,yes,Sender only; delete clears the text
+Reply and quote,chat,must,yes,yes,
+Reactions,chat,must,yes,yes,Five quick reactions
+Mentions,chat,must,yes,yes,
+Rich text composer,chat,should,yes,no,Reuse TipTap
+File attachments,chat,must,yes,partial,Built; needs R2 setup and has not run against real storage
+Typing indicator,chat,could,yes,no,
+Read receipts,chat,could,yes,partial,last_read_at exists; not shown per message
+Pin and mute chats,chat,should,yes,yes,
+Message search,search,must,yes,yes,Opens the chat; does not jump to the message yet
+People and file search,search,should,yes,partial,Chat names and message text; files listed in the Files section
+Activity feed,activity,must,yes,yes,
+Presence and status,presence,must,yes,yes,Updates every 2 minutes; not instant
+Teams,channels,must,yes,yes,Any staff member can create one
+Team roles,channels,must,yes,yes,Owner and member
+Standard channels,channels,must,yes,yes,
+Private channels,channels,should,yes,yes,Hidden from owners who are not in them
+Threaded posts,channels,must,yes,yes,
+Channel Files tab,channels,should,yes,no,
+Full-page app shell,shell,must,yes,partial,Built on fake data; real login check open
+Keep docked panel,shell,must,no,yes,User's approved design
+Windows installer,desktop,must,yes,yes,1.5 MB; installs per person; unsigned
+Tray and close to tray,desktop,must,yes,partial,Close to tray checked; tray icon clicks not tried
+Windows notifications,desktop,must,yes,partial,Rules tested; no real notification shown yet
+Start with Windows,desktop,should,yes,partial,Compiled; not switched on or tried
+Protocol links,desktop,should,yes,partial,Registered by the installer; no link opened yet
+Auto update,desktop,should,yes,no,
+Code-signed installer,desktop,should,yes,no,Needs a paid certificate; otherwise SmartScreen warns
+One-to-one audio and video,calls,must,yes,partial,Built; never run on a real LiveKit server
+Group calls,calls,must,yes,partial,Built; never run on a real LiveKit server
+Incoming call ring,calls,must,yes,partial,On every CRM page and in the Windows app; closed tabs cannot ring
+Call history,calls,should,yes,yes,
+Screen share,meetings,must,yes,partial,Built; never run on a real LiveKit server
+Device picker and pre-join,meetings,must,yes,partial,Device picker during calls; pre-join comes with meetings
+Meet now,meetings,must,yes,no,
+Calendar day and week views,calendar,must,yes,no,Extend Calendar Module
+Schedule meeting,calendar,must,yes,no,
+Repeating meetings,calendar,should,yes,no,
+Invitations and reminders,calendar,should,yes,no,
+Meeting chat,meetings,must,yes,no,
+Roles in meetings,meetings,must,yes,no,
+Lobby,meetings,should,yes,no,
+Guest join by link,meetings,could,yes,no,Needs a security review
+Raise hand and in-call reactions,meetings,should,yes,no,
+Background blur,meetings,could,yes,no,
+Recording,meetings,should,yes,no,Everyone told when it starts; storage cost
+Live transcript,meetings,could,yes,no,Needs a speech service; cost to confirm
+Recap page,meetings,could,yes,no,
+Breakout rooms,meetings,could,yes,no,
+Teams brand and assets,brand,skip,yes,skip,Microsoft's property
+Interop with real Teams,integration,skip,yes,skip,Existing deep link stays
+Phone network calling,calls,skip,yes,skip,Needs a licensed carrier
+Copilot,ai,skip,yes,skip,Licensed; separate decision
+Shared channels with other companies,channels,skip,yes,skip,Not needed for one company
+Webinars and town halls,meetings,skip,yes,skip,Not needed
+App store and live Office co-editing,apps,skip,yes,skip,Too large; not core
+Unified inbox: email,inbox,must,no,partial,Read, reply, archive, search subjects; never run on real mail; no assignment yet
+Unified inbox: WhatsApp,inbox,must,no,partial,Connect in Settings; text only; never run on a real account
+Unified inbox: Telegram,inbox,must,no,partial,Connect in Settings; a bot; text only; never run on a real account
+Unified inbox: Instagram,inbox,must,no,partial,Connect in Settings; 24-hour window; text only; never run on a real account
+Unified inbox: LinkedIn,inbox,should,no,partial,Link out only; approved partners only

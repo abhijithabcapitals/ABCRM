@@ -74,6 +74,15 @@ select public.bs_check('API roles cannot call the internal payment and gate help
 select public.bs_check('only signed-in users can call the tracker functions', has_function_privilege('authenticated', 'public.business_setup_service_update(uuid, text, jsonb, text)', 'execute') and has_function_privilege('authenticated', 'public.business_setup_service_complete(uuid, jsonb, text)', 'execute') and has_function_privilege('authenticated', 'public.business_setup_quote_template_save(jsonb)', 'execute')
   and not has_function_privilege('anon', 'public.business_setup_service_update(uuid, text, jsonb, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_service_complete(uuid, jsonb, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_quote_template_save(jsonb)', 'execute'));
 select public.bs_check('API roles cannot call the quote lock helper', not has_function_privilege('authenticated', 'public.business_setup_quote_locked(uuid)', 'execute') and not has_function_privilege('anon', 'public.business_setup_quote_locked(uuid)', 'execute'));
+select public.bs_check('API roles cannot call the case stage and sync helpers', not has_function_privilege('authenticated', 'public.business_setup_case_sync(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.business_setup_case_set_stage(uuid, text, text)', 'execute') and not has_function_privilege('authenticated', 'public.business_setup_case_docs(uuid)', 'execute') and not has_function_privilege('anon', 'public.business_setup_case_sync(uuid)', 'execute'));
+select public.bs_check('the lead and ownership functions are for signed-in staff only', (
+  select bool_and(has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('public', f, 'execute'))
+    from unnest(array[
+      'public.business_setup_case_new(jsonb)', 'public.business_setup_case_take(uuid)', 'public.business_setup_case_link_client(uuid, text, boolean)',
+      'public.business_setup_case_shared(uuid)', 'public.business_setup_case_lost(uuid, text)', 'public.business_setup_case_confirm(uuid)',
+      'public.business_setup_case_assign(uuid, uuid, text)', 'public.business_setup_reassign_request(uuid, uuid, text)', 'public.business_setup_reassign_respond(uuid, boolean, text)',
+      'public.business_setup_form_staff_save(uuid, jsonb)', 'public.business_setup_form_doc_add(uuid, text, text)', 'public.business_setup_case_list(text)']) f));
+select public.bs_check('API roles cannot call the service trigger function', not has_function_privilege('authenticated', 'public.business_setup_case_service_trg()', 'execute') and not has_function_privilege('anon', 'public.business_setup_case_service_trg()', 'execute'));
 grant execute on all functions in schema public to authenticated;
 
 select public.t_anon_refused('anon cannot select settings', 'select * from public.business_setup_settings');

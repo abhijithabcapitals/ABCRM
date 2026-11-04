@@ -1,5 +1,7 @@
+import SettingsSection from "./SettingsSection.jsx";
+
 // Chat settings. Kept in this browser, as it only changes how the panel behaves here.
-export default function ChatSettings({ keepOpen, onKeepOpen, onBack, onClose }) {
+export default function ChatSettings({ keepOpen, onKeepOpen, onBack, onClose, name, isAdmin }) {
   return (
     <section className="msgr-screen" aria-label="Chat settings">
       <header className="msgr-pane-head">
@@ -14,6 +16,7 @@ export default function ChatSettings({ keepOpen, onKeepOpen, onBack, onClose }) 
           <small>When this is off, clicking the page closes the chat. The panel always closes with × or Esc.</small>
         </span>
       </label>
+      <div className="msgr-setting-more"><SettingsSection name={name} isAdmin={isAdmin} /></div>
     </section>
   );
 }

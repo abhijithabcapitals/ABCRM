@@ -6,7 +6,7 @@ import { useSetup } from "./SetupContext";
 import { linkQuote } from "../services/businessSetupApi";
 import { quoteTone } from "../logic/statuses";
 
-export default function Documents() {
+export default function Documents({ embedded = false }) {
   const { goTo, can } = useSetup();
   const docs = useLoad(() => listDocuments("Business Setup"), []);
   const [link, setLink] = useState(null);
@@ -14,7 +14,7 @@ export default function Documents() {
   const rows = (docs.data || []).filter((d) => d.doc_type !== "mail");
   return (
     <div>
-      <PageHead title="Documents" sub="Quotes and engagement letters. Open a client to act on one." />
+      {!embedded && <PageHead title="Documents" sub="Quotes and engagement letters. Open a client to act on one." />}
       <ErrorNote message={docs.error || error} onClose={error ? () => setError(null) : undefined} />
       {docs.loading && !docs.data ? <Spinner /> : (
         <DataTable rows={rows} search="Search number or client…" empty="No documents yet." columns={[

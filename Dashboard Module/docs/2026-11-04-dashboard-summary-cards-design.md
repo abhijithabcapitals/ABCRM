@@ -100,7 +100,7 @@ After the token is saved, the user sends one `PUT /invoices/0` with an empty bod
 Dashboard opens (admin)
   -> read zoho_finance_snapshot
   -> show saved numbers with their "as of" time
-  -> if older than 60 minutes, ask zoho-finance to refresh in the background
+  -> if older than 360 minutes, ask zoho-finance to refresh in the background
 ```
 
 Zoho allows 100 calls a minute and between 1,000 and 10,000 a day depending on plan. The plan is not known, so cards never call Zoho directly.
@@ -117,8 +117,8 @@ Zoho allows 100 calls a minute and between 1,000 and 10,000 a day depending on p
 **Refresh limits.**
 
 - At most one refresh runs at a time. A `refreshing_since` older than 5 minutes counts as abandoned.
-- An automatic refresh runs only when the snapshot and the last attempt are both over 60 minutes old. The Refresh button works once both are over 5 minutes old. A failed attempt counts, so opening the Dashboard does not keep spending calls on a failing refresh.
-- Each refresh stops at 90 Zoho calls. Sections it did not finish are marked partial and their cards say so. A partial total is never shown as complete.
+- An automatic refresh runs only when the snapshot and the last attempt are both over 360 minutes old. The Refresh button works once both are over 5 minutes old. A failed attempt counts, so opening the Dashboard does not keep spending calls on a failing refresh.
+- Each refresh stops at 200 Zoho calls or 125 seconds. Sections it did not finish are marked partial and their cards say so. A partial total is never shown as complete.
 - A failed refresh keeps the previous numbers, with their old "as of" time and an error line.
 
 There is no scheduled job. Zoho is called only when an admin opens the Dashboard or presses Refresh.
@@ -238,14 +238,14 @@ This runs after the credentials are saved and before the Zoho cards are built. I
 4. Confirm whether open invoices and bills in other currencies carry an exchange rate in the list response.
 5. Count the income and expense accounts and the calls a 12-month refresh needs.
 
-If 12 months of account transactions exceeds the 90-call limit or the endpoint is unusable, the fallback is: Revenue from invoices by date, Cost from bills plus `/expenses` by date. That is why `expenses.READ` is on the token. It may mean figures on an accrual basis without journals, which the cards would state, and the user decides whether that is acceptable.
+If 12 months of account transactions exceeds the 200-call limit or the endpoint is unusable, the fallback is: Revenue from invoices by date, Cost from bills plus `/expenses` by date. That is why `expenses.READ` is on the token. It may mean figures on an accrual basis without journals, which the cards would state, and the user decides whether that is acceptable.
 
 **Accuracy check.** Revenue, Cost and Net profit for one closed month and year to date, compared with the same figures on Zoho's own Profit and Loss screen. The user checks the screen or supplies the figures. A difference must be explained or fixed before the Zoho cards go live.
 
 ## 9. Testing
 
 - `Dashboard Module/logic` tests with `node --test`, in `Main Module/tests/` as existing tests do: layout merge, move, bad storage, and each card's numbers from sample data.
-- `zoho-finance` Deno tests: every non-GET method and unlisted path refused, non-admin refused, aging boundaries, ratios, zero divisors, health scoring, the 90-call stop, and a failed refresh keeping old numbers.
+- `zoho-finance` Deno tests: every non-GET method and unlisted path refused, non-admin refused, aging boundaries, ratios, zero divisors, health scoring, the 200-call stop, and a failed refresh keeping old numbers.
 - SQL test: a non-admin reads no snapshot row.
 - `npm run build` in `Main Module`.
 - In the browser, with a local dev server: collapse, expand, drag, move buttons, reload to confirm the layout was kept, reset, one forced card failure, reduced motion, and phone width.
