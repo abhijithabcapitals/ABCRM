@@ -122,7 +122,7 @@ declare v_at timestamptz := now();
 begin
   if not admin_is() then raise exception 'admin only'; end if;
   if p_hash is null or p_hash !~ '^[0-9a-f]{64}$' then raise exception 'invalid token hash'; end if;
-  update public.crm_agent_access set mcp_token_sha256 = p_hash, mcp_token_changed_at = v_at;
+  update public.crm_agent_access set mcp_token_sha256 = p_hash, mcp_token_changed_at = v_at where id;
   if not found then raise exception 'read token is not set'; end if;
   insert into public.admin_audit (action, target, detail) values ('set_mcp_token', null, null);
   return v_at;
@@ -134,7 +134,7 @@ begin
   if not admin_is() then raise exception 'admin only'; end if;
   if p_plan is not null and p_plan not in ('Pro', 'Max', 'Ultra') then raise exception 'invalid plan'; end if;
   if p_plan is null and p_renews_on is not null then raise exception 'renewal date needs a plan'; end if;
-  update public.crm_agent_access set plan = p_plan, plan_renews_on = p_renews_on, plan_updated_at = now();
+  update public.crm_agent_access set plan = p_plan, plan_renews_on = p_renews_on, plan_updated_at = now() where id;
   if not found then raise exception 'read token is not set'; end if;
   insert into public.admin_audit (action, target, detail) values ('set_claude_plan', null, jsonb_build_object('plan', p_plan, 'renews_on', p_renews_on));
 end $$;
