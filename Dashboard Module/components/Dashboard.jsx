@@ -102,9 +102,7 @@ export default function Dashboard({ spaces, profile, tabs, onNavigate, onSpaceSe
         )}
         {loading && !data ? (
           <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading analytics…</div>
-        ) : total === 0 ? (
-          <EmptyState />
-        ) : data ? (
+        ) : total === 0 ? null : data ? (
           <>
             {isAdmin && ceo && (() => {
               const leads = ceo.leads || {};
@@ -323,15 +321,6 @@ export default function Dashboard({ spaces, profile, tabs, onNavigate, onSpaceSe
           onClose={() => setDrill(null)}
         />
       )}
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div style={{ textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 10, border: "1px solid #e8e8e8" }}>
-      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Welcome to AB Capital Workspace</div>
-      <div style={{ fontSize: 13, color: "#888", lineHeight: 1.8 }}>Create a space, add folders and lists, then create tasks — your analytics will appear here.</div>
     </div>
   );
 }

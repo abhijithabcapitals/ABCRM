@@ -62,7 +62,7 @@ textarea:focus {
   background: #f7f8fa;
 }
 
-/* Main content plus the copyright bar. Full-height views subtract --brand-footer-h. */
+/* Main content plus the copyright bar and any news headline. Full-height views subtract --brand-footer-h. */
 :root {
   --brand-footer-h: 28px;
 }
@@ -74,7 +74,7 @@ textarea:focus {
 }
 .brand-footer {
   flex-shrink: 0;
-  min-height: var(--brand-footer-h);
+  min-height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1823,3 +1823,18 @@ body {
 
 /* The tab a dragged tab will take the place of (see jsx/DragTabs.js). */
 .crm-tab-over { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 7px; }
+
+/* The company headline (components/NewsTicker.jsx). Full-height views also make room for it. */
+:root:has(.crm-news) { --brand-footer-h: 60px; }
+.crm-news { flex-shrink: 0; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 12px; overflow: hidden; color: #fff; background: #0d4f53; font-size: 12.5px; }
+.crm-news-tag { flex-shrink: 0; padding: 1px 7px; border-radius: 4px; color: #0d4f53; background: #fff; font-size: 10.5px; font-weight: 800; text-transform: uppercase; }
+.crm-news-window { flex: 1; min-width: 0; overflow: hidden; }
+.crm-news-track { display: flex; width: max-content; animation: crm-news-scroll linear infinite; }
+.crm-news:hover .crm-news-track { animation-play-state: paused; }
+.crm-news-run { display: flex; flex-shrink: 0; min-width: 100vw; }
+.crm-news-item { padding-right: 56px; white-space: nowrap; }
+@keyframes crm-news-scroll { to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .crm-news-track { animation: none; }
+  .crm-news-run[aria-hidden] { display: none; }
+}

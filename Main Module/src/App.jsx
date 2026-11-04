@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import { BrandFooter } from "./components/Brand";
+import NewsTicker from "./components/NewsTicker";
 import { setUsageUser } from "./jsx/selectUsage";
 import { initialView, resolveView } from "./tabs";
 import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
@@ -493,6 +494,7 @@ export default function App() {
         title="Drag to resize sidebar"
       />
       <div className="app-body">
+      <NewsTicker />
       <main className="app-main">
         <Suspense fallback={<div style={{ padding: 24, fontSize: 13, color: "#9ca3af" }}>Loading…</div>}>
         {view === "dashboard" && (
