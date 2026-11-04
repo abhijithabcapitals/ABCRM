@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { MAX_CALLS, refresh } from "./refresh.ts";
+import { MAX_CALLS, refresh, TIME_BUDGET_MS } from "./refresh.ts";
 import { handle } from "./handlers.ts";
 import { UserError } from "./errors.ts";
 import { ZohoAccessError, ZohoHttpError } from "./zohoClient.ts";
@@ -95,8 +95,24 @@ function fakeZoho(accountCount = 2, over: (path: string, q: Record<string, strin
   };
 }
 
+// A clock that moves only when a test or the limiter's sleep moves it, so no test waits.
+function fakeClock(start: Date = NOW) {
+  let t = start.getTime();
+  return {
+    now: () => new Date(t),
+    sleep: (ms: number) => {
+      t += ms;
+      return Promise.resolve();
+    },
+    advance: (ms: number) => {
+      t += ms;
+    },
+  };
+}
+
 function deps(db: Json, zoho: Json = fakeZoho(), over: Json = {}) {
-  return { isAdmin: () => Promise.resolve(true), zoho: () => Promise.resolve(zoho), db, now: () => NOW, scrub: (t: string) => t, ...over };
+  const clock = fakeClock();
+  return { isAdmin: () => Promise.resolve(true), zoho: () => Promise.resolve(zoho), db, now: clock.now, sleep: clock.sleep, scrub: (t: string) => t, ...over };
 }
 
 const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -109,7 +125,10 @@ const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
   }
 };
 
-Deno.test("the limit is 90 calls", () => assertEquals(MAX_CALLS, 90));
+Deno.test("the limit is 200 calls and 125 seconds", () => {
+  assertEquals(MAX_CALLS, 200);
+  assertEquals(TIME_BUDGET_MS, 125_000);
+});
 
 Deno.test("a second refresh while one is 1 minute old is busy, with no Zoho call", async () => {
   const z = fakeZoho();
@@ -127,8 +146,8 @@ Deno.test("a refresh 6 minutes old counts as abandoned, so this one runs", async
   assertEquals(db.row.refreshing_since, null);
 });
 
-Deno.test("an automatic refresh waits for 60 minutes", async () => {
-  for (const [age, want] of [[59, "fresh"], [60, "fresh"], [61, "ok"]] as const) {
+Deno.test("an automatic refresh waits for 360 minutes", async () => {
+  for (const [age, want] of [[359, "fresh"], [360, "fresh"], [361, "ok"]] as const) {
     const out = await refresh({ force: false }, deps(fakeDb({ as_of: minutesAgo(age) })));
     assertEquals(out.status, want, `${age} minutes`);
   }
@@ -173,21 +192,22 @@ Deno.test("today is the date in the UAE, not in UTC", async () => {
   assertEquals(db.row.data.period, { from: "2027-01-01", to: "2027-01-01" });
 });
 
-Deno.test("the 91st call never happens: status is partial and the unfinished sections are named", async () => {
+Deno.test("the 201st call never happens: status is partial and the unfinished sections are named", async () => {
   // Few enough accounts to try, but one account's transactions never run out of pages.
   const z = fakeZoho(2, (p) =>
     p.startsWith("/chartofaccounts/")
       ? { transactions: [{ transaction_date: "2026-10-01", credit_amount: 1 }], page_context: { has_more_page: true } }
       : undefined);
   const db = fakeDb();
-  assertEquals(await refresh({ force: false }, deps(db, z)), { status: "partial" });
+  const clock = fakeClock();
+  assertEquals(await refresh({ force: false }, deps(db, z, { now: clock.now, sleep: clock.sleep })), { status: "partial" });
   assertEquals(z.calls.length, MAX_CALLS);
   assertEquals(db.row.calls_used, MAX_CALLS);
   assertEquals(db.row.status, "partial");
-  assertEquals(db.row.as_of, NOW.toISOString());
+  assertEquals(db.row.as_of, clock.now().toISOString());
   assertEquals(db.row.refreshing_since, null);
   assertEquals(db.row.data.partial, ["monthly", "ytd", "topCosts", "ratios", "health"]);
-  assert(typeof db.row.error === "string" && db.row.error.length > 0);
+  assertEquals(db.row.error, "The limit of 200 Zoho calls was not enough. Some figures are incomplete.");
 });
 
 Deno.test("a section that did not finish has no total in data, though earlier sections do", async () => {
@@ -225,11 +245,11 @@ Deno.test("a Zoho failure keeps the data and time, says failed in plain words, a
   const z = fakeZoho(2, (p) => {
     if (p === "/bills") throw new ZohoHttpError(429, "raw detail");
   });
-  const db = fakeDb({ data: old, as_of: minutesAgo(120), status: "ok" });
+  const db = fakeDb({ data: old, as_of: minutesAgo(600), status: "ok" });
   const out = await quiet(() => refresh({ force: false }, deps(db, z)));
   assertEquals(out, { status: "failed", error: "Zoho is busy, try again shortly." });
   assertEquals(db.row.data, old);
-  assertEquals(db.row.as_of, minutesAgo(120));
+  assertEquals(db.row.as_of, minutesAgo(600));
   assertEquals(db.row.status, "failed");
   assertEquals(db.row.error, "Zoho is busy, try again shortly.");
   assertEquals(db.row.refreshing_since, null);
@@ -248,7 +268,7 @@ Deno.test("ZohoAccessError stores the reconnect message", async () => {
 
 Deno.test("a response of the wrong shape fails and keeps the old numbers", async () => {
   const z = fakeZoho(2, (p) => (p === "/bills" ? { nothing: true } : undefined));
-  const db = fakeDb({ data: { keep: true }, as_of: minutesAgo(120) });
+  const db = fakeDb({ data: { keep: true }, as_of: minutesAgo(600) });
   assertEquals((await quiet(() => refresh({ force: false }, deps(db, z)))).status, "failed");
   assertEquals(db.row.data, { keep: true });
 });
@@ -262,7 +282,7 @@ Deno.test("a non-admin gets UserError, before anything is read", async () => {
 });
 
 Deno.test("MissingSecretError is not_connected and leaves stored data alone", async () => {
-  const start = { data: { keep: true }, as_of: minutesAgo(120), status: "ok", error: null, calls_used: 9 };
+  const start = { data: { keep: true }, as_of: minutesAgo(600), status: "ok", error: null, calls_used: 9 };
   const db = fakeDb(start);
   const out = await refresh({ force: false }, deps(db, null, { zoho: () => Promise.reject(new MissingSecretError("X")) }));
   assertEquals(out, { status: "failed", error: "not_connected" });
@@ -316,8 +336,8 @@ Deno.test("claiming records the attempt, and a failure keeps it", async () => {
   assertEquals(db.updates[0].refreshing_since, NOW.toISOString());
 });
 
-Deno.test("an automatic refresh skips for 60 minutes after any attempt, even with old figures", async () => {
-  for (const [age, want] of [[59, "fresh"], [60, "fresh"], [61, "ok"]] as const) {
+Deno.test("an automatic refresh skips for 360 minutes after any attempt, even with old figures", async () => {
+  for (const [age, want] of [[359, "fresh"], [360, "fresh"], [361, "ok"]] as const) {
     const z = fakeZoho();
     const db = fakeDb({ as_of: minutesAgo(600), status: "failed", last_attempt_at: minutesAgo(age) });
     assertEquals((await refresh({ force: false }, deps(db, z))).status, want, `${age} minutes`);
@@ -377,15 +397,15 @@ Deno.test("a chart too large for the calls left skips the ledger, marked partial
   assert(z.calls.length < 15, `spent ${z.calls.length} calls`);
   assertEquals(db.row.calls_used, z.calls.length);
   assertEquals(db.row.data.partial, ["monthly", "ytd", "topCosts", "ratios", "health"]);
-  assert(typeof db.row.error === "string" && db.row.error.length > 0);
+  assertEquals(db.row.error, "This Zoho organisation has 200 income and cost accounts, more than the limit of 200 calls.");
 });
 
 Deno.test("a chart that exactly fits the calls left is read", async () => {
-  // 9 fixed calls: organisation, chart, 3 invoice filters, 3 bill filters, bank accounts. 81 are left.
-  const fits = fakeZoho(81);
+  // 9 fixed calls: organisation, chart, 3 invoice filters, 3 bill filters, bank accounts. 191 are left.
+  const fits = fakeZoho(191);
   assertEquals((await refresh({ force: false }, deps(fakeDb(), fits))).status, "ok");
   assertEquals(fits.calls.length, MAX_CALLS);
-  const over = fakeZoho(82);
+  const over = fakeZoho(192);
   assertEquals((await refresh({ force: false }, deps(fakeDb(), over))).status, "partial");
   assertEquals(over.calls.length, 9);
 });
@@ -408,9 +428,140 @@ Deno.test("the failure log is scrubbed", async () => {
 });
 
 Deno.test("a login that cannot be built fails like any Zoho failure, and counts as an attempt", async () => {
-  const db = fakeDb({ data: { keep: true }, as_of: minutesAgo(120) });
+  const db = fakeDb({ data: { keep: true }, as_of: minutesAgo(600) });
   const out = await quiet(() => refresh({ force: false }, deps(db, null, { zoho: () => Promise.reject(new ZohoAccessError("x")) })));
   assertEquals(out, { status: "failed", error: "Zoho access has stopped. An admin must reconnect." });
   assertEquals(db.row.data, { keep: true });
   assertEquals(db.row.last_attempt_at, NOW.toISOString());
+});
+
+Deno.test("200 calls fit: a chart using all of them is read in full", async () => {
+  const z = fakeZoho(191);
+  const db = fakeDb();
+  assertEquals((await refresh({ force: false }, deps(db, z))).status, "ok");
+  assertEquals(z.calls.length, 200);
+  assertEquals(db.row.error, null);
+  assertEquals(db.row.data.partial, []);
+});
+
+Deno.test("the time budget stops new calls, stores the message, and leaves the unfinished sections without totals", async () => {
+  const clock = fakeClock();
+  // Each call takes 20 seconds, so the budget is gone during the first sections.
+  const z = fakeZoho(2);
+  const slow = {
+    ...z,
+    get: (p: string, q?: Record<string, string>) => {
+      clock.advance(20_000);
+      return z.get(p, q);
+    },
+  };
+  const db = fakeDb();
+  const out = await refresh({ force: false }, deps(db, slow, { now: clock.now, sleep: clock.sleep }));
+  assertEquals(out, { status: "partial" });
+  // A call starts only while less than 125 s have passed: the starts are at 0, 20, ... 120 s.
+  assertEquals(z.calls.length, 7);
+  assertEquals(db.row.calls_used, 7);
+  assertEquals(db.row.error, "Zoho took too long, so some figures are incomplete. Refresh to try again.");
+  assertEquals(db.row.refreshing_since, null);
+  assertEquals(db.row.data.monthly, null);
+  assertEquals(db.row.data.ytd, null);
+  assertEquals(db.row.data.topCosts, null);
+  assert(db.row.data.partial.includes("monthly"));
+});
+
+Deno.test("a call that is already running when the budget ends is allowed to finish", async () => {
+  const clock = fakeClock();
+  let finished = 0;
+  const z = fakeZoho(2);
+  const slow = {
+    ...z,
+    get: async (p: string, q?: Record<string, string>) => {
+      if (p === "/bills" && q?.status === "open") clock.advance(TIME_BUDGET_MS + 1); // Ends the budget mid-call.
+      const r = await z.get(p, q);
+      finished++;
+      return r;
+    },
+  };
+  const db = fakeDb();
+  await refresh({ force: false }, deps(db, slow, { now: clock.now, sleep: clock.sleep }));
+  assertEquals(finished, z.calls.length); // Every call that started also finished.
+  assertEquals(db.row.error, "Zoho took too long, so some figures are incomplete. Refresh to try again.");
+});
+
+Deno.test("ledger reads never run more than 2 at once, and never start more than 90 in a minute", async () => {
+  const clock = fakeClock();
+  const z = fakeZoho(190);
+  const starts: number[] = [];
+  let open = 0;
+  let mostOpen = 0;
+  const watched = {
+    ...z,
+    get: async (p: string, q?: Record<string, string>) => {
+      starts.push(clock.now().getTime());
+      open++;
+      mostOpen = Math.max(mostOpen, open);
+      try {
+        await Promise.resolve();
+        await Promise.resolve();
+        return await z.get(p, q);
+      } finally {
+        open--;
+      }
+    },
+  };
+  const db = fakeDb();
+  assertEquals((await refresh({ force: false }, deps(db, watched, { now: clock.now, sleep: clock.sleep }))).status, "ok");
+  assertEquals(starts.length, 199);
+  assert(mostOpen <= 2, `${mostOpen} at once`);
+  assert(mostOpen === 2, "the ledger should use both slots");
+  for (const t of starts) {
+    const inWindow = starts.filter((s) => s > t - 60_000 && s <= t).length;
+    assert(inWindow <= 90, `${inWindow} calls started within a minute`);
+  }
+  assertEquals(db.row.error, null);
+});
+
+Deno.test("a ledger that stops part way through the accounts leaves monthly, ytd and topCosts without totals", async () => {
+  // One account never runs out of pages, so the call limit lands inside the ledger with other accounts already read.
+  const z = fakeZoho(150, (p, q) =>
+    p.startsWith("/chartofaccounts/") && q.account_id === "E100"
+      ? { transactions: [{ transaction_date: "2026-10-01", credit_amount: 5 }], page_context: { has_more_page: true } }
+      : undefined);
+  const db = fakeDb();
+  assertEquals((await refresh({ force: false }, deps(db, z))).status, "partial");
+  assertEquals(z.calls.length, MAX_CALLS);
+  assertEquals(db.row.data.monthly, null);
+  assertEquals(db.row.data.ytd, null);
+  assertEquals(db.row.data.topCosts, null);
+  for (const key of ["monthly", "ytd", "topCosts"]) assert(db.row.data.partial.includes(key), key);
+  assertEquals(db.row.data.ar.total, 100); // Sections that finished still show.
+});
+
+Deno.test("the first error in the ledger stops new reads, waits for those running, and fails the refresh", async () => {
+  const z = fakeZoho(20, (p, q) => {
+    if (p.startsWith("/chartofaccounts/") && q.account_id === "E3") throw new ZohoHttpError(500, "boom");
+  });
+  let open = 0;
+  const watched = {
+    ...z,
+    get: async (p: string, q?: Record<string, string>) => {
+      open++;
+      try {
+        await Promise.resolve();
+        return await z.get(p, q);
+      } finally {
+        open--;
+      }
+    },
+  };
+  const db = fakeDb({ as_of: minutesAgo(600), data: { old: true } });
+  const out = await quiet(() => refresh({ force: false }, deps(db, watched)));
+  assertEquals(out.status, "failed");
+  assertEquals(open, 0); // Nothing was left running when refresh returned.
+  const spent = z.calls.length;
+  await new Promise((r) => setTimeout(r, 20));
+  assertEquals(z.calls.length, spent); // And nothing starts afterwards.
+  assert(spent < 9 + 20, "reads kept starting after the error");
+  assertEquals(db.row.data, { old: true });
+  assertEquals(db.row.refreshing_since, null);
 });

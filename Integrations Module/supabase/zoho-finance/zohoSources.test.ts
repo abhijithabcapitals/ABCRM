@@ -273,3 +273,51 @@ Deno.test("ledgerAccountCount counts income and cost accounts only", () => {
   const a = (type: string) => ({ id: "1", name: "A", type, balance: 0, parentId: null });
   assertEquals(ledgerAccountCount([a("income"), a("other_income"), a("expense"), a("other_expense"), a("cost_of_goods_sold"), a("bank"), a("equity")]), 5);
 });
+
+Deno.test("readLedger reads at most 2 accounts at once and returns rows in account order whatever finishes first", async () => {
+  const accounts = ["A", "B", "C", "D", "E"].map((n) => ({ id: n, name: `N${n}`, type: "income", balance: 0, parentId: null }));
+  let open = 0;
+  let most = 0;
+  const slowness = new Map<string, number>([["A", 5], ["B", 0], ["C", 3], ["D", 0], ["E", 1]]);
+  const z = {
+    orgId: "ORG1",
+    get: async (_p: string, q: Record<string, string> = {}) => {
+      open++;
+      most = Math.max(most, open);
+      for (let i = 0; i < (slowness.get(q.account_id) ?? 0); i++) await Promise.resolve();
+      open--;
+      return { transactions: [{ transaction_date: "2026-10-01", credit_amount: 1 }], page_context: { has_more_page: false } };
+    },
+  };
+  const out = await readLedger(z, accounts, "2025-12-01", "2026-11-04");
+  assertEquals(most, 2);
+  assertEquals(out.map((e) => e.account), ["NA", "NB", "NC", "ND", "NE"]);
+});
+
+Deno.test("readLedger stops starting reads at the first error, waits for the running one, then throws it", async () => {
+  const accounts = ["A", "B", "C", "D"].map((n) => ({ id: n, name: n, type: "income", balance: 0, parentId: null }));
+  const started: string[] = [];
+  const pending = new Map<string, { ok: (v: Json) => void; fail: (e: Error) => void }>();
+  const z = {
+    orgId: "ORG1",
+    get: (_p: string, q: Record<string, string> = {}) => {
+      started.push(q.account_id);
+      return new Promise<Json>((ok, fail) => pending.set(q.account_id, { ok, fail }));
+    },
+  };
+  let settled = false;
+  const run = readLedger(z, accounts, "2025-12-01", "2026-11-04").then(() => "done", (e) => {
+    settled = true;
+    return e;
+  });
+  await new Promise((r) => setTimeout(r, 5));
+  assertEquals(started, ["A", "B"]);
+  pending.get("B")!.fail(new Error("boom"));
+  await new Promise((r) => setTimeout(r, 5));
+  assertEquals(started, ["A", "B"]); // C was not started.
+  assertEquals(settled, false); // A is still running, so the read waits for it.
+  pending.get("A")!.ok({ transactions: [], page_context: { has_more_page: false } });
+  const err = await run;
+  assertEquals((err as Error).message, "boom");
+  assertEquals(started, ["A", "B"]);
+});
