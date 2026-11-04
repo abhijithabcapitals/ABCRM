@@ -150,7 +150,7 @@ A Banking client with no `client_master_id` cannot be linked. The panel says so.
 | `customer_id` | Link for `client_id` | Link for `banking_clients.client_master_id` |
 | `reference_number` | `document_number` | `quotation_number` |
 | `date` | Today, Asia/Dubai | Today, Asia/Dubai |
-| Line items | Each entry in `lines`: `service_name` or `description`, and `amount` | One line each for bank fee, service fee and supplementary totals, less `discount_total` |
+| Line items | Each entry in `lines`: `service_name` or `description`, and `amount` | One line each for collected bank fee (`bank_fee_total - direct_to_bank_total`, no VAT, as in the CRM's own calculation), service fee and supplementary totals, with `discount_total` taken off service first and then supplementary |
 | VAT | `vat_mode`, `vat_rate` | `vat_mode`, `vat_rate` |
 
 - **Totals must match.** The function compares Zoho's returned total to the CRM total. On a difference it marks the row and warns staff, since it cannot edit the draft.
