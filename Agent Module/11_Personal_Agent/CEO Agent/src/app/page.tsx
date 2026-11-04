@@ -65,14 +65,6 @@ export default async function HomePage() {
           </span>
         </Link>
         <div className="account">
-          <nav aria-label="Main navigation" className="topbar-nav">
-            <Link aria-current="page" className="nav-link nav-link-active" href="/">
-              Workspace
-            </Link>
-            <Link className="nav-link" href="/settings">
-              Settings
-            </Link>
-          </nav>
           <span className="account-name">
             {profile?.display_name || user.email || "Signed in"}
           </span>

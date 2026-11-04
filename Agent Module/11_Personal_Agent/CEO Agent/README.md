@@ -23,12 +23,6 @@ other mailboxes are not exposed to the agent.
 - Email search and conversation tools backed by the CRM Email Base allowlist;
   email bodies remain in the CRM database and are not copied into this agent's
   database. The agent can only read the two configured addresses.
-- A stateless MCP Streamable HTTP endpoint at `/api/mcp` that advertises
-  `get_crm_lead_status`, `update_crm_lead`, and `trigger_agent_workflow`.
-  These are authenticated placeholders: they return explicit `not_implemented`
-  errors and do not read or change CRM data or invoke workflows.
-- A Settings page with Claude Desktop MCP connection guidance. Claude OAuth,
-  subscription usage access, and MCP call analytics are not implemented.
 
 ## Status
 
@@ -41,7 +35,6 @@ other mailboxes are not exposed to the agent.
 | Private audio storage | Private bucket created by migration; intentionally no access policies yet |
 | Voice transcription/upload | Pending provider, approved retention period, and durable cleanup worker |
 | Extraction, entity resolution, retrieval answers | Pending; no model calls are made |
-| MCP endpoint | Tool discovery and transport implemented; CRM and workflow handlers pending |
 | CRM, OneDrive, notifications, worker, approvals, agent API | Pending configuration and implementation |
 | Backup/recovery and production security validation | Pending |
 
@@ -60,13 +53,11 @@ an AI extraction, transcription, CRM update, reminder, or external action ran.
    ```
 
 3. Copy `.env.example` to `.env.local`. Set the local Supabase URL and
-   **publishable** key printed by `supabase start`. For local MCP testing, also
-   set `MCP_AUTH_TOKEN` to a random value of at least 32 characters:
+   **publishable** key printed by `supabase start`:
 
    ```text
    NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local publishable key>
-   MCP_AUTH_TOKEN=<local random token>
    ```
 
 4. Create an owner account in the local Supabase Auth dashboard or CLI, then
@@ -96,17 +87,7 @@ Worker: https://ceo-intelligence-agent.ceo-intelligence-agent.workers.dev
 
 1. Put the two `NEXT_PUBLIC_*` values in `.env.production.local` (git-ignored).
    They are inlined into the bundle at build time.
-2. Set `MCP_AUTH_TOKEN` as a Cloudflare Worker secret (not a Wrangler variable):
-
-   ```powershell
-   npx wrangler secret put MCP_AUTH_TOKEN
-   ```
-
-   The token must be at least 32 characters. MCP clients must send it as
-   `Authorization: Bearer <token>`. This is static bearer-token authentication,
-   not OAuth; an OAuth-only Claude connector requires a separate OAuth
-   authorization/resource-server integration.
-3. `npx wrangler login` once, then `npm run deploy`.
+2. `npx wrangler login` once, then `npm run deploy`.
 
 Session refresh lives in `middleware.ts` (edge) because OpenNext does not yet
 support the Node.js `proxy.ts` that Next 16 introduced.
