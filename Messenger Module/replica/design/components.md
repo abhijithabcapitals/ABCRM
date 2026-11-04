@@ -21,6 +21,19 @@ Chat list (PageChatList.jsx)
   a11y      real buttons, aria-current on the open chat, unread count in the label
   used on   S03
 
+Team tree (TeamsSection.jsx)
+  states    loading skeleton, empty, error with retry, unread, muted, private, long name
+  a11y      real buttons, aria-current on the open channel, unread and private in the label
+  used on   S06
+
+Thread pane (Conversation.jsx with thread)
+  layout    beside the posts; takes the whole space below 1100px
+  used on   S08
+
+Danger button (ManageTeam.jsx)
+  states    default, asking (says what will be lost, then Yes or Keep)
+  used on   S09
+
 Section placeholder (SectionNote.jsx)
   purpose   says plainly what a section will hold and in which phase
   a11y      section landmark named after the section

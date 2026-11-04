@@ -23,7 +23,7 @@ export default function ActivitySection({ rows, error, loaded, unread, onOpen, o
                       <button type="button" className={`abm-row${r.read_at ? "" : " abm-row-new"}`} onClick={() => onOpen(r)}>
                         <span className="abm-row-main">
                           <strong>{activitySentence(r)}</strong>
-                          <span className="abm-row-sub">{r.preview}</span>
+                          <span className="abm-row-sub">{r.conversation_kind === "channel" && r.conversation_title ? `${r.conversation_title}: ` : ""}{r.preview}</span>
                         </span>
                         <span className="abm-row-side">{rowTime(r.created_at)}</span>
                       </button>

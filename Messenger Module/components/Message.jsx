@@ -41,7 +41,7 @@ function Actions({ mine, editable, onReply, onReact, onEdit, onDelete }) {
   return (
     <div className="msgr-actions">
       {QUICK_REACTIONS.map((e) => <button key={e} type="button" className="msgr-action" aria-label={`React with ${e}`} onClick={() => onReact(e)}>{e}</button>)}
-      <button type="button" className="msgr-action" onClick={onReply}>Reply</button>
+      {onReply && <button type="button" className="msgr-action" onClick={onReply}>Reply</button>}
       {mine && editable && <button type="button" className="msgr-action" onClick={onEdit}>Edit</button>}
       {mine && <button type="button" className="msgr-action" onClick={() => setAsking(true)}>Delete</button>}
     </div>
@@ -50,7 +50,7 @@ function Actions({ mine, editable, onReply, onReact, onEdit, onDelete }) {
 
 // One message bubble. Text goes in as React text nodes, so nothing in a message is ever read as HTML.
 // Only a web link opens; a record label is plain text because the CRM has no address for one record.
-export default function Message({ message, mine, name, tick, onRetry, me, names = [], parent, onReply, onReact, onEdit, onDelete, onOpenFile }) {
+export default function Message({ message, mine, name, tick, onRetry, me, names = [], parent, noQuote, footer, onReply, onReact, onEdit, onDelete, onOpenFile }) {
   const [editing, setEditing] = useState(false);
   const label = message.link_label;
   const openable = message.link_type === "web" && !checkWebLink(message.link_ref);
@@ -59,13 +59,13 @@ export default function Message({ message, mine, name, tick, onRetry, me, names 
   const hideText = (same && message.link_type === "web") || !!message.attachment;
   const hideLabel = same && message.link_type !== "web";
   const deleted = !!message.deleted_at;
-  const settled = !message.status && !deleted && !!onReply;
+  const settled = !message.status && !deleted && !!onReact;
   const file = message.attachment;
   const reactions = reactionList(message.reactions, me);
   return (
     <div className={`msgr-msg ${mine ? "msgr-mine" : "msgr-theirs"}`}>
       {name && <span className="msgr-sender">{name}</span>}
-      {message.parent_id && !deleted && <span className="msgr-quote">{parent ? (parent.deleted_at ? "Message deleted" : parent.body) : "Earlier message"}</span>}
+      {message.parent_id && !deleted && !noQuote && <span className="msgr-quote">{parent ? (parent.deleted_at ? "Message deleted" : parent.body) : "Earlier message"}</span>}
       {deleted
         ? <span className="msgr-text msgr-deleted">Message deleted</span>
         : editing
@@ -95,6 +95,7 @@ export default function Message({ message, mine, name, tick, onRetry, me, names 
           ? <> <span className="msgr-failed">Not sent</span> <button type="button" className="msgr-link" onClick={onRetry}>Retry</button></>
           : tick && <span className={`msgr-tick msgr-tick-${tick}`} title={TICKS[tick][1]}> {TICKS[tick][0]}</span>}
       </span>
+      {footer}
       {settled && !editing && <Actions mine={mine} editable={!file} onReply={onReply} onReact={onReact} onEdit={() => setEditing(true)} onDelete={onDelete} />}
     </div>
   );

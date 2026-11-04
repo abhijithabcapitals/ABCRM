@@ -103,3 +103,8 @@ Each step needs approval. Run `bash "Database Module/Messanger Base/tests/run-lo
 2. Merge to `main`, then run `npm run deploy:cloudflare`.
 3. Log in as a member and an admin, and check the Messenger page, edits and reactions arriving live in a second window, and a mention reaching Activity.
 4. Files are separate: follow `files-setup.md`. Until then, sharing a file says it is not set up.
+
+## Teams and channels rollout
+
+Each step needs approval, and follows the rollout above. Run `005_teams_channels.sql` on the live database first, then merge and run `npm run deploy:cloudflare`.
+Check with two logins that a private channel stays hidden, that a post and a thread reply arrive live, and that unread counts clear.

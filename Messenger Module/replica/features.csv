@@ -15,11 +15,11 @@ Message search,search,must,yes,yes,Opens the chat; does not jump to the message 
 People and file search,search,should,yes,partial,Chat names and message text; files listed in the Files section
 Activity feed,activity,must,yes,yes,
 Presence and status,presence,must,yes,yes,Updates every 2 minutes; not instant
-Teams,channels,must,yes,no,
-Team roles,channels,must,yes,no,
-Standard channels,channels,must,yes,no,
-Private channels,channels,should,yes,no,
-Threaded posts,channels,must,yes,no,
+Teams,channels,must,yes,yes,Any staff member can create one
+Team roles,channels,must,yes,yes,Owner and member
+Standard channels,channels,must,yes,yes,
+Private channels,channels,should,yes,yes,Hidden from owners who are not in them
+Threaded posts,channels,must,yes,yes,
 Channel Files tab,channels,should,yes,no,
 Full-page app shell,shell,must,yes,partial,Built on fake data; real login check open
 Keep docked panel,shell,must,no,yes,User's approved design

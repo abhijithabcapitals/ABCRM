@@ -26,6 +26,13 @@ export function createChatApi(client) {
     return data;
   }
 
+  // The team functions raise their own plain sentences (P0001, 42501). Any other database wording stays hidden.
+  async function teamCall(fn, args, sentence) {
+    const res = await client.rpc(fn, args);
+    if (res.error) fail(res.error.code === "P0001" || res.error.code === "42501" ? res.error.message : sentence);
+    return res.data;
+  }
+
   // One copy of the people the caller may see. The picker fetches it once per opening and filters it as the person types.
   async function clientLookup() {
     return rows(await client.rpc("client_lookup"), "Could not search clients. Please try again.") || [];
@@ -127,6 +134,30 @@ export function createChatApi(client) {
       await fileCall({ action: "send_file", message_id: id, conversation_id: conversationId, key: start.key, name: file.name, type: file.type, parent_id: parentId || null });
     },
     fileLink: async (attachmentId) => (await fileCall({ action: "download", attachment_id: attachmentId })).url,
+    channelPosts: (conversationId, { before, limit = PAGE } = {}) => call("messenger_channel_posts", { p_conversation: conversationId, p_before: before ?? null, p_limit: limit }, "Could not load the posts. Please try again."),
+    async threadReplies(parentId, { before, limit = PAGE } = {}) {
+      let q = client.from("messenger_messages").select("*").eq("parent_id", parentId);
+      if (before) q = q.lt("created_at", before);
+      return rows(await q.order("created_at", { ascending: false }).limit(limit), "Could not load the replies. Please try again.");
+    },
+    async message(id) {
+      return rows(await client.from("messenger_messages").select("*").eq("id", id).maybeSingle(), "Could not open this thread. Please try again.");
+    },
+    teamList: () => call("messenger_team_list", undefined, "Could not load your teams. Please try again."),
+    teamPeople: (teamId) => teamCall("messenger_team_people", { p_team: teamId }, "Could not load the team's people. Please try again."),
+    createTeam: (name, description, memberIds) => teamCall("messenger_create_team", { p_name: name, p_description: description, p_members: memberIds }, "Could not create the team. Please try again."),
+    updateTeam: (teamId, name, description) => teamCall("messenger_update_team", { p_team: teamId, p_name: name, p_description: description }, "Could not save the team. Please try again."),
+    deleteTeam: (teamId) => teamCall("messenger_delete_team", { p_team: teamId }, "Could not delete the team. Please try again."),
+    addTeamMembers: (teamId, memberIds) => teamCall("messenger_add_team_members", { p_team: teamId, p_members: memberIds }, "Could not add these people. Please try again."),
+    removeTeamMember: (teamId, memberId) => teamCall("messenger_remove_team_member", { p_team: teamId, p_member: memberId }, "Could not remove this person. Please try again."),
+    leaveTeam: (teamId) => teamCall("messenger_leave_team", { p_team: teamId }, "Could not leave the team. Please try again."),
+    setTeamRole: (teamId, memberId, role) => teamCall("messenger_set_team_role", { p_team: teamId, p_member: memberId, p_role: role }, "Could not change this role. Please try again."),
+    createChannel: (teamId, name, visibility, memberIds) => teamCall("messenger_create_channel", { p_team: teamId, p_name: name, p_visibility: visibility, p_members: memberIds }, "Could not create the channel. Please try again."),
+    renameChannel: (channelId, name) => teamCall("messenger_rename_channel", { p_channel: channelId, p_name: name }, "Could not rename the channel. Please try again."),
+    deleteChannel: (channelId) => teamCall("messenger_delete_channel", { p_channel: channelId }, "Could not delete the channel. Please try again."),
+    addChannelMembers: (channelId, memberIds) => teamCall("messenger_add_channel_members", { p_channel: channelId, p_members: memberIds }, "Could not add these people. Please try again."),
+    removeChannelMember: (channelId, memberId) => teamCall("messenger_remove_channel_member", { p_channel: channelId, p_member: memberId }, "Could not remove this person. Please try again."),
+    leaveChannel: (channelId) => teamCall("messenger_leave_channel", { p_channel: channelId }, "Could not leave the channel. Please try again."),
     startDirect: (otherId) => call("messenger_start_direct", { p_other: otherId }, "Could not open this chat. Please try again."),
     createGroup: (title, memberIds) => call("messenger_create_group", { p_title: title, p_members: memberIds }, "Could not create the group. Please try again."),
     addMembers: (conversationId, memberIds) => call("messenger_add_members", { p_conversation: conversationId, p_members: memberIds }, "Could not add these people. Please try again."),

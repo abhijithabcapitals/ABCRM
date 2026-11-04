@@ -9,7 +9,7 @@ const SEARCH_WAIT_MS = 300;
 const SEARCH_MIN = 2;
 
 // Message search. The wait means one database call per pause in typing, and a late answer for old text is dropped.
-function MessageResults({ query, rows, onSelect }) {
+function MessageResults({ query, rows, onOpenResult }) {
   const [found, setFound] = useState({ query: "", list: [], problem: "" });
   const q = query.trim();
   useEffect(() => {
@@ -25,7 +25,7 @@ function MessageResults({ query, rows, onSelect }) {
   }, [q]);
   if (q.length < SEARCH_MIN) return null;
   const ready = found.query === q;
-  const titleOf = (id) => { const c = rows.find((r) => r.id === id); return c ? chatTitle(c) : ""; };
+  const titleOf = (m) => { const c = rows.find((r) => r.id === m.conversation_id); return c ? chatTitle(c) : m.conversation_title || ""; };
   return (
     <section aria-label="Messages found">
       <h3 className="abm-found">Messages</h3>
@@ -36,9 +36,9 @@ function MessageResults({ query, rows, onSelect }) {
         <ul className="abm-list">
           {found.list.map((m) => (
             <li key={m.message_id}>
-              <button type="button" className="abm-row" onClick={() => onSelect(m.conversation_id)}>
+              <button type="button" className="abm-row" onClick={() => onOpenResult(m)}>
                 <span className="abm-row-main">
-                  <strong>{titleOf(m.conversation_id)}</strong>
+                  <strong>{titleOf(m)}</strong>
                   <span className="abm-row-sub">{m.sender_name ? `${m.sender_name}: ` : ""}{m.body}</span>
                 </span>
                 <span className="abm-row-side">{rowTime(m.created_at)}</span>
@@ -94,7 +94,7 @@ function Body({ rows, shown, myId, loaded, error, query, selected, onSelect, onR
 }
 
 // The left pane of the Chats section. The rows are the dock's, so both look alike.
-export default function PageChatList({ rows, myId, loaded, error, query, selected, onSelect, onNew, onRetry, stateOf }) {
+export default function PageChatList({ rows, myId, loaded, error, query, selected, onSelect, onNew, onRetry, stateOf, onOpenResult }) {
   return (
     <section className="abm-side" aria-label="Your chats">
       <header className="abm-side-head">
@@ -104,7 +104,7 @@ export default function PageChatList({ rows, myId, loaded, error, query, selecte
       <div className="abm-side-body">
         <Body rows={rows} shown={filterChats(rows, query)} myId={myId} loaded={loaded} error={error} query={query}
           selected={selected} onSelect={onSelect} onRetry={onRetry} stateOf={stateOf} />
-        {loaded && !error && <MessageResults query={query} rows={rows} onSelect={onSelect} />}
+        {loaded && !error && <MessageResults query={query} rows={rows} onOpenResult={onOpenResult} />}
       </div>
     </section>
   );

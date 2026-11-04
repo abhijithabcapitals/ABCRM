@@ -51,6 +51,9 @@
   --abm-skeleton-h: 56px;
   --abm-ring: 2px;
   --abm-menu-w: 180px;
+  --abm-thread-w: 380px;
+  --abm-form-w: 640px;
+  --abm-picker-h: 200px;
   --abm-pop: 0 6px 20px rgba(16, 40, 46, 0.2);
   --abm-fast: 120ms;
 }

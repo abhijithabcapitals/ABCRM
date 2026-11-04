@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import chatApi from "../services/chatClient.js";
 import { catchUp, chatTitle, dayKey, mergeMessage, personLeft, senderName, tickState } from "../logic/chat.js";
+import { replyChange } from "../logic/teams.js";
 import Composer from "./Composer.jsx";
 import Message from "./Message.jsx";
 
@@ -13,8 +14,15 @@ const oldestFirst = (list) => [...list].reverse();
 const addAll = (cur, page) => oldestFirst(page).reduce((acc, m) => mergeMessage(acc, m), cur);
 
 // Open chat. The panel gives it key={conversationId}, so every chat starts with clean state.
-export default function Conversation({ row, profile, visible, connected, onMessage, reload, draft, onDraft, onClose, onInfo, attachSlot, status, onFlags }) {
+export default function Conversation({ row, profile, visible, connected, onMessage, reload, draft, onDraft, onClose, onInfo, attachSlot, status, onFlags, noPin, threaded, onOpenThread, replyLabel, thread, topSlot, title, placeholder }) {
   const cid = row.id;
+  const threadId = thread?.id;
+  // A channel lists its top-level posts, a thread lists the replies to one post, and a chat lists everything.
+  const loadPage = useCallback((opts) => {
+    if (threaded) return chatApi.channelPosts(cid, opts);
+    if (threadId) return chatApi.threadReplies(threadId, opts);
+    return chatApi.messages(cid, opts);
+  }, [cid, threaded, threadId]);
   const me = profile?.id;
   const [messages, setMessages] = useState([]);
   const latest = useRef([]); // the messages on screen, for catch-up to compare with
@@ -51,7 +59,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   // Newest page and the other members' reading state. Used on opening and on catch-up.
   const refresh = useCallback(async (first) => {
     try {
-      const [page, state] = await Promise.all([chatApi.messages(cid, { limit: PAGE }), chatApi.readState(cid).catch(() => undefined)]);
+      const [page, state] = await Promise.all([loadPage({ limit: PAGE }), chatApi.readState(cid).catch(() => undefined)]);
       // A page with no message in common with the loaded ones means a gap: it replaces them.
       const { replaced } = catchUp(latest.current, page);
       const stick = first || replaced || atBottom();
@@ -66,22 +74,36 @@ export default function Conversation({ row, profile, visible, connected, onMessa
     } catch {
       setError("Could not load messages. Please try again.");
     }
-  }, [cid, markIfSeen, loadMembers]);
+  }, [cid, loadPage, markIfSeen, loadMembers]);
 
   useEffect(() => { refresh(true); }, [cid, refresh]);
 
   // Live messages for this chat.
   useEffect(() => onMessage((m, change) => {
     if (m.conversation_id !== cid) return;
+    // A reply belongs in its thread; the channel only counts it.
+    if (threaded && m.parent_id) {
+      const step = replyChange(m, change);
+      if (step) setMessages((cur) => cur.map((x) => (x.id === m.parent_id ? { ...x, reply_count: Math.max(0, (x.reply_count || 0) + step) } : x)));
+      if (!change && m.sender_id !== me) markIfSeen();
+      return;
+    }
+    if (threadId && m.parent_id !== threadId) return;
     // An edit, delete, reaction or file summary. Only messages already on screen change, and nobody is scrolled.
-    if (change === "update") { setMessages((cur) => (cur.some((x) => x.id === m.id) ? mergeMessage(cur, m) : cur)); return; }
+    if (change === "update") {
+      setMessages((cur) => {
+        const old = cur.find((x) => x.id === m.id);
+        return old ? mergeMessage(cur, { ...old, ...m }) : cur;
+      });
+      return;
+    }
     const stick = atBottom() || m.sender_id === me;
     setMessages((cur) => mergeMessage(cur, m));
     if (stick) scrollTo.current = "bottom"; else setFresh(true);
     if (m.sender_id !== me) markIfSeen();
     // Someone added to the group after it was opened is not in the member list yet.
     if (m.sender_id && !known.current.has(m.sender_id)) { known.current.add(m.sender_id); loadMembers(); }
-  }), [cid, me, onMessage, markIfSeen, loadMembers]);
+  }), [cid, me, threaded, threadId, onMessage, markIfSeen, loadMembers]);
 
   // Catch-up: the channel came back, the panel was opened again, or the window got focus.
   const was = useRef({ connected, visible });
@@ -114,7 +136,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
     if (busy.current || !seen.current || !hasMore || !messages.length) return;
     busy.current = true;
     try {
-      const page = await chatApi.messages(cid, { before: messages[0].created_at, limit: PAGE });
+      const page = await loadPage({ before: messages[0].created_at, limit: PAGE });
       scrollTo.current = box.current.scrollHeight;
       setMessages((cur) => addAll(cur, page));
       setHasMore(page.length === PAGE);
@@ -153,7 +175,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   }
 
   function sendFile(file, parentId) {
-    const m = { id: crypto.randomUUID(), conversation_id: cid, sender_id: me, body: file.name, parent_id: parentId, attachment: { name: file.name, size: file.size }, created_at: new Date().toISOString(), status: "sending" };
+    const m = { id: crypto.randomUUID(), conversation_id: cid, sender_id: me, body: file.name, parent_id: parentId ?? threadId, attachment: { name: file.name, size: file.size }, created_at: new Date().toISOString(), status: "sending" };
     pendingFiles.current.set(m.id, file);
     scrollTo.current = "bottom";
     setMessages((cur) => mergeMessage(cur, m));
@@ -192,7 +214,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   }
 
   function send(body, link, extra = {}) {
-    const m = { id: crypto.randomUUID(), conversation_id: cid, sender_id: me, body, parent_id: extra.parentId, mention_ids: extra.mentionIds, created_at: new Date().toISOString(), status: "sending" };
+    const m = { id: crypto.randomUUID(), conversation_id: cid, sender_id: me, body, parent_id: extra.parentId ?? threadId, mention_ids: extra.mentionIds, created_at: new Date().toISOString(), status: "sending" };
     if (link) Object.assign(m, { link_type: link.type, link_ref: link.ref, link_label: link.label });
     scrollTo.current = "bottom";
     setMessages((cur) => mergeMessage(cur, m));
@@ -207,7 +229,8 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   const names = new Map(members.map((x) => [x.profile_id, x.full_name]));
   const allNames = members.map((x) => x.full_name);
   const byId = new Map(messages.map((x) => [x.id, x]));
-  const group = row.kind === "group";
+  const group = row.kind !== "direct";
+  const channel = row.kind === "channel";
   let lastDay = null;
   let lastSender = null;
   const items = messages.map((m) => {
@@ -220,8 +243,9 @@ export default function Conversation({ row, profile, visible, connected, onMessa
       <div key={m.id}>
         {showDay && <div className="msgr-day">{DAY_LABEL.format(new Date(m.created_at))}</div>}
         <Message message={m} mine={m.sender_id === me} name={showName ? senderName(names.get(m.sender_id) ?? null) : ""}
-          tick={tickState(m, me, readAt)} onRetry={() => retry(m)} me={me} names={allNames} parent={byId.get(m.parent_id)}
-          onReply={() => setReplyTo(m)} onReact={(emoji) => react(m, emoji)} onEdit={(body) => saveEdit(m, body)} onDelete={() => remove(m)} onOpenFile={openFile} />
+          tick={tickState(m, me, channel ? null : readAt)} onRetry={() => retry(m)} me={me} names={allNames} parent={byId.get(m.parent_id)} noQuote={!!threadId}
+          footer={threaded && <button type="button" className="msgr-reply-count" onClick={() => onOpenThread(m)}>{replyLabel(m.reply_count)}</button>}
+          onReply={threadId ? undefined : threaded ? () => onOpenThread(m) : () => setReplyTo(m)} onReact={(emoji) => react(m, emoji)} onEdit={(body) => saveEdit(m, body)} onDelete={() => remove(m)} onOpenFile={openFile} />
       </div>
     );
   });
@@ -230,23 +254,24 @@ export default function Conversation({ row, profile, visible, connected, onMessa
     <section className="msgr-chat-pane" aria-label="Conversation">
       <header className="msgr-pane-head">
         <span className="msgr-head-title">
-          <strong>{chatTitle(row)}</strong>
-          {group ? <small>{row.member_count} members</small> : status && <small>{status}</small>}
+          <strong>{title || chatTitle(row)}</strong>
+          {thread ? <small>In {chatTitle(row)}</small> : group ? <small>{row.team_name ? `${row.team_name} · ` : ""}{row.member_count} members</small> : status && <small>{status}</small>}
         </span>
-        {onFlags && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.pinned} onClick={() => onFlags({ pinned: !row.pinned })}>{row.pinned ? "Unpin" : "Pin"}</button>}
+        {onFlags && !noPin && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.pinned} onClick={() => onFlags({ pinned: !row.pinned })}>{row.pinned ? "Unpin" : "Pin"}</button>}
         {onFlags && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.muted} onClick={() => onFlags({ muted: !row.muted })}>{row.muted ? "Unmute" : "Mute"}</button>}
-        {group && <button type="button" className="msgr-icon-btn" onClick={onInfo} aria-label="Group info">ⓘ</button>}
-        <button type="button" className="msgr-close" onClick={onClose} aria-label="Close chat">×</button>
+        {group && onInfo && <button type="button" className="msgr-icon-btn" onClick={onInfo} aria-label="Group info">ⓘ</button>}
+        <button type="button" className="msgr-close" onClick={onClose} aria-label={thread ? "Close thread" : channel ? "Close channel" : "Close chat"}>×</button>
       </header>
       {error && <p className="msgr-note">{error} <button type="button" className="msgr-link" onClick={() => refresh(!loaded)}>Retry</button></p>}
       <div className="msgr-messages" ref={box} onScroll={onScroll}>
-        {loaded && !messages.length && !error && <p className="msgr-empty">No messages yet</p>}
+        {topSlot}
+        {loaded && !messages.length && !error && <p className="msgr-empty">{thread ? "No replies yet" : threaded ? "No posts yet. Start the conversation." : "No messages yet"}</p>}
         {items}
       </div>
       {fresh && <button type="button" className="msgr-fresh" onClick={() => { scrollTo.current = "bottom"; setMessages((c) => [...c]); }}>New messages</button>}
       {personLeft(row)
         ? <p className="msgr-note">This person has left</p>
-        : <Composer conversationId={cid} draft={draft} onDraft={onDraft} onSend={send} attachSlot={attachSlot} members={members} me={me} onFile={sendFile}
+        : <Composer conversationId={cid} draft={draft} onDraft={onDraft} onSend={send} attachSlot={attachSlot} members={members} me={me} onFile={sendFile} placeholder={placeholder}
             replyTo={replyTo} replyName={replyTo ? (replyTo.sender_id === me ? "yourself" : senderName(names.get(replyTo.sender_id) ?? null)) : ""} onCancelReply={() => setReplyTo(null)} />}
     </section>
   );

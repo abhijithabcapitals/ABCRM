@@ -4,7 +4,7 @@ import { chatTitle } from "./chat.js";
 export const SECTIONS = [
   { key: "activity", label: "Activity" },
   { key: "chats", label: "Chats" },
-  { key: "teams", label: "Teams", phase: 2, note: "Teams and their channels will live here, with threaded posts." },
+  { key: "teams", label: "Teams" },
   { key: "calendar", label: "Calendar", phase: 5, note: "Your meetings will show here by day and week." },
   { key: "calls", label: "Calls", phase: 4, note: "Audio and video calls and your call history will live here." },
   { key: "files", label: "Files" },

@@ -81,6 +81,55 @@ test("a muted chat does not add to the total, and a pinned chat sorts first", as
   assert.deepEqual(list.map((r) => r.id), ["old", "new"]);
 });
 
+const teamLogic = await import(pathToFileURL(join(here, "logic", "teams.js")).href);
+
+test("channel rows group into teams, and a muted channel adds nothing to the count", () => {
+  const row = (team, channel, unread, muted = false) => ({ team_id: team, team_name: team, team_role: "member", channel_id: channel, channel_name: channel, conversation_id: `c${channel}`, unread, muted });
+  const teams = teamLogic.groupTeams([row("A", "1", 2), row("A", "2", 5, true), row("B", "3", 1)]);
+  assert.deepEqual(teams.map((t) => [t.name, t.channels.length, t.unread]), [["A", 2, 2], ["B", 1, 1]]);
+  assert.equal(teamLogic.teamsUnread([row("A", "1", 2), row("A", "2", 5, true)]), 2);
+  assert.deepEqual(teamLogic.groupTeams(null), []);
+});
+
+test("names need text and fit 80 characters", () => {
+  assert.match(teamLogic.checkName("  ", "team name"), /team name/);
+  assert.match(teamLogic.checkName("x".repeat(81)), /80/);
+  assert.equal(teamLogic.checkName(" Tax "), null);
+});
+
+test("a reply changes its post's count, and only then", () => {
+  assert.equal(teamLogic.replyChange({ parent_id: "p" }), 1);
+  assert.equal(teamLogic.replyChange({ parent_id: "p", deleted_at: "x" }, "update"), -1);
+  assert.equal(teamLogic.replyChange({ parent_id: "p" }, "update"), 0);
+  assert.equal(teamLogic.replyChange({ parent_id: null }), 0);
+});
+
+test("reply labels read naturally", () => {
+  assert.equal(teamLogic.replyLabel(0), "Reply in thread");
+  assert.equal(teamLogic.replyLabel(1), "1 reply");
+  assert.equal(teamLogic.replyLabel(4), "4 replies");
+});
+
+test("a channel shows its own name, not a person's", async () => {
+  const { chatTitle } = await import(pathToFileURL(join(here, "logic", "chat.js")).href);
+  assert.equal(chatTitle({ kind: "channel", title: "General" }), "General");
+  assert.equal(chatTitle({ kind: "direct", other_name: null }), "Former staff");
+});
+
+test("every database call the service makes names real parameters", () => {
+  const dir = join(here, "..", "Database Module", "Messanger Base", "migrations");
+  const sql = ["003_chat.sql", "004_chat_parity.sql", "005_teams_channels.sql"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+  const api = readFileSync(join(here, "services", "chatApi.js"), "utf8");
+  const calls = [...api.matchAll(/"(messenger_\w+)",\s*\{([^}]*)\}/g)];
+  assert.ok(calls.length > 20);
+  for (const [, fn, args] of calls) {
+    const heads = [...sql.matchAll(new RegExp(`create (?:or replace )?function public\\.${fn}\\(([^)]*)\\)`, "g"))];
+    assert.ok(heads.length, `${fn} is not defined`);
+    const params = heads.at(-1)[1];
+    for (const [name] of args.matchAll(/p_\w+/g)) assert.ok(params.includes(name), `${fn} has no ${name}`);
+  }
+});
+
 const chat = (title) => ({ id: title, kind: "group", title });
 const person = (other_name) => ({ id: other_name, kind: "direct", other_name });
 
@@ -90,8 +139,8 @@ test("an unknown saved section falls back to Chats", () => {
   assert.equal(validSection("calendar"), "calendar");
 });
 
-test("a section not built yet names its phase and a note; Chats, Activity and Files are built", () => {
-  const built = ["activity", "chats", "files"];
+test("a section not built yet names its phase and a note; Chats, Activity, Teams and Files are built", () => {
+  const built = ["activity", "chats", "files", "teams"];
   for (const s of SECTIONS) {
     if (built.includes(s.key)) assert.equal(s.phase, undefined, s.key);
     else assert.ok(s.phase && s.note, s.key);

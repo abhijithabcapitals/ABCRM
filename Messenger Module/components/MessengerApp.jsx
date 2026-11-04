@@ -5,6 +5,8 @@ import ChatBoundary from "./ChatBoundary.jsx";
 import PageChatList from "./PageChatList.jsx";
 import MessengerPanel from "./MessengerPanel.jsx";
 import SectionNote from "./SectionNote.jsx";
+import TeamsSection from "./TeamsSection.jsx";
+import useTeams from "./useTeams.js";
 import ActivitySection from "./ActivitySection.jsx";
 import FilesSection from "./FilesSection.jsx";
 import StatusMenu from "./StatusMenu.jsx";
@@ -12,6 +14,7 @@ import useActivity from "./useActivity.js";
 import usePresence from "./usePresence.js";
 import useChat from "./useChat.js";
 import { SECTIONS, readSection, saveSection } from "../logic/app.js";
+import { teamsUnread } from "../logic/teams.js";
 import "../replica/design/tokens.css";
 import "./chat.css";
 import "./messengerApp.css";
@@ -20,6 +23,8 @@ function Inner({ profile }) {
   const { rows, total, error, loaded, connected, reload, onMessage } = useChat(profile?.id);
   const activity = useActivity(profile?.id, onMessage);
   const presence = usePresence(profile?.id);
+  const teamsData = useTeams(profile?.id, onMessage);
+  const [target, setTarget] = useState(null); // the channel or thread Activity or search asked to open
   const [section, setSection] = useState(readSection);
   const [selected, setSelected] = useState(null);
   const [screen, setScreen] = useState(null); // "new", "info", or null
@@ -30,10 +35,19 @@ function Inner({ profile }) {
   const go = (key) => { setSection(key); saveSection(key); };
   const pick = (id) => { setSelected(id); setScreen(null); };
   const closePane = () => { setSelected(null); setScreen(null); };
+  // A result from Activity or search can live in a chat, a channel, or a channel's thread.
+  const openResult = (row) => {
+    if (row.conversation_kind === "channel") {
+      setTarget({ conversationId: row.conversation_id, threadId: row.parent_id || null });
+      go("teams");
+    } else {
+      pick(row.conversation_id);
+      go("chats");
+    }
+  };
   const openActivity = (row) => {
     if (!row.read_at) activity.markRead(row.id);
-    pick(row.conversation_id);
-    go("chats");
+    openResult(row);
   };
   const search = (text) => { setQuery(text); if (section !== "chats") go("chats"); };
 
@@ -45,17 +59,20 @@ function Inner({ profile }) {
         <input className="abm-search" type="search" value={query} placeholder="Search chats and messages" aria-label="Search chats and messages" onChange={(e) => search(e.target.value)} />
         <StatusMenu name={profile?.full_name} status={presence.mine} onStatus={presence.setStatus} />
       </header>
-      <AppBar section={section} unread={{ chats: error ? 0 : total, activity: activity.unread }} onSection={go} />
+      <AppBar section={section} unread={{ chats: error ? 0 : total, activity: activity.unread, teams: teamsData.error ? 0 : teamsUnread(teamsData.rows) }} onSection={go} />
       <div className="abm-work">
         {/* Stays mounted across sections, so a half-typed message survives. */}
         <div className="abm-chats" hidden={section !== "chats"}>
           <PageChatList rows={rows} myId={profile?.id} loaded={loaded} error={error} query={query} selected={selected}
-            onSelect={pick} onNew={() => setScreen("new")} onRetry={reload} stateOf={presence.state} />
+            onSelect={pick} onNew={() => setScreen("new")} onRetry={reload} stateOf={presence.state} onOpenResult={openResult} />
           <div className="abm-pane" hidden={!paneOpen}>
             <MessengerPanel profile={profile} rows={rows} reload={reload} onMessage={onMessage} visible={section === "chats"} connected={connected}
               selected={selected} onSelect={setSelected} screen={screen} onScreen={setScreen} onClose={closePane} statusOf={presence.label} />
           </div>
           {!paneOpen && <p className="abm-pane-empty">Pick a chat to read it here.</p>}
+        </div>
+        <div className="abm-chats" hidden={section !== "teams"}>
+          <TeamsSection profile={profile} teamsData={teamsData} visible={section === "teams"} connected={connected} onMessage={onMessage} target={target} />
         </div>
         {current?.phase && <SectionNote section={current} />}
         {section === "activity" && <ActivitySection {...activity} onOpen={openActivity} onMarkAll={() => activity.markRead()} onRetry={activity.reload} />}

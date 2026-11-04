@@ -4,7 +4,7 @@ import { applyMention, fileProblem, membersMatching, mentionIdsIn, mentionQuery 
 
 // Draft text is owned by the panel so it survives switching chats. attachSlot is filled by the attach picker:
 // a node, or a function given { link, setLink } to show the chosen record and let it be cleared.
-export default function Composer({ conversationId, draft, onDraft, onSend, attachSlot, members = [], me, replyTo, replyName, onCancelReply, onFile }) {
+export default function Composer({ conversationId, draft, onDraft, onSend, attachSlot, members = [], me, replyTo, replyName, onCancelReply, onFile, placeholder = "Write a message" }) {
   const [problem, setProblem] = useState("");
   const [link, setLink] = useState(null);
   const [query, setQuery] = useState(null); // the @ name being typed
@@ -94,8 +94,8 @@ export default function Composer({ conversationId, draft, onDraft, onSend, attac
           ref={input}
           className="msgr-input"
           rows={1}
-          placeholder="Write a message"
-          aria-label="Message"
+          placeholder={placeholder}
+          aria-label={placeholder}
           value={draft}
           onChange={(e) => {
             onDraft(e.target.value);

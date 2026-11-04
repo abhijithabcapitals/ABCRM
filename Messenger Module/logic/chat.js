@@ -50,7 +50,7 @@ export function senderName(name) {
 }
 
 export function chatTitle(row) {
-  if (row.kind === "group") return row.title;
+  if (row.kind !== "direct") return row.title;
   return row.other_name || "Former staff";
 }
 

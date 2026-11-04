@@ -31,9 +31,9 @@ export default function FilesSection({ chats }) {
     }
   }
 
-  const titleOf = (id) => {
-    const chat = chats.find((c) => c.id === id);
-    return chat ? chatTitle(chat) : "";
+  const titleOf = (f) => {
+    const chat = chats.find((c) => c.id === f.conversation_id);
+    return chat ? chatTitle(chat) : f.conversation_title || "";
   };
 
   return (
@@ -50,7 +50,7 @@ export default function FilesSection({ chats }) {
                 <button type="button" className="abm-row" aria-label={`Download ${f.file_name}`} onClick={() => open(f.id)}>
                   <span className="abm-row-main">
                     <strong>{f.file_name}</strong>
-                    <span className="abm-row-sub">{[titleOf(f.conversation_id), f.uploader_name, formatBytes(f.size_bytes)].filter(Boolean).join(" · ")}</span>
+                    <span className="abm-row-sub">{[titleOf(f), f.uploader_name, formatBytes(f.size_bytes)].filter(Boolean).join(" · ")}</span>
                   </span>
                   <span className="abm-row-side">{rowTime(f.created_at)}</span>
                 </button>

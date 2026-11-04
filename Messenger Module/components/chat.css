@@ -130,3 +130,8 @@
 .msgr-mention-pick:hover, .msgr-mention-on { background: #d7ebe5; }
 .msgr-flag { flex: none; margin-left: 8px; font-size: 12px; }
 @media (hover: none) { .msgr-actions { position: static; opacity: 1; pointer-events: auto; flex-wrap: wrap; margin-top: 4px; box-shadow: none; white-space: normal; } }
+
+/* Channel posts and threads. */
+.msgr-reply-count { align-self: flex-start; margin-top: 4px; padding: 0; border: 0; background: none; color: #0F6E56; font: 600 12px/18px system-ui, sans-serif; cursor: pointer; }
+.msgr-reply-count:hover { text-decoration: underline; }
+.msgr-thread-top { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #e6ebed; }
