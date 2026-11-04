@@ -11,6 +11,7 @@ import { EMP_FIELDS } from "../empFields";
 import { ACTION_LABEL, adminActionLabel, adminDetail, adminPerson, auditDetail, auditFields, auditPeople, auditPersonFilter, auditWho, cleanSearch, dayEnd, dayStart } from "./auditTrail";
 
 const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
+const Clip = ({ text }) => <span className="bk-clip" title={text}>{text}</span>;
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 const call = async (name, args) => check(await supabase.rpc(name, args));
 async function adminUsers(body) {
@@ -178,13 +179,13 @@ export function AuditPanel() {
           {distinct("actor", "whoText").filter(([k]) => k).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
       </div>
-      {log.loading && !log.data ? <Spinner /> : <DataTable search="Search…" rows={shown} empty="No admin actions match." columns={[
-        { key: "at", label: "When", render: (r) => <span style={{ whiteSpace: "nowrap" }}>{when(r.at)}</span> },
-        { key: "whoText", label: "Done by", render: (r) => <span style={{ whiteSpace: "nowrap" }}>{r.whoText}</span> },
-        { key: "actionText", label: "Action", render: (r) => <span style={{ whiteSpace: "nowrap" }}>{r.actionText}</span> },
-        { key: "targetText", label: "Target" },
-        { key: "detailText", label: "Detail" },
-      ]} />}
+      {log.loading && !log.data ? <Spinner /> : <div className="bk-oneline"><DataTable search="Search…" rows={shown} empty="No admin actions match." columns={[
+        { key: "at", label: "When", render: (r) => when(r.at) },
+        { key: "whoText", label: "Done by" },
+        { key: "actionText", label: "Action" },
+        { key: "targetText", label: "Target", render: (r) => <Clip text={r.targetText} /> },
+        { key: "detailText", label: "Detail", render: (r) => <Clip text={r.detailText} /> },
+      ]} /></div>}
     </div>
   );
 }
@@ -241,8 +242,12 @@ export function AuditTrailPanel() {
 
 const HEADINGS = { "employee code": "employee_code", "emp code": "employee_code", code: "employee_code", "full name": "full_name", name: "full_name", email: "work_email", "work email": "work_email", phone: "phone", mobile: "phone", department: "department", designation: "designation", "join date": "join_date", status: "status" };
 
+const EMPLOYEE_COLUMNS = [{ key: "employee_code", label: "Code" }, { key: "full_name", label: "Name" }, { key: "department", label: "Department" }, { key: "designation", label: "Designation" }, { key: "work_email", label: "Email" }, { key: "status", label: "Status", render: (e) => <Badge tone={e.status === "Active" ? "good" : "warn"}>{e.status}</Badge> }, { key: "profile_id", label: "CRM login", render: (e) => (e.profile_id ? <Badge tone="good">Has login</Badge> : "–") }];
+
 export function EmployeesPanel() {
   const list = useLoad(async () => check(await supabase.from("hr_employees").select("*").order("employee_code")), []);
+  const active = (list.data || []).filter((e) => e.status !== "Left");
+  const former = (list.data || []).filter((e) => e.status === "Left");
   const [edit, setEdit] = useState(null);
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
@@ -267,7 +272,10 @@ export function EmployeesPanel() {
       <ErrorNote message={list.error || error} onClose={() => setError(null)} />
       {note && <div className="bk-alert bk-alert-ok">{note}</div>}
       <div className="bk-actions bk-mb"><Button variant="primary" onClick={() => setEdit({ status: "Active" })}>+ Add employee</Button><Button onClick={() => file.current?.click()}>Import Excel</Button><small className="bk-muted">Columns: Employee Code, Full Name, Email, Phone, Department, Designation, Join Date</small><input ref={file} type="file" hidden accept=".xlsx,.xls,.csv" aria-label="Employee file" onChange={(e) => e.target.files[0] && importFile(e.target.files[0])} /></div>
-      {list.loading && !list.data ? <Spinner /> : <DataTable search="Search code, name or department…" rows={list.data || []} onRow={setEdit} empty="No employees yet. Add or import them to onboard members." columns={[{ key: "employee_code", label: "Code" }, { key: "full_name", label: "Name" }, { key: "department", label: "Department" }, { key: "designation", label: "Designation" }, { key: "work_email", label: "Email" }, { key: "status", label: "Status", render: (e) => <Badge tone={e.status === "Active" ? "good" : "warn"}>{e.status}</Badge> }, { key: "profile_id", label: "CRM login", render: (e) => (e.profile_id ? <Badge tone="good">Has login</Badge> : "–") }]} />}
+      {list.loading && !list.data ? <Spinner /> : <div className="bk-oneline">
+        <Panel title={`Active Employees (${active.length})`}><DataTable search="Search code, name or department…" rows={active} onRow={setEdit} empty="No employees yet. Add or import them to onboard members." columns={EMPLOYEE_COLUMNS} /></Panel>
+        {former.length > 0 && <Panel title={`Ex-Employees (${former.length})`}><DataTable search="Search code, name or department…" rows={former} onRow={setEdit} columns={EMPLOYEE_COLUMNS} /></Panel>}
+      </div>}
       {edit && <FormModal wide title={edit.id ? `Edit ${edit.employee_code}` : "Add employee"} fields={EMP_FIELDS} initial={edit} onClose={() => setEdit(null)} onSubmit={save} />}
     </div>
   );
@@ -387,13 +395,13 @@ export function MembersPanel({ currentUser }) {
     <div>
       <ErrorNote message={list.error} />
       <div className="bk-actions bk-mb"><Button variant="primary" onClick={() => setAdding(true)}>+ Onboard member</Button></div>
-      {list.loading && !list.data ? <Spinner /> : <DataTable search="Search name, code or email…" rows={list.data || []} onRow={(m) => setOpenId(m.id)} empty="No members." columns={[
+      {list.loading && !list.data ? <Spinner /> : <div className="bk-oneline"><DataTable search="Search name, code or email…" rows={list.data || []} onRow={(m) => setOpenId(m.id)} empty="No members." columns={[
         { key: "employee_code", label: "Code" }, { key: "full_name", label: "Member" }, { key: "email", label: "Username" }, { key: "department", label: "Department" },
         { key: "role", label: "Type", render: (m) => <Badge tone={m.role === "admin" ? "good" : undefined}>{m.role}</Badge> },
-        { key: "tabs", label: "Tabs", render: (m) => (m.role === "admin" ? "All" : (m.tabs || []).map((t) => label[t] || t).join(", ") || <Badge tone="warn">None</Badge>) },
+        { key: "tabs", label: "Tabs", render: (m) => (m.role === "admin" ? "All" : (m.tabs || []).length ? <Clip text={m.tabs.map((t) => label[t] || t).join(", ")} /> : <Badge tone="warn">None</Badge>) },
         { key: "data_role", label: "Data role", render: (m) => (m.data_role || "–").replace(/_/g, " ") }, { key: "last_sign_in_at", label: "Last sign-in", render: (m) => when(m.last_sign_in_at) },
         { key: "suspended", label: "Login", render: (m) => <Badge tone={m.suspended ? "bad" : "good"}>{m.suspended ? "Suspended" : "Active"}</Badge> },
-      ]} />}
+      ]} /></div>}
       {adding && <Onboard onClose={() => setAdding(false)} onDone={list.reload} />}
       {open && <EditMember member={open} currentUser={currentUser} onClose={() => setOpenId(null)} onDone={list.reload} />}
     </div>
