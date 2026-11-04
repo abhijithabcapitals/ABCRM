@@ -58,6 +58,7 @@
   --abm-tile-min: 120px;
   --abm-tile-face: 72px;
   --abm-note-lift: 200px;
+  --abm-mail-h: 420px;
   --abm-pop: 0 6px 20px rgba(16, 40, 46, 0.2);
   --abm-fast: 120ms;
 }

@@ -53,3 +53,11 @@ Installed at D:\\Apps\\AB Capital Messenger. Checked: starts and shows the login
 | S12 Pre-join | Not built | Moved to phase 5, with meetings. Calls use the default devices, with a picker in the call | None |
 
 Database: real Postgres, all checks and rollback pass. Function: unit tests only. Real LiveKit, real devices and two real people have not been tried. Nothing is live.
+
+## Inbox step A, 2026-11-04
+
+| Screen | Status | Missing | Harder than expected |
+|---|---|---|---|
+| Inbox | Done on fake mail | Real mail; assignment; client links; body search; other channels beyond a link | Mailbox grants and the staff Mail tab sit unreleased on branch profile-menu. Until it merges, only a mailbox's owner sees its mail |
+
+No new tables and no migration. Reading uses the mail store's own access rules, and Reply is the CEO module's reply window, with its one-time send code.

@@ -42,7 +42,7 @@ Each ships alone, and each live step needs approval.
 
 | Step | Delivers | Rough size |
 |---|---|---|
-| A | Inbox screens and tables, with email from the existing mail data | 1 to 2 weeks |
+| A | Built 2026-11-04: Inbox screen with email from the existing mail store, and links out for the rest. No new tables: they come with the first channel that needs them. Assignment and client links wait for that too | Done on fake data |
 | B | WhatsApp | 1 week, plus Meta's business verification, which we do not control |
 | C | Telegram bot | Days |
 | D | Instagram | 1 week, plus Meta's setup |

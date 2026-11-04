@@ -58,8 +58,8 @@ Copilot,ai,skip,yes,skip,Licensed; separate decision
 Shared channels with other companies,channels,skip,yes,skip,Not needed for one company
 Webinars and town halls,meetings,skip,yes,skip,Not needed
 App store and live Office co-editing,apps,skip,yes,skip,Too large; not core
-Unified inbox: email,inbox,must,no,no,Our addition; plan in docs/2026-11-04-one-stop-inbox-plan.md
-Unified inbox: WhatsApp,inbox,must,no,no,Business number through Meta's Cloud API
-Unified inbox: Telegram,inbox,must,no,no,Bot API; a bot cannot message first
-Unified inbox: Instagram,inbox,must,no,no,Professional account; 24-hour reply window
-Unified inbox: LinkedIn,inbox,should,no,no,Approved partners only; link out until approved
+Unified inbox: email,inbox,must,no,partial,Read, reply, archive, search subjects; never run on real mail; no assignment yet
+Unified inbox: WhatsApp,inbox,must,no,partial,Link out only; connection needs a Business number through Meta's Cloud API
+Unified inbox: Telegram,inbox,must,no,partial,Link out only; connection would be a bot; a bot cannot message first
+Unified inbox: Instagram,inbox,must,no,partial,Link out only; connection needs a professional account; 24-hour reply window
+Unified inbox: LinkedIn,inbox,should,no,partial,Link out only; approved partners only

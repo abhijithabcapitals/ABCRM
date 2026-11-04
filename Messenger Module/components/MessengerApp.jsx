@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import logo from "@app/assets/ab-capital-logo.webp";
 import AppBar from "./AppBar.jsx";
 import ChatBoundary from "./ChatBoundary.jsx";
 import PageChatList from "./PageChatList.jsx";
 import MessengerPanel from "./MessengerPanel.jsx";
 import SectionNote from "./SectionNote.jsx";
+import InboxSection from "./InboxSection.jsx";
+import inboxApi from "../services/inboxClient.js";
 import CallsSection from "./CallsSection.jsx";
 import SettingsSection from "./SettingsSection.jsx";
 import useDesktop from "./useDesktop.js";
@@ -27,6 +29,14 @@ function Inner({ profile, onSignOut }) {
   const activity = useActivity(profile?.id, onMessage);
   const presence = usePresence(profile?.id);
   const teamsData = useTeams(profile?.id, onMessage);
+  const [mailCount, setMailCount] = useState(0);
+  const countMail = useCallback(() => inboxApi.newCount().then(setMailCount, () => {}), []);
+  useEffect(() => {
+    const first = setTimeout(countMail, 0);
+    const timer = setInterval(countMail, 60000); // the mail store syncs every two minutes
+    window.addEventListener("focus", countMail);
+    return () => { clearTimeout(first); clearInterval(timer); window.removeEventListener("focus", countMail); };
+  }, [countMail]);
   const [target, setTarget] = useState(null); // the channel or thread Activity or search asked to open
   const [section, setSection] = useState(readSection);
   const [selected, setSelected] = useState(null);
@@ -64,7 +74,7 @@ function Inner({ profile, onSignOut }) {
         <input className="abm-search" type="search" value={query} placeholder="Search chats and messages" aria-label="Search chats and messages" onChange={(e) => search(e.target.value)} />
         <StatusMenu name={profile?.full_name} status={presence.mine} onStatus={presence.setStatus} onSettings={() => go("settings")} />
       </header>
-      <AppBar section={section} unread={{ chats: error ? 0 : total, activity: activity.unread, teams: teamsUnreadCount }} onSection={go} />
+      <AppBar section={section} unread={{ chats: error ? 0 : total, activity: activity.unread, teams: teamsUnreadCount, inbox: mailCount }} onSection={go} />
       <div className="abm-work">
         {/* Stays mounted across sections, so a half-typed message survives. */}
         <div className="abm-chats" hidden={section !== "chats"}>
@@ -81,6 +91,7 @@ function Inner({ profile, onSignOut }) {
         </div>
         {current?.phase && <SectionNote section={current} />}
         {section === "activity" && <ActivitySection {...activity} onOpen={openActivity} onMarkAll={() => activity.markRead()} onRetry={activity.reload} />}
+        {section === "inbox" && <InboxSection onCountChanged={countMail} />}
         {section === "files" && <FilesSection chats={rows} />}
         {section === "calls" && <CallsSection />}
         {section === "settings" && <SettingsSection name={profile?.full_name} onSignOut={onSignOut} />}

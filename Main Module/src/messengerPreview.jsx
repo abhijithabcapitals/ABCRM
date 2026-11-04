@@ -6,6 +6,7 @@ import chatApi from "@messenger/services/chatClient.js";
 import MessengerApp from "@messenger/components/MessengerApp.jsx";
 import CallHost from "@messenger/components/CallHost.jsx";
 import callRoom from "@messenger/services/callRoom.js";
+import inboxApi from "@messenger/services/inboxClient.js";
 
 const state = new URLSearchParams(location.search).get("state");
 const me = { id: "me", full_name: "Preview Person" };
@@ -40,6 +41,26 @@ let ACTIVITY = state === "empty" ? [] : [
 ];
 const FILES = state === "empty" ? [] : [{ id: "f1", conversation_id: "c2", file_name: "Sample plan.pdf", content_type: "application/pdf", size_bytes: 248000, uploader_name: "Sample Two", created_at: at(90) }];
 chatApi.send = async () => {};
+// The Inbox on fake mail: ?mail=none has no mailbox, ?mail=error fails. Nothing touches the mail store.
+const mailMode = new URLSearchParams(location.search).get("mail");
+const BOXES = [{ id: "b1", address: "info@sample.test", last_error: null }, { id: "b2", address: "sales@sample.test", last_error: "Timed out" }];
+let THREADS = [
+  { id: "m1", mailbox_id: "b1", subject: "Licence renewal documents", participants: ["info@sample.test", "Sample Client <client@sample.test>"], last_message_at: at(20), message_count: 2, status: "new" },
+  { id: "m2", mailbox_id: "b2", subject: "Quote request", participants: ["sales@sample.test", "buyer@sample.test"], last_message_at: at(300), message_count: 1, status: "read" },
+  { id: "m3", mailbox_id: "b1", subject: "Old newsletter", participants: ["news@sample.test"], last_message_at: at(9000), message_count: 1, status: "archived" },
+];
+const fail = () => { if (mailMode === "error") throw new Error("Could not load your mail. Please try again."); };
+inboxApi.mailboxes = async () => { fail(); return mailMode === "none" ? [] : BOXES; };
+inboxApi.threads = async ({ mailboxId, archived, query } = {}) => { fail(); return THREADS.filter((t) => (archived ? t.status === "archived" : t.status !== "archived") && (!mailboxId || t.mailbox_id === mailboxId) && (!query || t.subject.toLowerCase().includes(query.trim().toLowerCase()))).map((t) => ({ ...t })); };
+inboxApi.newCount = async () => THREADS.filter((t) => t.status === "new").length;
+inboxApi.setStatus = async (id, status) => { THREADS = THREADS.map((t) => (t.id === id ? { ...t, status } : t)); };
+inboxApi.messages = async (id) => (id === "m2"
+  ? [{ id: "x2", from_address: "buyer@sample.test", to_addresses: ["sales@sample.test"], sent_at: at(300), body_text: "", body_html: '<p id="html-body">Please quote.</p><img src="https://track.invalid/p.gif"><script>parent.__mailScriptRan = true</script>', body_complete: true }]
+  : [{ id: "x1", from_name: "Sample Client", from_address: "client@sample.test", to_addresses: ["info@sample.test"], cc_addresses: ["boss@sample.test"], sent_at: at(30), body_text: "Attached are the documents.", body_complete: true, attachment_count: 1 }, { id: "x3", direction: "outbound", from_address: "info@sample.test", to_addresses: ["client@sample.test"], sent_at: at(20), body_text: "Thanks, received.", body_complete: false }]);
+inboxApi.attachments = async () => [{ id: "f1", message_id: "x1", filename: "licence.pdf", size_bytes: 52000, storage_path: "p" }];
+inboxApi.attachmentLink = async () => { throw new Error("Could not open this attachment. Please try again."); };
+const nothing = new Proxy(function () {}, { get: (_t, name) => (name === "then" ? (ok) => ok({ data: [], error: null }) : () => nothing) });
+inboxApi.composerClient = { auth: { getSession: async () => ({ data: { session: null } }) }, functions: { invoke: async () => ({ data: { error: "This is the preview, so nothing can be sent." }, error: null }) }, storage: nothing, from: () => nothing, schema: () => nothing };
 // Calls on fake data: ?call=incoming rings once, and the room is a stand-in, so no media or server is involved.
 let RINGING = new URLSearchParams(location.search).get("call") === "incoming" ? [{ id: "in1", conversation_id: "c1", media: "video", caller_name: "Sample Colleague", conversation_kind: "direct", started_at: at(0) }] : [];
 const callEvents = [];

@@ -256,8 +256,8 @@ test("an unknown saved section falls back to Chats", () => {
   assert.equal(validSection("calendar"), "calendar");
 });
 
-test("a section not built yet names its phase and a note; Chats, Activity, Teams, Calls, Files and Settings are built", () => {
-  const built = ["activity", "calls", "chats", "files", "teams", "settings"];
+test("a section not built yet names its phase and a note; Chats, Activity, Inbox, Teams, Calls, Files and Settings are built", () => {
+  const built = ["activity", "calls", "chats", "files", "inbox", "teams", "settings"];
   for (const s of SECTIONS) {
     if (built.includes(s.key)) assert.equal(s.phase, undefined, s.key);
     else assert.ok(s.phase && s.note, s.key);

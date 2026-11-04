@@ -3,6 +3,7 @@ import { chatTitle } from "./chat.js";
 // The sections of the full Messenger page, in app bar order. A section with a phase is not built yet.
 export const SECTIONS = [
   { key: "activity", label: "Activity" },
+  { key: "inbox", label: "Inbox" },
   { key: "chats", label: "Chats" },
   { key: "teams", label: "Teams" },
   { key: "calendar", label: "Calendar", phase: 5, note: "Your meetings will show here by day and week." },
