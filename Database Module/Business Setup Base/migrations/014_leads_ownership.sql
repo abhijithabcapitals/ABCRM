@@ -252,7 +252,7 @@ end $$;
 -- storage at p_path. It is marked reviewed by the staff member and noted as staff-added, so it never looks client-sent.
 create or replace function public.business_setup_form_doc_add(p_id uuid, p_kind text, p_path text) returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare f business_setup_onboarding_forms; v_kind text := nullif(btrim(coalesce(p_kind, '')), ''); v_path text := nullif(btrim(coalesce(p_path, '')), ''); v_id uuid;
+declare f business_setup_onboarding_forms; v_kind text := nullif(btrim(coalesce(p_kind, '')), ''); v_path text := nullif(btrim(coalesce(p_path, '')), ''); v_id uuid; v_p1 text; v_p2 text;
 begin
   perform business_setup_require('setup.kyc.manage');
   if v_kind is null then raise exception 'Choose the document kind'; end if;
@@ -261,7 +261,8 @@ begin
   if f.id is null then raise exception 'Form not found'; end if;
   if f.status <> 'In review' then raise exception 'Staff can add documents only while the form is In review'; end if;
   -- Only this client's own folders, so a file of another client can never be attached to this form (the portal signs whatever path a row holds).
-  if not (v_path like 'staff/' || f.client_id || '/%' or v_path like 'incoming/' || f.account_id || '/%') or '..' = any (string_to_array(v_path, '/')) then
+  v_p1 := 'staff/' || f.client_id || '/'; v_p2 := 'incoming/' || f.account_id || '/';
+  if not coalesce(left(v_path, length(v_p1)) = v_p1 or left(v_path, length(v_p2)) = v_p2, false) or '..' = any (string_to_array(v_path, '/')) then
     raise exception 'The file path must be under staff/%/ or incoming/%/ and cannot contain ..', f.client_id, f.account_id;
   end if;
   begin

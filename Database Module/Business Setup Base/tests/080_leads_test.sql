@@ -276,6 +276,18 @@ update public.business_setup_cases set stage = 'Lost' where id = pg_temp.cid('re
 select public.bs_as('00000000-0000-0000-0000-00000000000a');
 select public.bs_expect_error(format($$select business_setup_reassign_respond('%s', true, null)$$, pg_temp.fx('req_closed')), 'closed');
 select public.bs_check('the closed case keeps its owner', pg_temp.owner('re_closed') = '00000000-0000-0000-0000-00000000000c');
+select public.bs_as(null);
+select pg_temp.mkcase('re_done', null, 'In service', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('re_canc', null, 'In service', '00000000-0000-0000-0000-00000000000c');
+insert into public.business_setup_reassign_requests (case_id, from_user, to_user, reason, created_by) values
+  (pg_temp.cid('re_done'), '00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d', 'x', '00000000-0000-0000-0000-00000000000c'),
+  (pg_temp.cid('re_canc'), '00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d', 'x', '00000000-0000-0000-0000-00000000000c');
+update public.business_setup_cases set stage = 'Completed' where id = pg_temp.cid('re_done');
+update public.business_setup_cases set stage = 'Cancelled' where id = pg_temp.cid('re_canc');
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_expect_error(format($$select business_setup_reassign_respond((select id from business_setup_reassign_requests where case_id = '%s'), true, null)$$, pg_temp.fx('re_done')), 'closed');
+select public.bs_expect_error(format($$select business_setup_reassign_respond((select id from business_setup_reassign_requests where case_id = '%s'), true, null)$$, pg_temp.fx('re_canc')), 'closed');
+select public.bs_check('Completed and Cancelled cases keep their owner', pg_temp.owner('re_done') = '00000000-0000-0000-0000-00000000000c' and pg_temp.owner('re_canc') = '00000000-0000-0000-0000-00000000000c');
 -- direct change by an approver
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error(format($$select business_setup_case_assign('%s', '00000000-0000-0000-0000-00000000000d', 'mine')$$, pg_temp.fx('re')), 'permission');
@@ -326,6 +338,16 @@ update public.business_setup_onboarding_forms set status = 'Submitted' where id 
 select public.bs_as('00000000-0000-0000-0000-00000000000d');
 select public.bs_expect_error(format($$select business_setup_form_staff_save('%s', '{"phone":"1"}')$$, pg_temp.fx('sform')), 'In review');
 select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', 'Passport', 'staff/b.pdf')$$, pg_temp.fx('sform')), 'In review');
+
+-- A client id holding an underscore: an exact prefix match, not a LIKE wildcard
+select public.bs_as(null);
+select pg_temp.mkclient('CL98_021', true, false);
+select public.business_setup_form_create('CL98_021', (select id from public.client_portal_accounts where client_master_id = 'CL98_021'));
+update public.business_setup_onboarding_forms set status = 'In review' where client_id = 'CL98_021';
+insert into f80 select 'uform', id::text from public.business_setup_onboarding_forms where client_id = 'CL98_021';
+select public.bs_as('00000000-0000-0000-0000-00000000000d');
+select public.bs_expect_error(format($$select business_setup_form_doc_add('%s', 'Passport', 'staff/CL98X021/x.pdf')$$, pg_temp.fx('uform')), 'path');
+select public.bs_check('the exact folder with the underscore is allowed', public.business_setup_form_doc_add(pg_temp.cid('uform'), 'Passport', 'staff/CL98_021/x.pdf') is not null);
 
 -- ── no_permission ──
 select public.bs_as('00000000-0000-0000-0000-0000000000c1');
