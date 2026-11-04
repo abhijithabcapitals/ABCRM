@@ -18,7 +18,7 @@ import StatusMenu from "./StatusMenu.jsx";
 import useActivity from "./useActivity.js";
 import usePresence from "./usePresence.js";
 import useChat from "./useChat.js";
-import { SECTIONS, readSection, saveSection } from "../logic/app.js";
+import { SECTIONS, readSection, routeResult, saveSection } from "../logic/app.js";
 import { teamsUnread } from "../logic/teams.js";
 import "../replica/design/tokens.css";
 import "./chat.css";
@@ -51,13 +51,9 @@ function Inner({ profile, onSignOut }) {
   const closePane = () => { setSelected(null); setScreen(null); };
   // A result from Activity or search can live in a chat, a channel, or a channel's thread.
   const openResult = (row) => {
-    if (row.conversation_kind === "channel") {
-      setTarget({ conversationId: row.conversation_id, threadId: row.parent_id || null });
-      go("teams");
-    } else {
-      pick(row.conversation_id);
-      go("chats");
-    }
+    const to = routeResult(row);
+    if (to.target) setTarget(to.target); else pick(to.conversationId);
+    go(to.section);
   };
   useDesktop({ me: profile?.id, unread: (error ? 0 : total) + teamsUnreadCount, chats: rows, channels: teamsData.rows, status: presence.mine, onMessage, openResult });
   const openActivity = (row) => {

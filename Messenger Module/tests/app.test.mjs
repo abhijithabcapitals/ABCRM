@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { DEFAULT_SECTION, SECTIONS, filterChats, rowTime, validSection } from "../logic/app.js";
+import { DEFAULT_SECTION, SECTIONS, filterChats, rowTime, validSection, routeResult } from "../logic/app.js";
 
 const here = fileURLToPath(new URL("..", import.meta.url));
 const main = (p) => readFileSync(join(here, "..", "Main Module", p), "utf8");
@@ -119,7 +119,7 @@ test("a channel shows its own name, not a person's", async () => {
 
 test("every database call the service makes names real parameters", () => {
   const dir = join(here, "..", "Database Module", "Messanger Base", "migrations");
-  const sql = ["003_chat.sql", "004_chat_parity.sql", "005_teams_channels.sql", "006_calls.sql", "007_inbox_channels.sql"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+  const sql = ["003_chat.sql", "004_chat_parity.sql", "005_teams_channels.sql", "006_calls.sql", "007_inbox_channels.sql", "008_receipts_typing.sql"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
   const api = readFileSync(join(here, "services", "chatApi.js"), "utf8");
   const calls = [...api.matchAll(/"(messenger_\w+)",\s*\{([^}]*)\}/g)];
   assert.ok(calls.length > 20);
@@ -295,4 +295,10 @@ test("the dock leaves while the full page is open, and the page is reachable", (
   assert.match(app, /view === "team-messenger" && <MessengerApp/);
   assert.match(app, /view !== "team-messenger" && <MessengerDock/);
   assert.match(main("src/components/Sidebar.jsx"), /key: "team-messenger"/);
+});
+
+test("routeResult opens a channel or thread in Teams, and anything else in Chats", () => {
+  assert.deepEqual(routeResult({ conversation_kind: "channel", conversation_id: "c1", parent_id: "m1" }), { section: "teams", target: { conversationId: "c1", threadId: "m1" } });
+  assert.deepEqual(routeResult({ conversation_kind: "channel", conversation_id: "c1" }), { section: "teams", target: { conversationId: "c1", threadId: null } });
+  assert.deepEqual(routeResult({ conversation_kind: "group", conversation_id: "c2" }), { section: "chats", conversationId: "c2" });
 });

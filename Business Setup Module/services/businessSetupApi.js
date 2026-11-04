@@ -85,6 +85,28 @@ export const loginState = (client) => rpc("business_setup_portal_login_state", {
 export const loginSave = (client, username, password) => rpc("business_setup_portal_login_save", { p_client: client, p_username: username, p_password: password });
 export const loginStatus = (client, active) => rpc("business_setup_portal_login_status", { p_client: client, p_active: active });
 
+// Cases and leads
+export const caseList = (view) => rpc("business_setup_case_list", { p_view: view });
+export const caseNew = (p) => rpc("business_setup_case_new", { p });
+export const caseTake = (id) => rpc("business_setup_case_take", { p_case: id });
+export const caseLinkClient = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
+export const caseShared = (id) => rpc("business_setup_case_shared", { p_case: id });
+export const caseLost = (id, reason) => rpc("business_setup_case_lost", { p_case: id, p_reason: reason });
+export const caseConfirm = (id) => rpc("business_setup_case_confirm", { p_case: id });
+export const caseAssign = (id, to, note) => rpc("business_setup_case_assign", { p_case: id, p_to: to, p_note: note });
+export const reassignRequest = (id, to, reason) => rpc("business_setup_reassign_request", { p_case: id, p_to: to, p_reason: reason });
+export const reassignRespond = (id, approve, note) => rpc("business_setup_reassign_respond", { p_id: id, p_approve: approve, p_note: note });
+
+// A reviewer completes the client's form. Staff files go to staff/<client_id>/ in the bucket the client portal uses.
+export const formStaffSave = (id, answers) => rpc("business_setup_form_staff_save", { p_id: id, p_answers: answers });
+export const formDocAdd = (id, kind, path) => rpc("business_setup_form_doc_add", { p_id: id, p_kind: kind, p_path: path });
+export async function addStaffFormDocument(formId, clientId, kind, file) {
+  const path = `staff/${clientId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
+  const { error } = await supabase.storage.from("client-portal").upload(path, file);
+  if (error) throw new Error(error.message);
+  return formDocAdd(formId, kind, path);
+}
+
 // Accounts
 export const handoverState = (quote) => rpc("business_setup_handover_state", { p_quote: quote });
 export const sendToAccounts = (quote, remarks) => rpc("business_setup_send_to_accounts", { p_quote: quote, p_remarks: remarks });

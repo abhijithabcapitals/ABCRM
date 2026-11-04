@@ -101,3 +101,21 @@ Needs two real staff logins (A and B) and a third (C) who is in neither chat, af
 4. Clicking the page collapses the panel; with Keep chat open ticked in settings it stays open.
 5. WhatsApp and Telegram open in a new tab. The mail count matches the CEO Agent inbox, and clicking opens the CEO Agent.
 6. The BD Agent tab and other items fixed to the right of the page do not block the rail.
+
+## Sections in the docked panel
+
+1. Rail shows Activity, Teams, Calls and Files with counts, then chats, then WhatsApp, Telegram and Mail. Rail stays usable on a small laptop screen.
+2. Each opens in the pane, and a second click on the same button collapses it.
+3. A message or channel post sent in the panel shows on the full Messenger page, and the reverse, with two real logins.
+4. Activity opens the right chat, channel or thread. Back from a thread reaches the channel, then the team list.
+5. Inbox opens on the channel of the button pressed, and a mailbox owner sees their own mail. A staff member with no mailbox sees none.
+6. Open the full page lands on the same section. The dock is hidden on the full page.
+7. A half-typed chat message and channel post survive switching section.
+8. A long email is readable at panel width.
+
+## Typing and ticks
+
+1. With two logins, typing in a chat shows "Name is typing…" on the other screen within a second or two, and it clears after sending, or a few seconds after stopping.
+2. Send with the other person's CRM closed: one grey tick. They open the CRM on another page: two grey ticks, with no refresh. They open the chat: two blue ticks, with no refresh.
+3. A group shows two grey or two blue ticks only once every member has reached that point.
+4. A person outside the chat cannot hear its typing. A channel shows typing but no ticks.

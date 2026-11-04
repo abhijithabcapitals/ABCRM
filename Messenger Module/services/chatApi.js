@@ -3,7 +3,6 @@
 
 const PAGE = 50;
 const PICK_LIMIT = 20;
-const MAIL_WINDOW_DAYS = 15;
 let seq = 0; // one channel name per subscription, so two in a window never share a topic
 
 function fail(sentence) {
@@ -120,7 +119,36 @@ export function createChatApi(client) {
       if (before) q = q.lt("created_at", before);
       return rows(await q.order("created_at", { ascending: false }).limit(limit), "Could not load messages. Please try again.");
     },
-    readState: (conversationId) => call("messenger_read_state", { p_conversation: conversationId }, "Could not check who has read this chat."),
+    // The earliest read and delivered times among the other members.
+    async receiptState(conversationId) {
+      const data = await call("messenger_receipt_state", { p_conversation: conversationId }, "Could not check who has read this chat.");
+      return data?.[0] || { read_at: null, delivered_at: null };
+    },
+    // Says this person's app has received their new messages. A failure here must never disturb the chat.
+    async markDelivered() {
+      try { await client.rpc("messenger_mark_delivered"); } catch { /* the next message tries again */ }
+    },
+    // One chat's member rows, so ticks change as soon as someone receives or reads.
+    watchReceipts(conversationId, onChange) {
+      let stopped = false;
+      const channel = client.channel(`messenger:receipts:${++seq}`)
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messenger_members", filter: `conversation_id=eq.${conversationId}` },
+          (payload) => { if (!stopped) onChange(payload.new); })
+        .subscribe();
+      return () => { stopped = true; client.removeChannel(channel); };
+    },
+    // A chat's typing signal. Private, so only members can join; it is never stored.
+    typingChannel(conversationId, onSignal) {
+      let ready = false;
+      let stopped = false;
+      const channel = client.channel(`msgr:${conversationId}`, { config: { private: true, broadcast: { self: false } } })
+        .on("broadcast", { event: "typing" }, ({ payload }) => { if (!stopped) onSignal(payload); })
+        .subscribe((status) => { ready = status === "SUBSCRIBED"; });
+      return {
+        send(payload) { if (ready && !stopped) Promise.resolve(channel.send({ type: "broadcast", event: "typing", payload })).catch(() => {}); },
+        stop() { stopped = true; client.removeChannel(channel); },
+      };
+    },
     markRead: (conversationId) => call("messenger_mark_read", { p_conversation: conversationId }, "Could not mark this chat as read."),
     // A repeat of the same message id hits the unique rule (23505). That means it already arrived.
     async send({ id, conversationId, senderId, body, link, parentId, mentionIds }) {
@@ -197,17 +225,6 @@ export function createChatApi(client) {
       return rows(await client.from("profiles").select("id, full_name").order("full_name"), "Could not load the staff list. Please try again.");
     },
     clientLookup,
-    // New conversations in the connected mailboxes, counted as the CEO Agent inbox does. Null when mail cannot be read.
-    async mailNewCount() {
-      const { data: prefs } = await client.schema("ceo").from("inbox_preferences").select("hidden_mailbox_ids").maybeSingle();
-      const hidden = prefs?.hidden_mailbox_ids || [];
-      let q = client.schema("email_base").from("threads").select("id", { count: "exact", head: true })
-        .contains("tags", ["ceo"]).eq("status", "new")
-        .gte("last_message_at", new Date(Date.now() - MAIL_WINDOW_DAYS * 86400000).toISOString());
-      if (hidden.length) q = q.not("mailbox_id", "in", `(${hidden.join(",")})`);
-      const { count, error } = await q;
-      return error ? null : count;
-    },
     searchRecords,
     subscribe,
   };

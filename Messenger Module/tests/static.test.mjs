@@ -167,7 +167,7 @@ test("AttachPicker keeps one client copy per opening and passes it to searchReco
 
 test("the dock loads the panel lazily and wraps it in the error boundary", () => {
   const src = read("components/MessengerDock.jsx");
-  assert.match(src, /lazy\(\(\) => import\("\.\/MessengerPanel(\.jsx)?"\)\)/);
+  assert.match(src, /lazy\(\(\) => import\("\.\/DockSections(\.jsx)?"\)\)/);
   assert.match(src, /<ChatBoundary/);
   assert.match(src, /shouldCollapse/);
   assert.match(src, /pointerdown/);
@@ -277,13 +277,34 @@ test("new screens never render a raw error.message", () => {
   }
 });
 
-test("the rail holds settings, new chat, the chat list, and the WhatsApp, Telegram and mail buttons", () => {
+test("the rail holds settings, new chat, the sections, the chat list, and the WhatsApp, Telegram and mail buttons", () => {
   const src = read("components/ChatRail.jsx");
-  for (const label of ["Chat settings", "New chat", "WhatsApp", "Telegram", "New mail"]) assert.ok(src.includes(label), label);
-  assert.match(src, /https:\/\/web\.whatsapp\.com\//);
-  assert.match(src, /https:\/\/web\.telegram\.org\//);
-  assert.match(src, /rel="noopener noreferrer"/);
+  for (const label of ["Chat settings", "New chat", "Activity", "Teams", "Calls", "Files", "WhatsApp", "Telegram", "Mail"]) assert.ok(src.includes(label), label);
+  // These channels now open in the Inbox inside the panel, which itself links out when an account is not connected.
+  assert.doesNotMatch(src, /web\.whatsapp\.com|web\.telegram\.org/);
   assert.match(src, /title=\{/);
+});
+
+test("the panel reuses the Messenger page's own sections, loaded lazily, so both stay in step", () => {
+  const dock = read("components/MessengerDock.jsx");
+  assert.match(dock, /lazy\(\(\) => import\("\.\/DockSections(\.jsx)?"\)\)/);
+  assert.match(dock, /useActivity\(/);
+  assert.match(dock, /useTeams\(/);
+  const src = read("components/DockSections.jsx");
+  for (const name of ["TeamsSection", "ActivitySection", "InboxSection", "CallsSection", "FilesSection", "MessengerPanel"]) assert.match(src, new RegExp(`import ${name} from "\\./${name}\\.jsx"`), name);
+  assert.match(src, /Open the full page/);
+  assert.match(main("src/App.jsx"), /<MessengerDock profile=\{profile\} onOpenPage=\{\(\) => handleNavigate\("team-messenger"\)\}/);
+  assert.doesNotMatch(main("src/App.jsx"), /onOpenMail/);
+});
+
+test("the Inbox can open on a chosen channel", () => {
+  assert.match(read("components/InboxSection.jsx"), /useState\(initialChannel \|\| "email"\)/);
+});
+
+test("the sections fit the narrow pane one column at a time", () => {
+  const css = read("components/messengerApp.css");
+  for (const rule of [".msgr-sections .abm-teams-channel .abm-side", ".msgr-sections .abm-teams-thread .abm-posts", ".msgr-sections .abi-open .abi-side"]) assert.ok(css.includes(rule), rule);
+  assert.match(css, /:is\(\.abm-app, \.msgr-sections\) \[hidden\]/);
 });
 
 test("clicking the page collapses the dock unless the person chose to keep it open", () => {
@@ -292,7 +313,18 @@ test("clicking the page collapses the dock unless the person chose to keep it op
   assert.match(read("components/ChatSettings.jsx"), /Keep chat open/);
 });
 
-test("the mail button is for admins only, and the reading widget moves clear of the dock", () => {
-  assert.match(main("src/App.jsx"), /onOpenMail=\{profile\?\.role === "admin"/);
+test("the reading widget moves clear of the dock", () => {
   assert.match(readFileSync(join(here, "..", "Banking Module/components/reading.css"), "utf8"), /var\(--msgr-dock-offset/);
+});
+
+test("the chat marks delivery, shows live ticks and shows who is typing", () => {
+  assert.match(read("components/useChat.js"), /chatApi\.markDelivered\(\)/);
+  const conv = read("components/Conversation.jsx");
+  assert.match(conv, /chatApi\.watchReceipts\(cid/);
+  assert.match(conv, /useTyping\(/);
+  assert.match(conv, /msgr-typing/);
+  assert.doesNotMatch(conv, /readState/);
+  assert.match(read("components/Message.jsx"), /delivered: \["✓✓", "Delivered"\]/);
+  assert.match(read("components/Composer.jsx"), /onTyping\?\.\(/);
+  assert.match(read("components/chat.css"), /\.msgr-typing \{/);
 });

@@ -567,7 +567,7 @@ export default function App() {
       <BrandFooter />
       </div>
       <CallHost profile={profile} />
-      {view !== "team-messenger" && <MessengerDock profile={profile} onOpenMail={profile?.role === "admin" ? () => handleNavigate("ceo") : undefined} />}
+      {view !== "team-messenger" && <MessengerDock profile={profile} onOpenPage={() => handleNavigate("team-messenger")} />}
     </div>
   );
 }

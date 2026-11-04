@@ -11,14 +11,19 @@ import { quoteTone } from "../../logic/statuses";
 import { money } from "@app/money";
 
 
-export default function Quotes({ w, clientId, reload }) {
+export default function Quotes({ w, clientId, reload, caseId = null }) {
   const { can } = useSetup();
   const [revising, setRevising] = useState(null);
+  const [adding, setAdding] = useState(false);
+  // One quote chain per case: while a quote is live (not rejected), the way to change it is Revise. The database refuses a second one with its own sentence.
+  const live = w.quotes.some((q) => !["rejected", "superseded"].includes(q.status));
   return (
     <div>
-      {!w.quotes.length && <p className="bk-note">No quotes yet. Use + New Service on Overview.</p>}
+      {caseId && can("setup.quotes.manage") && !live && <div className="bk-actions bk-mb"><Button variant="primary" onClick={() => setAdding(true)}>New quote</Button></div>}
+      {!w.quotes.length && <p className="bk-note">{caseId ? "No quote yet for this case." : "No quotes yet. Open a case to issue one."}</p>}
       {w.quotes.map((q) => <Quote key={q.id} q={q} w={w} clientId={clientId} reload={reload} can={can} onRevise={() => setRevising(q)} />)}
-      {revising && <NewServiceFlow w={w} clientId={clientId} revises={revising} onClose={() => setRevising(null)} onDone={async () => { setRevising(null); await reload(); }} />}
+      {adding && <NewServiceFlow w={w} clientId={clientId} caseId={caseId} onClose={() => setAdding(false)} onDone={async () => { setAdding(false); await reload(); }} />}
+      {revising && <NewServiceFlow w={w} clientId={clientId} caseId={caseId} revises={revising} onClose={() => setRevising(null)} onDone={async () => { setRevising(null); await reload(); }} />}
     </div>
   );
 }

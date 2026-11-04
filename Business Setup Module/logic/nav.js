@@ -1,12 +1,13 @@
 // Pages of the module, with the permission that shows each one. A page lists more than one permission when any will do.
 export const NAV = [
   ["dashboard", "Dashboard", "setup.access"],
-  ["onboarding", "Onboarding", "setup.kyc.manage"],
+  ["leads", "Leads", "setup.access"],
+  ["review", "Review", "setup.kyc.manage"],
+  ["documentation", "Documentation", "setup.access"],
+  ["cases", "Cases", "setup.access"],
   ["clients", "Clients", "setup.access"],
   ["services", "Services & Fees", "setup.access"],
-  ["documents", "Documents", "setup.access"],
   ["tasks", "Tasks", "setup.access"],
-  ["import", "Import", "setup.import.manage"],
   ["settings", "⚙ Settings", "setup.access"],
 ];
 

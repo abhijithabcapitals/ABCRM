@@ -3,15 +3,7 @@ import { useState } from "react";
 import { Badge, Button, ErrorNote, FormModal, KeyVals, Modal, Panel, fmtDateTime, useAction, useLoad } from "@banking/components/shared";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { loginSave, loginState, loginStatus } from "../../services/businessSetupApi";
-
-const ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function generatePassword(length = 14) {
-  const limit = 256 - (256 % ALPHABET.length);
-  let out = "";
-  while (out.length < length) for (const b of crypto.getRandomValues(new Uint8Array(32))) if (b < limit && out.length < length) out += ALPHABET[b % ALPHABET.length];
-  return out;
-}
-const suggest = (name) => (name || "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "").slice(0, 40);
+import { generatePassword, suggestUsername as suggest } from "../../logic/loginSecret";
 
 export default function ClientLogin({ w, clientId }) {
   const state = useLoad(() => loginState(clientId), [clientId]);

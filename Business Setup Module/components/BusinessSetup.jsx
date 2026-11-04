@@ -7,12 +7,13 @@ import { visibleNav } from "../logic/nav";
 import { SetupContext } from "./SetupContext";
 import Settings from "./Settings";
 import Dashboard from "./Dashboard";
+import Leads from "./Leads";
 import Onboarding from "./Onboarding";
+import DocumentationPage from "./DocumentationPage";
+import Cases from "./Cases";
 import Clients from "./Clients";
 import FeeMaster from "./FeeMaster";
-import Documents from "./Documents";
 import Tasks from "./Tasks";
-import Import from "./Import";
 
 export default function BusinessSetup({ profile }) {
   const access = useLoad(() => myAccess(), []);
@@ -60,12 +61,13 @@ export default function BusinessSetup({ profile }) {
           ))}
         </nav></div>
         {current === "dashboard" && <Dashboard />}
-        {current === "onboarding" && <Onboarding />}
+        {current === "leads" && <Leads />}
+        {current === "review" && <Onboarding />}
+        {current === "documentation" && <DocumentationPage />}
+        {current === "cases" && <Cases />}
         {current === "clients" && <Clients />}
         {current === "services" && <FeeMaster />}
-        {current === "documents" && <Documents />}
         {current === "tasks" && <Tasks />}
-        {current === "import" && <Import />}
         {current === "settings" && <Settings />}
       </div>
     </SetupContext.Provider>

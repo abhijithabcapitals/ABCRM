@@ -1,10 +1,11 @@
 // Forms clients submitted. Staff take one, review each document, then validate it or return it with a note.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, useAction, useLoad } from "@banking/components/shared";
+import { Badge, Button, DataTable, ErrorNote, FilePick, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, useAction, useLoad } from "@banking/components/shared";
 import { readDocuments, rpc } from "@banking/services/bankingApi";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
-import { formDetail, listForms, returnForm, takeForm, validateForm } from "../services/businessSetupApi";
+import { addStaffFormDocument, formDetail, formStaffSave, listForms, returnForm, takeForm, validateForm } from "../services/businessSetupApi";
 import { contactChoice } from "../logic/contact";
+import { DOC_KINDS, FIELDS, PARTNER_FIELDS, SERVICES_FIELD, changedAnswers, formValues } from "../logic/staffForm";
 
 const TONE = { Submitted: "warn", "In review": "warn", Returned: "bad", Validated: "good", Draft: undefined };
 const DOC = { pending: "Waiting", in_review: "In review", validated: "Validated", rejected: "Rejected" };
@@ -17,7 +18,7 @@ export default function Onboarding() {
   if (open) return <Review id={open} onBack={() => { setOpen(null); forms.reload(); }} />;
   return (
     <div>
-      <PageHead title="Onboarding" sub="Client forms. A form becomes KYC done only after validation." />
+      <PageHead title="Review" sub="Client forms. A form becomes KYC done only after validation." />
       <div className="bk-tabs" role="tablist" aria-label="Form status">{VIEWS.map((v) => <button type="button" role="tab" aria-selected={view === v} key={v} className={view === v ? "active" : ""} onClick={() => setView(v)}>{v}</button>)}</div>
       <ErrorNote message={forms.error} />
       {forms.loading && !forms.data ? <Spinner /> : <DataTable rows={forms.data || []} search="Search client…" empty="No forms here." onRow={(r) => setOpen(r.id)} columns={[
@@ -35,6 +36,7 @@ function Review({ id, onBack }) {
   const [dialog, setDialog] = useState(null);
   const [reject, setReject] = useState(null);
   const [read, setRead] = useState(null);
+  const [file, setFile] = useState(null);
   const d = f.data;
   if (f.loading && !d) return <Spinner />;
   if (!d) return <ErrorNote message={f.error} />;
@@ -62,12 +64,12 @@ function Review({ id, onBack }) {
       </PageHead>
       <ErrorNote message={error} onClose={() => setError(null)} />
       {d.missing?.length > 0 && <div className="bk-alert bk-alert-warn">Still missing: {d.missing.join(", ")}.</div>}
-      <Panel title="Answers">
+      <Panel title="Answers" actions={d.status === "In review" && <Button onClick={() => setDialog("complete")}>Complete answers</Button>}>
         <KeyVals items={[["Client name", a.client_name], ["Phone", a.phone], ["Email", a.email], ["Services", (a.services || []).join(", ")], ["Company status", a.company_status], ["Activity", a.activity], ["Preferred zone", a.zone],
           ...(a.company_status === "Existing" ? [["Licence number", a.licence_number], ["Licence expiry", fmtDate(a.licence_expiry)], ["Issuing authority", a.issuing_authority]] : [])]} />
       </Panel>
       <Panel title="Partners"><DataTable rows={a.partners || []} empty="None entered." columns={[{ key: "name", label: "Name" }, { key: "nationality", label: "Nationality" }, { key: "share", label: "Share %", right: true }, { key: "ubo", label: "UBO", render: (p) => (p.ubo ? "Yes" : "") }]} /></Panel>
-      <Panel title="Documents">
+      <Panel title="Documents" actions={d.status === "In review" && <Button onClick={() => setDialog("upload")}>Upload for client</Button>}>
         <DataTable rows={(d.documents || []).filter((x) => x.upload_complete)} empty="No documents uploaded." columns={[
           { key: "doc_type", label: "Type" },
           { key: "file_name", label: "File", render: (x) => <button type="button" className="bk-link" onClick={() => staffCall("staff_url", { id: x.id }).then((r) => window.open(r.url, "_blank", "noopener")).catch((e) => setError(e.message))}>{x.file_name}</button> },
@@ -82,6 +84,16 @@ function Review({ id, onBack }) {
       </Panel>
       {read && <Panel title={`Read from ${read.file}`} sub="For checking against the answers. Nothing here is saved." actions={<Button onClick={() => setRead(null)}>Close</Button>}><KeyVals items={Object.entries(read.fields).map(([k, v]) => [k, String(v)])} /></Panel>}
       {reject && <FormModal title={`Reject ${reject.file_name}`} fields={[{ name: "note", label: "Tell the client why", type: "textarea", required: true, full: true }]} onClose={() => setReject(null)} onSubmit={async (v) => { await decide(reject, "rejected", v.note); }} />}
+      {dialog === "complete" && <FormModal title="Complete the client's answers" submitLabel="Save answers" note="Only the fields you change are saved. The old values stay in the audit trail." onClose={() => setDialog(null)} initial={formValues(a)}
+        fields={[...FIELDS.map(([name, label]) => (name === "company_status" ? { name, label, type: "select", options: ["New", "Existing"] } : name === "licence_expiry" ? { name, label, type: "date" } : { name, label })), { name: SERVICES_FIELD, label: "Services wanted (separate with commas)", full: true }, { name: PARTNER_FIELDS[0], label: "First partner name" }, { name: PARTNER_FIELDS[1], label: "First partner nationality" }]}
+        onSubmit={async (v) => {
+          const changed = changedAnswers(v, a);
+          if (!Object.keys(changed).length) throw new Error("Nothing was changed");
+          await formStaffSave(id, changed); await f.reload();
+        }} />}
+      {dialog === "upload" && <FormModal title="Upload a document for the client" submitLabel="Upload" onClose={() => { setDialog(null); setFile(null); }} note={<FilePick label={file ? file.name : "Choose file"} onFile={setFile} />}
+        fields={[{ name: "kind", label: "Kind", type: "select", options: DOC_KINDS, required: true }]}
+        onSubmit={async (v) => { if (!file) throw new Error("Choose the file to upload"); await addStaffFormDocument(id, d.client_id, v.kind, file); setFile(null); await f.reload(); }} />}
       {dialog === "return" && <FormModal title="Return to client" submitLabel="Return" fields={[{ name: "note", label: "What the client must fix", type: "textarea", required: true, full: true }]} onClose={() => setDialog(null)} onSubmit={async (v) => { await returnForm(id, v.note); onBack(); }} />}
       {dialog === "validate" && <FormModal title="Validate form" submitLabel="Validate: KYC done" note="This writes email and phone to Client Master, and the company and partners to KYC." onClose={() => setDialog(null)}
         initial={{ email: email.conflict ? "" : email.value, phone: phone.conflict ? "" : phone.value }}

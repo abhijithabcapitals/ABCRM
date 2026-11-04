@@ -9,7 +9,7 @@ import { ACTIONS, buildLines } from "../logic/lines";
 const inDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const empty = () => ({ service_name: "", action: "New", fee_item_id: null, amount: "", remarks: "" });
 
-export default function NewServiceFlow({ w, clientId, revises, onClose, onDone }) {
+export default function NewServiceFlow({ w, clientId, caseId = null, revises, onClose, onDone }) {
   const fees = useLoad(() => listFees(), []);
   const templates = useLoad(() => listQuoteTemplates(), []);
   const [template, setTemplate] = useState(revises?.template_key || "service");
@@ -33,14 +33,14 @@ export default function NewServiceFlow({ w, clientId, revises, onClose, onDone }
     const lines = buildLines(rows);
     try {
       const doc = await createDocument({ doc_type: "quote", department: "Business Setup", client_id: clientId, client_name: w.client.legal_name, contact_name: w.client.data?.["Primary Contact"]?.split(";")[0] || w.client.legal_name,
-        contact_email: w.client.email, contact_phone: w.client.phone, client_address: w.client.data?.["Registered Address"] || null, services: lines.map((l) => l.service_name), lines, vat_mode: vat, valid_until: validUntil, template_key: template, revises_id: revises?.id || null, notes: w.kyc?.business_activity || null });
+        contact_email: w.client.email, contact_phone: w.client.phone, client_address: w.client.data?.["Registered Address"] || null, services: lines.map((l) => l.service_name), lines, vat_mode: vat, valid_until: validUntil, template_key: template, revises_id: revises?.id || null, case_id: caseId || revises?.case_id || null, notes: w.kyc?.business_activity || null });
       try { await fileQuote(doc, w.kyc?.business_activity); } catch (e) { setError(`Quote ${doc.document_number} is saved, but its file was not created: ${e.message}. Use Create file on the quote.`); setBusy(false); return null; }
       await onDone();
     } catch (e) { setError(e.message); setBusy(false); }
     return null;
   };
   return (
-    <Modal wide title={revises ? `Revise ${revises.document_number}` : "New service"} onClose={onClose}>
+    <Modal wide title={revises ? `Revise ${revises.document_number}` : caseId ? "New quote" : "New service"} onClose={onClose}>
       <ErrorNote message={error || fees.error || templates.error} />
       <datalist id="bs-fee-items">{active.map((f) => <option key={f.id} value={f.name}>{f.grp}</option>)}</datalist>
       <div className="bk-grid">

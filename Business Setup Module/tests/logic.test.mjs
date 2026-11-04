@@ -95,3 +95,52 @@ test("private price files are ignored by the repository itself", () => {
   assert.match(ignore, /Database Module\/Business Setup Base\/private\//);
   assert.match(ignore, /\.superpowers\//);
 });
+
+// ── Phase 1 review fixes ──
+import { readdirSync } from "node:fs";
+import { DOC_KINDS, FIELDS, SERVICES_FIELD, changedAnswers, formValues } from "../logic/staffForm.js";
+import { itemState, itemTone } from "../logic/checklist.js";
+const onboardingSql = readFileSync(fileURLToPath(new URL("../../Database Module/Business Setup Base/migrations/009_onboarding.sql", import.meta.url)), "utf8");
+
+test("staff document kinds are exactly the types the client form asks for, including address proofs", () => {
+  const def = onboardingSql.slice(onboardingSql.indexOf('"documents": ['), onboardingSql.indexOf("}$json$"));
+  const types = [...def.matchAll(/"type": "([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...DOC_KINDS].sort(), [...new Set(types)].sort());
+  for (const k of ["Ejari", "Bank statement", "Utility bill"]) assert.ok(DOC_KINDS.includes(k), k);
+});
+
+test("staff can complete every answer the form requires", () => {
+  const fn = onboardingSql.slice(onboardingSql.indexOf("function public.business_setup_form_missing_items"), onboardingSql.indexOf("-- ── Called by the client-portal"));
+  const keys = new Set([...fn.matchAll(/a ->> '(\w+)'/g)].map((m) => m[1]));
+  const covered = new Set([...FIELDS.map(([k]) => k), "services", "partners"]);
+  for (const k of keys) assert.ok(covered.has(k), `form answer ${k} cannot be completed by staff`);
+});
+
+test("changed answers keep services and the first partner in their stored shape", () => {
+  const a = { client_name: "A", services: ["Visa"], partners: [{ name: "P", nationality: "IN", share: 50 }, { name: "Q", nationality: "AE" }] };
+  const v = formValues(a);
+  assert.equal(v[SERVICES_FIELD], "Visa");
+  assert.deepEqual(changedAnswers(v, a), {});
+  assert.deepEqual(changedAnswers({ ...v, [SERVICES_FIELD]: "Visa, Ejari ", licence_expiry: "2027-01-01" }, a), { services: ["Visa", "Ejari"], licence_expiry: "2027-01-01" });
+  const p = changedAnswers({ ...v, partner_nationality: "UK" }, a);
+  assert.deepEqual(p.partners, [{ name: "P", nationality: "UK", share: 50 }, { name: "Q", nationality: "AE" }]);
+  assert.equal(changedAnswers(formValues({}), {}).partners, undefined);
+});
+
+test("the checklist never claims an invoice in this phase", () => {
+  const all = { stage: "Documentation", docs: { quote: true, signed: true, paid: true, letter: true, invoice: true } };
+  assert.equal(itemState(all, "invoice"), "Later");
+  assert.equal(itemState(all, "signed"), "Done");
+  assert.equal(itemState({ stage: "Documentation", docs: {} }, "paid"), "Open");
+  assert.equal(itemTone("Later"), undefined);
+});
+
+test("pages use the decided rules: superseded is not live, Share link needs the login right, Mark lost on Documentation and Cases", () => {
+  const rd = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  assert.match(rd("../components/workspace/Quotes.jsx"), /\["rejected", "superseded"\]/);
+  assert.match(rd("../components/Leads.jsx"), /setup\.portal\.manage/);
+  assert.match(rd("../components/Leads.jsx"), /A manager issues the login\./);
+  for (const f of ["DocumentationPage", "Cases", "Leads"]) assert.match(rd(`../components/${f}.jsx`), /LostDialog/);
+  for (const f of ["DocumentationPage", "Cases", "Leads"]) assert.match(rd(`../components/${f}.jsx`), /ReassignActions/);
+  assert.match(rd("../components/DocumentationPage.jsx"), /caseLinkClient/);
+});
