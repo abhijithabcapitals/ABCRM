@@ -100,8 +100,8 @@ Both tables have row level security. Only the Edge Function reads and writes the
 | Column | Notes |
 |---|---|
 | `id` | Primary key |
-| `department` | `Business Setup` or `Banking` |
-| `source_table`, `source_id` | `hub_documents` or `banking_quotations`, and the row |
+| `department` | `Business Setup`, `Banking` or `Accounting` |
+| `source_table`, `source_id` | `hub_documents`, `banking_quotations` or `accounting_jobs`, and the row |
 | `kind` | `estimate` or `invoice` |
 | `reference` | The CRM quote number, sent as `reference_number` |
 | `state` | `creating`, `created`, `failed`, `unknown`, or `gone` |
@@ -167,6 +167,7 @@ A Banking client with no `client_master_id` cannot be linked. The panel says so.
 | Create an invoice, Business Setup | `setup.services.manage` |
 | Link a contact, create either, Banking | `cases.manage` |
 | See status, View PDF | Anyone who can open the quote: `setup.access` in Business Setup, `cases.view` in Banking |
+| Link a contact, create an invoice, see status, View PDF, Accounting | `accounts.review`, checked through `banking_can` |
 
 The function checks these on the server using the caller's login.
 

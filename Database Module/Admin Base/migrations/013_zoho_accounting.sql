@@ -6,8 +6,9 @@
 -- records a Zoho invoice on a job. The zoho-books function calls it with the service role; nobody else can.
 -- The function keeps the job's rules in one place: it never replaces an invoice number already on the job, it fills
 -- a job only when it is Completed and the invoice has a number, a date and an amount above zero, and it writes one
--- "Invoice recorded" history entry. It returns {"result": "recorded" | "same" | "different" | "refused"}, plus
--- "number" (the number already on the job) when different.
+-- "Invoice recorded" history entry. It returns {"result": "recorded" | "same" | "different" | "cleared" | "refused"}.
+-- same adds amount_differs and date_differs (nothing is overwritten); different adds number (the one on the job);
+-- cleared means staff cleared this number from the job, so it is not recorded again.
 -- Re-runnable. Undo: rollback/013_zoho_accounting_rollback.sql
 -- =====================================================================
 alter table public.zoho_documents drop constraint if exists zoho_documents_department_check;
@@ -23,11 +24,19 @@ declare j accounting_jobs; v_no text := nullif(trim(p_number), '');
 begin
   select * into j from accounting_jobs where id = p_job for update;
   if j.id is null then raise exception 'Job not found'; end if;
+  if v_no is null then return jsonb_build_object('result', 'refused'); end if;
   if j.invoice_number is not null then
-    if j.invoice_number = v_no then return jsonb_build_object('result', 'same'); end if;
+    if j.invoice_number = v_no then
+      return jsonb_build_object('result', 'same', 'amount_differs', j.invoice_amount is distinct from p_amount,
+                                'date_differs', j.invoice_date is distinct from p_date);
+    end if;
     return jsonb_build_object('result', 'different', 'number', j.invoice_number);
   end if;
-  if j.work_status <> 'Completed' or v_no is null or p_date is null or p_amount is null or p_amount <= 0 then
+  -- Staff cleared this very number from the job, so it is not put back.
+  if exists (select 1 from accounting_job_events where job_id = p_job and event = 'Invoice cleared' and from_value = v_no) then
+    return jsonb_build_object('result', 'cleared');
+  end if;
+  if j.work_status <> 'Completed' or p_date is null or p_amount is null or p_amount <= 0 then
     return jsonb_build_object('result', 'refused');
   end if;
   update accounting_jobs set invoice_number = v_no, invoice_date = p_date, invoice_amount = p_amount,

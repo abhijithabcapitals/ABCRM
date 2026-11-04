@@ -31,6 +31,8 @@ const BAD_AMOUNT = "This quote has an amount that can't be read. Fix it before c
 const NO_NUMBER = "This quote has no number, so it can't be sent to Zoho.";
 const OTHER_RATE = "This quote uses a VAT rate other than 5%, which the saved Zoho VAT code doesn't match.";
 const JOB_ESTIMATE = "An estimate can't be made from a job. Only an invoice can.";
+const JOB_BAD_FEE = "This job has a fee that can't be read. Fix it before creating a Zoho draft.";
+const JOB_NO_NUMBER = "This job has no number, so it can't be sent to Zoho.";
 const JOB_NOT_DONE = "This job must be completed before it is invoiced.";
 const JOB_NO_FEE = "This job has no fee yet.";
 const JOB_NO_CLIENT = "Link a client to this job first.";
@@ -187,10 +189,10 @@ const INVOICE_OK: Record<Exclude<Source["department"], "Accounting">, string[]> 
 function canCreateJob(src: Source, kind: Kind): string | null {
   if (kind !== "invoice") return JOB_ESTIMATE;
   if (src.status !== "Completed") return JOB_NOT_DONE;
-  if (src.unreadable) return BAD_AMOUNT;
+  if (src.unreadable) return JOB_BAD_FEE;
   if (src.feeMissing) return JOB_NO_FEE;
   if (!src.clientId) return JOB_NO_CLIENT;
-  if (!src.reference.trim()) return NO_NUMBER;
+  if (!src.reference.trim()) return JOB_NO_NUMBER;
   if (src.invoiceRecorded) return JOB_RECORDED;
   return null;
 }

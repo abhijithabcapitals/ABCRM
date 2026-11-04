@@ -247,7 +247,7 @@ async function readRow(deps: Deps, table: string, column: string, value: unknown
   const { data, error } = await deps.db.from(table).select(columns).eq(column, value).maybeSingle();
   if (error) {
     console.error(`zoho-books: read of ${table} failed:`, error.code, error.message);
-    throw new UserError("Could not read the quote.");
+    throw new UserError(table === "accounting_jobs" ? "Could not read the job." : "Could not read the quote.");
   }
   return data;
 }
@@ -259,13 +259,14 @@ async function loadSource(deps: Deps, table: string, id: string): Promise<Source
     if (!job) throw new UserError("That job was not found.");
     const src = fromJob(job);
     if (src.invoiceRecorded) {
-      // An invoice made here and recorded on the job is no reason to refuse a retry.
-      const made = await deps.db.from("zoho_documents").select("id").eq("source_table", table).eq("source_id", id).eq("kind", "invoice");
+      // Only the invoice this CRM made may stand in for the recorded one. A typed number that differs still blocks.
+      const made = await deps.db.from("zoho_documents").select("zoho_number").eq("source_table", table).eq("source_id", id).eq("kind", "invoice");
       if (made.error) {
         console.error("zoho-books: draft lookup failed:", made.error.code, made.error.message);
         throw new UserError("Could not read the draft record.");
       }
-      if ((made.data ?? []).length > 0) src.invoiceRecorded = false;
+      const recorded = String(job.invoice_number ?? "").trim();
+      if ((made.data ?? []).some((r: Json) => String(r.zoho_number ?? "").trim() === recorded)) src.invoiceRecorded = false;
     }
     return src;
   }
@@ -338,7 +339,7 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
   const sourceId = text(body.source_id);
   if (!Object.hasOwn(SOURCE_DEPARTMENT, table)) throw new UserError("Unknown quote type.");
   if (kind !== "estimate" && kind !== "invoice") throw new UserError("Choose estimate or invoice.");
-  if (!sourceId) throw new UserError("Choose a quote first.");
+  if (!sourceId) throw new UserError(table === "accounting_jobs" ? "Choose a job first." : "Choose a quote first.");
   const department = SOURCE_DEPARTMENT[table];
   await needPermission(deps, department, createPermission(department, kind));
 
@@ -370,7 +371,13 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
   let priorCreatedAt = "";
   if (existing.data) {
     const old = existing.data;
-    if (old.state === "created") return await shape(old);
+    // A job invoice voided in Zoho may be made again, but only once staff have cleared its number from the job.
+    let reissue = false;
+    if (old.state === "created" && table === "accounting_jobs" && String(old.zoho_status ?? "").toLowerCase() === "void") {
+      const job = await readRow(deps, table, "id", sourceId, "invoice_number");
+      reissue = !!job && !String(job.invoice_number ?? "").trim();
+    }
+    if (old.state === "created" && !reissue) return await shape(old);
     // created_at is when the last attempt started or timed out, so this is a real wait.
     const recent = now.getTime() - Date.parse(old.created_at) < STUCK_MS;
     if (old.state === "creating" && recent) throw new UserError(BUSY);
@@ -382,7 +389,8 @@ async function createDocument(body: Json, deps: Deps): Promise<object> {
     const claim = await docs().update({
       state: "creating",
       error: null,
-      zoho_number: null,
+      // A job keeps the number it had, so a retry can still tell its own invoice from a typed one.
+      zoho_number: table === "accounting_jobs" ? old.zoho_number ?? null : null,
       zoho_status: null,
       total: null,
       balance: null,
@@ -530,6 +538,9 @@ const NO_LONGER = "Zoho no longer has this document.";
 const OTHER_CONTACT = "This invoice is billed to a different Zoho contact, so Client Login won't show it.";
 const NO_MASTER = "This client has no Client Master record, so Client Login cannot show this invoice.";
 const VOIDED = "This invoice was voided in Zoho. Clear it on the job if that's right.";
+const NOT_SENT = "This invoice is no longer sent in Zoho. Clear it on the job if that's right.";
+const CLEARED = "This invoice was cleared on the job but is live in Zoho.";
+const SAME_DIFFERS = "Zoho's invoice differs from the amount or date on this job.";
 const JOB_REFUSED = "This invoice could not be recorded on the job. Check that the job is still Completed.";
 const GONE_NOT_SAVED = "Zoho no longer has this document, but Client Login could not be updated. Try again.";
 const CLIENT_LOGIN_FAILED = "The Zoho status was read, but Client Login could not be updated. Press Refresh to try again.";
@@ -538,7 +549,7 @@ function sourceOf(body: Json): { table: string; id: string; department: Departme
   const table = text(body.source_table);
   const id = text(body.source_id);
   if (!Object.hasOwn(SOURCE_DEPARTMENT, table)) throw new UserError("Unknown quote type.");
-  if (!id) throw new UserError("Choose a quote first.");
+  if (!id) throw new UserError(table === "accounting_jobs" ? "Choose a job first." : "Choose a quote first.");
   return { table, id, department: SOURCE_DEPARTMENT[table] };
 }
 
@@ -558,7 +569,7 @@ async function removeInvoiceRow(deps: Deps, zohoId: string): Promise<boolean> {
 // Adds or refreshes the row Client Login shows. An upsert cannot name a partial unique index, so this reads
 // first, then updates or inserts, and falls back to an update if another call added the row in between.
 // ok is false when a write failed (so the read time is held back). message is shown to staff.
-type Sync = { ok: boolean; message: string | null };
+type Sync = { ok: boolean; message: string | null; changed?: boolean };
 const SYNC_OK: Sync = { ok: true, message: null };
 const SYNC_FAILED: Sync = { ok: false, message: CLIENT_LOGIN_FAILED };
 const JOB_FAILED: Sync = { ok: false, message: "The Zoho status was read, but the job could not be updated. Press Refresh to try again." };
@@ -620,6 +631,11 @@ async function fillJob(deps: Deps, jobId: string, doc: Json, by: string | null):
     console.error("zoho-books: job fill failed:", error.code, error.message);
     return JOB_FAILED;
   }
+  if (data?.result === "cleared") return { ok: true, message: CLEARED };
+  if (data?.result === "same" && (data.amount_differs === true || data.date_differs === true)) {
+    return { ok: true, message: SAME_DIFFERS };
+  }
+  if (data?.result === "recorded") return { ok: true, message: null, changed: true };
   if (data?.result === "different") {
     return { ok: true, message: `This job already has invoice ${data.number} recorded, which differs from Zoho's.` };
   }
@@ -628,7 +644,7 @@ async function fillJob(deps: Deps, jobId: string, doc: Json, by: string | null):
 }
 
 // A voided invoice is never cleared from the job automatically. Staff are told when its number is on the job.
-async function voidWarning(deps: Deps, row: Json): Promise<Sync> {
+async function voidWarning(deps: Deps, row: Json, message = VOIDED): Promise<Sync> {
   if (row.source_table !== "accounting_jobs") return SYNC_OK;
   const res = await deps.db.from("accounting_jobs").select("invoice_number").eq("id", row.source_id).maybeSingle();
   if (res.error) {
@@ -636,7 +652,7 @@ async function voidWarning(deps: Deps, row: Json): Promise<Sync> {
     return JOB_FAILED;
   }
   const recorded = String(res.data?.invoice_number ?? "").trim();
-  return recorded && recorded === String(row.zoho_number ?? "").trim() ? { ok: true, message: VOIDED } : SYNC_OK;
+  return recorded && recorded === String(row.zoho_number ?? "").trim() ? { ok: true, message } : SYNC_OK;
 }
 
 // Zoho reports a missing document as 404, or as its own code 1002.
@@ -687,6 +703,7 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
 
   const now = deps.now();
   const rows: object[] = [];
+  let jobChanged = false;
   for (const row of saved) {
     const kind = row.kind as Kind;
     const fresh = row.last_read_at && now.getTime() - Date.parse(row.last_read_at) < READ_EVERY_MS;
@@ -709,8 +726,9 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
               sync = await saveInvoiceRow(deps, table, id, String(row.zoho_id), doc, row.created_by ?? null);
             } else if (!(await removeInvoiceRow(deps, String(row.zoho_id)))) {
               sync = SYNC_FAILED;
-            } else if (status === "void") {
-              sync = await voidWarning(deps, { ...row, zoho_number: doc.invoice_number ?? row.zoho_number });
+            } else {
+              // A void invoice, or a sent one moved back to draft, may still be the number on the job.
+              sync = await voidWarning(deps, { ...row, zoho_number: doc.invoice_number ?? row.zoho_number }, status === "void" ? VOIDED : NOT_SENT);
             }
           } catch (e) {
             console.error("zoho-books: invoice row failed:", (e as Error)?.name);
@@ -724,6 +742,7 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
           patch.error = sync.message;
         }
         rowError = sync.message;
+        if (sync.ok && sync.changed) jobChanged = true;
         const res = await deps.db.from("zoho_documents").update(patch).eq("id", row.id);
         if (res.error) {
           console.error("zoho-books: read-back save failed:", res.error.code, res.error.message);
@@ -750,8 +769,14 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
       rowError = row.error;
     }
     readError ??= rowError;
+    // A fee changed after the draft was made shows as a total difference, for jobs only.
+    let shown = row;
+    if (table === "accounting_jobs" && row.state === "created") {
+      const job = await deps.db.from("accounting_jobs").select("*").eq("id", id).maybeSingle();
+      if (!job.error && job.data) shown = { ...row, crm_total: fromJob(job.data).total };
+    }
     rows.push(
-      await shapeRow(deps, zoho, table, id, kind, row, {
+      await shapeRow(deps, zoho, table, id, kind, shown, {
         kind,
         reference: row.reference ?? null,
         zoho_status: row.zoho_status ?? null,
@@ -762,7 +787,7 @@ async function documentState(body: Json, deps: Deps): Promise<object> {
       }),
     );
   }
-  return { rows, connected: zoho !== null, read_error: readError };
+  return { rows, connected: zoho !== null, read_error: readError, job_changed: jobChanged };
 }
 
 // A file name that is safe in a Content-Disposition header: letters, digits, dot, dash, underscore and space only.

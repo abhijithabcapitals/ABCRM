@@ -292,7 +292,7 @@ Deno.test("job refusals use plain text", () => {
   assertEquals(no({ fee_amount: null }), "This job has no fee yet.");
   assertEquals(no({ fee_amount: 0 }), "This job has no fee yet.");
   assertEquals(no({ fee_amount: "0.00" }), "This job has no fee yet.");
-  const bad = "This quote has an amount that can't be read. Fix it before creating a Zoho draft.";
+  const bad = "This job has a fee that can't be read. Fix it before creating a Zoho draft.";
   assertEquals(no({ fee_amount: -5 }), bad);
   assertEquals(no({ fee_amount: "abc" }), bad);
   assertEquals(no({ client_id: null }), "Link a client to this job first.");

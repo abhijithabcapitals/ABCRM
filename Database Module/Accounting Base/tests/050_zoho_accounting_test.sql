@@ -59,6 +59,18 @@ select t.ok('no_number_refused', (t.fill((select id from t.zbad limit 1), '  ', 
 select t.ok('no_date_refused', (t.fill((select id from t.zbad limit 1), 'INV-A', null, 10) ->> 'result') = 'refused');
 select t.ok('refusals_leave_jobs_empty', (select count(*) from accounting_jobs where id in (select id from t.zbad) and invoice_number is not null) = 0);
 select t.fails('unknown_job_fails', $$select accounting_zoho_invoice_fill(gen_random_uuid(), 'INV-1', date '2026-11-03', 10, null)$$, 'Job not found');
+select t.ok('same_number_other_amount_flagged', t.fill(t.zid('done'), 'INV-0001', date '2026-11-03', 999) = '{"result": "same", "amount_differs": true, "date_differs": false}'::jsonb);
+select t.ok('same_number_other_date_flagged', t.fill(t.zid('done'), 'INV-0001', date '2026-11-09', 1050) = '{"result": "same", "amount_differs": false, "date_differs": true}'::jsonb);
+select t.ok('same_number_flags_overwrite_nothing', (select invoice_amount = 1050 and invoice_date = date '2026-11-03' from accounting_jobs where id = t.zid('done')));
+select t.ok('empty_number_refused_even_with_invoice', (t.fill(t.zid('done'), null) ->> 'result') = 'refused');
+reset role;
+
+-- A number staff cleared is not put back; a different number can still be recorded
+insert into accounting_job_events (job_id, event, from_value, remarks) select id, 'Invoice cleared', 'INV-C', 'test' from (select id from t.zbad limit 1) s;
+set role service_role;
+select t.ok('cleared_number_not_recorded', (t.fill((select id from t.zbad limit 1), 'INV-C') ->> 'result') = 'cleared');
+select t.ok('cleared_number_leaves_job_empty', (select invoice_number is null from accounting_jobs where id = (select id from t.zbad limit 1)) and t.events((select id from t.zbad limit 1)) = 0);
+select t.ok('other_number_still_recorded', (t.fill((select id from t.zbad limit 1), 'INV-D') ->> 'result') = 'recorded');
 reset role;
 
 -- Nobody else can call it

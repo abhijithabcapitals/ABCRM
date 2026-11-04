@@ -24,15 +24,19 @@ function fakeDb(
       if (!job) return Promise.resolve({ data: null, error: { message: "Job not found" } });
       const no = String(args.p_number ?? "").trim();
       const amount = Number(args.p_amount);
-      if (job.work_status !== "Completed" || !no || !args.p_date || !(amount > 0)) {
-        return Promise.resolve({ data: { result: "refused" }, error: null });
-      }
+      const out = (data: Row) => Promise.resolve({ data, error: null });
+      if (!no) return out({ result: "refused" });
       if (job.invoice_number != null) {
-        return Promise.resolve({
-          data: job.invoice_number === no ? { result: "same" } : { result: "different", number: job.invoice_number },
-          error: null,
-        });
+        return out(
+          job.invoice_number === no
+            ? { result: "same", amount_differs: Number(job.invoice_amount) !== amount, date_differs: job.invoice_date !== args.p_date }
+            : { result: "different", number: job.invoice_number },
+        );
       }
+      if ((tables.accounting_job_events ?? []).some((e) => e.job_id === job.id && e.event === "Invoice cleared" && e.from_value === no)) {
+        return out({ result: "cleared" });
+      }
+      if (job.work_status !== "Completed" || !args.p_date || !(amount > 0)) return out({ result: "refused" });
       Object.assign(job, { invoice_number: no, invoice_date: args.p_date, invoice_amount: amount, invoiced_by: args.p_by });
       (tables.accounting_job_events ??= []).push({ job_id: job.id, event: "Invoice recorded", to_value: no });
       return Promise.resolve({ data: { result: "recorded" }, error: null });
@@ -1855,7 +1859,7 @@ Deno.test("a different invoice already on the job is kept, with a warning that s
 
 Deno.test("the same number already on the job means no warning and no change", async () => {
   const m = makeDeps();
-  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  Object.assign(m.db.accounting_jobs[0], { invoice_number: "INV-0001", invoice_amount: 105, invoice_date: "2026-11-03" });
   seed(m.db, jobDoc({ kind: "invoice" }));
   m.replies["/invoices/9001"] = invoiceReply("paid");
   const res = await handle("document_state", JOB_STATE, m.deps) as Row;
@@ -1894,7 +1898,7 @@ Deno.test("a job that is no longer Completed refuses the fill with a warning", a
 
 Deno.test("a voided job invoice that is on the job leaves the job and warns until a clean sync", async () => {
   const m = makeDeps();
-  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  Object.assign(m.db.accounting_jobs[0], { invoice_number: "INV-0001", invoice_amount: 105, invoice_date: "2026-11-03" });
   seed(m.db, jobDoc({ kind: "invoice" }));
   m.replies["/invoices/9001"] = invoiceReply("void");
   const res = await handle("document_state", JOB_STATE, m.deps) as Row;
@@ -1944,4 +1948,127 @@ Deno.test("PDF and state for a job use the saved Zoho id and accounts.review", a
   assertEquals(st.rows[0].earlier_draft, null);
   assertEquals(st.rows[0].zoho_number, "INV-0001");
   assertEquals(m.asked, ["accounts.review", "accounts.review"]);
+});
+
+// ---- Accounting jobs, review fixes ----
+
+Deno.test("a staff clear is not undone by the next read", async () => {
+  const m = makeDeps();
+  m.db.accounting_job_events.push({ job_id: "a1", event: "Invoice cleared", from_value: "INV-0001" });
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("sent");
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(m.db.accounting_jobs[0].invoice_number, null);
+  assertEquals(res.read_error, "This invoice was cleared on the job but is live in Zoho.");
+  assertEquals(res.job_changed, false);
+});
+
+Deno.test("the same number with another amount or date warns and overwrites nothing", async () => {
+  const msg = "Zoho's invoice differs from the amount or date on this job.";
+  for (const [amount, date] of [[999, "2026-11-03"], [1050, "2026-11-09"]] as const) {
+    const m = makeDeps();
+    Object.assign(m.db.accounting_jobs[0], { invoice_number: "INV-0001", invoice_amount: amount, invoice_date: date });
+    seed(m.db, jobDoc({ kind: "invoice" }));
+    m.replies["/invoices/9001"] = invoiceReply("sent", { total: 1050 });
+    const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+    assertEquals(res.read_error, msg);
+    assertEquals([m.db.accounting_jobs[0].invoice_amount, m.db.accounting_jobs[0].invoice_date], [amount, date]);
+  }
+  const ok = makeDeps();
+  Object.assign(ok.db.accounting_jobs[0], { invoice_number: "INV-0001", invoice_amount: 1050, invoice_date: "2026-11-03" });
+  seed(ok.db, jobDoc({ kind: "invoice" }));
+  ok.replies["/invoices/9001"] = invoiceReply("sent", { total: 1050 });
+  assertEquals(((await handle("document_state", JOB_STATE, ok.deps)) as Row).read_error, null);
+});
+
+Deno.test("document_state says when the fill changed the job", async () => {
+  const m = makeDeps();
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("sent", { total: 1050 });
+  assertEquals(((await handle("document_state", JOB_STATE, m.deps)) as Row).job_changed, true);
+  m.state.now = new Date("2026-11-03T00:30:00Z");
+  assertEquals(((await handle("document_state", JOB_STATE, m.deps)) as Row).job_changed, false);
+});
+
+Deno.test("a fee edited after the draft shows as a total warning, even while reads are throttled", async () => {
+  const m = makeDeps();
+  seed(m.db, jobDoc({ kind: "invoice", total: 1050, crm_total: 1050 }));
+  m.replies["/invoices/9001"] = invoiceReply("draft", { total: 1050 });
+  assertEquals(((await handle("document_state", JOB_STATE, m.deps)) as Row).rows[0].total_warning, false);
+  m.db.accounting_jobs[0].fee_amount = "1200.00";
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(res.rows[0].total_warning, true);
+  assertEquals(m.db.zoho_documents[0].crm_total, 1050);
+});
+
+Deno.test("a voided job invoice can be made again only after its number is cleared from the job", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  seed(m.db, jobDoc({ kind: "invoice", zoho_status: "void" }));
+  const held = ref(await handle("document_create", JOB, m.deps));
+  assertEquals([held.state, m.posts.length], ["created", 0]);
+  // Staff clear the number on the job.
+  m.db.accounting_jobs[0].invoice_number = null;
+  // Zoho still lists the void one, and it must not be adopted.
+  m.replies["/invoices"] = {
+    invoices: [{ invoice_id: "9001", invoice_number: "INV-0001", reference_number: "JOB-000001", customer_id: "11", total: 1050, status: "void" }],
+  };
+  m.state.postImpl = () => Promise.resolve({ invoice: { invoice_id: "9002", invoice_number: "INV-0002", total: 1050, status: "draft" } });
+  const r = ref(await handle("document_create", JOB, m.deps));
+  assertEquals([r.state, r.zoho_id, r.zoho_number, m.posts.length, m.db.zoho_documents.length], ["created", "9002", "INV-0002", 1, 1]);
+});
+
+Deno.test("a failed row with a different typed number still blocks Create", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-TYPED";
+  seed(m.db, jobDoc({ kind: "invoice", state: "failed", zoho_id: null, zoho_number: null }));
+  await assertRejects(() => handle("document_create", JOB, m.deps), UserError, "already has an invoice recorded");
+  assertEquals([m.calls.length, m.posts.length], [0, 0]);
+  // A created row for another number blocks too.
+  const n = makeDeps();
+  n.db.accounting_jobs[0].invoice_number = "INV-TYPED";
+  seed(n.db, jobDoc({ kind: "invoice", state: "failed", zoho_number: "INV-0001" }));
+  await assertRejects(() => handle("document_create", JOB, n.deps), UserError, "already has an invoice recorded");
+});
+
+Deno.test("a claimed retry keeps the number, so the next retry still passes the guard", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  seed(m.db, jobDoc({ kind: "invoice", state: "failed", zoho_number: "INV-0001" }));
+  m.state.postImpl = () => Promise.reject(new ZohoTimeoutError());
+  assertEquals(ref(await handle("document_create", JOB, m.deps)).state, "unknown");
+  assertEquals(m.db.zoho_documents[0].zoho_number, "INV-0001");
+  m.state.now = new Date("2026-11-03T00:03:00Z");
+  m.state.postImpl = () => Promise.resolve({ invoice: { invoice_id: "9001", invoice_number: "INV-0001", total: 1050, status: "draft" } });
+  assertEquals(ref(await handle("document_create", JOB, m.deps)).state, "created");
+});
+
+Deno.test("a sent job invoice moved back to draft warns while its number is on the job", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-0001";
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("draft");
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(res.read_error, "This invoice is no longer sent in Zoho. Clear it on the job if that's right.");
+  assertEquals(m.db.accounting_jobs[0].invoice_number, "INV-0001");
+});
+
+Deno.test("an empty Zoho number is refused before anything else", async () => {
+  const m = makeDeps();
+  m.db.accounting_jobs[0].invoice_number = "INV-TYPED";
+  seed(m.db, jobDoc({ kind: "invoice" }));
+  m.replies["/invoices/9001"] = invoiceReply("sent", { invoice_number: null });
+  const res = await handle("document_state", JOB_STATE, m.deps) as Row;
+  assertEquals(res.read_error, "This invoice could not be recorded on the job. Check that the job is still Completed.");
+});
+
+Deno.test("job users see job wording", async () => {
+  const m = makeDeps();
+  await assertRejects(() => handle("document_create", { ...JOB, source_id: "" }, m.deps), UserError, "Choose a job first.");
+  await assertRejects(() => handle("document_state", { ...JOB_STATE, source_id: "" }, m.deps), UserError, "Choose a job first.");
+  const e = makeDeps({ can: () => Promise.resolve(true) });
+  e.errors["accounting_jobs.select"] = { code: "XX000", message: "boom" };
+  await quiet(async () => {
+    await assertRejects(() => handle("document_create", JOB, e.deps), UserError, "Could not read the job.");
+  });
 });
