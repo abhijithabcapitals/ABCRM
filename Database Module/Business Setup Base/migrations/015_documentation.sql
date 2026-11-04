@@ -3,6 +3,8 @@
 -- =====================================================================
 -- Fee items may have no amount, carry a VAT rate (5 or 0), and three company items are added. Business Setup quotes
 -- sum VAT line by line, from the fee item's rate read on the server. Other departments calculate exactly as before.
+-- A quote is accepted only on a confirmed signed copy, a payment can be recorded on a case before any quote, and the engagement
+-- letter waits for the signature and a payment (or an override).
 -- Run after 014. Re-runnable. Undo with rollback/013_019_rollback.sql.
 -- hub_document_create is redefined from 014: run this file again whenever 004, 013 or 014 is re-run.
 -- =====================================================================
@@ -60,6 +62,378 @@ end $$;
 revoke all on function public.business_setup_fee_item_save(jsonb) from public, anon;
 grant execute on function public.business_setup_fee_item_save(jsonb) to authenticated;
 
+-- ── Signed copies of quotes ──────────────────────────────────────────
+-- The client (or staff for them) uploads the signed quote; staff confirm it, which accepts the quote, or refuse it with a note the
+-- client can read. Legacy rows stand for quotes accepted before signed copies were required: no file, honestly empty path.
+create table if not exists public.business_setup_signed_quotes (
+  id uuid primary key default gen_random_uuid(),
+  quote_id uuid not null references public.hub_documents(id),
+  storage_path text,
+  source text not null check (source in ('Client', 'Staff', 'Legacy')),
+  status text not null check (status in ('Uploaded', 'Confirmed', 'Refused')),
+  note text,
+  created_at timestamptz not null default now(),
+  created_by uuid default auth.uid(),
+  decided_at timestamptz,
+  decided_by uuid,
+  check ((source = 'Legacy') = (storage_path is null)),
+  check (source <> 'Legacy' or status = 'Confirmed')
+);
+create unique index if not exists business_setup_signed_path_uq on public.business_setup_signed_quotes (storage_path) where storage_path is not null;
+create unique index if not exists business_setup_signed_one_open on public.business_setup_signed_quotes (quote_id) where status = 'Uploaded';
+create unique index if not exists business_setup_signed_one_confirmed on public.business_setup_signed_quotes (quote_id) where status = 'Confirmed';
+alter table public.business_setup_signed_quotes enable row level security;
+drop policy if exists business_setup_signed_read on public.business_setup_signed_quotes;
+create policy business_setup_signed_read on public.business_setup_signed_quotes for select to authenticated using (public.business_setup_can('setup.access'));
+revoke all on public.business_setup_signed_quotes from anon, authenticated;
+grant select on public.business_setup_signed_quotes to authenticated;
+
+-- A quote accepted before this migration counts as signed. No file is invented for it.
+insert into public.business_setup_signed_quotes (quote_id, source, status, note, decided_at)
+select q.id, 'Legacy', 'Confirmed', 'Accepted before signed copies were required', now()
+  from public.hub_documents q
+ where q.doc_type = 'quote' and q.department = 'Business Setup' and q.status = 'accepted'
+   and not exists (select 1 from public.business_setup_signed_quotes s where s.quote_id = q.id and s.status = 'Confirmed');
+
+-- Staff add a signed copy for the client. The file is already in storage under staff/<client>/ (the staff upload policy of 014).
+create or replace function public.business_setup_signed_add(p_quote uuid, p_path text) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare q hub_documents; v_path text := nullif(btrim(coalesce(p_path, '')), ''); v_prefix text; v_id uuid;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  if v_path is null then raise exception 'Enter the file path'; end if;
+  select * into q from hub_documents where id = p_quote for update;
+  if q.id is null or q.doc_type <> 'quote' or q.department <> 'Business Setup' then raise exception 'Quote not found'; end if;
+  if q.status <> 'issued' then raise exception 'Only an issued quote can take a signed copy (this one is %)', q.status; end if;
+  if q.client_id is null then raise exception 'Link this quote to a client before adding its signed copy'; end if;
+  v_prefix := 'staff/' || q.client_id || '/';
+  if not coalesce(left(v_path, length(v_prefix)) = v_prefix, false) or '..' = any (string_to_array(v_path, '/')) or '' = any (string_to_array(v_path, '/')) then
+    raise exception 'The file path must be under staff/%/ and cannot contain .. or empty parts', q.client_id;
+  end if;
+  if exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Uploaded') then
+    raise exception 'A signed copy of this quote is already waiting for review: confirm or refuse it first';
+  end if;
+  begin
+    insert into business_setup_signed_quotes (quote_id, storage_path, source, status) values (q.id, v_path, 'Staff', 'Uploaded') returning id into v_id;
+  exception when unique_violation then raise exception 'A signed copy is already stored at that path';
+  end;
+  perform business_setup_audit('business_setup_signed_quotes', v_id::text, 'signed_add', null, jsonb_build_object('quote_id', q.id, 'source', 'Staff'));
+  return v_id;
+end $$;
+
+-- Where a signed copy is stored, for staff to open it. A legacy row has no file.
+create or replace function public.business_setup_signed_file(p_id uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare s business_setup_signed_quotes;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  select * into s from business_setup_signed_quotes where id = p_id;
+  if s.id is null then raise exception 'Signed copy not found'; end if;
+  if s.storage_path is null then raise exception 'This quote was accepted before signed copies were kept: there is no file'; end if;
+  return jsonb_build_object('path', s.storage_path, 'file_name', regexp_replace(s.storage_path, '^.*/', ''));
+end $$;
+
+-- Confirm (which accepts the quote and creates its services) or refuse with a note the client can read.
+-- Locks the chain root and the quote first, as an accept and a revision do, so none of them can deadlock.
+create or replace function public.business_setup_signed_decide(p_id uuid, p_confirm boolean, p_note text, p_allow_expired boolean default false) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare s business_setup_signed_quotes; q hub_documents; v_note text := nullif(btrim(coalesce(p_note, '')), '');
+begin
+  perform business_setup_require('setup.quotes.manage');
+  select * into s from business_setup_signed_quotes where id = p_id;
+  if s.id is null then raise exception 'Signed copy not found'; end if;
+  select * into q from hub_documents where id = s.quote_id;
+  perform 1 from hub_documents where id = coalesce(q.root_quote_id, q.id) for update;
+  perform 1 from hub_documents where id = q.id for update;
+  select * into s from business_setup_signed_quotes where id = p_id for update;
+  if s.status <> 'Uploaded' then raise exception 'This signed copy has already been %', lower(s.status); end if;
+  if p_confirm is null then raise exception 'Choose to confirm or refuse the signed copy'; end if;
+  if p_confirm then
+    update business_setup_signed_quotes set status = 'Confirmed', note = v_note, decided_at = now(), decided_by = auth.uid() where id = s.id;
+    perform business_setup_quote_accept(q.id, coalesce(p_allow_expired, false));
+  else
+    if v_note is null then raise exception 'Tell the client why the signed copy is refused'; end if;
+    update business_setup_signed_quotes set status = 'Refused', note = v_note, decided_at = now(), decided_by = auth.uid() where id = s.id;
+  end if;
+  perform business_setup_audit('business_setup_signed_quotes', s.id::text, 'signed_decide', jsonb_build_object('status', s.status),
+          jsonb_build_object('quote_id', q.id, 'confirmed', p_confirm, 'note', v_note));
+end $$;
+revoke all on function public.business_setup_signed_add(uuid, text), public.business_setup_signed_file(uuid), public.business_setup_signed_decide(uuid, boolean, text, boolean) from public, anon;
+grant execute on function public.business_setup_signed_add(uuid, text), public.business_setup_signed_file(uuid), public.business_setup_signed_decide(uuid, boolean, text, boolean) to authenticated;
+
+-- ── Accepting a quote ────────────────────────────────────────────────
+-- As in 014, plus: refused without a confirmed signed copy. The check comes last, so every earlier refusal keeps its own message.
+create or replace function public.business_setup_quote_accept(p_id uuid, p_allow_expired boolean default false) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; v_root uuid; ln jsonb; kyc jsonb; v_today date := (now() at time zone 'Asia/Dubai')::date;
+  v_name text; v_action text; v_renews uuid; v_fee uuid; v_svc uuid; n int := 0;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  select * into q from hub_documents where id = p_id;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  if q.doc_type <> 'quote' or q.department <> 'Business Setup' then raise exception 'Only a Business Setup quote can be accepted'; end if;
+  v_root := coalesce(q.root_quote_id, q.id);
+  perform 1 from hub_documents where id = v_root for update;
+  select * into q from hub_documents where id = p_id for update;   -- read again: it may have changed while we waited
+  if exists (select 1 from hub_documents where doc_type = 'quote' and status = 'accepted' and coalesce(root_quote_id, id) = v_root) then
+    raise exception 'A quote in this revision chain is already accepted';
+  end if;
+  if q.case_id is not null and (select stage from business_setup_cases where id = q.case_id) in ('Lost', 'Completed', 'Cancelled') then
+    raise exception 'This case is % and cannot take an accepted quote', lower((select stage from business_setup_cases where id = q.case_id));
+  end if;
+  if q.case_id is not null and exists (select 1 from hub_documents where case_id = q.case_id and doc_type = 'quote' and status = 'accepted' and id <> q.id) then
+    raise exception 'Another quote of this case is already accepted: a case holds one quote and its revisions';
+  end if;
+  if q.status <> 'issued' then raise exception 'Only an issued quote can be accepted (this one is %)', q.status; end if;
+  if q.client_id is null then raise exception 'Link this quote to a client before accepting it'; end if;
+  kyc := business_setup_kyc_status(q.client_id);
+  -- KYC already done (validated here, or marked Done in the old records) is not asked for again.
+  if (kyc ->> 'percent')::int < 100 and not exists (select 1 from business_setup_kyc_profiles where client_id = q.client_id and kyc_state = 'Done') then
+    raise exception 'The client KYC is incomplete: missing %', (select string_agg(m, ', ') from jsonb_array_elements_text(kyc -> 'missing') m);
+  end if;
+  if q.valid_until is not null and q.valid_until < v_today and not coalesce(p_allow_expired, false) then
+    raise exception 'This quote expired on %: confirm to accept it anyway', to_char(q.valid_until, 'DD Mon YYYY');
+  end if;
+  if not exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Confirmed') then
+    raise exception 'The signed copy of this quote is not confirmed yet: add it and confirm it first';
+  end if;
+
+  update hub_documents set status = 'accepted', status_at = now(), status_by = auth.uid(),
+         status_reason = case when q.valid_until is not null and q.valid_until < v_today then 'Accepted after expiry' else null end
+   where id = q.id;
+
+  for ln in select value from jsonb_array_elements(coalesce(q.lines, '[]'::jsonb)) loop
+    v_name := coalesce(nullif(btrim(coalesce(ln ->> 'service_name', '')), ''), nullif(btrim(coalesce(ln ->> 'description', '')), ''));
+    if v_name is null then raise exception 'Every quote line needs a service name'; end if;
+    v_action := coalesce(nullif(btrim(coalesce(ln ->> 'action', '')), ''), 'New');
+    if v_action not in ('New','Renewal','Rectification','Cancellation') then raise exception 'Unknown action % on a quote line', v_action; end if;
+    v_renews := nullif(ln ->> 'renews_service_id', '')::uuid;
+    if v_renews is not null and not exists (select 1 from business_setup_services where id = v_renews and client_id = q.client_id) then
+      raise exception 'A renewal must link to an earlier service of the same client';
+    end if;
+    v_fee := nullif(ln ->> 'fee_item_id', '')::uuid;
+    insert into business_setup_services (client_id, quote_id, fee_item_id, name, action, amount, renews_service_id)
+    values (q.client_id, q.id, v_fee, v_name, v_action, nullif(ln ->> 'amount', '')::numeric, v_renews)
+    returning id into v_svc;
+    insert into business_setup_service_history (service_id, from_status, to_status, note)
+    values (v_svc, null, 'Not started', 'Created from quote ' || q.document_number);
+    n := n + 1;
+  end loop;
+
+  perform business_setup_audit('hub_documents', q.id::text, 'quote_accept', null,
+          jsonb_build_object('client_id', q.client_id, 'document_number', q.document_number, 'services_created', n,
+                             'after_expiry', q.valid_until is not null and q.valid_until < v_today));
+  return jsonb_build_object('quote_id', q.id, 'status', 'accepted', 'services_created', n);
+end $$;
+revoke all on function public.business_setup_quote_accept(uuid, boolean) from public, anon;
+grant execute on function public.business_setup_quote_accept(uuid, boolean) to authenticated;
+
+-- ── Payment by case ──────────────────────────────────────────────────
+-- Net paid on a case: Payment less Refund and Reversal over every payment row carrying the case. The one place the sum is written
+-- for a case (business_setup_net_paid still answers for a quote, and gives the same figure for a quote in a case).
+create or replace function public.business_setup_case_net_paid(p_case uuid) returns numeric
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(sum(case when type = 'Payment' then amount else -amount end), 0) from business_setup_payments where case_id = p_case
+$$;
+revoke all on function public.business_setup_case_net_paid(uuid) from public, anon, authenticated;
+
+-- What Documentation needs, worked out from the records. Internal.
+--   signed  the case's accepted quote has a Confirmed signed copy (a legacy row counts for a quote accepted before 015)
+--   paid    net payments above zero, or the accepted quote's total is zero, or the Paid override was given
+create or replace function public.business_setup_case_docs(p_case uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare v_acc_total numeric; v_override boolean;
+begin
+  select total_amount into v_acc_total from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted' order by created_at desc limit 1;
+  select paid_override_reason is not null into v_override from business_setup_cases where id = p_case;
+  return jsonb_build_object(
+    'quote', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status <> 'superseded'),
+    'signed', exists (select 1 from hub_documents q join business_setup_signed_quotes s on s.quote_id = q.id and s.status = 'Confirmed'
+                       where q.case_id = p_case and q.doc_type = 'quote' and q.status = 'accepted'),
+    'paid', coalesce(business_setup_case_net_paid(p_case) > 0 or v_acc_total = 0 or v_override, false),
+    'letter', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'letter'),
+    'invoice', true);
+end $$;
+revoke all on function public.business_setup_case_docs(uuid) from public, anon, authenticated;
+
+-- Waives the Paid item for a case, with a reason. Moves the case on if it was the last item.
+create or replace function public.business_setup_case_paid_override(p_case uuid, p_reason text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare c business_setup_cases; v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  perform business_setup_require('setup.payments.override');
+  if v_reason is null then raise exception 'Give a reason for waiving the payment'; end if;
+  select * into c from business_setup_cases where id = p_case for update;
+  if c.id is null then raise exception 'Case not found'; end if;
+  if c.stage in ('Lost', 'Cancelled', 'Completed') then raise exception 'This case is % and cannot take a payment override', lower(c.stage); end if;
+  if c.paid_override_reason is not null then raise exception 'The payment has already been waived for this case'; end if;
+  update business_setup_cases set paid_override_reason = v_reason where id = p_case;
+  perform business_setup_audit('business_setup_cases', p_case::text, 'case_paid_override', null, jsonb_build_object('reason', v_reason));
+  perform business_setup_case_sync(p_case);
+end $$;
+revoke all on function public.business_setup_case_paid_override(uuid, text) from public, anon;
+grant execute on function public.business_setup_case_paid_override(uuid, text) to authenticated;
+
+-- A case's quote and letter numbers and files, for the Documentation page of a case with no client yet (read-only, so staff can tell
+-- which case it is before linking a client). The client workspace cannot be loaded without a client.
+create or replace function public.business_setup_case_documents(p_case uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.access');
+  return coalesce((select jsonb_agg(jsonb_build_object('id', d.id, 'doc_type', d.doc_type, 'document_number', d.document_number, 'status', d.status, 'total_amount', d.total_amount,
+                          'storage_path', d.storage_path, 'created_at', d.created_at, 'parent_id', d.parent_id) order by d.created_at)
+                     from hub_documents d where d.case_id = p_case and d.department = 'Business Setup' and d.doc_type in ('quote', 'letter')), '[]'::jsonb);
+end $$;
+revoke all on function public.business_setup_case_documents(uuid) from public, anon;
+grant execute on function public.business_setup_case_documents(uuid) to authenticated;
+
+-- Marking a case lost, as in 014, with the shared net-paid sum.
+create or replace function public.business_setup_case_lost(p_case uuid, p_reason text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare c business_setup_cases; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_net numeric; v_acct uuid;
+begin
+  perform business_setup_require('setup.leads.manage');
+  if v_reason is null then raise exception 'Enter the reason this case is lost'; end if;
+  select * into c from business_setup_cases where id = p_case for update;
+  if c.id is null then raise exception 'Case not found'; end if;
+  if c.stage in ('Completed', 'Cancelled', 'Lost') then raise exception 'This case is closed'; end if;
+  if c.stage = 'In service' then raise exception 'A case in service cannot be marked lost'; end if;
+  if exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted') then
+    raise exception 'This case has an accepted quote and cannot be marked lost: cancel its services instead';
+  end if;
+  v_net := business_setup_case_net_paid(p_case);
+  if v_net > 0 then raise exception 'This case has a net payment of %: refund it before marking the case lost', v_net; end if;
+  update business_setup_cases set lost_reason = v_reason where id = p_case;
+  perform business_setup_case_set_stage(p_case, 'Lost', v_reason);
+  if c.client_id is not null
+     and not exists (select 1 from business_setup_cases where client_id = c.client_id and id <> p_case and stage not in ('Completed', 'Cancelled', 'Lost'))
+     and not exists (select 1 from business_setup_services where client_id = c.client_id)
+     and not exists (select 1 from banking_cases bc join banking_clients bk on bk.id = bc.client_id where bk.client_master_id = c.client_id) then
+    v_acct := business_setup_portal_account(c.client_id);
+    update client_portal_accounts set status = 'revoked', revoked_at = now(), revoked_by = auth.uid(), failed_attempts = 0, locked_until = null where id = v_acct and status = 'active';
+    if found then
+      delete from client_portal_sessions where account_id = v_acct;
+      perform business_setup_audit('client_portal_accounts', v_acct::text, 'login_revoke', null, jsonb_build_object('client_id', c.client_id, 'case_id', p_case));
+    end if;
+  end if;
+end $$;
+revoke all on function public.business_setup_case_lost(uuid, text) from public, anon;
+grant execute on function public.business_setup_case_lost(uuid, text) to authenticated;
+
+-- Record a payment and its receipt, on a case or on an accepted quote (p: case_id or quote_id, amount, paid_on, method, reference,
+-- note, override_reason). On a case the payment follows the case's accepted quote when there is one; before that quote_id stays empty,
+-- and the money counts toward the quote once it is accepted. The overpayment check applies once a quote is accepted.
+create or replace function public.business_setup_payment_add(p jsonb) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; c business_setup_cases; v_today date := (now() at time zone 'Asia/Dubai')::date; v_amount numeric; v_on date;
+  v_case uuid; v_quote uuid; v_client text;
+  v_outstanding numeric; v_over boolean := false; v_reason text; v_note text; v_pay uuid; v_rec uuid; v_number text;
+begin
+  perform business_setup_require('setup.payments.manage');
+  p := coalesce(p, '{}'::jsonb);
+  begin
+    v_case := nullif(p ->> 'case_id', '')::uuid; v_quote := nullif(p ->> 'quote_id', '')::uuid;
+  exception when invalid_text_representation then
+    raise exception 'The case or quote is not valid';
+  end;
+  if v_case is null and v_quote is null then raise exception 'Choose the case or the quote this payment is for'; end if;
+  -- A case pays its accepted quote. The quote is locked before the case, the order an accept uses.
+  if v_quote is null then
+    select id into v_quote from hub_documents where case_id = v_case and doc_type = 'quote' and department = 'Business Setup' and status = 'accepted' limit 1;
+  end if;
+  if v_quote is not null then
+    select * into q from hub_documents where id = v_quote for update;
+    if q.id is null then raise exception 'Quote not found'; end if;
+    if q.doc_type <> 'quote' or q.department <> 'Business Setup' or q.status <> 'accepted' then
+      raise exception 'A payment can be recorded only against an accepted Business Setup quote';
+    end if;
+    if v_case is null then v_case := q.case_id;
+    elsif q.case_id is distinct from v_case then raise exception 'This quote does not belong to that case'; end if;
+  end if;
+  if v_case is not null then
+    select * into c from business_setup_cases where id = v_case for update;
+    if c.id is null then raise exception 'Case not found'; end if;
+    if c.stage = 'Lost' then raise exception 'This case is lost and takes no payment'; end if;
+    v_client := c.client_id;
+    if v_client is null then raise exception 'Link a client to this case before recording a payment'; end if;
+    if q.id is not null and q.client_id is not null and q.client_id <> v_client then raise exception 'The client of this quote does not match the client of the case'; end if;
+  else
+    v_client := q.client_id;
+    if v_client is null then raise exception 'Link this quote to a client before recording a payment'; end if;
+  end if;
+  if q.id is not null and business_setup_quote_locked(q.id) then
+    raise exception 'This quote is locked because Accounts holds it: no payment can be recorded';
+  end if;
+  begin
+    v_amount := nullif(btrim(coalesce(p ->> 'amount', '')), '')::numeric;
+  exception when others then
+    v_amount := null;
+  end;
+  if v_amount is null or v_amount <= 0 or v_amount <> round(v_amount, 2) then
+    raise exception 'Enter an amount above zero with at most two decimals';
+  end if;
+  v_on := coalesce(nullif(p ->> 'paid_on', '')::date, v_today);
+  if v_on > v_today then raise exception 'The payment date cannot be in the future'; end if;
+
+  v_reason := nullif(btrim(coalesce(p ->> 'override_reason', '')), '');
+  if q.id is not null then
+    v_outstanding := coalesce(q.total_amount, 0) - business_setup_net_paid(q.id);
+    v_over := v_amount > v_outstanding;
+    if v_over then
+      if not business_setup_can('setup.payments.override') then
+        raise exception 'This payment is above the balance of %: ask someone who may accept an overpayment', to_char(v_outstanding, 'FM999,999,999,990.00');
+      end if;
+      if v_reason is null then raise exception 'Give a reason for accepting a payment above the balance'; end if;
+    end if;
+  end if;
+  v_note := nullif(btrim(coalesce(p ->> 'note', '')), '');
+  if v_over then v_note := concat_ws(E'\n', v_note, 'Above the balance: ' || v_reason); end if;
+
+  insert into business_setup_payments (client_id, quote_id, case_id, paid_on, amount, method, reference, type, note)
+  values (v_client, q.id, v_case, v_on, v_amount, nullif(btrim(coalesce(p ->> 'method', '')), ''), nullif(btrim(coalesce(p ->> 'reference', '')), ''), 'Payment', v_note)
+  returning id into v_pay;
+  v_number := hub_next_number('Business Setup', 'receipt');
+  insert into business_setup_receipts (payment_id, receipt_number) values (v_pay, v_number) returning id into v_rec;
+
+  perform business_setup_audit('business_setup_payments', v_pay::text, 'payment_add', null,
+          jsonb_build_object('client_id', v_client, 'quote_id', q.id, 'case_id', v_case, 'amount', v_amount, 'receipt_number', v_number,
+                             'overpayment', v_over, 'reason', case when v_over then v_reason end));
+  return jsonb_build_object('payment_id', v_pay, 'receipt_id', v_rec, 'receipt_number', v_number);
+end $$;
+
+-- Reversing a payment, as in 007, plus the case on the reversal, so a payment recorded on a case before its quote is taken away
+-- from the same case. The quote (if any) is locked first, else the case.
+create or replace function public.business_setup_payment_reverse(p_id uuid, p_reason text) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  o business_setup_payments; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_rev uuid;
+begin
+  perform business_setup_require('setup.payments.manage');
+  select * into o from business_setup_payments where id = p_id;
+  if o.id is null then raise exception 'Payment not found'; end if;
+  if o.type <> 'Payment' then raise exception 'Only a payment can have a reversal: a refund or a reversal cannot be reversed'; end if;
+  if v_reason is null then raise exception 'Give a reason for the reversal'; end if;
+  if o.quote_id is not null then
+    perform 1 from hub_documents where id = o.quote_id for update;   -- same lock as recording, so the balance cannot move underneath
+    if business_setup_quote_locked(o.quote_id) then
+      raise exception 'This quote is locked because Accounts holds it: no payment can be reversed';
+    end if;
+  end if;
+  if o.case_id is not null then perform 1 from business_setup_cases where id = o.case_id for update; end if;
+  if exists (select 1 from business_setup_payments where reverses_id = o.id) then raise exception 'This payment already has a reversal'; end if;
+
+  insert into business_setup_payments (client_id, quote_id, case_id, paid_on, amount, method, reference, type, reverses_id, note)
+  values (o.client_id, o.quote_id, o.case_id, (now() at time zone 'Asia/Dubai')::date, o.amount, o.method, o.reference, 'Reversal', o.id, v_reason)
+  returning id into v_rev;
+  perform business_setup_audit('business_setup_payments', v_rev::text, 'payment_reverse', null,
+          jsonb_build_object('client_id', o.client_id, 'quote_id', o.quote_id, 'case_id', o.case_id, 'amount', o.amount, 'reverses_id', o.id, 'reason', v_reason));
+  return jsonb_build_object('reversal_id', v_rev, 'payment_id', o.id);
+end $$;
+revoke all on function public.business_setup_payment_add(jsonb), public.business_setup_payment_reverse(uuid, text) from public, anon;
+grant execute on function public.business_setup_payment_add(jsonb), public.business_setup_payment_reverse(uuid, text) to authenticated;
+
 -- ── Creating documents ───────────────────────────────────────────────
 -- As in 014, plus line VAT for a Business Setup quote (with or without a case): the mode is stored as exclusive, each line's
 -- rate is read from its fee item (5 with none) and stamped on the line, and VAT is the sum of round(amount * rate / 100, 2).
@@ -72,7 +446,7 @@ declare
   v_mode text := coalesce(p ->> 'vat_mode', 'inclusive'); v_number text; r hub_documents; it jsonb; q hub_documents; o hub_documents; v_id uuid := gen_random_uuid(); v_root uuid;
   v_client text := nullif(trim(p ->> 'client_id'), ''); v_revises uuid := nullif(p ->> 'revises_id', '')::uuid; v_template text := nullif(trim(p ->> 'template_key'), '');
   v_case uuid := nullif(p ->> 'case_id', '')::uuid; v_case_client text;
-  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text;
+  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_docs jsonb;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   -- An engagement letter exists only as the next step of a generated quote, and takes everything from it.
@@ -88,6 +462,17 @@ begin
   v_bs_quote := v_type = 'quote' and p ->> 'department' = 'Business Setup';
   -- Business Setup documents reach a client's login, so issuing one needs the department's right. A letter takes its department from its quote above.
   if p ->> 'department' = 'Business Setup' then perform business_setup_require('setup.quotes.manage'); end if;
+  -- A Business Setup letter waits for the signed quote and for a payment (or a zero total, or the override). A quote in a case reads
+  -- both from the case; a quote with no case reads its own signed copy and payments. After the right is checked, so a caller
+  -- without it learns nothing about the quote.
+  if v_type = 'letter' and q.department = 'Business Setup' then
+    if q.case_id is not null then v_docs := business_setup_case_docs(q.case_id);
+    else v_docs := jsonb_build_object('signed', exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Confirmed'),
+                                      'paid', business_setup_net_paid(q.id) > 0 or coalesce(q.total_amount, 0) = 0);
+    end if;
+    if not (v_docs ->> 'signed')::boolean then raise exception 'Confirm the signed copy of the quote before the engagement letter'; end if;
+    if not (v_docs ->> 'paid')::boolean then raise exception 'The engagement letter needs a payment first: record one, or ask someone who may waive it'; end if;
+  end if;
   if v_type <> 'quote' then v_revises := null; v_template := null; end if;
   if v_template is not null and not exists (select 1 from business_setup_quote_templates where key = v_template and active) then raise exception 'Unknown quote template %', v_template; end if;
   if v_client is not null and not exists (select 1 from client_master where client_id = v_client) then raise exception 'Unknown client %', v_client; end if;
@@ -172,6 +557,9 @@ begin
   returning * into r;
   if v_revises is not null then
     update hub_documents set status = 'superseded', status_at = now(), status_by = auth.uid(), status_reason = 'Revised by ' || r.document_number where id = v_revises;
+    -- A signed copy uploaded for the quote just replaced no longer applies.
+    update business_setup_signed_quotes set status = 'Refused', note = 'This quote was revised, so this signed copy no longer applies: sign the new quote',
+           decided_at = now(), decided_by = auth.uid() where quote_id = v_revises and status = 'Uploaded';
   end if;
   return r;
 end $$;

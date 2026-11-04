@@ -189,6 +189,7 @@ select public.bs_check('the revised quote is superseded and the case stays', (se
 select public.bs_expect_error(format($$select pg_temp.fq('Business Setup', '{"client_id":"CL970040","case_id":"%s"}'::jsonb)$$, gen_random_uuid()), 'case');
 select public.bs_as(null);
 update public.hub_documents set status = 'accepted' where id = pg_temp.fx('fn_rev')::uuid;
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type) values ('CL970040', pg_temp.fx('fn_rev')::uuid, current_date, 10, 'Payment');   -- a letter needs a payment first (Task 8)
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f70 select 'fn_let', (public.hub_document_create(jsonb_build_object('doc_type','letter','parent_id',pg_temp.fx('fn_rev')))).id::text;
 select public.bs_check('a letter inherits the case', (select case_id::text from public.hub_documents where id = pg_temp.fx('fn_let')::uuid) = pg_temp.fx('fn'));

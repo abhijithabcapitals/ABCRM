@@ -33,7 +33,7 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
 # and only once business_setup_fee_items exists.
 MINE_OLD=(); MINE_NEW=()
 for n in 01 02 03 04 05 06 07 08 09 10 11 12; do MINE_OLD+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
-for n in 13 14 15; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
+for n in 13 14 15 18; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 MINE=("${MINE_OLD[@]}" "${MINE_NEW[@]}")
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 
@@ -48,7 +48,7 @@ if [ -n "${ROLLBACK_TEST:-}" ]; then
   "${PSQL[@]}" -c "select proname, md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and proname in ('client_base_list','client_inputs_assign','client_inputs_file','client_inputs_release','client_lookup','client_master_save','hub_document_create','hub_next_number','hub_numbering_save','hub_numbering_status','voucher_set_local') order by 1" -At || exit 1
   for f in "${MINE_OLD[@]}" "${SEED7[@]}"; do pass=mine; run_sql "$f"; done
   # Remember the functions 013 replaces, to prove rollback/013_019_rollback.sql puts them back exactly.
-  "${PSQL[@]}" -c "create table public.bs_pre013 as select p.proname, pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('hub_document_create', 'business_setup_permissions', 'business_setup_dashboard', 'business_setup_net_paid', 'business_setup_quote_accept', 'business_setup_fee_item_save')" >/dev/null || exit 1
+  "${PSQL[@]}" -c "create table public.bs_pre013 as select p.proname, pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('hub_document_create', 'business_setup_permissions', 'business_setup_dashboard', 'business_setup_net_paid', 'business_setup_quote_accept', 'business_setup_fee_item_save', 'business_setup_payment_add', 'business_setup_payment_reverse', 'business_setup_portal_view')" >/dev/null || exit 1
   for f in "${MINE_NEW[@]}"; do pass=new; run_sql "$f"; done
   # Cases data to remove, and a quote that must survive with its case_id gone.
   "${PSQL[@]}" -c "insert into public.client_master (client_id, legal_name, data) values ('CL990002', 'R2', '{}') on conflict do nothing; insert into public.business_setup_cases (client_id, stage) values ('CL990002', 'Services'); insert into public.hub_documents (doc_type, department, client_name, document_number, document_serial, case_id) select 'quote', 'Business Setup', 'Case quote', 'CASE-1', 1, id from public.business_setup_cases limit 1" >/dev/null || exit 1

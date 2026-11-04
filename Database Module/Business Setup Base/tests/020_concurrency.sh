@@ -36,7 +36,7 @@ race() {
 
 # 1. Accept vs accept in one chain: B2 (revision of B1) is accepted by session 1; session 2 tries the root B1.
 B1=$(mk); B2=$(mk "$B1")
-race "select public.business_setup_quote_accept('$B2'); select pg_sleep($HOLD);" "select public.business_setup_quote_accept('$B1');"
+race "select public.bs_accept('$B2'); select pg_sleep($HOLD);" "select public.bs_accept('$B1');"
 chk "accept/accept: session 1 commits" "$([ "$S1RC" = 0 ] && echo 1 || echo 0)" "$S1OUT"
 chk "accept/accept: session 2 waited for session 1" "$([ "$S2MS" -ge 1200 ] && echo 1 || echo 0)" "${S2MS}ms"
 chk "accept/accept: session 2 refused as already accepted" "$([ "$S2RC" != 0 ] && echo "$S2OUT" | grep -qi 'already accepted' && echo 1 || echo 0)" "$S2OUT"
@@ -46,20 +46,20 @@ chk "accept/accept: tracker lines created once" "$([ "$(lines_of "$B2")" = 1 ] &
 
 # 2. Same quote twice: both sessions accept Q; the second must fail, lines created once.
 Q=$(mk)
-race "select public.business_setup_quote_accept('$Q'); select pg_sleep($HOLD);" "select public.business_setup_quote_accept('$Q');"
+race "select public.bs_accept('$Q'); select pg_sleep($HOLD);" "select public.bs_accept('$Q');"
 chk "same quote twice: session 2 waited and was refused" "$([ "$S2RC" != 0 ] && [ "$S2MS" -ge 1200 ] && echo "$S2OUT" | grep -qi 'already accepted' && echo 1 || echo 0)" "${S2MS}ms $S2OUT"
 chk "same quote twice: tracker lines created once" "$([ "$(lines_of "$Q")" = 1 ] && echo 1 || echo 0)"
 
 # 3. Accept (session 1) vs revise (session 2) on a non-root member C2 of chain C1 -> C2.
 C1=$(mk); C2=$(mk "$C1")
-race "select public.business_setup_quote_accept('$C2'); select pg_sleep($HOLD);" "select (public.hub_document_create('{\"doc_type\":\"quote\",\"department\":\"Business Setup\",\"client_name\":\"Test Client LLC\",\"contact_name\":\"C\",\"contact_email\":\"c@x.ae\",\"contact_phone\":\"1\",\"client_address\":\"Dubai\",\"client_id\":\"CL900002\",\"lines\":[{\"description\":\"Concurrency line\",\"amount\":10}],\"revises_id\":\"$C2\"}'::jsonb)).id;"
+race "select public.bs_accept('$C2'); select pg_sleep($HOLD);" "select (public.hub_document_create('{\"doc_type\":\"quote\",\"department\":\"Business Setup\",\"client_name\":\"Test Client LLC\",\"contact_name\":\"C\",\"contact_email\":\"c@x.ae\",\"contact_phone\":\"1\",\"client_address\":\"Dubai\",\"client_id\":\"CL900002\",\"lines\":[{\"description\":\"Concurrency line\",\"amount\":10}],\"revises_id\":\"$C2\"}'::jsonb)).id;"
 chk "accept then revise (non-root): no deadlock" "$(echo "$S1OUT$S2OUT" | grep -qi deadlock && echo 0 || echo 1)" "$S1OUT $S2OUT"
 chk "accept then revise (non-root): accept commits, revise refused" "$([ "$S1RC" = 0 ] && [ "$S2RC" != 0 ] && echo "$S2OUT" | grep -qi 'only an issued quote can be revised' && echo 1 || echo 0)" "$S2OUT"
 chk "accept then revise (non-root): one clean outcome" "$([ "$(status_of "$C2")" = accepted ] && [ "$(one "select count(*) from public.hub_documents where revises_id = '$C2'")" = 0 ] && [ "$(lines_of "$C2")" = 1 ] && echo 1 || echo 0)"
 
 # 4. Revise (session 1) vs accept (session 2) on a non-root member D2 of chain D1 -> D2.
 D1=$(mk); D2=$(mk "$D1")
-race "select (public.hub_document_create('{\"doc_type\":\"quote\",\"department\":\"Business Setup\",\"client_name\":\"Test Client LLC\",\"contact_name\":\"C\",\"contact_email\":\"c@x.ae\",\"contact_phone\":\"1\",\"client_address\":\"Dubai\",\"client_id\":\"CL900002\",\"lines\":[{\"description\":\"Concurrency line\",\"amount\":10}],\"revises_id\":\"$D2\"}'::jsonb)).id; select pg_sleep($HOLD);" "select public.business_setup_quote_accept('$D2');"
+race "select (public.hub_document_create('{\"doc_type\":\"quote\",\"department\":\"Business Setup\",\"client_name\":\"Test Client LLC\",\"contact_name\":\"C\",\"contact_email\":\"c@x.ae\",\"contact_phone\":\"1\",\"client_address\":\"Dubai\",\"client_id\":\"CL900002\",\"lines\":[{\"description\":\"Concurrency line\",\"amount\":10}],\"revises_id\":\"$D2\"}'::jsonb)).id; select pg_sleep($HOLD);" "select public.bs_accept('$D2');"
 chk "revise then accept (non-root): no deadlock" "$(echo "$S1OUT$S2OUT" | grep -qi deadlock && echo 0 || echo 1)" "$S1OUT $S2OUT"
 chk "revise then accept (non-root): revise commits, accept refused" "$([ "$S1RC" = 0 ] && [ "$S2RC" != 0 ] && echo "$S2OUT" | grep -qi 'only an issued quote can be accepted' && echo 1 || echo 0)" "$S2OUT"
 chk "revise then accept (non-root): one clean outcome" "$([ "$(status_of "$D2")" = superseded ] && [ "$(one "select count(*) from public.hub_documents where revises_id = '$D2'")" = 1 ] && [ "$(lines_of "$D2")" = 0 ] && echo 1 || echo 0)"

@@ -558,10 +558,12 @@ insert into f80 select 'fq_e', (pg_temp.hq(format('{"department":"Business Setup
 select public.bs_as(null);
 update public.hub_documents set status = 'accepted' where id = pg_temp.cid('fq_e');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.cid('fq_e')));
 select public.bs_check('payment_case: before the payment the case stays at Documentation', pg_temp.stage('f_e') = 'Documentation');
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.cid('fq_e'), 'amount', 100)) as ignored \gset
+select public.bs_check('payment_case: with the payment alone the case stays at Documentation, the letter is missing', pg_temp.stage('f_e') = 'Documentation');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.cid('fq_e')));
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_check('payment_case: payment_add sets the case_id', (select count(*) = 1 from public.business_setup_payments where quote_id = pg_temp.cid('fq_e') and case_id = pg_temp.cid('f_e')));
 select public.bs_check('payment_case: and the case moves to Assignment', pg_temp.stage('f_e') = 'Assignment');
