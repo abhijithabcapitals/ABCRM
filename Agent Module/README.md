@@ -3,6 +3,7 @@
 Specifications for 12 CRM agents plus an Orchestrator. These are design documents, not working integrations.
 
 ## Layout
+- `00_Router_Agent`: Bruno, the working chat agent for all CRM users. See its README.
 - `SYSTEM_ARCHITECTURE.md`: components, request flow, open decisions
 - `AGENT_REGISTRY.json`: agent IDs, folders, owned tables, status
 - `00_Shared_Standards\`: rules every agent follows (operating rules, data contracts, handoffs, permissions)
