@@ -33,15 +33,11 @@ export default function DocumentationPage() {
           ]} />
         )}
       </>}
-      {dialog === "lost" && <LostDialog c={c} onClose={() => setDialog(null)} onDone={onBack} />}
-      {dialog === "link" && <FormModal title={`Link a client to ${c.case_number}`} submitLabel="Link client" onClose={() => setDialog(null)}
-        note="Leave the client ID empty to create the client from the lead details. The case's quote and letter then use that client."
-        fields={[{ name: "client", label: "Existing client ID (CL000001)" }]} onSubmit={async (v) => { await caseLinkClient(c.id, (v.client || "").trim() || null); await onBack(); }} />}
     </div>
   );
 }
 
-function CaseDocs({ c, onBack }) {
+export function CaseDocs({ c, onBack }) {
   const { goTo, can } = useSetup();
   const [dialog, setDialog] = useState(null);
   const ws = useLoad(() => (c.client_id ? workspace(c.client_id) : Promise.resolve(null)), [c.client_id]);
@@ -60,6 +56,10 @@ function CaseDocs({ c, onBack }) {
         <Panel title="Quote and letter"><Quotes w={w} clientId={c.client_id} caseId={c.id} reload={ws.reload} /></Panel>
         <Panel title="Payments"><Payments w={w} reload={ws.reload} /></Panel>
       </>}
+      {dialog === "lost" && <LostDialog c={c} onClose={() => setDialog(null)} onDone={onBack} />}
+      {dialog === "link" && <FormModal title={`Link a client to ${c.case_number}`} submitLabel="Link client" onClose={() => setDialog(null)}
+        note="Leave the client ID empty to create the client from the lead details. The case's quote and letter then use that client."
+        fields={[{ name: "client", label: "Existing client ID (CL000001)" }]} onSubmit={async (v) => { await caseLinkClient(c.id, (v.client || "").trim() || null); await onBack(); }} />}
     </div>
   );
 }

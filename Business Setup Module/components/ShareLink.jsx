@@ -15,7 +15,7 @@ const emailLogin = (clientId, username, password, email) => staffCall("admin_gra
 export default function ShareLink({ c, onClose, onDone }) {
   const [client, setClient] = useState(c.client_id);
   const [existing, setExisting] = useState("");
-  const [duplicate, setDuplicate] = useState(false);
+
   const [email, setEmail] = useState(c.email || "");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -26,7 +26,7 @@ export default function ShareLink({ c, onClose, onDone }) {
   const login = useLoad(() => (client ? loginState(client) : Promise.resolve(null)), [client]);
   const a = login.data;
   const run = async (fn) => { setBusy(true); setError(null); try { await fn(); } catch (e) { setError(e.message); } setBusy(false); };
-  const link = (clientId, allowDuplicate = false) => run(async () => { setClient(await caseLinkClient(c.id, clientId || null, allowDuplicate)); setDuplicate(false); });
+  const link = (clientId, allowDuplicate = false) => run(async () => { setClient(await caseLinkClient(c.id, clientId || null, allowDuplicate)); });
   const finish = async () => { await caseShared(c.id); await onDone(); };
   // The password is kept on screen from the moment the login is saved until the email is known to have gone, or the modal closes.
   const send = async (username, password) => {

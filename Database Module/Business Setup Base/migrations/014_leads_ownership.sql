@@ -624,7 +624,7 @@ grant execute on function public.business_setup_quote_link(uuid, text) to authen
 create or replace function public.business_setup_staff_upload_ok(p_bucket text, p_path text) returns boolean
 language sql stable security definer set search_path = public, pg_temp as $$
   select coalesce(p_bucket = 'client-portal' and split_part(p_path, '/', 1) = 'staff' and p_path like 'staff/%/%'
-                  and not ('..' = any (string_to_array(p_path, '/')))
+                  and not ('..' = any (string_to_array(p_path, '/'))) and not ('' = any (string_to_array(p_path, '/')))
                   and public.business_setup_can('setup.kyc.manage'), false)
 $$;
 revoke all on function public.business_setup_staff_upload_ok(text, text) from public, anon;

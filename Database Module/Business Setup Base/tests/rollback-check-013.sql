@@ -18,6 +18,8 @@ begin
   if bad is not null then raise exception 'case triggers remain: %', bad; end if;
   select string_agg(s.proname, ', ') into bad from public.bs_pre013 s join pg_proc p on p.proname = s.proname and p.pronamespace = 'public'::regnamespace where regexp_replace(pg_get_functiondef(p.oid), '\s+', ' ', 'g') <> regexp_replace(s.def, '\s+', ' ', 'g');   -- line endings differ between files
   if bad is not null then raise exception 'Functions differ from before 013: %', bad; end if;
+  if exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'business_setup_staff_upload') then raise exception 'the staff upload policy remains'; end if;
+  if to_regprocedure('public.business_setup_staff_upload_ok(text, text)') is not null then raise exception 'business_setup_staff_upload_ok remains'; end if;
   if exists (select 1 from public.business_setup_role_permissions where permission in ('setup.leads.manage', 'setup.cases.approve')) then raise exception 'new permissions remain'; end if;
   if business_setup_permissions() && array['setup.leads.manage', 'setup.cases.approve'] then raise exception 'permission list still has the new rights'; end if;
   if (select count(*) from public.hub_documents) <> (select n from public.bs_pre013_docs) then raise exception 'hub_documents lost rows'; end if;

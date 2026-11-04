@@ -618,6 +618,9 @@ select public.bs_check('upload_ok: not another bucket', not public.business_setu
 select public.bs_check('upload_ok: not another folder', not public.business_setup_staff_upload_ok('client-portal', 'incoming/x/abc-file.pdf')
   and not public.business_setup_staff_upload_ok('client-portal', 'staffing/CL000001/f.pdf') and not public.business_setup_staff_upload_ok('client-portal', 'staff'));
 select public.bs_check('upload_ok: not a path that climbs out', not public.business_setup_staff_upload_ok('client-portal', 'staff/../incoming/x/f.pdf'));
+select public.bs_check('upload_ok: no empty segment, and the folder name is case-sensitive', not public.business_setup_staff_upload_ok('client-portal', 'staff//f.pdf')
+  and not public.business_setup_staff_upload_ok('client-portal', 'staff/x/') and not public.business_setup_staff_upload_ok('client-portal', 'staff/x//y')
+  and not public.business_setup_staff_upload_ok('client-portal', 'Staff/CL000001/f.pdf') and not public.business_setup_staff_upload_ok('client-portal', '/staff/CL000001/f.pdf'));
 select public.bs_check('upload_ok: nulls are refused, not null', public.business_setup_staff_upload_ok(null, null) = false);
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.bs_check('upload_ok: Finance has no kyc.manage, so no upload', not public.business_setup_staff_upload_ok('client-portal', 'staff/CL000001/abc-file.pdf'));

@@ -1,17 +1,18 @@
 // Actions every case page shares: answer a pending reassignment request, and mark a case lost.
 import { useState } from "react";
-import { Badge, Button, FormModal, useAction } from "@banking/components/shared";
+import { Badge, Button, ErrorNote, FormModal, useAction } from "@banking/components/shared";
 import { useSetup } from "./SetupContext";
 import { caseLost, reassignRespond } from "../services/businessSetupApi";
 
 // Shows the pending request on a case, with Approve and Refuse for a holder of setup.cases.approve.
-export function ReassignActions({ c, onChanged, onError }) {
+export function ReassignActions({ c, onChanged }) {
   const { can, personName } = useSetup();
-  const { busy, act } = useAction(onChanged);
+  const { error, setError, busy, act } = useAction(onChanged);
   const [refusing, setRefusing] = useState(false);
   if (!c.reassign) return null;
   return (
     <span className="bk-actions bk-wrap" onClick={(e) => e.stopPropagation()}>
+      <ErrorNote message={error} onClose={() => setError(null)} />
       <Badge tone="warn">Reassign to {c.reassign.to_name || personName(c.reassign.to_user)}</Badge>
       {can("setup.cases.approve") && <>
         <Button busy={busy} onClick={() => act(() => reassignRespond(c.reassign.id, true, null))}>Approve</Button>
