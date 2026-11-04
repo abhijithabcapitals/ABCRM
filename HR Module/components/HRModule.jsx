@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import "@banking/components/banking.css";
 import { ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import "./hr.css";
-import { attendanceEditsPending, myAccess } from "../services/hrApi";
+import { myAccess, requestsWaiting } from "../services/hrApi";
 import { firstTab, tabsFor } from "../logic/tabs";
 import Dashboard from "./Dashboard";
 import Employees from "./Employees";
@@ -11,11 +11,10 @@ import Requests from "./Requests";
 import Attendance from "./Attendance";
 import SalaryMaster from "./SalaryMaster";
 import Payroll from "./Payroll";
-import Approvals from "./Approvals";
 import Settings from "./Settings";
 
 // Tabs that exist so far.
-const SCREENS = { dashboard: Dashboard, employees: Employees, attendance: Attendance, salary: SalaryMaster, leave: Leave, requests: Requests, payroll: Payroll, approvals: Approvals, settings: Settings };
+const SCREENS = { dashboard: Dashboard, employees: Employees, attendance: Attendance, salary: SalaryMaster, leave: Leave, requests: Requests, payroll: Payroll, settings: Settings };
 const BUILT = new Set(Object.keys(SCREENS));
 
 export default function HRModule({ profile, onOpenTask }) {
@@ -23,7 +22,9 @@ export default function HRModule({ profile, onOpenTask }) {
   const [page, setPage] = useState("dashboard");
   const [intent, setIntent] = useState(null);
   const role = access.data?.role;
-  const pending = useLoad(async () => (role === "hr" ? attendanceEditsPending() : 0), [role]);
+  const employeeId = access.data?.employee_id;
+  // Reloads on each tab change, because the Leave tab can also decide a request.
+  const pending = useLoad(async () => (role === "hr" ? requestsWaiting(employeeId) : 0), [role, employeeId, page]);
   const tabs = tabsFor(role, BUILT);
   const current = firstTab(tabs, page);
   useEffect(() => { if (current && current !== page) setPage(current); }, [current, page]);
@@ -43,7 +44,7 @@ export default function HRModule({ profile, onOpenTask }) {
     return <div className="bk-root"><h1>HR</h1><p className="bk-note hr-access-msg">No employee record is linked to your login. Ask HR or an administrator to link your account to your employee record.</p></div>;
   }
   const Screen = SCREENS[current];
-  const label = (t) => (t.key === "approvals" && pending.data > 0 ? `${t.label} (${pending.data})` : t.label);
+  const label = (t) => (t.key === "requests" && pending.data > 0 ? `${t.label} (${pending.data})` : t.label);
   return (
     <div className="bk-root">
       <header className="bk-header"><div><span className="bk-eyebrow">AB CAPITAL SERVICES FZE</span><h1>HR</h1></div></header>

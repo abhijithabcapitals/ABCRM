@@ -119,6 +119,11 @@ export const attendanceHistory = () => rpc("hr_attendance_history");
 export const attendanceDecide = (edit, approve, note) => rpc("hr_attendance_decide", { p_edit: edit, p_approve: approve, p_note: note || null });
 export const attendanceEdits = (state) => run(table("hr_attendance_edits").select("*, hr_employees(employee_code, full_name)").eq("state", state).order("requested_at", { ascending: false }).limit(50));
 export const attendanceEditsPending = () => rpc("hr_attendance_edits_pending");
+// For the Requests tab label: everything an HR person can decide on the Requests screen.
+export const requestsWaiting = async (employeeId) => {
+  const [edits, others, leaves] = await Promise.all([attendanceEditsPending(), requestsList(), run(table("hr_leave_requests").select("employee_id").eq("status", "pending"))]);
+  return edits + (others || []).filter((r) => r.can_decide).length + (leaves || []).filter((l) => l.employee_id !== employeeId).length;
+};
 export const dashboardPeriod = (period, date) => rpc("hr_dashboard_period", { p_period: period, p_date: date });
 export const wfhRules = () => run(table("hr_wfh_saturday_rules").select("*").order("effective_from", { nullsFirst: true }));
 export const saveWfhRule = async (id, values) => { check(id ? await table("hr_wfh_saturday_rules").update(values).eq("id", id) : await table("hr_wfh_saturday_rules").insert(values)); };

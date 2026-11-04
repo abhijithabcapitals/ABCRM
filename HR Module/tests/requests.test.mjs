@@ -73,3 +73,20 @@ test("historyLine says what happened in plain words", () => {
   assert.equal(historyLine(e("attendance.updated", { status: "Present", time_in: "09:30:00", time_out: null }, { status: "Absent" })), "Changed: Absent to Present 09:30-?");
   assert.equal(historyLine(e("attendance.created", { status: "Absent" }, null)), "Changed: Nothing recorded to Absent");
 });
+test("mergeRequests adds attendance changes with their decision state, newest first", () => {
+  const edit = { id: "e1", employee_id: "a", work_date: "2026-11-03", status: "WFH", state: "pending", reason: "At home", requested_by: "u1", requested_at: "2026-11-05T09:00:00Z", old_values: { status: "Absent" }, hr_employees: { employee_code: "A1", full_name: "Asha" } };
+  const leave = { id: "l1", employee_id: "b", status: "pending", created_at: "2026-11-04T09:00:00Z" };
+  const rows = mergeRequests([], [leave], () => true, [edit, { ...edit, id: "e2", employee_id: "me", requested_at: "2026-11-03T09:00:00Z", state: "approved" }, { ...edit, id: "e3", employee_id: "me", requested_at: "2026-11-02T09:00:00Z" }], (e) => e.employee_id !== "me");
+  assert.deepEqual(rows.map((r) => r.id), ["e1", "l1", "e2", "e3"]);
+  const first = rows[0];
+  assert.equal(first.source, "attendance");
+  assert.equal(first.status, "pending");
+  assert.equal(first.note, "At home");
+  assert.equal(first.can_decide, true);
+  assert.equal(requestSummary(first), "2026-11-03: Absent to Work From Home");
+  assert.equal(rows[2].can_decide, false, "a decided change");
+  assert.equal(rows[3].can_decide, false, "own day");
+});
+test("mergeRequests works with no attendance changes", () => {
+  assert.deepEqual(mergeRequests([], [], () => true), []);
+});
