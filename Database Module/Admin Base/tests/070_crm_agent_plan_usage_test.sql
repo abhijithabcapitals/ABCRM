@@ -31,7 +31,7 @@ reset role;
 select public.crm_agent_report_plan_usage('Pro', '[{"label":"5-hour limit","percent":21,"resets_at":"2026-11-04T17:40:00Z"},{"label":"Weekly · all models","percent":46.5,"resets_at":"2026-11-06T03:00:00Z"}]');
 select t7.ok('one reading stored', (select count(*) from crm_agent.plan_usage) = 1);
 select t7.ok('percent stored', (select windows -> 0 ->> 'percent' from crm_agent.plan_usage) = '21');
-select public.crm_agent_report_plan_usage('Max', '[{"label":"Weekly","percent":100,"resets_at":null}]');
+select public.crm_agent_report_plan_usage('Max', '[{"label":"Weekly","percent":100,"resets_at":null,"junk":1}]');
 select t7.ok('a new reading replaces the old', (select count(*) from crm_agent.plan_usage) = 1 and (select plan from crm_agent.plan_usage) = 'Max' and (select jsonb_array_length(windows) from crm_agent.plan_usage) = 1);
 select t7.ok('extra input keys are not stored', (select windows -> 0 from crm_agent.plan_usage) ? 'resets_at' and (select count(*) from jsonb_object_keys((select windows -> 0 from crm_agent.plan_usage))) = 3);
 
@@ -61,9 +61,15 @@ select t7.fails('anon cannot read', 'select public.crm_agent_plan_usage()', 'per
 select t7.fails('anon cannot report', $q$select public.crm_agent_report_plan_usage('Pro', '[{"label":"x","percent":5}]')$q$, 'permission denied');
 select t7.fails('anon cannot read the table', 'select * from crm_agent.plan_usage', 'permission denied');
 reset role;
+set role service_role;
+select t7.fails('service role cannot report', $q$select public.crm_agent_report_plan_usage('Pro', '[{"label":"x","percent":5}]')$q$, 'permission denied');
+reset role;
 
--- The hourly audit job leaves the reading alone
+-- The hourly audit job leaves the reading alone, while still covering a new public table
+create table public.t7_control (id int primary key);
 select public.audit_trail_attach_all();
+select t7.ok('audit job covers a new public table', exists (select 1 from pg_trigger where tgrelid = 'public.t7_control'::regclass and tgname = 'audit_trail_row'));
 select t7.ok('no audit trigger on the reading', not exists (select 1 from pg_trigger where tgrelid = 'crm_agent.plan_usage'::regclass and tgname = 'audit_trail_row'));
+drop table public.t7_control;
 
 drop schema t7 cascade;

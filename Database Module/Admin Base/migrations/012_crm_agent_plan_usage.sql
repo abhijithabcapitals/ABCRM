@@ -3,7 +3,7 @@
 -- =====================================================================
 -- Holds the latest plan and limit percentages read from the Claude desktop app, for Settings > Claude Subscription.
 -- An hourly scheduled task in that app reports through crm_agent_report_plan_usage over the database connection, so
--- the function needs no token and neither anon nor authenticated can call it. Only one reading is kept.
+-- the function needs no token and no API role can call it. Only one reading is kept.
 -- The table sits in its own schema because audit_trail_attach_all covers public hourly, and a reading each hour
 -- does not belong in the permanent audit trail. This leaves that function and its exclusion list alone.
 -- Run after 001 (admin_is). Idempotent.
@@ -59,7 +59,7 @@ begin
   return v_result;
 end $$;
 
-revoke all on function public.crm_agent_report_plan_usage(text, jsonb), public.crm_agent_plan_usage() from public, anon, authenticated;
+revoke all on function public.crm_agent_report_plan_usage(text, jsonb), public.crm_agent_plan_usage() from public, anon, authenticated, service_role;
 grant execute on function public.crm_agent_plan_usage() to authenticated;
 
 -- So PostgREST sees the new function.

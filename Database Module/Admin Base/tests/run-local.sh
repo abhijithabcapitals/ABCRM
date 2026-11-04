@@ -48,5 +48,5 @@ for i in 1 2; do "${PSQL[@]}" -f "$HERE/../migrations/rollback/011_crm_agent_sub
 "${PSQL[@]}" -f "$HERE/../migrations/011_crm_agent_subscription.sql" && echo "ok 011 reapplies after rollback"
 # Rollback 012 twice, check the schema is gone, then migrate again.
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../migrations/rollback/012_crm_agent_plan_usage_rollback.sql" || { echo "FAILED rollback 012"; exit 1; }; done
-"${PSQL[@]}" -t -c "select case when to_regnamespace('crm_agent') is null and to_regprocedure('public.crm_agent_plan_usage()') is null then 'ok rollback 012 clean' else 'FAILED rollback 012 left objects' end"
+"${PSQL[@]}" -t -c "select case when to_regnamespace('crm_agent') is null and to_regprocedure('public.crm_agent_plan_usage()') is null then 'ok rollback 012 clean' else 'FAILED rollback 012 left objects' end" | tee /dev/stderr | grep -q 'ok rollback 012 clean' || exit 1
 "${PSQL[@]}" -f "$HERE/../migrations/012_crm_agent_plan_usage.sql" && echo "ok 012 reapplies after rollback"
