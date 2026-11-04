@@ -183,3 +183,10 @@ test("web links open in a new tab with the opener cut", () => {
   assert.match(src, /target="_blank"/);
   assert.match(src, /noopener/);
 });
+
+test("Conversation refetches members for unknown senders and skips focus refresh while hidden", () => {
+  const src = read("components/Conversation.jsx");
+  assert.match(src, /known\.current\.has\(m\.sender_id\)/);
+  assert.match(src, /if \(seen\.current\) refresh\(false\)/);
+  assert.match(src, /visible && !shown\.current/);
+});

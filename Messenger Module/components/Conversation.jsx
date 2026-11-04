@@ -28,6 +28,8 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   const busy = useRef(false);
   const seen = useRef(visible);
   seen.current = visible;
+  const shown = useRef(visible); // last seen value of visible, to spot the panel being reopened
+  const known = useRef(new Set()); // senders already looked up, so one unknown sender is fetched once
 
   const atBottom = () => !box.current || box.current.scrollHeight - box.current.scrollTop - box.current.clientHeight < NEAR_BOTTOM;
 
@@ -37,6 +39,11 @@ export default function Conversation({ row, profile, visible, connected, onMessa
     chatApi.markRead(cid).then(reload, () => {});
   }, [cid, reload]);
 
+  const loadMembers = useCallback(() => chatApi.members(cid).then((list) => {
+    list.forEach((x) => known.current.add(x.profile_id));
+    setMembers(list);
+  }, () => {}), [cid]);
+
   // Newest page and the other members' reading state. Used on opening and on catch-up.
   const refresh = useCallback(async (first) => {
     try {
@@ -44,6 +51,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
       const stick = first || atBottom();
       setMessages((cur) => addAll(cur, page));
       if (first) setHasMore(page.length === PAGE);
+      loadMembers();
       if (state !== undefined) setReadAt(state);
       if (stick) scrollTo.current = "bottom";
       setError("");
@@ -52,12 +60,9 @@ export default function Conversation({ row, profile, visible, connected, onMessa
     } catch {
       setError("Could not load messages. Please try again.");
     }
-  }, [cid, markIfSeen]);
+  }, [cid, markIfSeen, loadMembers]);
 
-  useEffect(() => {
-    refresh(true);
-    chatApi.members(cid).then(setMembers, () => setMembers([]));
-  }, [cid, refresh]);
+  useEffect(() => { refresh(true); }, [cid, refresh]);
 
   // Live messages for this chat.
   useEffect(() => onMessage((m) => {
@@ -66,7 +71,9 @@ export default function Conversation({ row, profile, visible, connected, onMessa
     setMessages((cur) => mergeMessage(cur, m));
     if (stick) scrollTo.current = "bottom"; else setFresh(true);
     if (m.sender_id !== me) markIfSeen();
-  }), [cid, me, onMessage, markIfSeen]);
+    // Someone added to the group after it was opened is not in the member list yet.
+    if (m.sender_id && !known.current.has(m.sender_id)) { known.current.add(m.sender_id); loadMembers(); }
+  }), [cid, me, onMessage, markIfSeen, loadMembers]);
 
   // Catch-up: the channel came back, the panel was opened again, or the window got focus.
   const was = useRef({ connected, visible });
@@ -75,7 +82,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
     was.current = { connected, visible };
   }, [connected, visible, refresh]);
   useEffect(() => {
-    const onFocus = () => refresh(false);
+    const onFocus = () => { if (seen.current) refresh(false); };
     const onShow = () => { if (document.visibilityState === "visible") markIfSeen(); };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onShow);
@@ -86,14 +93,17 @@ export default function Conversation({ row, profile, visible, connected, onMessa
   // Scroll after the list has rendered: to the end, or back to where the person was before older messages arrived.
   useLayoutEffect(() => {
     const el = box.current;
+    // A hidden panel can lose its scroll position; reopening lands on the newest message.
+    if (visible && !shown.current) scrollTo.current = "bottom";
+    shown.current = visible;
     if (!el || scrollTo.current == null) return;
     el.scrollTop = scrollTo.current === "bottom" ? el.scrollHeight : el.scrollHeight - scrollTo.current;
     if (scrollTo.current === "bottom") setFresh(false);
     scrollTo.current = null;
-  }, [messages]);
+  }, [messages, visible]);
 
   async function older() {
-    if (busy.current || !hasMore || !messages.length) return;
+    if (busy.current || !seen.current || !hasMore || !messages.length) return;
     busy.current = true;
     try {
       const page = await chatApi.messages(cid, { before: messages[0].created_at, limit: PAGE });
