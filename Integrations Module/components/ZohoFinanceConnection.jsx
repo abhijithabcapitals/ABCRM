@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-// Financial Dashboard block inside the Zoho Books card: test the read-only login, and (for now) run a one-off
-// check that shows the shape of the Zoho data as text to copy. It never shows an amount, a name or a credential.
+// Financial Dashboard block inside the Zoho Books card: test the read-only connection, and (for now) run a one-off
+// check that shows the shape of the Zoho data as text to copy. It never shows an amount or a name.
 async function invoke(supabase, body) {
   const { data: out, error: fnError } = await supabase.functions.invoke("zoho-finance", { body });
   if (fnError) {
