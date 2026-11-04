@@ -15,9 +15,9 @@ export type ZohoReader = {
 };
 export type SourceAccount = Balance & { id: string; name: string; parentId: string | null };
 
-// UNVERIFIED: the documentation's example uses this path. Section 3 of the design keeps /chartofaccounts/transactions
-// as the other candidate until the probe has run.
-export const TRANSACTIONS_PATH = "/chartofaccounts/accounttransactions";
+// The probe on the live organisation, 2026-11-04: this path filters by account and date, lists rows under "transactions"
+// and says whether more pages exist. /chartofaccounts/accounttransactions does none of the last two, despite the docs.
+export const TRANSACTIONS_PATH = "/chartofaccounts/transactions";
 const PER_PAGE = 200;
 
 const num = (v: unknown): number | null => {
