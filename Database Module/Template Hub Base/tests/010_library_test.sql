@@ -111,9 +111,8 @@ select at_check('library rows are skipped by the Voucher Register, AB Capital ro
 select at_as(:'manager');
 select at_check('retired template is refused',
   at_refused(format($f$select hub_library_create(at_lib('AB Capital/Test/Old', %s))$f$, :old_file), 'retired'));
-select at_check('a file of another template is refused; so is a missing file and an unknown template',
+select at_check('a file of another template is refused; so is an unknown template',
   at_refused(format($f$select hub_library_create(at_lib('AB Capital/Test/Plain', %s))$f$, :other_file), 'does not belong')
-  and at_refused($f$select hub_library_create(at_lib('AB Capital/Test/Plain', null))$f$, 'does not belong')
   and at_refused(format($f$select hub_library_create(at_lib('AB Capital/Test/Nope', %s))$f$, :ab_file), 'Unknown template'));
 select at_check('AB Capital needs at least one line; contact details are required',
   at_refused(format($f$select hub_library_create(at_lib('AB Capital/Test/Plain', %s, '{"lines": []}'))$f$, :ab_file), 'at least one')

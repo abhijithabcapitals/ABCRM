@@ -14,6 +14,7 @@ Its existing tables and storage keep their names, because live data and other co
 
 Run it after Banking Base and Services Base.
 
+| `migrations/007_work_types.sql` | AB Capital work types: saved wording on `hub_library_templates.sections`; AB Capital documents need no file |
 | `migrations/006_library_letter.sql` | `hub_library_letter_create`: AB Capital engagement letters made from Company Templates, directly or from a quote not in a case. Business Setup's own flow keeps its accepted quote rule |
 | `migrations/005_library_fill.sql` | Company Library: `hub_library_templates` and `hub_library_template_files`, `hub_library_create` (AB Capital through `hub_document_create` as a Business Setup quote, Ardentax as `doc_type = library` in department `Ardentax Documents`, numbers `Ardentax/YYYY/MM/ADTD001`), `hub_numbering_status` and `hub_numbering_save` accept the `document` kind, `hub_doc_read` hides library rows from people without the ArdentTax tab. Run after Business Setup 001-014, ArdentTax 001 and 003 above. Undo with `rollback/004_rollback.sql`, which refuses while library documents exist unless `library.rollback_force` is `yes` |
 
