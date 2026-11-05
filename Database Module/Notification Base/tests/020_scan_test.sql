@@ -55,10 +55,10 @@ select (now() at time zone 'Asia/Dubai')::date as today \gset
 select to_char(:'today'::date + 20, 'DD/MM/YYYY') as master20 \gset
 
 insert into client_master (client_id, legal_name, data) values
-  ('C30', 'Thirty LLC', null), ('CM', 'Master LLC', jsonb_build_object('License Expiry Date', :'master20')),
-  ('CBAD', 'Bad Date LLC', '{"License Expiry Date": "garbage"}'), ('CLIQ', 'Liquidated LLC', null), ('CREJ', 'Rejected LLC', null),
-  ('CK', 'Ten Days LLC', null), ('CB', 'Beyond LLC', null), ('CFAR', 'Far LLC', null), ('CV', 'Visa LLC', null),
-  ('CS', 'Service LLC', null), ('CT', 'Tasks LLC', null);
+  ('C30', 'Thirty LLC', '{}'), ('CM', 'Master LLC', jsonb_build_object('License Expiry Date', :'master20')),
+  ('CBAD', 'Bad Date LLC', '{"License Expiry Date": "garbage"}'), ('CLIQ', 'Liquidated LLC', '{}'), ('CREJ', 'Rejected LLC', '{}'),
+  ('CK', 'Ten Days LLC', '{}'), ('CB', 'Beyond LLC', '{}'), ('CFAR', 'Far LLC', '{}'), ('CV', 'Visa LLC', '{}'),
+  ('CS', 'Service LLC', '{}'), ('CT', 'Tasks LLC', '{}');
 insert into business_setup_kyc_profiles (client_id, client_status, licence_expiry) values
   ('C30', 'Active', :'today'::date + 30), ('CM', 'Active', null), ('CBAD', 'Active', null),
   ('CLIQ', 'LIQUIDATED', :'today'::date + 10), ('CREJ', 'rejected', :'today'::date + 10),
@@ -96,16 +96,23 @@ insert into accounting_job_list (client_id, client_name, service_name, service_d
 insert into business_setup_tasks (client_id, title, owner_id, due_date, status) values
   ('CT', 'Setup open', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Open'),
   ('CT', 'Setup done', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Done');
-insert into banking_tasks (client_id, title, assigned_to, due_date, status) values
-  ('CT', 'Bank open', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Open'),
-  ('CT', 'Bank progress', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'In Progress'),
-  ('CT', 'Bank closed', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Closed');
+-- Banking clients and cases are uuid-keyed. client_master_id links to the alert's client id; a banking client may have none.
+insert into banking_clients (id, client_master_id, display_name) values
+  ('00000000-0000-0000-0000-00000000bc01', 'CT', 'Tasks Banking Name'),
+  ('00000000-0000-0000-0000-00000000bc02', null, 'Unlinked Banking Co');
+insert into banking_cases (id, client_id) values ('00000000-0000-0000-0000-00000000bca1', '00000000-0000-0000-0000-00000000bc01');
+insert into banking_tasks (client_id, case_id, task_type, title, assigned_to, due_date, status) values
+  ('00000000-0000-0000-0000-00000000bc01', null, 'KYC', 'Bank open', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Open'),
+  ('00000000-0000-0000-0000-00000000bc01', null, 'KYC', 'Bank progress', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'In Progress'),
+  ('00000000-0000-0000-0000-00000000bc01', null, 'KYC', 'Bank closed', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Closed'),
+  (null, '00000000-0000-0000-0000-00000000bca1', 'Case follow-up', null, '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Open'),
+  (null, null, 'Loose task', null, null, :'today'::date, 'Open'),
+  ('00000000-0000-0000-0000-00000000bc02', null, 'Unlinked', null, null, :'today'::date, 'Open');
 insert into tasks (title, status, assignee_id, due_date, deleted_at) values
-  ('Crm live', 'Open', '00000000-0000-0000-0000-0000000000c2', to_char(:'today'::date, 'YYYY-MM-DD'), null),
-  ('Crm done', 'Done', '00000000-0000-0000-0000-0000000000c2', to_char(:'today'::date, 'YYYY-MM-DD'), null),
-  ('Crm deleted', 'Open', '00000000-0000-0000-0000-0000000000c2', to_char(:'today'::date, 'YYYY-MM-DD'), now()),
-  ('Crm bad date', 'Open', '00000000-0000-0000-0000-0000000000c2', 'garbage', null),
-  ('Crm impossible date', 'Open', '00000000-0000-0000-0000-0000000000c2', '2026-13-45', null);
+  ('Crm live', 'Open', '00000000-0000-0000-0000-0000000000c2', :'today'::date, null),
+  ('Crm done', 'Done', '00000000-0000-0000-0000-0000000000c2', :'today'::date, null),
+  ('Crm deleted', 'Open', '00000000-0000-0000-0000-0000000000c2', :'today'::date, now()),
+  ('Crm no date', 'Open', '00000000-0000-0000-0000-0000000000c2', null, null);
 
 -- Unfiltered figures before the first scan
 select count(*) as alerts0 from alerts \gset
@@ -151,9 +158,17 @@ select t.ok('first assignee assigned, the rest recipients; department defaults t
 
 -- Tasks
 select t.ok('setup task Open raises, Done does not', (select count(*) = 1 and bool_and(subject like 'Setup open%') from alerts where rule_code = 'setup_task_due'));
-select t.ok('banking Open and In Progress raise, Closed does not', (select count(*) = 2 from alerts where rule_code = 'banking_task_due') and not exists (select 1 from alerts where subject like 'Bank closed%'));
+select t.ok('banking Open and In Progress raise, Closed does not', (select count(*) = 5 from alerts where rule_code = 'banking_task_due') and not exists (select 1 from alerts where subject like 'Bank closed%'));
+select t.ok('banking task linked by client_id: master client id, master name',
+  (select client_id = 'CT' and subject = 'Bank open - Tasks LLC' from alerts where rule_code = 'banking_task_due' and subject like 'Bank open%'));
+select t.ok('banking task linked only by case_id: client through the case, task type stands in for a null title',
+  (select client_id = 'CT' and subject = 'Case follow-up - Tasks LLC' from alerts where rule_code = 'banking_task_due' and subject like 'Case follow-up%'));
+select t.ok('banking task with neither link: null client, still raised, goes unassigned',
+  (select client_id is null and subject = 'Loose task' and assigned_to is null from alerts where rule_code = 'banking_task_due' and subject like 'Loose task%'));
+select t.ok('banking client with no master link: null client, banking display name in the subject',
+  (select client_id is null and subject = 'Unlinked - Unlinked Banking Co' from alerts where rule_code = 'banking_task_due' and subject like 'Unlinked%'));
 select t.ok('crm task: live raises, done and deleted do not, assignee is assignee_id', (select count(*) = 1 and bool_and(subject = 'Crm live' and assigned_to = '00000000-0000-0000-0000-0000000000c2') from alerts where rule_code = 'crm_task_due'));
-select t.ok('bad and impossible crm dates count as missing, scan Ok', (select status = 'Ok' and rule_counts->'crm_task_due' @> '{"checked": 3, "with_data": 1, "raised": 1}'::jsonb from alert_scan_log order by id desc limit 1));
+select t.ok('a crm task with no date counts as missing, scan Ok', (select status = 'Ok' and rule_counts->'crm_task_due' @> '{"checked": 2, "with_data": 1, "raised": 1}'::jsonb from alert_scan_log order by id desc limit 1));
 
 -- Re-scan
 select count(*) as alerts1 from alerts \gset
@@ -198,7 +213,7 @@ select alert_scan() as scanned \gset
 select t.ok('broken rule logged, other rules still ran, scan Failed', (select status = 'Failed' and rule_counts->'banking_task_due'->>'error' like '%broken on purpose%' and rule_counts->'job_due'->>'error' is null
     and error like '%banking_task_due%' from alert_scan_log order by id desc limit 1)
   and exists (select 1 from alerts where subject like 'Job added while broken%'));
-select t.ok('broken rule closes nothing', (select count(*) = :banking_open from alerts where rule_code = 'banking_task_due' and status = 'Open') and :banking_open = 2);
+select t.ok('broken rule closes nothing', (select count(*) = :banking_open from alerts where rule_code = 'banking_task_due' and status = 'Open') and :banking_open = 5);
 select set_config('test.break_rule', '', false);
 \ir ../migrations/002_alert_scan.sql
 select alert_scan() as scanned \gset
@@ -217,8 +232,8 @@ select t.ok('postgres and service_role can run alert_scan', has_function_privile
 select t.ok('authenticated and anon cannot run alert_scan', not has_function_privilege('authenticated', 'alert_scan()', 'execute') and not has_function_privilege('anon', 'alert_scan()', 'execute'));
 select t.ok('public cannot run alert_scan', (select count(*) = 0 from pg_proc p where p.oid = 'alert_scan()'::regprocedure
   and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
-select t.ok('rule functions and the date helper are not browser-callable', (select count(*) = 8 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
-  from pg_proc p where pronamespace = 'public'::regnamespace and ((proname like 'alert\_rule\_%' and proname not in ('alert_rule_save', 'alert_rule_list')) or proname = 'alert_safe_date')));
+select t.ok('rule functions are not browser-callable', (select count(*) = 7 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
+  from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_rule\_%' and proname not in ('alert_rule_save', 'alert_rule_list')));
 select t.ok('alert_scan is scheduled daily at 02:00', (select count(*) = 1 and bool_and(schedule = '0 2 * * *' and command = 'select public.alert_scan()') from cron.job where jobname = 'alert-scan'));
 
 -- run-local.sh expects the tests to leave the mode on Live.

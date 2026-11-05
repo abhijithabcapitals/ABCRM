@@ -16,9 +16,9 @@ create function public.admin_is() returns boolean language sql stable security d
   select exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin') $$;
 grant execute on function public.admin_is() to authenticated;
 
-create table public.banking_user_roles (user_id uuid primary key, role text);
-create table public.hr_employees (profile_id uuid primary key, status text, designation text);
-create table public.tasks (id uuid primary key default gen_random_uuid(), title text, status text, assignee_id uuid, due_date text, deleted_at timestamptz);   -- live due_date may be text or timestamp; text is the hard case
+create table public.banking_user_roles (user_id uuid primary key, role text not null);
+create table public.hr_employees (id uuid primary key default gen_random_uuid(), profile_id uuid, status text not null, designation text);
+create table public.tasks (id uuid primary key default gen_random_uuid(), title text not null, status text, assignee_id uuid, due_date date, deleted_at timestamptz);
 create table public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
@@ -26,14 +26,16 @@ create table public.notifications (
   type text, title text not null, body text, link_scope jsonb,
   read boolean default false, created_at timestamptz default now());
 
-create table public.client_master (client_id text primary key, legal_name text, data jsonb);
+create table public.client_master (client_id text primary key, legal_name text not null, data jsonb not null);
 create table public.service_departments (name text primary key, crm_tab text not null, sort_order int not null default 0);
 insert into public.service_departments values ('Business Setup', 'Business Setup', 1), ('Accounting', 'Accounting', 2), ('Tax Compliance', 'Tax Compliance', 3), ('Business Banking', 'Business Banking', 4);
 create table public.business_setup_kyc_profiles (client_id text primary key references public.client_master (client_id), client_status text, licence_expiry date, jurisdiction text, business_activity text);
-create table public.business_setup_visas (id uuid primary key default gen_random_uuid(), client_id text, person_name text, occupation text, expiry_date date, status text);
-create table public.business_setup_services (id uuid primary key default gen_random_uuid(), client_id text, name text, status text, due_date date, owner_id uuid, historical boolean, expiry_date date);
-create table public.business_setup_tasks (id uuid primary key default gen_random_uuid(), client_id text, title text, owner_id uuid, due_date date, status text);
-create table public.banking_tasks (id uuid primary key default gen_random_uuid(), client_id text, title text, assigned_to uuid, due_date date, status text);
+create table public.business_setup_visas (id uuid primary key default gen_random_uuid(), client_id text not null, person_name text not null, occupation text, expiry_date date, status text);
+create table public.business_setup_services (id uuid primary key default gen_random_uuid(), client_id text not null, name text not null, status text not null, due_date date, owner_id uuid, historical boolean not null, expiry_date date);
+create table public.business_setup_tasks (id uuid primary key default gen_random_uuid(), client_id text not null, title text, owner_id uuid, due_date date, status text);
+create table public.banking_clients (id uuid primary key default gen_random_uuid(), client_master_id character varying, display_name text not null);
+create table public.banking_cases (id uuid primary key default gen_random_uuid(), client_id uuid not null);
+create table public.banking_tasks (id uuid primary key default gen_random_uuid(), client_id uuid, case_id uuid, task_type text not null, title text, assigned_to uuid, due_date date, status text);
 create table public.accounting_job_list (id uuid primary key default gen_random_uuid(), client_id text, client_name text, service_name text, service_department text, due_date date, assignee_ids uuid[], work_status text);
 
 -- Copied from Database Module/Business Setup Base/migrations/008_workspace.sql:118

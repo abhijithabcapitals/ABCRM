@@ -14,7 +14,7 @@ create function t.errtext(stmt text) returns text language plpgsql as $$
 begin execute stmt; return null; exception when others then return sqlerrm; end $$;
 
 insert into profiles values (:'d1', 'Dana Reads', 'd1@x', 'member'), (:'d2', 'Dev Reads', 'd2@x', 'member');
-insert into client_master values ('T5CL', 'T5 Client Ltd');
+insert into client_master values ('T5CL', 'T5 Client Ltd', '{}');
 insert into alert_rules (code, category, department, title_template, enabled) values
   ('t5_dead', 'Deadlines', 'Business Setup', '{subject}', false),
   ('t5_docs', 'Client Documents', 'Accounting', '{subject}', false),

@@ -1,7 +1,7 @@
 -- Alert core. Prints "ok ..." per check and stops at the first failure.
 \set ON_ERROR_STOP on
 
-insert into client_master values ('CL000001', 'TEST Client');
+insert into client_master values ('CL000001', 'TEST Client', '{}');
 insert into profiles values
   ('00000000-0000-0000-0000-0000000000a1', 'Admin One', 'a1@x', 'admin'),
   ('00000000-0000-0000-0000-0000000000a2', 'Admin Two', 'a2@x', 'admin'),
@@ -17,7 +17,7 @@ values ('r', 'Licence', 'Business Setup', 'Licence expiry: {subject}', 'Start th
 -- Managers
 select t.ok('no tagged manager falls back to admins', (select bool_and(fell_back) and count(*) = 2 from alert_managers()));
 insert into banking_user_roles values ('00000000-0000-0000-0000-0000000000b1', 'MANAGER'), ('00000000-0000-0000-0000-0000000000c2', 'STAFF');
-insert into hr_employees values
+insert into hr_employees (profile_id, status, designation) values
   ('00000000-0000-0000-0000-0000000000b2', 'Active', 'Manager'),
   ('00000000-0000-0000-0000-0000000000b3', 'Inactive', 'Manager'),
   ('00000000-0000-0000-0000-0000000000c1', 'Active', 'Accountant');

@@ -44,16 +44,6 @@ do $$ begin
   end if;
 end $$;
 
--- A text or timestamp column read as a date. Anything that is not a real calendar date is null, never an error.
-create or replace function public.alert_safe_date(p text) returns date
-language plpgsql immutable set search_path = public, pg_temp as $$
-begin
-  if p is null or btrim(p) !~ '^\d{4}-\d{2}-\d{2}' then return null; end if;
-  return left(btrim(p), 10)::date;
-exception when others then
-  return null;
-end $$;
-
 create or replace function public.alert_rule_licence_expiry() returns setof public.alert_candidate
 language sql stable security definer set search_path = public, pg_temp as $$
   select 'licence:' || k.client_id || ':' || coalesce(d.dt::text, ''), k.client_id, m.legal_name, null::text, d.dt,
@@ -110,22 +100,25 @@ language sql stable security definer set search_path = public, pg_temp as $$
   where t.status = 'Open'
 $$;
 
+-- The client comes from the task, or else from its case. A banking client's client_master_id is the alert's client id,
+-- and may be empty: a task with no client still raises, with a null client id.
 create or replace function public.alert_rule_banking_task_due() returns setof public.alert_candidate
 language sql stable security definer set search_path = public, pg_temp as $$
-  select 'bankingtask:' || t.id || ':' || coalesce(t.due_date::text, ''), t.client_id,
-         concat_ws(' - ', t.title, m.legal_name), null::text, t.due_date,
-         coalesce(t.assigned_to, alert_owner(t.client_id, 'Business Banking')), null::uuid[], 'banking_tasks', t.id::text, null::uuid, null::text
+  select 'bankingtask:' || t.id || ':' || coalesce(t.due_date::text, ''), bc.client_master_id::text,
+         concat_ws(' - ', coalesce(t.title, t.task_type), coalesce(m.legal_name, bc.display_name)), null::text, t.due_date,
+         coalesce(t.assigned_to, alert_owner(bc.client_master_id::text, 'Business Banking')), null::uuid[], 'banking_tasks', t.id::text, null::uuid, null::text
   from banking_tasks t
-  left join client_master m on m.client_id = t.client_id
+  left join banking_cases c on c.id = t.case_id
+  left join banking_clients bc on bc.id = coalesce(t.client_id, c.client_id)
+  left join client_master m on m.client_id = bc.client_master_id::text
   where t.status in ('Open', 'In Progress')
 $$;
 
 create or replace function public.alert_rule_crm_task_due() returns setof public.alert_candidate
 language sql stable security definer set search_path = public, pg_temp as $$
-  select 'crmtask:' || t.id || ':' || coalesce(d.dt::text, ''), null::text, t.title, null::text, d.dt,
+  select 'crmtask:' || t.id || ':' || coalesce(t.due_date::text, ''), null::text, t.title, null::text, t.due_date,
          t.assignee_id, null::uuid[], 'tasks', t.id::text, null::uuid, null::text
   from tasks t
-  cross join lateral (select alert_safe_date(t.due_date::text) as dt) d
   where t.deleted_at is null and coalesce(t.status, '') <> 'Done'
 $$;
 
@@ -206,9 +199,9 @@ begin
   return jsonb_build_object('status', case when cardinality(v_failed) = 0 then 'Ok' else 'Failed' end, 'rule_counts', v_counts);
 end $$;
 
--- Rule functions and the helper are internal. The scan runs as postgres (cron) or service_role.
+-- Rule functions are internal. The scan runs as postgres (cron) or service_role.
 revoke execute on function
-  public.alert_safe_date(text), public.alert_rule_licence_expiry(), public.alert_rule_visa_expiry(), public.alert_rule_job_due(),
+  public.alert_rule_licence_expiry(), public.alert_rule_visa_expiry(), public.alert_rule_job_due(),
   public.alert_rule_service_due(), public.alert_rule_setup_task_due(), public.alert_rule_banking_task_due(), public.alert_rule_crm_task_due(),
   public.alert_scan()
   from public, anon, authenticated;

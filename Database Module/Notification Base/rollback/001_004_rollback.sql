@@ -34,7 +34,7 @@ drop function if exists public.alert_set_assignee(uuid, uuid);
 drop function if exists public.alert_notify_managers(uuid, boolean);
 drop function if exists public.alert_can_act(uuid, boolean);
 
--- 002: unschedule the scan (safe when pg_cron or the job is absent), then scan, rule functions, helper, type, step function
+-- 002: unschedule the scan (safe when pg_cron or the job is absent), then scan, rule functions, type, step function
 do $$ begin
   if to_regclass('cron.job') is not null then
     perform cron.unschedule(jobid) from cron.job where jobname = 'alert-scan';
@@ -48,7 +48,6 @@ drop function if exists public.alert_rule_service_due();
 drop function if exists public.alert_rule_setup_task_due();
 drop function if exists public.alert_rule_banking_task_due();
 drop function if exists public.alert_rule_crm_task_due();
-drop function if exists public.alert_safe_date(text);
 drop type if exists public.alert_candidate;
 drop function if exists public.alert_step_for(jsonb, int);
 

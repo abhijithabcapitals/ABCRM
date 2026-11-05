@@ -286,9 +286,9 @@ insert into client_master (client_id, legal_name, data) values
   ('T4C', 'T4 Charlie', jsonb_build_object('Accountant', 'Twin Name')),
   ('T4D', 'T4 Delta', jsonb_build_object('Accountant', 'Nobody Here')),
   ('T4E', 'T4 Echo', jsonb_build_object('Accountant', 'Employee Two')),
-  ('T4F', 'T4 Foxtrot', null),
-  ('T4G', 'T4 Golf', null),
-  ('T4H', 'T4 Hotel', null);
+  ('T4F', 'T4 Foxtrot', '{}'),
+  ('T4G', 'T4 Golf', '{}'),
+  ('T4H', 'T4 Hotel', '{}');
 insert into business_setup_kyc_profiles (client_id, client_status, jurisdiction) values ('T4G', 'Active', 'Dubai Mainland');
 insert into accounting_job_list (client_id, client_name, service_name, service_department, assignee_ids, work_status) values
   ('T4B', 'T4 Bravo', 'j1', 'Accounting', array[:'emp2']::uuid[], 'In progress'),
@@ -393,7 +393,7 @@ select t.ok('after confirming, nothing is proposed for them', (select count(*) =
 
 -- a client added after the seed has no owner: unassigned, to the managers
 select set_config('test.uid', '', false);
-insert into client_master (client_id, legal_name, data) values ('T4N', 'T4 New Client', null);
+insert into client_master (client_id, legal_name, data) values ('T4N', 'T4 New Client', '{}');
 insert into business_setup_kyc_profiles (client_id, client_status, licence_expiry) values ('T4N', 'Active', :'today'::date + 20);
 select count(*) as new_bells from notifications where type = 'alert_centre' and user_id in (:'mgr1', :'mgr2') \gset
 select alert_scan() as scanned \gset
