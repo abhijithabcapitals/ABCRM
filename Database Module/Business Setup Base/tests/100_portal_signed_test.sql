@@ -99,6 +99,21 @@ select public.business_setup_quote_reject(pg_temp.fx('qb')::uuid, 'Declined');
 select public.bs_as(null);
 select public.bs_check('a rejected quote shows no paid or outstanding in the portal', pg_temp.vq('acc_b', 'qb') ->> 'status' = 'rejected' and pg_temp.vq('acc_b', 'qb') -> 'net_paid' = 'null'::jsonb and pg_temp.vq('acc_b', 'qb') -> 'outstanding' = 'null'::jsonb);
 
+-- ── Task 9: a recorded invoice reaches the client's Invoices section, and only that client's ──
+create function pg_temp.vinv(p_acc text) returns jsonb language sql security definer as $$ select public.business_setup_portal_view(pg_temp.fx(p_acc)::uuid) -> 'invoices' $$;
+select public.bs_check('invoices stay empty until one is recorded', pg_temp.vinv('acc_a') = '[]'::jsonb and pg_temp.vinv('acc_b') = '[]'::jsonb);
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+insert into f100 values ('inv_a', public.business_setup_invoice_record(jsonb_build_object('quote_id', pg_temp.fx('qa'), 'invoice_number', 'PINV-A', 'invoice_date', '2026-10-02', 'amount', 1050,
+  'file_path', 'CL900100/invoice/pinv-a.pdf'))::text);
+select public.bs_as(null);
+select public.bs_check('portal_invoice: the recorded invoice appears in the client''s Invoices section',
+  jsonb_array_length(pg_temp.vinv('acc_a')) = 1 and pg_temp.vinv('acc_a') -> 0 ->> 'number' = 'PINV-A' and (pg_temp.vinv('acc_a') -> 0 ->> 'amount')::numeric = 1050
+  and pg_temp.vinv('acc_a') -> 0 ->> 'date' = '2026-10-02' and (pg_temp.vinv('acc_a') -> 0 ->> 'has_file')::boolean);
+select public.bs_check('portal_invoice: another client sees none of it', pg_temp.vinv('acc_b') = '[]'::jsonb and pg_temp.view('acc_b')::text !~ 'PINV-A');
+select public.bs_check('portal_invoice: the view names no staff or storage fields', (pg_temp.vinv('acc_a') -> 0) ?| array['file_path', 'created_by', 'case_id', 'source', 'zoho_id', 'client_id'] = false);
+select public.bs_check('portal_invoice: the client opens their own invoice file', public.business_setup_portal_file(pg_temp.fx('acc_a')::uuid, 'invoice', pg_temp.fx('inv_a')::uuid) ->> 'path' = 'CL900100/invoice/pinv-a.pdf');
+select public.bs_expect_error(format($$select public.business_setup_portal_file('%s', 'invoice', '%s')$$, pg_temp.fx('acc_b'), pg_temp.fx('inv_a')), 'File not found');
+
 do $$
 declare f int; t int;
 begin

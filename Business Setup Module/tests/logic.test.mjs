@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expiryNote } from "../logic/expiries.js";
-import { kycMissing } from "../logic/kyc.js";
+import { kycMissing, kycLabel, kycTone } from "../logic/kyc.js";
 import { buildLines, lineTotals, lineError, withRates } from "../logic/lines.js";
 import { balance, canStart, canComplete, isRegistration } from "../logic/balances.js";
 import { SERVICE_STATUSES } from "../logic/statuses.js";
@@ -127,12 +127,43 @@ test("changed answers keep services and the first partner in their stored shape"
   assert.equal(changedAnswers(formValues({}), {}).partners, undefined);
 });
 
-test("the checklist never claims an invoice in this phase", () => {
+test("the checklist shows the real state of the invoice: Done on an invoice or the override, else Open", () => {
   const all = { stage: "Documentation", docs: { quote: true, signed: true, paid: true, letter: true, invoice: true } };
-  assert.equal(itemState(all, "invoice"), "Later");
+  assert.equal(itemState(all, "invoice"), "Done");
+  assert.equal(itemState({ ...all, docs: { ...all.docs, invoice: false } }, "invoice"), "Open");
+  assert.equal(itemState({ stage: "Documentation", docs: {} }, "invoice"), "Open");
   assert.equal(itemState(all, "signed"), "Done");
   assert.equal(itemState({ stage: "Documentation", docs: {} }, "paid"), "Open");
-  assert.equal(itemTone("Later"), undefined);
+  assert.equal(itemTone("Done"), "good");
+  assert.equal(itemTone("Open"), "warn");
+});
+
+test("the Clients list and the Overview work out the KYC label with one rule", () => {
+  // The case found live: CL000001 has no stored state and nothing missing, so the Overview said Complete while the list said Not done.
+  assert.equal(kycLabel(null, []), "Complete");
+  assert.equal(kycLabel(undefined, []), "Complete");
+  assert.equal(kycLabel(null, ["email"]), "Not done");
+  assert.equal(kycLabel("Done", ["email"]), "Done");
+  assert.equal(kycLabel(null, undefined), "Not done");
+  assert.equal(kycTone("Complete"), "good"); assert.equal(kycTone("Done"), "good"); assert.equal(kycTone("Not done"), "warn");
+  const rd = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  for (const f of ["../components/Clients.jsx", "../components/workspace/Overview.jsx"]) assert.match(rd(f), /kycLabel\(/, f);
+  assert.match(rd("../components/Clients.jsx"), /kycLabel\(r\.kyc_state, r\.kyc_missing\)/);
+  assert.doesNotMatch(rd("../components/Clients.jsx"), /kyc_state === "Done"/);
+});
+
+test("the Business Setup quote screen no longer shows the Zoho panel; Banking keeps it", () => {
+  const rd = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  assert.doesNotMatch(rd("../components/workspace/Quotes.jsx"), /ZohoInvoicePanel/);
+  assert.match(rd("../../Banking Module/components/BankProcess.jsx"), /<ZohoInvoicePanel \/>/);
+});
+
+test("invoices are recorded through the database function, with the file under the client's invoice folder", () => {
+  const rd = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  const inv = rd("../components/workspace/Invoices.jsx");
+  assert.match(inv, /invoiceRecord\(\{ \.\.\.v, case_id: caseId, file_path \}\)/);
+  assert.match(inv, /uploadFile\(caseRow\.client_id, scan, "invoice"\)/);
+  assert.match(rd("../components/DocumentationPage.jsx"), /<Invoices caseId=\{c\.id\}/);
 });
 
 test("pages use the decided rules: superseded is not live, Share link needs the login right, Mark lost on Documentation and Cases", () => {

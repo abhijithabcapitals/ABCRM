@@ -128,13 +128,15 @@ select pg_temp.mkcase('doc', 'CL970020', 'Services');
 select public.bs_check('no quote yet: stays in Services', pg_temp.stage('doc') = 'Services' and (pg_temp.docs('doc') ->> 'quote')::boolean = false);
 select pg_temp.mkquote('doc_q', 'T70-DOC', 'CL970020', pg_temp.fx('doc')::uuid);
 select public.bs_check('quote_trigger: issuing a quote moves Services to Documentation', pg_temp.stage('doc') = 'Documentation');
-select public.bs_check('docs: quote only', pg_temp.docs('doc') = '{"quote":true,"signed":false,"paid":false,"letter":false,"invoice":true}'::jsonb);
+select public.bs_check('docs: quote only', pg_temp.docs('doc') = '{"quote":true,"signed":false,"paid":false,"letter":false,"invoice":false}'::jsonb);
 update public.hub_documents set status = 'accepted' where id = pg_temp.fx('doc_q')::uuid;
 select public.bs_check('accepting the quote counts as signed', (pg_temp.docs('doc') ->> 'signed')::boolean and pg_temp.stage('doc') = 'Documentation');
 select pg_temp.mkpay('CL970020', 'doc_q', pg_temp.fx('doc')::uuid, 400);
 select public.bs_check('a payment counts as paid', (pg_temp.docs('doc') ->> 'paid')::boolean and pg_temp.stage('doc') = 'Documentation');
 select pg_temp.mkletter('doc_q', 'T70-DOC-L', pg_temp.fx('doc')::uuid);
-select public.bs_check('docs_ready: accepted quote, payment and letter move to Assignment', pg_temp.stage('doc') = 'Assignment');
+select public.bs_check('docs_ready: accepted quote, payment and letter alone wait for the invoice', pg_temp.stage('doc') = 'Documentation');
+insert into public.business_setup_invoices (client_id, quote_id, case_id, invoice_number, source) values ('CL970020', pg_temp.fx('doc_q')::uuid, pg_temp.fx('doc')::uuid, 'T70-INV', 'Manual');
+select public.bs_check('docs_ready: with the invoice the case moves to Assignment', pg_temp.stage('doc') = 'Assignment');
 select public.bs_check('all five items are met', pg_temp.docs('doc') = '{"quote":true,"signed":true,"paid":true,"letter":true,"invoice":true}'::jsonb);
 
 select pg_temp.mkcase('doc2', 'CL970021', 'Services');
@@ -153,7 +155,7 @@ select public.bs_check('an unsigned quote is not signed, even at zero', not (pg_
 select pg_temp.mkcase('doc5', 'CL970024', 'Services');
 select pg_temp.mkquote('doc5_q', 'T70-DOC5', 'CL970024', pg_temp.fx('doc5')::uuid, 'superseded');
 select public.bs_check('a superseded quote does not count', not (pg_temp.docs('doc5') ->> 'quote')::boolean and pg_temp.stage('doc5') = 'Services');
-select public.bs_check('docs of an unknown case are false except the invoice', public.business_setup_case_docs(gen_random_uuid()) = '{"quote":false,"signed":false,"paid":false,"letter":false,"invoice":true}'::jsonb);
+select public.bs_check('docs of an unknown case are all false', public.business_setup_case_docs(gen_random_uuid()) = '{"quote":false,"signed":false,"paid":false,"letter":false,"invoice":false}'::jsonb);
 
 -- ── In service closes ──
 select pg_temp.mkcase('svc', 'CL970030', 'In service');

@@ -132,5 +132,8 @@ export async function addStaffSignedCopy(quote, clientId, file) {
 }
 
 // Payment by case, and a case's documents when it has no client yet
+export const invoiceRecord = (p) => rpc("business_setup_invoice_record", { p });
+export const caseInvoiceOverride = (id, reason) => rpc("business_setup_case_invoice_override", { p_case: id, p_reason: reason });
+export const caseInvoices = (caseId) => run(table("business_setup_invoices").select("id,invoice_number,issued_on,amount,file_path,source,created_at").eq("case_id", caseId).order("created_at", { ascending: false }));
 export const casePaidOverride = (id, reason) => rpc("business_setup_case_paid_override", { p_case: id, p_reason: reason });
 export const caseDocuments = (id) => rpc("business_setup_case_documents", { p_case: id });

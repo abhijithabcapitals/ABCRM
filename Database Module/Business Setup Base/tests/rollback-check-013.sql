@@ -32,6 +32,11 @@ begin
   if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_fee_items' and column_name = 'vat_rate') then raise exception 'vat_rate remains'; end if;
   if (select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_fee_items' and column_name = 'default_amount') <> 'NO' then raise exception 'default_amount is nullable again'; end if;
   if exists (select 1 from public.business_setup_fee_items where default_amount is null) then raise exception 'a fee item has no amount'; end if;
+  select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('business_setup_invoice_record', 'business_setup_invoice_sync_trg', 'business_setup_case_invoice_override');
+  if bad is not null then raise exception 'invoice functions remain: %', bad; end if;
+  select string_agg(column_name, ', ') into bad from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_invoices' and column_name in ('case_id', 'created_by');
+  if bad is not null then raise exception 'invoice columns remain: %', bad; end if;
+  if pg_get_functiondef('public.business_setup_client_list()'::regprocedure) ilike '%kyc_missing%' then raise exception 'the client list still has kyc_missing'; end if;
   if to_regclass('public.business_setup_signed_quotes') is not null then raise exception 'business_setup_signed_quotes remains'; end if;
   select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
      and p.proname in ('business_setup_signed_add', 'business_setup_signed_file', 'business_setup_signed_decide', 'business_setup_portal_signed_add', 'business_setup_case_paid_override', 'business_setup_case_net_paid', 'business_setup_case_documents', 'business_setup_case_locked', 'business_setup_case_link_client_for_payment', 'business_setup_case_link_client_body', 'business_setup_portal_login_name');

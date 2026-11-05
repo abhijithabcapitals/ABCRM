@@ -35,9 +35,14 @@ test("Documentation page renders its case list", { skip }, async () => {
 test("a case page renders with no client (Link client) and with a client, with Mark lost for lead staff", { skip }, async () => {
   const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", lead_name: "Lead", docs: {} };
   const bare = await html("DocumentationPage.jsx", "CaseDocs", { c, onBack() {} });
-  assert.match(bare, /Link client/); assert.match(bare, /Mark lost/); assert.match(bare, /Invoice: Later/); assert.match(bare, /Quote accepted: Open/);
+  assert.match(bare, /Link client/); assert.match(bare, /Mark lost/); assert.match(bare, /Invoice: Open/); assert.match(bare, /Quote accepted: Open/);
   const withClient = await html("DocumentationPage.jsx", "CaseDocs", { c: { ...c, client_id: "CL000001", reassign: { id: "r1", to_user: "u2", to_name: "Docs" } }, onBack() {} });
   assert.match(withClient, /Reassign to Docs/); assert.match(withClient, /Approve/); assert.match(withClient, /Refuse/);
+  // A case with a client has an Invoices panel with the record button; without a client the button is off and says why.
+  assert.match(bare, /Invoices/); assert.match(bare, /Link a client to this case before recording an invoice/);
+  assert.match(await html("workspace/Invoices.jsx", "default", { caseId: "c1", caseRow: { id: "c1", client_id: "CL000001", stage: "Documentation", docs: { quote: true } } }), /\+ Record invoice/);
+  assert.match(await html("workspace/Invoices.jsx", "default", { caseId: "c1", caseRow: { id: "c1", client_id: "CL000001", stage: "Documentation", docs: { quote: true } } }), /Waive invoice/);
+  assert.doesNotMatch(await html("workspace/Invoices.jsx", "default", { caseId: "c1", caseRow: { id: "c1", client_id: "CL000001", stage: "Documentation", docs: { quote: true } } }, false), /Record invoice/);
   const limited = await html("DocumentationPage.jsx", "CaseDocs", { c, onBack() {} }, false);
   assert.doesNotMatch(limited, /Mark lost/); assert.doesNotMatch(limited, /Link client/);
 });

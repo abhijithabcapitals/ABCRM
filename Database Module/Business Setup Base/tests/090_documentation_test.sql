@@ -215,7 +215,11 @@ insert into f90 values ('payD', public.business_setup_payment_add(jsonb_build_ob
 select public.bs_check('the payment lands on the accepted quote', (select quote_id = pg_temp.fx('qD')::uuid from public.business_setup_payments where id = (pg_temp.fx('payD')::jsonb ->> 'payment_id')::uuid));
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f90 values ('letD', (public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qD')))).id::text);
-select public.bs_check('letter_gate: a part payment is enough for the letter', pg_temp.fx('letD') is not null and pg_temp.stg('cD') = 'Assignment');
+select public.bs_check('letter_gate: a part payment is enough for the letter, and the case then waits for its invoice', pg_temp.fx('letD') is not null and pg_temp.stg('cD') = 'Documentation');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_invoice_record(jsonb_build_object('case_id', pg_temp.fx('cD'), 'invoice_number', 'T90-INV-D', 'amount', 1050)) as ignored \gset
+select public.bs_check('letter_gate: with the invoice the case moves to Assignment', pg_temp.stg('cD') = 'Assignment');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select pg_temp.dash('receivables') as recv_before \gset
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
@@ -249,7 +253,11 @@ select public.bs_check('letter_gate: the override with a reason marks Paid and i
 select public.bs_expect_error(format($$select business_setup_case_paid_override('%s', 'again')$$, pg_temp.fx('cF')), 'already');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qF'))) as ignored \gset
-select public.bs_check('letter_gate: with the override the letter is allowed and the case moves on', pg_temp.stg('cF') = 'Assignment');
+select public.bs_check('letter_gate: with the override the letter is allowed, and the case then waits for its invoice', pg_temp.stg('cF') = 'Documentation');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.business_setup_case_invoice_override(pg_temp.fx('cF')::uuid, 'Billed outside the CRM');
+select public.bs_check('letter_gate: with the invoice waived the case moves on', pg_temp.stg('cF') = 'Assignment');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
 -- a user without the department right learns nothing from the letter gate
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.bs_expect_error(format($$select hub_document_create('%s')$$, jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qA'))), 'permission');
@@ -447,6 +455,111 @@ select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.bs_expect_error($$select public.client_master_save(null, '{"Client Legal Name":"Direct Finance Co"}'::jsonb, null, true)$$, 'permission');
 select public.bs_check('finance: client_master_save is refused straight after the payment door in the same transaction', pg_temp.door_then_direct(pg_temp.fx('cD1')::uuid) = 'refused');
 select public.bs_check('finance: client_master_save is refused after a failed payment door in the same transaction', pg_temp.failed_door_then_direct(pg_temp.fx('cJ2')::uuid) = 'refused');
+select public.bs_as(null);
+
+-- ══ Task 9: invoice record ══
+select public.bs_as(null);
+create function pg_temp.invn(p_k text) returns int language sql security definer as $$ select count(*)::int from public.business_setup_invoices where case_id = pg_temp.fx(p_k)::uuid $$;
+select pg_temp.mkcase('iA', 'CL990092'); select pg_temp.mkcase('iB', 'CL990092'); select pg_temp.mkcase('iN', null); select pg_temp.mkcase('iL', 'CL990092');
+-- iA and iB reach every Documentation item except the invoice
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcq('qiA', 'iA', 1000); select pg_temp.signaccept('qiA', 'staff/CL990092/signed-ia.pdf');
+select pg_temp.mkcq('qiB', 'iB', 1000); select pg_temp.signaccept('qiB', 'staff/CL990092/signed-ib.pdf');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('iA'), 'amount', 100)) as ignored \gset
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('iB'), 'amount', 100)) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qiA'))) as ignored \gset
+select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qiB'))) as ignored \gset
+select public.bs_check('assignment_needs_invoice: accepted, paid and letter stay at Documentation with no invoice',
+  pg_temp.stg('iA') = 'Documentation' and pg_temp.docs('iA') = '{"quote":true,"signed":true,"paid":true,"letter":true,"invoice":false}'::jsonb);
+select public.bs_check('a case with no invoice and no override reads invoice false', not (pg_temp.docs('iN') ->> 'invoice')::boolean);
+
+-- who may record, and what is checked
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 1050)), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error($$select business_setup_invoice_record('{"invoice_number":"INV-1","amount":10}')$$, 'case or the quote');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', 'not-an-id', 'invoice_number', 'INV-1', 'amount', 10)), 'not valid');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', gen_random_uuid(), 'invoice_number', 'INV-1', 'amount', 10)), 'Case not found');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', '  ', 'amount', 10)), 'invoice number');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', -1)), 'amount');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10.555)), 'amount');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'invoice_date', (current_date + 3)::text)), 'future');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iN'), 'invoice_number', 'INV-1', 'amount', 10)), 'Link a client');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iL'), 'invoice_number', 'INV-1', 'amount', 10)), 'accepted');
+-- the file path follows the exact-prefix rule: <client>/invoice/, never a LIKE match
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'file_path', 'CL990093/invoice/a.pdf')), 'CL990092/invoice/');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'file_path', 'CL99009_/invoice/a.pdf')), 'CL990092/invoice/');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'file_path', 'CL990092/invoice/../CL990093/a.pdf')), 'cannot contain');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'file_path', 'CL990092/invoice//a.pdf')), 'cannot contain');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'file_path', 'staff/CL990092/a.pdf')), 'CL990092/invoice/');
+select public.bs_check('refused invoices left no row and the case where it was', pg_temp.invn('iA') = 0 and pg_temp.stg('iA') = 'Documentation');
+
+-- invoice_moves
+insert into f90 values ('inv1', public.business_setup_invoice_record(jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'invoice_date', '2026-10-01', 'amount', 1050,
+  'file_path', 'CL990092/invoice/inv-1.pdf'))::text);
+select public.bs_check('invoice_moves: recording one moves the case to Assignment', pg_temp.stg('iA') = 'Assignment' and (pg_temp.docs('iA') ->> 'invoice')::boolean);
+select public.bs_check('the invoice is kept as Manual, on the case, its accepted quote and its client',
+  (select source = 'Manual' and case_id = pg_temp.fx('iA')::uuid and quote_id = pg_temp.fx('qiA')::uuid and client_id = 'CL990092' and invoice_number = 'INV-1' and issued_on = '2026-10-01'
+      and amount = 1050 and file_path = 'CL990092/invoice/inv-1.pdf' and zoho_id is null from public.business_setup_invoices where id = pg_temp.fx('inv1')::uuid));
+select public.bs_check('the invoice is audited', public.bs_audit_count('invoice_record', pg_temp.fx('inv1'), '{"invoice_number":"INV-1"}') = 1);
+-- two_invoices
+insert into f90 values ('inv2', public.business_setup_invoice_record(jsonb_build_object('quote_id', pg_temp.fx('qiA'), 'invoice_number', 'INV-2', 'amount', 50))::text);
+select public.bs_check('two_invoices: a second invoice on the same quote is allowed, and the case is still at Assignment', pg_temp.invn('iA') = 2 and pg_temp.stg('iA') = 'Assignment'
+  and (select issued_on = (now() at time zone 'Asia/Dubai')::date and file_path is null from public.business_setup_invoices where id = pg_temp.fx('inv2')::uuid));
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('qiA'), 'invoice_number', 'INV-1', 'amount', 5)), 'already');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', ' inv-2 ', 'amount', 5)), 'already');
+select public.bs_check('two_invoices: a duplicate number left no row', pg_temp.invn('iA') = 2);
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('qiB'), 'case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-9', 'amount', 5)), 'does not belong');
+-- the same number on another quote is a different invoice
+insert into f90 values ('inv3', public.business_setup_invoice_record(jsonb_build_object('case_id', pg_temp.fx('iB'), 'invoice_number', 'INV-1', 'amount', 1050))::text);
+select public.bs_check('the same number on another quote is allowed', pg_temp.invn('iB') = 1 and pg_temp.stg('iB') = 'Assignment');
+
+-- invoice_override
+select public.bs_as(null);
+select pg_temp.mkcase('iO', 'CL990092');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcq('qiO', 'iO', 1000); select pg_temp.signaccept('qiO', 'staff/CL990092/signed-io.pdf');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('iO'), 'amount', 100)) as ignored \gset
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qiO'))) as ignored \gset
+select public.bs_check('iO waits at Documentation for its invoice', pg_temp.stg('iO') = 'Documentation');
+select public.bs_expect_error(format($$select business_setup_case_invoice_override('%s', 'Billed outside the CRM')$$, pg_temp.fx('iO')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_case_invoice_override('%s', 'Billed outside the CRM')$$, pg_temp.fx('iO')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_expect_error(format($$select business_setup_case_invoice_override('%s', '  ')$$, pg_temp.fx('iO')), 'reason');
+select public.bs_expect_error(format($$select business_setup_case_invoice_override('%s', 'x')$$, gen_random_uuid()), 'Case not found');
+select public.bs_check('invoice_override: still waiting before the override', pg_temp.stg('iO') = 'Documentation' and not (pg_temp.docs('iO') ->> 'invoice')::boolean);
+select public.business_setup_case_invoice_override(pg_temp.fx('iO')::uuid, 'Billed outside the CRM');
+select public.bs_check('invoice_override: a reason marks Invoice met, moves the case on and is audited', (pg_temp.docs('iO') ->> 'invoice')::boolean and pg_temp.stg('iO') = 'Assignment'
+  and public.bs_audit_count('case_invoice_override', pg_temp.fx('iO'), '{"reason":"Billed outside the CRM"}') = 1);
+select public.bs_expect_error(format($$select business_setup_case_invoice_override('%s', 'again')$$, pg_temp.fx('iO')), 'already');
+select public.bs_check('the override leaves the Paid item alone', (select paid_override_reason is null from public.business_setup_cases where id = pg_temp.fx('iO')::uuid));
+select public.bs_as(null);
+update public.business_setup_cases set stage = 'Lost' where id = pg_temp.fx('iL')::uuid;
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_expect_error(format($$select business_setup_case_invoice_override('%s', 'x')$$, pg_temp.fx('iL')), 'lost');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iL'), 'invoice_number', 'INV-L', 'amount', 10)), 'lost');
+
+-- roles and tables
+select public.bs_as(null);
+select public.bs_check('invoice functions: staff may call, anon may not, the trigger function is internal',
+  has_function_privilege('authenticated', 'public.business_setup_invoice_record(jsonb)', 'execute') and not has_function_privilege('anon', 'public.business_setup_invoice_record(jsonb)', 'execute')
+  and has_function_privilege('authenticated', 'public.business_setup_case_invoice_override(uuid, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_case_invoice_override(uuid, text)', 'execute')
+  and not has_function_privilege('authenticated', 'public.business_setup_invoice_sync_trg()', 'execute'));
+select public.bs_check('invoices stay read-only through the API', not has_table_privilege('authenticated', 'public.business_setup_invoices', 'insert') and not has_table_privilege('authenticated', 'public.business_setup_invoices', 'update')
+  and not has_table_privilege('authenticated', 'public.business_setup_invoices', 'delete') and not has_table_privilege('anon', 'public.business_setup_invoices', 'select'));
+insert into public.business_setup_invoices (client_id, invoice_number, source, zoho_id) values ('CL990092', 'ZOHO-1', 'zoho', 'z1');
+select public.bs_check('a Zoho-style row with no case still inserts and moves no case', exists (select 1 from public.business_setup_invoices where zoho_id = 'z1' and case_id is null));
+-- the dashboard keeps every key
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_check('dash_keys: every key the Dashboard Module reads is still there', public.business_setup_dashboard() ?& array['forms_waiting', 'open_quotes', 'accepted_without_letter', 'outstanding', 'active_services', 'expiries', 'ready_for_accounts', 'reverted_by_accounts', 'receivables']);
+-- the client list shows the same KYC facts as the workspace: its missing items come from the same function
+select public.bs_check('client list: each client carries the missing KYC items the workspace shows',
+  (select count(*) > 0 and bool_and((e -> 'kyc_missing') = (public.business_setup_kyc_status(e ->> 'client_id') -> 'missing')) from jsonb_array_elements(public.business_setup_client_list()) e));
 select public.bs_as(null);
 
 -- ── Summary ──

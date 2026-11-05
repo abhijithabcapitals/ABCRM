@@ -14,6 +14,35 @@ drop function if exists public.business_setup_portal_login_name(text);
 \ir ../migrations/010_portal.sql
 
 -- ── 015_documentation.sql ────────────────────────────────────────────
+-- Invoices recorded by hand (Task 9): their functions and trigger go, and the invoice rows keep their other columns (case_id and created_by are dropped,
+-- so a hand-recorded invoice stays in the client's portal list but no longer belongs to a case). The client list goes back to 008's, without kyc_missing.
+drop trigger if exists business_setup_case_invoice on public.business_setup_invoices;
+drop function if exists public.business_setup_invoice_sync_trg();
+drop function if exists public.business_setup_invoice_record(jsonb);
+drop function if exists public.business_setup_case_invoice_override(uuid, text);
+drop index if exists public.business_setup_invoices_case_idx;
+alter table public.business_setup_invoices drop column if exists case_id cascade;
+alter table public.business_setup_invoices drop column if exists created_by;
+create or replace function public.business_setup_client_list() returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.access');
+  return (
+    with ids as (
+      select client_id from business_setup_kyc_profiles
+      union select client_id from business_setup_services
+      union select client_id from hub_documents where department = 'Business Setup' and doc_type = 'quote' and client_id is not null
+    )
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'client_id', m.client_id, 'legal_name', m.legal_name, 'client_status', k.client_status, 'kyc_state', k.kyc_state,
+             'active_services', (select count(*) from business_setup_services s where s.client_id = m.client_id and s.status not in ('Completed', 'Cancelled') and not s.historical),
+             'balance', (select coalesce(sum(q.total_amount - business_setup_net_paid(q.id)), 0) from hub_documents q
+                          where q.client_id = m.client_id and q.doc_type = 'quote' and q.department = 'Business Setup' and q.status = 'accepted'),
+             'missing_contact', client_master_plain(m.data ->> 'General Email') is null or client_master_plain(m.data ->> 'General Phone') is null)
+             order by m.legal_name), '[]'::jsonb)
+      from ids join client_master m on m.client_id = ids.client_id
+      left join business_setup_kyc_profiles k on k.client_id = m.client_id);
+end $$;
 -- hub_document_create goes back to 014's, and fee_item_save to 005's, by running those files again. Quotes keep their rows: the
 -- vat_rate and scope stored on their lines stay in the JSON, where nothing reads them, and a quote issued with line VAT keeps its amounts.
 -- The three company items go unless a service uses them (then they stay, at 0), and every other empty amount becomes 0.

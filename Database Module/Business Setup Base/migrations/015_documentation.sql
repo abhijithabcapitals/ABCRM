@@ -6,7 +6,8 @@
 -- A quote is accepted only on a confirmed signed copy, a payment can be recorded on a case before any quote, and the engagement
 -- letter waits for the signature and a payment (or an override).
 -- Run after 014. Re-runnable. Undo with rollback/013_019_rollback.sql.
--- hub_document_create is redefined from 014: run this file again whenever 004, 013 or 014 is re-run.
+-- hub_document_create is redefined from 014 and business_setup_client_list from 008: run this file again whenever 004, 008, 013 or 014 is re-run.
+-- Invoices: a hand-recorded invoice meets the Invoice item of Documentation, or the Invoice override does (case_docs, below).
 -- =====================================================================
 
 -- ── Fee items ────────────────────────────────────────────────────────
@@ -243,12 +244,13 @@ revoke all on function public.business_setup_case_net_paid(uuid) from public, an
 -- What Documentation needs, worked out from the records. Internal.
 --   signed  the case's accepted quote has a Confirmed signed copy (a legacy row counts for a quote accepted before 015)
 --   paid    net payments above zero, or the accepted quote's total is zero, or the Paid override was given
+--   invoice an invoice is recorded for the case (or for a quote of it), or the Invoice override was given
 create or replace function public.business_setup_case_docs(p_case uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
-declare v_acc_total numeric; v_override boolean;
+declare v_acc_total numeric; v_override boolean; v_inv_override boolean;
 begin
   select total_amount into v_acc_total from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted' order by created_at desc limit 1;
-  select paid_override_reason is not null into v_override from business_setup_cases where id = p_case;
+  select paid_override_reason is not null, invoice_override_reason is not null into v_override, v_inv_override from business_setup_cases where id = p_case;
   return jsonb_build_object(
     'quote', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status <> 'superseded'),
     'signed', exists (select 1 from hub_documents q join business_setup_signed_quotes s on s.quote_id = q.id and s.status = 'Confirmed'
@@ -256,7 +258,8 @@ begin
     'paid', coalesce(business_setup_case_net_paid(p_case) > 0 or v_acc_total = 0 or v_override, false),
     -- a letter counts when its quote was not replaced (a letter made before the gate on a superseded quote does not satisfy it)
     'letter', exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and lq.status <> 'superseded'),
-    'invoice', true);
+    'invoice', coalesce(v_inv_override, false) or exists (select 1 from business_setup_invoices i where i.case_id = p_case
+                 or i.quote_id in (select id from hub_documents where case_id = p_case and doc_type = 'quote')));
 end $$;
 revoke all on function public.business_setup_case_docs(uuid) from public, anon, authenticated;
 
@@ -277,6 +280,154 @@ begin
 end $$;
 revoke all on function public.business_setup_case_paid_override(uuid, text) from public, anon;
 grant execute on function public.business_setup_case_paid_override(uuid, text) to authenticated;
+
+-- ── Invoices recorded by hand ────────────────────────────────────────
+-- business_setup_invoices comes from 010 (the portal's Invoices section reads it by client_id). A hand-recorded invoice also names its
+-- case and who recorded it. Rows with no case (Zoho, when it is connected) are unchanged and move no case. Nothing writes through the API.
+alter table public.business_setup_invoices add column if not exists case_id uuid references public.business_setup_cases(id);
+alter table public.business_setup_invoices add column if not exists created_by uuid;
+create index if not exists business_setup_invoices_case_idx on public.business_setup_invoices (case_id) where case_id is not null;
+
+-- Records an invoice made outside the CRM against an accepted Business Setup quote, by case or by quote. Keys: case_id, quote_id,
+-- invoice_number, invoice_date (default today), amount, file_path (optional, under <client>/invoice/). A quote may have several invoices
+-- but not the same number twice. The quote is locked before the case, the order a payment uses.
+create or replace function public.business_setup_invoice_record(p jsonb) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; c business_setup_cases; v_today date := (now() at time zone 'Asia/Dubai')::date;
+  v_case uuid; v_quote uuid; v_client text; v_number text; v_on date; v_amount numeric; v_path text; v_prefix text; v_id uuid;
+begin
+  perform business_setup_require('setup.payments.manage');
+  p := coalesce(p, '{}'::jsonb);
+  begin
+    v_case := nullif(p ->> 'case_id', '')::uuid; v_quote := nullif(p ->> 'quote_id', '')::uuid;
+  exception when invalid_text_representation then
+    raise exception 'The case or quote is not valid';
+  end;
+  if v_case is null and v_quote is null then raise exception 'Choose the case or the quote this invoice is for'; end if;
+  v_number := nullif(btrim(coalesce(p ->> 'invoice_number', '')), '');
+  if v_number is null then raise exception 'Enter the invoice number'; end if;
+  if length(v_number) > 60 then raise exception 'The invoice number is too long'; end if;
+  begin
+    v_amount := nullif(btrim(coalesce(p ->> 'amount', '')), '')::numeric;
+  exception when others then
+    v_amount := null;
+  end;
+  if v_amount is null or v_amount < 0 or v_amount >= 10000000000000000 or v_amount <> round(v_amount, 2) then
+    raise exception 'Enter an amount of zero or more with at most two decimals';
+  end if;
+  begin
+    v_on := coalesce(nullif(p ->> 'invoice_date', '')::date, v_today);
+  exception when others then
+    raise exception 'Enter a valid invoice date';
+  end;
+  if v_on > v_today then raise exception 'The invoice date cannot be in the future'; end if;
+  v_path := nullif(btrim(coalesce(p ->> 'file_path', '')), '');
+
+  -- A case invoices its accepted quote.
+  if v_quote is null then
+    select id into v_quote from hub_documents where case_id = v_case and doc_type = 'quote' and department = 'Business Setup' and status = 'accepted' limit 1;
+  end if;
+  if v_quote is not null then
+    select * into q from hub_documents where id = v_quote for update;
+    if q.id is null then raise exception 'Quote not found'; end if;
+    if v_case is null then v_case := q.case_id;
+    elsif q.case_id is distinct from v_case then raise exception 'This quote does not belong to that case'; end if;
+  end if;
+  if v_case is not null then
+    select * into c from business_setup_cases where id = v_case for update;
+    if c.id is null then raise exception 'Case not found'; end if;
+    if c.stage = 'Lost' then raise exception 'This case is lost and takes no invoice'; end if;
+    v_client := c.client_id;
+    if v_client is null then raise exception 'Link a client to this case before recording an invoice'; end if;
+    if q.id is not null and q.client_id is not null and q.client_id <> v_client then raise exception 'The client of this quote does not match the client of the case'; end if;
+  else
+    v_client := q.client_id;
+    if v_client is null then raise exception 'Link this quote to a client before recording an invoice'; end if;
+  end if;
+  if q.id is null or q.doc_type <> 'quote' or q.department <> 'Business Setup' or q.status <> 'accepted' then
+    raise exception 'An invoice can be recorded only against an accepted Business Setup quote';
+  end if;
+  if business_setup_quote_locked(q.id) then
+    raise exception 'This quote is with Accounts. It can be changed only if Accounts reverts it.';
+  end if;
+  -- The file, if any, is already in storage under <client>/invoice/ (exact prefix, never a pattern match).
+  if v_path is not null then
+    v_prefix := v_client || '/invoice/';
+    if not coalesce(left(v_path, length(v_prefix)) = v_prefix, false) or '..' = any (string_to_array(v_path, '/')) or '' = any (string_to_array(v_path, '/')) then
+      raise exception 'The file path must be under % and cannot contain .. or empty parts', v_prefix;
+    end if;
+  end if;
+  if exists (select 1 from business_setup_invoices where quote_id = q.id and lower(btrim(invoice_number)) = lower(v_number)) then
+    raise exception 'Invoice % is already recorded on this quote', v_number;
+  end if;
+
+  insert into business_setup_invoices (client_id, quote_id, case_id, invoice_number, issued_on, amount, file_path, source, created_by)
+  values (v_client, q.id, v_case, v_number, v_on, v_amount, v_path, 'Manual', auth.uid())
+  returning id into v_id;
+  perform business_setup_audit('business_setup_invoices', v_id::text, 'invoice_record', null,
+          jsonb_build_object('client_id', v_client, 'quote_id', q.id, 'case_id', v_case, 'invoice_number', v_number, 'amount', v_amount, 'has_file', v_path is not null));
+  return v_id;
+end $$;
+revoke all on function public.business_setup_invoice_record(jsonb) from public, anon;
+grant execute on function public.business_setup_invoice_record(jsonb) to authenticated;
+
+-- A recorded invoice may complete Documentation: re-check the case (the invoice's own, or the case of its quote).
+create or replace function public.business_setup_invoice_sync_trg() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_case uuid := new.case_id;
+begin
+  if v_case is null and new.quote_id is not null then select case_id into v_case from hub_documents where id = new.quote_id; end if;
+  if v_case is not null then perform business_setup_case_sync(v_case); end if;
+  return null;
+end $$;
+revoke all on function public.business_setup_invoice_sync_trg() from public, anon, authenticated;
+drop trigger if exists business_setup_case_invoice on public.business_setup_invoices;
+create trigger business_setup_case_invoice after insert on public.business_setup_invoices
+  for each row execute function public.business_setup_invoice_sync_trg();
+
+-- Waives the Invoice item for a case, with a reason (the invoice is made outside the CRM). Moves the case on if it was the last item.
+create or replace function public.business_setup_case_invoice_override(p_case uuid, p_reason text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare c business_setup_cases; v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  perform business_setup_require('setup.payments.override');
+  if v_reason is null then raise exception 'Give a reason for waiving the invoice'; end if;
+  select * into c from business_setup_cases where id = p_case for update;
+  if c.id is null then raise exception 'Case not found'; end if;
+  if c.stage in ('Lost', 'Cancelled', 'Completed') then raise exception 'This case is % and cannot take an invoice override', lower(c.stage); end if;
+  if c.invoice_override_reason is not null then raise exception 'The invoice has already been waived for this case'; end if;
+  update business_setup_cases set invoice_override_reason = v_reason where id = p_case;
+  perform business_setup_audit('business_setup_cases', p_case::text, 'case_invoice_override', null, jsonb_build_object('reason', v_reason));
+  perform business_setup_case_sync(p_case);
+end $$;
+revoke all on function public.business_setup_case_invoice_override(uuid, text) from public, anon;
+grant execute on function public.business_setup_case_invoice_override(uuid, text) to authenticated;
+
+-- ── Client list: KYC missing items ───────────────────────────────────
+-- As in 008, plus kyc_missing: the items business_setup_kyc_status names, the same list the workspace Overview reads. The list and the
+-- Overview then work out the KYC label with one rule (logic/kyc.js, kycLabel) instead of the list testing the stored state alone.
+create or replace function public.business_setup_client_list() returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.access');
+  return (
+    with ids as (
+      select client_id from business_setup_kyc_profiles
+      union select client_id from business_setup_services
+      union select client_id from hub_documents where department = 'Business Setup' and doc_type = 'quote' and client_id is not null
+    )
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'client_id', m.client_id, 'legal_name', m.legal_name, 'client_status', k.client_status, 'kyc_state', k.kyc_state,
+             'kyc_missing', coalesce(business_setup_kyc_status(m.client_id) -> 'missing', '[]'::jsonb),
+             'active_services', (select count(*) from business_setup_services s where s.client_id = m.client_id and s.status not in ('Completed', 'Cancelled') and not s.historical),
+             'balance', (select coalesce(sum(q.total_amount - business_setup_net_paid(q.id)), 0) from hub_documents q
+                          where q.client_id = m.client_id and q.doc_type = 'quote' and q.department = 'Business Setup' and q.status = 'accepted'),
+             'missing_contact', client_master_plain(m.data ->> 'General Email') is null or client_master_plain(m.data ->> 'General Phone') is null)
+             order by m.legal_name), '[]'::jsonb)
+      from ids join client_master m on m.client_id = ids.client_id
+      left join business_setup_kyc_profiles k on k.client_id = m.client_id);
+end $$;
 
 -- A case's quote and letter numbers and files, for the Documentation page of a case with no client yet (read-only, so staff can tell
 -- which case it is before linking a client). The client workspace cannot be loaded without a client.

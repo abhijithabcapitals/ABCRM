@@ -17,3 +17,9 @@ export function kycMissing(k) {
   }
   return miss;
 }
+
+// The KYC label for a client, one rule for every screen (the Clients list and the workspace Overview): the stored state when there is one,
+// else Complete when business_setup_kyc_status names nothing missing, else Not done. With no list of missing items it cannot say Complete.
+export const kycLabel = (state, missing) => state || ((Array.isArray(missing) ? missing.length : 1) ? "Not done" : "Complete");
+// Done (stored) and Complete (nothing missing) are both finished.
+export const kycTone = (label) => (label === "Done" || label === "Complete" ? "good" : "warn");

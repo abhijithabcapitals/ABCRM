@@ -4,6 +4,7 @@ import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Spinner, useL
 import { rpc } from "@banking/services/bankingApi";
 import { useSetup } from "./SetupContext";
 import { clientList, saveKyc } from "../services/businessSetupApi";
+import { kycLabel, kycTone } from "../logic/kyc";
 import Workspace from "./Workspace";
 import { money } from "@app/money";
 
@@ -23,7 +24,7 @@ export default function Clients() {
       {list.loading && !list.data ? <Spinner /> : (
         <DataTable rows={list.data || []} search="Search client or ID…" empty="No clients yet." onRow={(r) => goTo("clients", { client: r.client_id })} columns={[
           { key: "legal_name", label: "Client" }, { key: "client_id", label: "Client ID" }, { key: "client_status", label: "Status" },
-          { key: "kyc_state", label: "KYC", render: (r) => <Badge tone={r.kyc_state === "Done" ? "good" : "warn"}>{r.kyc_state || "Not done"}</Badge> },
+          { key: "kyc_state", label: "KYC", render: (r) => { const label = kycLabel(r.kyc_state, r.kyc_missing); return <Badge tone={kycTone(label)}>{label}</Badge>; } },
           { key: "active_services", label: "Active services", right: true }, { key: "balance", label: "Balance", right: true, render: (r) => money(r.balance) },
           { key: "missing_contact", label: "Contact", render: (r) => (r.missing_contact ? <Badge tone="warn">Missing</Badge> : "OK") },
         ]} />

@@ -1,4 +1,4 @@
-// Documentation: one row per case in Services or Documentation, with its checklist. Opening a case shows its quote, letter and payments.
+// Documentation: one row per case in Services or Documentation, with its checklist. Opening a case shows its quote, letter, payments and invoices.
 // A second view is the register of every quote and letter.
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
@@ -8,6 +8,7 @@ import { useSetup } from "./SetupContext";
 import Documents from "./Documents";
 import Quotes from "./workspace/Quotes";
 import Payments from "./workspace/Payments";
+import Invoices from "./workspace/Invoices";
 import { caseDocuments, caseLinkClient, caseList, workspace } from "../services/businessSetupApi";
 import { caseWorkspace } from "../logic/caseWorkspace";
 import { CHECKLIST, itemState, itemTone } from "../logic/checklist";
@@ -67,9 +68,11 @@ export function CaseDocs({ c, onBack, onChanged }) {
           ]} />
         </Panel>
         <Panel title="Payments"><Payments w={null} caseId={c.id} caseRow={c} onChanged={onChanged} /></Panel>
+        <Panel title="Invoices"><Invoices caseId={c.id} caseRow={c} onChanged={onChanged} /></Panel>
       </> : ws.loading && !w ? <Spinner /> : w && <>
         <Panel title="Quote and letter"><Quotes w={w} clientId={c.client_id} caseId={c.id} reload={async () => { await ws.reload(); await onChanged?.(); }} /></Panel>
         <Panel title="Payments"><Payments w={w} reload={ws.reload} caseId={c.id} caseRow={c} onChanged={onChanged} /></Panel>
+        <Panel title="Invoices"><Invoices caseId={c.id} caseRow={c} onChanged={onChanged} /></Panel>
       </>}
       {dialog === "lost" && <LostDialog c={c} onClose={() => setDialog(null)} onDone={onBack} />}
       {dialog === "link" && <FormModal title={`Link a client to ${c.case_number}`} submitLabel="Link client" onClose={() => setDialog(null)}

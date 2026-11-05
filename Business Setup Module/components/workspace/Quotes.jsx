@@ -4,7 +4,6 @@ import { Badge, Button, ErrorNote, FilePick, FormModal, Panel, fmtDate, useActio
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { createDocument, openStored } from "@template-hub/services/hubApi";
 import { useSetup } from "../SetupContext";
-import ZohoInvoicePanel from "../ZohoInvoicePanel";
 import NewServiceFlow from "../NewServiceFlow";
 import PortalMessage from "./PortalMessage";
 import { addStaffSignedCopy, handoverState, listSigned, rejectQuote, sendToAccounts, signLetter, signedDecide, uploadFile } from "../../services/businessSetupApi";
@@ -63,7 +62,6 @@ function Quote({ q, w, clientId, reload, can, onRevise }) {
       {q.status === "accepted" && h && !held && (
         <div className="bk-mt">
           {h.ready ? <>
-            <ZohoInvoicePanel />
             {Number(h.outstanding) > 0 && <p className="bk-note">AED {money(h.outstanding)} is still outstanding on this quote.</p>}
             {Number(h.net_paid) > 0 && w.services.filter((s) => s.quote_id === q.id).every((s) => s.status === "Cancelled") && <p className="bk-note">Every line is cancelled and AED {money(h.net_paid)} is still held.</p>}
             {can("setup.services.manage") && <Button variant="primary" onClick={() => setDialog("send")}>Send to Accounts</Button>}
