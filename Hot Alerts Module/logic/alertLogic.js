@@ -106,8 +106,14 @@ export function tabsFor(access) {
   if (access?.is_admin || access?.is_manager) tabs.push("Department");
   if (access?.can_register) tabs.push("Compliance Register");
   if (access?.is_admin) tabs.push("Management");
+  tabs.push("Calendar");
   tabs.push("Settings"); // Everyone sets their own preferences; the admin parts show to admins only.
   return tabs;
+}
+
+// Calendar rows to CalendarPanel events, all-day on the due date.
+export function alertsToEvents(rows) {
+  return (rows || []).map((r) => ({ id: r.id, title: r.title, start: r.due_date, allDay: true, kind: r.priority }));
 }
 
 // A preference is on unless it is listed as off.

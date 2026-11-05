@@ -47,3 +47,4 @@ export const clientComplianceImport = (s, rows) => call(s, "client_compliance_im
 // Preferences (007): the signed-in person's own.
 export const alertPreferencesGet = (s) => call(s, "alert_preferences_get", {});
 export const alertPreferencesSave = (s, category, channel, enabled) => call(s, "alert_preferences_save", { p_category: category, p_channel: channel, p_enabled: enabled });
+export const alertCalendar = (s, from, to) => call(s, "alert_calendar", { p_from: from, p_to: to });

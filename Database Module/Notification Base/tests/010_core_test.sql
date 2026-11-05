@@ -159,7 +159,7 @@ update alert_settings set value = '"Live"' where key = 'alert_mode';
 
 -- Grants: authenticated may run only the three policy helpers and the browser actions of 003; anon none; anon cannot read alerts
 select t.ok('authenticated runs only the policy helpers, the browser actions and the browser reads',
-  (select count(*) = 21 and array_agg(proname::text order by proname) = array['alert_assign', 'alert_can_see', 'alert_coverage', 'alert_detail', 'alert_escalate', 'alert_is_admin', 'alert_is_manager',
+  (select count(*) = 22 and array_agg(proname::text order by proname) = array['alert_assign', 'alert_calendar', 'alert_can_see', 'alert_coverage', 'alert_detail', 'alert_escalate', 'alert_is_admin', 'alert_is_manager',
      'alert_list', 'alert_management_summary', 'alert_manager_list', 'alert_mark_read', 'alert_my_access', 'alert_preferences_get', 'alert_preferences_save', 'alert_resolve', 'alert_rule_list', 'alert_rule_save', 'alert_scan_now', 'alert_set_mode', 'alert_set_status', 'alert_tiles']
    from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%' and has_function_privilege('authenticated', p.oid, 'execute')));
 select t.ok('authenticated runs exactly the three client owner functions outside the alert_ names',

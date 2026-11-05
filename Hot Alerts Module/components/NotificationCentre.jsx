@@ -6,12 +6,13 @@ import DepartmentView from "./DepartmentView";
 import ManagementView from "./ManagementView";
 import CentreSettings from "./CentreSettings";
 import MyPreferences from "./MyPreferences";
+import AlertCalendar from "./AlertCalendar";
 import ComplianceRegister from "./ComplianceRegister";
 import { Note, btn } from "./ui";
 import { dubaiToday, emptyText, isNotSwitchedOn, tabsFor } from "../logic/alertLogic";
 import { alertMyAccess } from "../services/alertsApi";
 
-export default function NotificationCentre({ profile, supabase, fmtDate, openAlertId, onAlertShown, onOpenClient }) {
+export default function NotificationCentre({ profile, supabase, fmtDate, openAlertId, onAlertShown, onOpenClient, CalendarPanel }) {
   const [access, setAccess] = useState(null);
   const [off, setOff] = useState(false);
   const [error, setError] = useState("");
@@ -89,6 +90,8 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
       )}
       {access && tab === "Compliance Register" && <ComplianceRegister supabase={supabase} today={today} fmtDate={fmtDate} />}
       {access && tab === "Management" && <ManagementView supabase={supabase} access={access} today={today} onOpen={open} refreshKey={refreshKey} />}
+      {access && tab === "Calendar" && <AlertCalendar supabase={supabase} CalendarPanel={CalendarPanel} onOpen={open} access={access} />}
+
       {access && tab === "Settings" && (
         <>
           <MyPreferences supabase={supabase} />

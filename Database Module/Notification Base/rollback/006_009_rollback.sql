@@ -2,6 +2,9 @@
 -- Runs before rollback/005_rollback.sql and rollback/001_004_rollback.sql: it restores the functions 004 owns and drops what Phase 2 added.
 -- Later tasks add their sections above the 006 section.
 
+-- ── 009: calendar ──────────────────────────────────────────────────
+drop function if exists public.alert_calendar(date, date);
+
 -- ── 008: staff email ───────────────────────────────────────────────
 drop function if exists public.alert_email_record(jsonb);
 drop function if exists public.alert_email_build(text);

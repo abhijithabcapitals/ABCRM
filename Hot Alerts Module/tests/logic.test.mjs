@@ -219,3 +219,11 @@ test("preferences read and change", async () => {
   assert.equal(prefIsOn(prefWithChange(p, "Licence", "Email", false), "Licence", "Email"), false);
   assert.equal(prefIsOn(null, "Tax", "Bell"), true);
 });
+
+test("calendar rows become all-day events with the priority as kind", async () => {
+  const { alertsToEvents, tabsFor } = await import("../logic/alertLogic.js");
+  assert.deepEqual(alertsToEvents([{ id: "1", title: "T", due_date: "2026-12-01", priority: "High" }]),
+    [{ id: "1", title: "T", start: "2026-12-01", allDay: true, kind: "High" }]);
+  assert.deepEqual(alertsToEvents(null), []);
+  assert.ok(tabsFor({}).includes("Calendar"));
+});
