@@ -40,7 +40,6 @@ export const saveVisa = (p) => rpc("business_setup_visa_save", { p });
 export const listFees = () => run(table("business_setup_fee_items").select("*").order("sort_order"));
 export const saveFee = (p) => rpc("business_setup_fee_item_save", { p });
 export const listQuoteTemplates = () => run(table("business_setup_quote_templates").select("*").order("label"));
-export const saveQuoteTemplate = (p) => rpc("business_setup_quote_template_save", { p });
 
 // Quotes and services
 export const rejectQuote = (id, reason) => rpc("business_setup_quote_reject", { p_id: id, p_reason: reason });
