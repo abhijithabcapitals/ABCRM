@@ -33,10 +33,14 @@ function FeeRowsModal({ template, onClose, onSaved }) {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      const clean = rows.filter((r) => String(r.label).trim() || String(r.amount).trim()).map((r) => ({
-        label: String(r.label).trim(), amount: r.amount === "" ? null : Number(r.amount), remarks: String(r.remarks).trim(), rate: String(r.rate).trim(),
-      }));
-      if (clean.some((r) => r.amount != null && !Number.isFinite(r.amount))) throw new Error("Each AED amount must be a number.");
+      const clean = [];
+      rows.forEach((r, i) => {
+        const label = String(r.label).trim(), amt = String(r.amount).trim();
+        if (!label && !amt) return;   // blank row, skipped
+        if (!label) throw new Error(`Row ${i + 1} has an AED amount but no label. Add a label or remove the row.`);
+        if (amt === "" || !Number.isFinite(Number(amt))) throw new Error(`Row ${i + 1} (${label}) needs an AED amount as a number.`);
+        clean.push({ label, amount: Number(amt), remarks: String(r.remarks).trim(), rate: String(r.rate).trim() });
+      });
       const rate = String(usd).trim() === "" ? null : Number(usd);
       if (rate != null && !(rate > 0)) throw new Error("The USD rate must be more than zero, or left empty.");
       await saveLibraryTemplate(saveParams(template, { fee_rows: clean, usd_rate: rate }));
