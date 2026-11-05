@@ -1,6 +1,6 @@
 // "I have paid" on one invoice: amount, date, reference and an optional proof of payment (PDF, JPG or PNG, up to 10 MB).
 // A claim changes no balance. Staff check it, then it shows as Confirmed with a receipt, or Refused with a note.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, ErrorNote, Panel } from "@banking/components/shared";
 import { claimProblem, proofProblem } from "../logic/decisions";
 
@@ -10,6 +10,7 @@ export default function ClaimForm({ invoice, api, onDone, onFail, onCancel }) {
   const [v, setV] = useState({ amount: "", paid_on: dubaiToday(), reference: "" });
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);   // state changes only after a re-render, so a fast double click needs this
   const [error, setError] = useState(null);
   const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
   const pick = (f) => {
@@ -20,6 +21,8 @@ export default function ClaimForm({ invoice, api, onDone, onFail, onCancel }) {
   const send = async () => {
     const problem = claimProblem(v, dubaiToday()) || proofProblem(file);
     if (problem) { setError(problem); return; }
+    if (sending.current) return;
+    sending.current = true;
     setBusy(true); setError(null);
     try {
       await api.setupClaim({ invoice_id: invoice.id, amount: v.amount.trim(), paid_on: v.paid_on, reference: v.reference.trim() }, file);
@@ -28,6 +31,7 @@ export default function ClaimForm({ invoice, api, onDone, onFail, onCancel }) {
       // For example a claim already waiting, or a closed case: say so, and show the view as it is now.
       onFail(e.message);
     }
+    sending.current = false;
     setBusy(false);
   };
   return (

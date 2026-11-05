@@ -1,6 +1,6 @@
 // Accept or Reject one quote or letter. Accept shows the document first, then asks for confirmation. Reject needs a note.
 // The server has the last word: if the quote expired or was revised while this page was open, its sentence is shown and the view reloads.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, ErrorNote, Panel } from "@banking/components/shared";
 import { decisionProblem } from "../logic/decisions";
 
@@ -10,6 +10,7 @@ export default function DecisionPanel({ kind, doc, decision, api, openFile, onDo
   const [seen, setSeen] = useState(!doc.has_file);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);   // state changes only after a re-render, so a fast double click needs this
   const [error, setError] = useState(null);
   const accepting = decision === "Accepted";
   const view = async () => {
@@ -19,6 +20,8 @@ export default function DecisionPanel({ kind, doc, decision, api, openFile, onDo
   const send = async () => {
     const problem = decisionProblem(decision, note);
     if (problem) { setError(problem); return; }
+    if (sending.current) return;
+    sending.current = true;
     setBusy(true); setError(null);
     try {
       await api.setupDecide(doc.id, decision, accepting ? undefined : note.trim());
@@ -27,6 +30,7 @@ export default function DecisionPanel({ kind, doc, decision, api, openFile, onDo
       // Expired, revised or already decided: say so, and show the view as it is now.
       onFail(e.message);
     }
+    sending.current = false;
     setBusy(false);
   };
   return (

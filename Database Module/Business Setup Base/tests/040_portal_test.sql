@@ -148,6 +148,27 @@ select public.bs_check('view_claims: a note on a claim that is not Refused stays
 update public.business_setup_payment_claims set status = 'Refused', decided_at = now(), note = 'The reference does not match our bank' where reference = 'TT-T8';
 select public.bs_check('view_claims: a Refused claim shows its note, and a new claim can be made', pg_temp.v() -> 'claims' -> 0 ->> 'status' = 'Refused' and pg_temp.v() -> 'claims' -> 0 ->> 'note' = 'The reference does not match our bank'
   and (select (e ->> 'can_claim')::boolean from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-T8'));
+-- can_claim needs something owed: the case's balance (the accepted quote's total less the case's net payments) above zero. The overpaid side is the same comparison.
+select public.bs_check('view_claims: a balance of 1000 leaves the claim button on', (select (e ->> 'can_claim')::boolean from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-T8'));
+-- Payments cannot be changed or removed, so what is owed moves with the quote's total: a total of 0 owes nothing.
+update public.hub_documents set total_amount = 0 where id = pg_temp.fx('quote_a')::uuid;
+select public.bs_check('view_claims: nothing owed, no claim button', not (select (e ->> 'can_claim')::boolean from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-T8'));
+update public.hub_documents set total_amount = 1000 where id = pg_temp.fx('quote_a')::uuid;
+select public.bs_check('view_claims: owing again, the claim button returns', (select (e ->> 'can_claim')::boolean from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-T8'));
+-- A rejected letter with no acceptance row cannot be decided: the quote's nested letter agrees with the letters list, which the server enforces.
+insert into f40 values ('quote_l', pg_temp.q('CL900080', 'BSQ-L', 'issued')::text);
+-- The test helper trigger of 010 accepts every letter it sees; this letter must stay undecided.
+alter table public.hub_documents disable trigger aaa_bs_letter;
+insert into public.hub_documents (doc_type, department, client_name, parent_id, document_number, status) values ('letter', 'Business Setup', 'A', pg_temp.fx('quote_l')::uuid, 'BSE-L', 'rejected');
+alter table public.hub_documents enable trigger aaa_bs_letter;
+update public.hub_documents set status = 'accepted' where id = pg_temp.fx('quote_l')::uuid;
+
+select public.bs_check('view_decisions: a rejected letter with no acceptance row shows no buttons, in the quote or in the list', pg_temp.vq('BSQ-L') -> 'letter' ->> 'number' = 'BSE-L'
+  and not (pg_temp.vq('BSQ-L') -> 'letter' ->> 'can_decide')::boolean and not (select (e ->> 'can_decide')::boolean from jsonb_array_elements(pg_temp.v() -> 'letters') e where e ->> 'number' = 'BSE-L')
+  and not exists (select 1 from public.business_setup_acceptances a join public.hub_documents d on d.id = a.document_id where d.document_number = 'BSE-L'));
+update public.hub_documents set status = 'issued' where document_number = 'BSE-L';
+select public.bs_check('view_decisions: the same letter, issued, can be decided in the quote and in the list', (pg_temp.vq('BSQ-L') -> 'letter' ->> 'can_decide')::boolean
+  and (select (e ->> 'can_decide')::boolean from jsonb_array_elements(pg_temp.v() -> 'letters') e where e ->> 'number' = 'BSE-L'));
 -- view_forbidden
 update public.business_setup_cases set invoice_override_reason = 'zoho down so skipping the invoice' where id = pg_temp.fx('case_a')::uuid;
 select public.bs_check('view_forbidden: no staff name, id of staff, note, reason or override text in the view', pg_temp.v()::text !~* 'staff acceptance text|staff confirm text|staff internal claim text|zoho down|override|decided_by|created_by|proof_path|account_id|payment_id'

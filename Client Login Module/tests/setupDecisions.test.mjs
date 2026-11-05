@@ -66,3 +66,16 @@ test("the view shows Accept and Reject on quotes and letters, a Reject note box,
   assert.match(read("../portal/DecisionPanel.jsx"), /Accept/); assert.match(read("../portal/DecisionPanel.jsx"), /Reject/);
   assert.match(read("../portal/ClaimForm.jsx"), /I have paid/);
 });
+
+test("Send in the decision and claim screens is guarded by a ref, so a fast double click sends once", () => {
+  for (const f of ["../portal/DecisionPanel.jsx", "../portal/ClaimForm.jsx"]) {
+    const s = read(f);
+    assert.match(s, /import \{ useRef, useState \} from "react"/, f);
+    assert.match(s, /const sending = useRef\(false\)/, f);
+    const send = s.slice(s.indexOf("const send = async"), s.indexOf("return (", s.indexOf("const send = async")));
+    assert.ok(send.indexOf("if (sending.current) return;") > -1 && send.indexOf("sending.current = true") > send.indexOf("if (sending.current) return;"), f);
+    // The guard is set before the first await and cleared after the try and catch have run.
+    assert.ok(send.indexOf("sending.current = true") < send.indexOf("await "), f);
+    assert.ok(send.lastIndexOf("sending.current = false") > send.indexOf("catch"), f);
+  }
+});
