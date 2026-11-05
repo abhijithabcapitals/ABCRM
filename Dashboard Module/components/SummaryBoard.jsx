@@ -189,7 +189,7 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
                       load={group.id === "zoho" ? loadZoho : api?.[card.id]}
                       onOpen={card.view ? () => onNavigate?.(card.view) : undefined}
                     >
-                      {(data) => (Body ? <Body data={data} /> : null)}
+                      {(data) => (Body ? <Body data={data} isAdmin={profile?.role === "admin"} /> : null)}
                     </SummaryCard>
                   </div>
                 );

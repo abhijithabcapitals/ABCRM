@@ -87,11 +87,14 @@ export function notificationFigures(rows) {
   return { unread: unread >= NOTIFICATION_LIMIT ? `${NOTIFICATION_LIMIT}+` : unread, latest: items.slice(0, 5) };
 }
 
-// The six counts of the Notification Centre card, from alert_tiles. Missing keys are 0.
+// The six counts of the Notification Centre card, from alert_tiles, and the mode. Missing counts are 0.
 export function alertFigures(tiles) {
   const t = obj(tiles);
-  return { overdue: num(t.overdue), upcoming: num(t.upcoming), documents: num(t.documents), authority: num(t.authority), renewals: num(t.renewals), unassigned: num(t.unassigned) };
+  return { overdue: num(t.overdue), upcoming: num(t.upcoming), documents: num(t.documents), authority: num(t.authority), renewals: num(t.renewals), unassigned: num(t.unassigned), mode: t.mode ?? null };
 }
+
+// In Preview only admins see alerts, so a member's six zeros would read as all clear.
+export const alertsInPreview = (figures, isAdmin) => figures?.mode === "Preview" && !isAdmin;
 
 // Postgres "insufficient privilege".
 export const isNoAccess = (error) => error?.code === "42501";
@@ -129,9 +132,9 @@ export function refreshWaitMinutes(row, now) {
   return Math.max(0, Math.ceil((newest + minutes * MINUTE - now) / MINUTE));
 }
 
-// The table is not there yet (migration not applied): Postgres 42P01, or PostgREST's schema-cache miss.
 // The function is not there yet (migration not applied): PostgREST's schema-cache miss, or Postgres "undefined function".
 export const isMissingFunction = (error) => error?.code === "PGRST202" || error?.code === "42883";
+// The table is not there yet (migration not applied): Postgres 42P01, or PostgREST's schema-cache miss.
 export const isMissingTable = (error) => error?.code === "42P01" || error?.code === "PGRST205";
 
 // The line under the header after a failed refresh, or null. A first-ever failure has no earlier figures to point to.

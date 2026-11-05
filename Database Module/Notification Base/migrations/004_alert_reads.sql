@@ -74,7 +74,7 @@ begin
 end $$;
 
 -- ── Tiles ────────────────────────────────────────────────────────────
--- Same open rows as the list, so a tile and its list filter agree.
+-- Same open rows as the list, so a tile and its list filter agree. mode lets the page say a zero in Preview is not an all clear.
 create or replace function public.alert_tiles(p_scope text, p_department text default null) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare v_today date := (now() at time zone 'Asia/Dubai')::date; v_out jsonb;
@@ -88,7 +88,8 @@ begin
     'unassigned', count(*) filter (where a.assigned_to is null),
     'due_today',  count(*) filter (where a.due_date = v_today),
     'new_today',  count(*) filter (where (a.created_at at time zone 'Asia/Dubai')::date = v_today),
-    'backlog',    count(*) filter (where a.backlog))
+    'backlog',    count(*) filter (where a.backlog),
+    'mode',       alert_mode())
   into v_out
   from alert_scope_rows(p_scope, p_department) a
   where a.status in ('Open', 'In progress');

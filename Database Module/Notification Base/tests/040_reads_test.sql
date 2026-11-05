@@ -239,11 +239,12 @@ select alert_list('Management', 'All', null, 500) as p_man \gset
 select alert_tiles('Management') as p_man_ti \gset
 reset role;
 select t.ok('member in Preview gets empty My list', (:'p_my'::jsonb->>'total')::int = 0 and jsonb_array_length(:'p_my'::jsonb->'rows') = 0);
-select t.ok('member in Preview gets zero tiles', (select bool_and(value::int = 0) and count(*) = 9 from jsonb_each_text(:'p_ti'::jsonb)));
+select t.ok('member in Preview gets zero tiles', (select bool_and(value::int = 0) and count(*) = 9 from jsonb_each_text(:'p_ti'::jsonb) where key <> 'mode'));
+select t.ok('tiles say the mode, so a zero in Preview does not read as all clear', :'p_ti'::jsonb->>'mode' = 'Preview');
 select t.ok('member in Preview is refused the detail of their own alert', :'p_err' like 'You do not have access%' and :'p_err' = :'err_missing');
 select t.ok('access in Preview shows the mode', :'p_acc'::jsonb->>'mode' = 'Preview');
 select t.ok('tagged manager in Preview gets nothing from Department, tiles or detail', (:'p_dep'::jsonb->>'total')::int = 0 and jsonb_array_length(:'p_dep'::jsonb->'rows') = 0
-  and (select bool_and(value::int = 0) from jsonb_each_text(:'p_dep_ti'::jsonb)) and (:'p_mgr_my'::jsonb->>'total')::int = 0 and :'p_mgr_err' like 'You do not have access%');
+  and (select bool_and(value::int = 0) from jsonb_each_text(:'p_dep_ti'::jsonb) where key <> 'mode') and (:'p_mgr_my'::jsonb->>'total')::int = 0 and :'p_mgr_err' like 'You do not have access%');
 select t.ok('admin in Preview still sees everything in Management, backlog included',
   (:'p_man'::jsonb->>'total')::int = :m_open and (:'p_man_ti'::jsonb->>'backlog')::int >= :m_backlog and (:'p_man_ti'::jsonb->>'overdue')::int = :m_overdue);
 update alert_settings set value = '"Live"' where key = 'alert_mode';
