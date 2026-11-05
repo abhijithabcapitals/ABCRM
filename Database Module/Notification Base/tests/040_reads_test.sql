@@ -314,13 +314,53 @@ reset role;
 select t.ok('an Ok scan inside 26 hours is not stale', not (:'cov3'::jsonb->>'stale')::boolean and :'cov3'::jsonb->>'last_scan_status' = 'Ok');
 rollback;
 
+-- ═══ Settings reads ══════════════════════════════════════════════════
+begin;
+set role authenticated;
+select set_config('test.uid', :'adm', false);
+select alert_rule_list() as rl \gset
+select alert_manager_list() as ml \gset
+reset role;
+select t.ok('rule list returns every rule with code, category, department, enabled and steps, in code order',
+  jsonb_array_length(:'rl'::jsonb) = (select count(*) from alert_rules)
+  and (select bool_and(e ?& array['code', 'category', 'department', 'enabled', 'steps']) from jsonb_array_elements(:'rl'::jsonb) e)
+  and (select array_agg(e->>'code' order by ord) = (select array_agg(code order by code) from alert_rules) from jsonb_array_elements(:'rl'::jsonb) with ordinality x(e, ord))
+  and (select e->>'enabled' = 'false' and e->>'category' = 'Deadlines' and e->>'department' = 'Business Setup' from jsonb_array_elements(:'rl'::jsonb) e where e->>'code' = 't5_dead')
+  and (select jsonb_array_length(e->'steps') = 4 from jsonb_array_elements(:'rl'::jsonb) e where e->>'code' = 'licence_expiry'));
+select t.ok('manager list names the tagged managers and says no fallback',
+  not (:'ml'::jsonb->>'fell_back')::boolean and jsonb_array_length(:'ml'::jsonb->'managers') = 2
+  and (select array_agg(e->>'name' order by e->>'name') = array['Manager Banking', 'Manager HR'] from jsonb_array_elements(:'ml'::jsonb->'managers') e)
+  and (select bool_and(e ? 'user_id') from jsonb_array_elements(:'ml'::jsonb->'managers') e));
+set role authenticated;
+select set_config('test.uid', :'mgr1', false);
+select alert_manager_list() as ml2 \gset
+select t.fails('a tagged manager cannot read the rule list', 'select alert_rule_list()', 'permission to view alert rules');
+reset role;
+select t.ok('a tagged manager can read the manager list', jsonb_array_length(:'ml2'::jsonb->'managers') = 2);
+set role authenticated;
+select set_config('test.uid', :'d1', false);
+select t.fails('an employee cannot read the rule list', 'select alert_rule_list()', 'permission to view alert rules');
+select t.fails('an employee cannot read the manager list', 'select alert_manager_list()', 'permission to view the manager list');
+reset role;
+-- Nobody tagged: the admins stand in and fell_back says so.
+delete from banking_user_roles where role = 'MANAGER';
+delete from hr_employees where designation ilike 'manager';
+set role authenticated;
+select set_config('test.uid', :'adm', false);
+select alert_manager_list() as ml3 \gset
+reset role;
+select t.ok('with nobody tagged the list is the admins and fell_back is true',
+  (:'ml3'::jsonb->>'fell_back')::boolean and (select count(*) = (select count(*) from profiles where role = 'admin') from jsonb_array_elements(:'ml3'::jsonb->'managers')));
+rollback;
+
 -- ═══ Grants ══════════════════════════════════════════════════════════
 select t.ok('authenticated runs the browser reads, and the scope helper is not one of them',
-  (select count(*) = 6 and bool_and(has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute')
+  (select count(*) = 8 and bool_and(has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute')
        and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')
        and p.prosecdef and p.provolatile = 's' and p.proconfig @> array['search_path=public, pg_temp'])
    from pg_proc p where p.oid in ('alert_list(text,text,text,int,int)'::regprocedure, 'alert_tiles(text,text)'::regprocedure, 'alert_detail(uuid)'::regprocedure,
-     'alert_management_summary()'::regprocedure, 'alert_coverage()'::regprocedure, 'alert_my_access()'::regprocedure))
+     'alert_management_summary()'::regprocedure, 'alert_coverage()'::regprocedure, 'alert_my_access()'::regprocedure,
+     'alert_rule_list()'::regprocedure, 'alert_manager_list()'::regprocedure))
   and not has_function_privilege('authenticated', 'alert_scope_rows(text,text)', 'execute') and not has_function_privilege('anon', 'alert_scope_rows(text,text)', 'execute'));
 set role anon;
 select t.fails('anon cannot list', $q$select alert_list('My')$q$, 'permission denied');
@@ -329,6 +369,8 @@ select t.fails('anon cannot read detail', format('select alert_detail(%L)', :'a1
 select t.fails('anon cannot read the summary', 'select alert_management_summary()', 'permission denied');
 select t.fails('anon cannot read coverage', 'select alert_coverage()', 'permission denied');
 select t.fails('anon cannot read access', 'select alert_my_access()', 'permission denied');
+select t.fails('anon cannot read the rule list', 'select alert_rule_list()', 'permission denied');
+select t.fails('anon cannot read the manager list', 'select alert_manager_list()', 'permission denied');
 reset role;
 set role authenticated;
 select t.fails('authenticated cannot call the scope helper', $q$select * from alert_scope_rows('Management')$q$, 'permission denied');

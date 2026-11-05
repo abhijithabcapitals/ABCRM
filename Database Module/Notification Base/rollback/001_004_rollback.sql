@@ -7,6 +7,8 @@ do $$ begin
 end $$;
 
 -- 004: read functions (no tables of their own). Dropped first: alert_scope_rows returns the alerts row type.
+drop function if exists public.alert_manager_list();
+drop function if exists public.alert_rule_list();
 drop function if exists public.alert_my_access();
 drop function if exists public.alert_coverage();
 drop function if exists public.alert_management_summary();

@@ -218,7 +218,7 @@ select t.ok('authenticated and anon cannot run alert_scan', not has_function_pri
 select t.ok('public cannot run alert_scan', (select count(*) = 0 from pg_proc p where p.oid = 'alert_scan()'::regprocedure
   and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
 select t.ok('rule functions and the date helper are not browser-callable', (select count(*) = 8 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
-  from pg_proc p where pronamespace = 'public'::regnamespace and ((proname like 'alert\_rule\_%' and proname <> 'alert_rule_save') or proname = 'alert_safe_date')));
+  from pg_proc p where pronamespace = 'public'::regnamespace and ((proname like 'alert\_rule\_%' and proname not in ('alert_rule_save', 'alert_rule_list')) or proname = 'alert_safe_date')));
 select t.ok('alert_scan is scheduled daily at 02:00', (select count(*) = 1 and bool_and(schedule = '0 2 * * *' and command = 'select public.alert_scan()') from cron.job where jobname = 'alert-scan'));
 
 -- run-local.sh expects the tests to leave the mode on Live.

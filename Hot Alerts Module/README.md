@@ -7,6 +7,8 @@ tasks assigned to the signed-in user, ordered by due date, with overdue ones fla
 |---|---|
 | `components/NotificationCentre.jsx` | The page (sidebar label "Notification Centre", tab key `mytasks`). Takes `profile`, `supabase`, `fmtDate`, `openAlertId`, `onAlertShown`, `onOpenClient`. Tabs: My Notifications, Department, Management, Settings, by `alert_my_access`. Shows `HotAlerts` below as "My tasks" |
 | `components/AlertList.jsx`, `AlertDrawer.jsx`, `Tiles.jsx` | List, detail drawer, count tiles |
+| `components/DepartmentView.jsx`, `OwnerAssign.jsx`, `ManagementView.jsx`, `CentreSettings.jsx` | Department tab (picker from `service_departments`, tiles, owner assignment), Management tab (scan band, panels, Coverage), Settings tab (mode confirm, managers, rules, Run now) |
+| `components/ScopeView.jsx`, `ui.jsx` | Shared tiles + filters + list for one scope; shared styles, `Note`, `FilterBar` |
 | `logic/alertLogic.js` | Tags, day labels, colours, filters, `isNotSwitchedOn` (pure, tested) |
 | `services/alertsApi.js` | One wrapper per Notification Base RPC; throws the database's sentence |
 | `tests/` | `node --test "Hot Alerts Module/tests/"` |

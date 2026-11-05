@@ -34,3 +34,5 @@ export const clientOwnersSet = (s, department, clients, owner) =>
 export const alertRuleSave = (s, code, enabled, steps) => call(s, "alert_rule_save", { p_code: code, p_enabled: enabled, p_steps: steps });
 export const alertSetMode = (s, mode) => call(s, "alert_set_mode", { p_mode: mode });
 export const alertScanNow = (s) => call(s, "alert_scan_now", {});
+export const alertRuleList = (s) => call(s, "alert_rule_list", {});
+export const alertManagerList = (s) => call(s, "alert_manager_list", {});

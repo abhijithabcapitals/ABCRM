@@ -201,12 +201,38 @@ language sql stable security definer set search_path = public, pg_temp as $$
   select jsonb_build_object('is_admin', alert_is_admin(), 'is_manager', alert_is_manager(), 'mode', alert_mode())
 $$;
 
+-- ── Settings reads ───────────────────────────────────────────────────
+-- Rules for the Settings tab, admin only. Steps are returned as stored.
+create or replace function public.alert_rule_list() returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  if not alert_is_admin() then raise exception 'You do not have permission to view alert rules.'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('code', r.code, 'category', r.category, 'department', r.department,
+                                                      'enabled', r.enabled, 'steps', r.steps) order by r.code)
+                   from alert_rules r), '[]'::jsonb);
+end $$;
+
+-- The tagged managers, read-only. fell_back is true when nobody is tagged and the CRM admins stand in.
+create or replace function public.alert_manager_list() returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare v_list jsonb; v_fell boolean;
+begin
+  if not (alert_is_admin() or alert_is_manager()) then raise exception 'You do not have permission to view the manager list.'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object('user_id', m.user_id, 'name', p.full_name) order by p.full_name, m.user_id), '[]'::jsonb),
+         coalesce(bool_or(m.fell_back), false)
+  into v_list, v_fell
+  from alert_managers() m left join profiles p on p.id = m.user_id;
+  return jsonb_build_object('managers', v_list, 'fell_back', v_fell);
+end $$;
+
 revoke execute on function
   public.alert_scope_rows(text, text), public.alert_list(text, text, text, int, int), public.alert_tiles(text, text),
-  public.alert_detail(uuid), public.alert_management_summary(), public.alert_coverage(), public.alert_my_access()
+  public.alert_detail(uuid), public.alert_management_summary(), public.alert_coverage(), public.alert_my_access(),
+  public.alert_rule_list(), public.alert_manager_list()
   from public, anon, authenticated;
 -- Each of these checks the caller inside.
 grant execute on function
   public.alert_list(text, text, text, int, int), public.alert_tiles(text, text), public.alert_detail(uuid),
-  public.alert_management_summary(), public.alert_coverage(), public.alert_my_access()
+  public.alert_management_summary(), public.alert_coverage(), public.alert_my_access(),
+  public.alert_rule_list(), public.alert_manager_list()
   to authenticated;

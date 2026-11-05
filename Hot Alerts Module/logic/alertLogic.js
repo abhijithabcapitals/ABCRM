@@ -82,3 +82,45 @@ export function scanBand(coverage) {
   if (coverage.stale) return "No successful scan in the last 26 hours. Counts below may be out of date.";
   return null;
 }
+
+// The "based on" line under a tile when its rule had data for fewer than half the records it checked.
+// A rule that was never scanned (checked null) has nothing to say.
+export function basedOnNote(rule) {
+  if (!rule || rule.checked == null) return null;
+  const checked = Number(rule.checked), withData = Number(rule.with_data ?? 0);
+  if (checked === 0) return "No records checked";
+  return withData * 2 < checked ? `Based on ${withData} of ${checked} records with a date` : null;
+}
+
+// Sums checked and with_data over the rules in the given categories and applies basedOnNote.
+// Null when no such rule has been scanned, so a tile with no matching rule shows no line.
+export function noteForCategories(coverage, categories) {
+  const rules = (coverage?.rules || []).filter((r) => categories.includes(r.category) && r.checked != null);
+  if (!rules.length) return null;
+  return basedOnNote({
+    checked: rules.reduce((n, r) => n + Number(r.checked), 0),
+    with_data: rules.reduce((n, r) => n + Number(r.with_data ?? 0), 0),
+  });
+}
+
+// The plain sentence the mode switch asks before it changes anything: who starts (or stops) receiving what.
+export function modeConfirmText(from, to) {
+  if (to === from) return null;
+  if (to === "Preview") return "Switch to Preview? Nobody will be belled, nothing will escalate, and only admins can see alerts.";
+  if (to === "Triage") {
+    return from === "Live"
+      ? "Switch to Triage? Managers stop being belled and escalation stops. People assigned to an alert keep their bell, for new threshold crossings only."
+      : "Switch to Triage? People assigned to an alert start getting a bell, for new threshold crossings only. Backlog alerts never bell. Managers are not belled and nothing escalates.";
+  }
+  return from === "Preview"
+    ? "Switch to Live? People assigned to an alert start getting a bell for new threshold crossings, managers start getting bells for unassigned and escalated alerts, and escalation starts. Backlog alerts still never bell."
+    : "Switch to Live? Managers start getting bells for unassigned and escalated alerts, and escalation starts. People assigned to an alert already get a bell.";
+}
+
+// A scan time for display, in Asia/Dubai.
+export function fmtScanTime(ts) {
+  if (!ts) return "never";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts);
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", dateStyle: "medium", timeStyle: "short" }).format(d);
+}

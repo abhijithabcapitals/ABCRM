@@ -54,3 +54,28 @@ test("scanBand: Failed shows the band with the error", () => {
 test("scanBand: Ok is healthy", () => assert.equal(scanBand({ last_scan_status: "Ok", stale: false }), null));
 test("scanBand: stale shows the band", () => assert.match(scanBand({ last_scan_status: "Ok", stale: true }), /26 hours/));
 test("scanBand: null coverage", () => assert.equal(scanBand(null), null));
+
+import { basedOnNote } from "../logic/alertLogic.js";
+test("basedOnNote: thin data, plenty of data, nothing checked", () => {
+  assert.equal(basedOnNote({ checked: 178, with_data: 6 }), "Based on 6 of 178 records with a date");
+  assert.equal(basedOnNote({ checked: 230, with_data: 215 }), null);
+  assert.equal(basedOnNote({ checked: 0, with_data: 0 }), "No records checked");
+});
+
+import { noteForCategories, modeConfirmText } from "../logic/alertLogic.js";
+test("noteForCategories sums the matching rules and skips unscanned ones", () => {
+  const cov = { rules: [
+    { category: "Licence", checked: 100, with_data: 4 }, { category: "Visa & Emirates ID", checked: 78, with_data: 2 },
+    { category: "Deadlines", checked: null, with_data: null }, { category: "Deadlines", checked: 10, with_data: 10 }] };
+  assert.equal(noteForCategories(cov, ["Licence", "Visa & Emirates ID"]), "Based on 6 of 178 records with a date");
+  assert.equal(noteForCategories(cov, ["Deadlines"]), null);
+  assert.equal(noteForCategories(cov, ["Tax"]), null);
+  assert.equal(noteForCategories(null, ["Licence"]), null);
+});
+test("modeConfirmText says who starts receiving what", () => {
+  assert.match(modeConfirmText("Preview", "Triage"), /assigned to an alert start getting a bell.*Managers are not belled/);
+  assert.match(modeConfirmText("Preview", "Live"), /managers start getting bells.*escalation starts/);
+  assert.match(modeConfirmText("Triage", "Live"), /Managers start getting bells/);
+  assert.match(modeConfirmText("Live", "Preview"), /Nobody will be belled/);
+  assert.equal(modeConfirmText("Live", "Live"), null);
+});
