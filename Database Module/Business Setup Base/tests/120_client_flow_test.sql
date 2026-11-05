@@ -251,13 +251,44 @@ select public.bs_as(null);
 -- ── Other callers of the old stage names ──
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f120 values ('kyc_new', public.business_setup_case_new('{"lead_name":"Returning Client","client_id":"CL972002"}')::text);
-select public.bs_check('a lead for a client whose KYC is done starts at Onboarding', pg_temp.stage('kyc_new') = 'Onboarding');
+select public.bs_check('a lead for a client whose KYC is done still starts at Lead: only the owner moves it', pg_temp.stage('kyc_new') = 'Lead');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_check('dashboard keeps every top-level key', (select array(select jsonb_object_keys(public.business_setup_dashboard()))) @> array['forms_waiting', 'open_quotes', 'accepted_without_letter', 'outstanding',
   'active_services', 'expiries', 'processes_pending', 'receivables', 'advances', 'cases_completed_month', 'cases_completed_total', 'pipeline', 'forms_to_review', 'pending_after_kyc']);
 select public.bs_check('dashboard pipeline counts the six open stages', (select array(select jsonb_object_keys(public.business_setup_dashboard() -> 'pipeline')) @> array['Lead', 'Review', 'Onboarding', 'Pipeline', 'Completion', 'With Accounts']));
 select public.bs_check('dashboard pipeline counts are real', (public.business_setup_dashboard() -> 'pipeline' ->> 'Onboarding')::int >= 1 and (public.business_setup_dashboard() -> 'pipeline' ->> 'Pipeline')::int >= 1);
 select public.bs_as(null);
+
+-- ── A rejected quote is not a quote, and adds no balance ──
+select pg_temp.mkcase('rej', 'CL972001', 'Onboarding');
+select pg_temp.mkquote('rej_q', 'T120-REJ', 'CL972001', pg_temp.cid('rej'), 'rejected', 800);
+select public.bs_check('rejected only: quote item open and no balance', not (pg_temp.docs('rej') ->> 'quote')::boolean and (pg_temp.docs('rej') ->> 'balance')::numeric = 0);
+select pg_temp.mkcase('rej2', 'CL972001', 'Onboarding');
+select pg_temp.mkquote('rej2_q', 'T120-REJ2', 'CL972001', pg_temp.cid('rej2'), 'rejected', 800);
+select pg_temp.mkquote('rej2_q2', 'T120-REJ2B', 'CL972001', pg_temp.cid('rej2'), 'issued', 300);
+select public.bs_check('a live quote beside a rejected one sets the balance', (pg_temp.docs('rej2') ->> 'quote')::boolean and (pg_temp.docs('rej2') ->> 'balance')::numeric = 300);
+
+-- ── Handover to Accounts drives Completion, With Accounts and Completed ──
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select (public.business_setup_dashboard() ->> 'cases_completed_total')::numeric as ct0, (public.business_setup_dashboard() ->> 'cases_completed_month')::numeric as cm0 \gset
+select public.bs_as(null);
+select pg_temp.mkcase('ho', 'CL972002', 'Pipeline');
+select pg_temp.mkquote('ho_q', 'T120-HO', 'CL972002', pg_temp.cid('ho'), 'accepted');
+select pg_temp.mkservice('CL972002', 'ho_q', 'Completed');
+select public.business_setup_case_sync(pg_temp.cid('ho'));
+select public.bs_check('handover: all services closed puts the case at Completion', pg_temp.stage('ho') = 'Completion');
+insert into public.business_setup_handovers (quote_id, status, sent_at) values (pg_temp.cid('ho_q'), 'With Accounts', now());
+select public.bs_check('handover: send moves it to With Accounts', pg_temp.stage('ho') = 'With Accounts');
+update public.business_setup_handovers set status = 'Reverted' where quote_id = pg_temp.cid('ho_q');
+select public.bs_check('handover: revert returns it to Completion', pg_temp.stage('ho') = 'Completion');
+update public.business_setup_handovers set status = 'With Accounts' where quote_id = pg_temp.cid('ho_q');
+select public.bs_check('handover: sent again, With Accounts', pg_temp.stage('ho') = 'With Accounts');
+update public.business_setup_handovers set status = 'Closed' where quote_id = pg_temp.cid('ho_q');
+select public.bs_check('handover: close moves it to Completed', pg_temp.stage('ho') = 'Completed');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('handover: the dashboard counts the closed case', (public.business_setup_dashboard() ->> 'cases_completed_total')::numeric = :ct0 + 1 and (public.business_setup_dashboard() ->> 'cases_completed_month')::numeric = :cm0 + 1);
+select public.bs_as(null);
+
 
 do $$
 declare f int; t int;

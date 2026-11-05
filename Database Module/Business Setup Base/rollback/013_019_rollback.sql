@@ -13,6 +13,8 @@ begin;
 -- ── 016_client_flow.sql ──────────────────────────────────────────────
 -- The move function goes. The start gate returns to 006's (016 lets a quote of a case start without a payment, which reads case_id). The other functions 016
 -- replaced (case_sync, case_docs, case_list, case_new, case_take, case_shared, case_confirm, case_lost, case_form_trg, dashboard) are dropped or restored by the sections below.
+drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
+drop function if exists public.business_setup_case_handover_trg();
 drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
 create or replace function public.business_setup_start_gate(p_quote uuid, p_reason text) returns boolean
 language plpgsql stable security definer set search_path = public, pg_temp as $$

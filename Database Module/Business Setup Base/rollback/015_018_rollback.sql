@@ -27,6 +27,8 @@ drop function if exists public.business_setup_portal_signed_add(uuid, uuid, text
 drop function if exists public.business_setup_portal_login_name(text);
 
 -- ── 016_client_flow.sql ──────────────────────────────────────────────
+drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
+drop function if exists public.business_setup_case_handover_trg();
 drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
 alter table public.business_setup_cases drop constraint if exists business_setup_cases_stage_check;
 alter table public.business_setup_cases disable trigger business_setup_cases_touch;

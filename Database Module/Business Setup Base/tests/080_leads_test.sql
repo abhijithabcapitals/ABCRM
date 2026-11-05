@@ -69,7 +69,7 @@ select pg_temp.mkclient('CL980002', false, false);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('ret', public.business_setup_case_new('{"lead_name":"Returning","client_id":"CL980001"}')::text);
 insert into f80 values ('new_kyc', public.business_setup_case_new('{"lead_name":"Not yet","client_id":"CL980002"}')::text);
-select public.bs_check('returning_client: KYC Done starts at Onboarding', pg_temp.stage('ret') = 'Onboarding' and (select client_id from public.business_setup_cases where id = pg_temp.cid('ret')) = 'CL980001');
+select public.bs_check('returning_client: KYC Done still starts at Lead', pg_temp.stage('ret') = 'Lead' and (select client_id from public.business_setup_cases where id = pg_temp.cid('ret')) = 'CL980001');
 select public.bs_check('a client with KYC not done starts at Lead', pg_temp.stage('new_kyc') = 'Lead');
 
 -- ── take_race ──
@@ -150,7 +150,7 @@ select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('shared3', public.business_setup_case_new('{"lead_name":"Shared three"}')::text);
 select public.business_setup_case_link_client(pg_temp.cid('shared3'), 'CL980006');
 select public.business_setup_case_shared(pg_temp.cid('shared3'));
-select public.bs_check('KYC done: shared goes to Onboarding with no form', pg_temp.stage('shared3') = 'Onboarding' and pg_temp.forms('CL980006') = 0);
+select public.bs_check('KYC done: sharing makes no form and the Lead stays a Lead', pg_temp.stage('shared3') = 'Lead' and pg_temp.forms('CL980006') = 0);
 -- a form already on another case
 insert into f80 values ('shared4', public.business_setup_case_new('{"lead_name":"Second case","client_id":"CL980004"}')::text);
 select public.bs_expect_error(format($$select business_setup_case_shared('%s')$$, pg_temp.fx('shared4')), 'open form');

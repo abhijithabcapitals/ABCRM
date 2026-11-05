@@ -25,7 +25,7 @@ export default function Invoices({ caseId, caseRow, onChanged }) {
         <Button variant="primary" disabled={!caseRow?.client_id || closed} onClick={() => { setScan(null); setAdding(true); }}>+ Record invoice</Button>
         {canWaive && <Button onClick={() => setWaiving(true)}>Waive invoice</Button>}
         {!caseRow?.client_id && <small className="bk-muted">Link a client to this case before recording an invoice.</small>}
-        {caseRow?.client_id && !closed && !caseRow?.docs?.signed && <small className="bk-muted">An invoice is recorded against the accepted quote.</small>}
+        {caseRow?.client_id && !closed && !caseRow?.docs?.quote_accepted && <small className="bk-muted">An invoice is recorded against the accepted quote.</small>}
       </div>}
       <DataTable rows={list.data || []} empty="No invoice recorded yet." columns={[
         { key: "invoice_number", label: "Invoice" }, { key: "issued_on", label: "Date", render: (i) => fmtDate(i.issued_on) },

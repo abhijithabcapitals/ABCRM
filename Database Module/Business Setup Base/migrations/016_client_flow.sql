@@ -9,6 +9,7 @@
 -- Until the acceptance records exist (a later migration) login is true when the client has a portal account and letter_accepted when a letter exists;
 -- fields and documents are true when the case's form is Validated, or KYC is Done and the case has no form.
 -- A service whose quote belongs to a case starts without a payment (start gate). A case reaches Lost only before Pipeline.
+-- Apply this file in a single transaction (the stage check, the mapping and the functions must land together).
 -- Run after 015 and before 018. Re-runnable: the stage mapping touches only rows still on an old stage. It redefines functions from 006, 013, 014 and 015:
 -- run this file again whenever 006, 013, 014 or 015 is re-run.
 -- Undo with rollback/015_018_rollback.sql (phase 2 only, with 015 and 018) or rollback/013_019_rollback.sql (every case migration).
@@ -37,7 +38,7 @@ alter table public.business_setup_cases alter column stage set default 'Lead';
 
 -- ── What Onboarding needs, worked out from the records (never stored). Internal ──
 --   fields, documents  the case's newest form is Validated; a case with no form counts when its client's KYC is Done
---   quote              a quote that was not replaced exists
+--   quote              a quote that was neither replaced nor rejected exists
 --   login              the client has a portal account (a later migration replaces this with the issued login)
 --   quote_accepted     the case has an accepted quote
 --   letter             a letter exists on the accepted quote
@@ -53,12 +54,12 @@ begin
   v_fields := case when v_form is not null then v_form = 'Validated'
                    else coalesce(c.client_id is not null and exists (select 1 from business_setup_kyc_profiles k where k.client_id = c.client_id and k.kyc_state = 'Done'), false) end;
   v_letter := exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and lq.status = 'accepted');
-  select total_amount into v_total from hub_documents where case_id = p_case and doc_type = 'quote' and status <> 'superseded'
+  select total_amount into v_total from hub_documents where case_id = p_case and doc_type = 'quote' and status not in ('superseded', 'rejected')
    order by (status = 'accepted') desc, created_at desc limit 1;
   return jsonb_build_object(
     'fields', v_fields,
     'documents', v_fields,
-    'quote', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status <> 'superseded'),
+    'quote', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status not in ('superseded', 'rejected')),
     'login', c.client_id is not null and business_setup_portal_account(c.client_id) is not null,
     'quote_accepted', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted'),
     'letter', v_letter,
@@ -73,10 +74,10 @@ revoke all on function public.business_setup_case_docs(uuid) from public, anon, 
 --   Onboarding -> Pipeline       every item of case_docs except balance is met
 --   Pipeline -> Completion       every service of the case's quotes is Completed or Cancelled, with at least one Completed
 --   Pipeline -> Cancelled        every such service is Cancelled
--- Lead and Review follow the form (trigger below) and the owner's move to Onboarding; Completion onward follow the department admin (later migrations).
+-- Lead and Review follow the form (trigger below) and the owner's move to Onboarding. Completion, With Accounts and Completed follow the quote's handover (trigger below).
 create or replace function public.business_setup_case_sync(p_case uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_stage text; v_open int; v_done int; v_total int; v_docs jsonb;
+declare v_stage text; v_open int; v_done int; v_total int; v_docs jsonb; v_hand text;
 begin
   select stage into v_stage from business_setup_cases where id = p_case for update;
   if not found then return; end if;
@@ -93,6 +94,20 @@ begin
       from business_setup_services s where s.quote_id in (select id from hub_documents where case_id = p_case and doc_type = 'quote');
     if v_total > 0 and v_open = 0 then
       perform business_setup_case_set_stage(p_case, case when v_done > 0 then 'Completion' else 'Cancelled' end, 'Every service is closed');
+      v_stage := case when v_done > 0 then 'Completion' else 'Cancelled' end;
+    end if;
+  end if;
+  -- The handover of the case's accepted quote (011) drives Completion onward: With Accounts when sent, Completed when Accounts closes it,
+  -- back to Completion when Accounts reverts it.
+  if v_stage in ('Completion', 'With Accounts') then
+    select h.status into v_hand from business_setup_handovers h join hub_documents q on q.id = h.quote_id
+     where q.case_id = p_case and q.doc_type = 'quote' and q.status = 'accepted' order by h.sent_at desc nulls last limit 1;
+    if v_hand = 'Closed' then
+      perform business_setup_case_set_stage(p_case, 'Completed', 'Accounts validated the handover');
+    elsif v_hand = 'With Accounts' and v_stage = 'Completion' then
+      perform business_setup_case_set_stage(p_case, 'With Accounts', 'Sent to Accounts');
+    elsif v_hand = 'Reverted' and v_stage = 'With Accounts' then
+      perform business_setup_case_set_stage(p_case, 'Completion', 'Accounts reverted the handover');
     end if;
   end if;
 end $$;
@@ -115,6 +130,20 @@ begin
 end $$;
 revoke all on function public.business_setup_case_form_trg() from public, anon, authenticated;
 
+-- ── Handover to Accounts drives the stage ────────────────────────────
+create or replace function public.business_setup_case_handover_trg() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_case uuid;
+begin
+  select case_id into v_case from hub_documents where id = new.quote_id;
+  if v_case is not null then perform business_setup_case_sync(v_case); end if;
+  return null;
+end $$;
+revoke all on function public.business_setup_case_handover_trg() from public, anon, authenticated;
+drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
+create trigger business_setup_case_handover after insert or update of status on public.business_setup_handovers
+  for each row execute function public.business_setup_case_handover_trg();
+
 -- ── The start gate ───────────────────────────────────────────────────
 -- A service starts once its quote has a net payment above zero, as in 006, except that a quote belonging to a case needs no payment: the case moved
 -- to Pipeline without one, and the balance stays visible. A quote with no case, or a zero total, behaves as before. Returns true when the override was used.
@@ -132,7 +161,7 @@ end $$;
 revoke all on function public.business_setup_start_gate(uuid, text) from public, anon, authenticated;
 
 -- ── New lead ─────────────────────────────────────────────────────────
--- As in 014. A client whose KYC is already done starts at Onboarding (what Services mapped to); anyone else at Lead.
+-- As in 014, except a case always starts at Lead: only the owner's move (or a submitted form) takes it on, whatever the client's KYC.
 create or replace function public.business_setup_case_new(p jsonb) returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_name text := nullif(btrim(coalesce(p ->> 'lead_name', '')), ''); v_client text := nullif(btrim(coalesce(p ->> 'client_id', '')), '');
@@ -142,7 +171,6 @@ begin
   if v_name is null then raise exception 'Enter the lead name'; end if;
   if v_client is not null then
     if not exists (select 1 from client_master where client_id = v_client) then raise exception 'Unknown client %', v_client; end if;
-    if exists (select 1 from business_setup_kyc_profiles where client_id = v_client and kyc_state = 'Done') then v_stage := 'Onboarding'; end if;
   end if;
   insert into business_setup_cases (client_id, stage, source, lead_name, contact_person, phone, email, notes)
   values (v_client, v_stage, nullif(btrim(coalesce(p ->> 'source', '')), ''), v_name, nullif(btrim(coalesce(p ->> 'contact_person', '')), ''),
@@ -170,8 +198,8 @@ begin
 end $$;
 
 -- ── Share link ───────────────────────────────────────────────────────
--- As in 014. A Lead stays a Lead while the client fills in the form, goes to Review when the form is already submitted, and to Onboarding when the
--- client's KYC is done.
+-- As in 014. A Lead stays a Lead while the client fills in the form and goes to Review when the form is already submitted. It never goes to Onboarding
+-- here: only the owner's move does that, even when the client's KYC is done.
 create or replace function public.business_setup_case_shared(p_case uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare c business_setup_cases; f business_setup_onboarding_forms; v_acct uuid; v_done boolean; v_to text;
@@ -199,7 +227,7 @@ begin
     update business_setup_onboarding_forms set case_id = p_case where id = f.id and case_id is distinct from p_case;
   end if;
   if c.stage = 'Lead' then
-    v_to := case when v_done then 'Onboarding' when f.status in ('Submitted', 'In review') then 'Review' else 'Lead' end;
+    v_to := case when f.status in ('Submitted', 'In review') then 'Review' else 'Lead' end;
     if v_to <> 'Lead' then perform business_setup_case_set_stage(p_case, v_to, 'The client link was shared'); end if;
   end if;
   perform business_setup_audit('business_setup_cases', p_case::text, 'case_shared', null, jsonb_build_object('client_id', c.client_id, 'form_id', f.id));
@@ -368,7 +396,7 @@ begin
                    from unnest(array['Lead', 'Review', 'Onboarding', 'Pipeline', 'Completion', 'With Accounts']) st),
     'forms_to_review', business_setup_dash_forms(),
     'pending_after_kyc', (select count(*) from business_setup_cases c where c.stage = 'Onboarding'
-                           and not exists (select 1 from hub_documents q where q.case_id = c.id and q.doc_type = 'quote' and q.status <> 'superseded'))
+                           and not exists (select 1 from hub_documents q where q.case_id = c.id and q.doc_type = 'quote' and q.status not in ('superseded', 'rejected')))
   ) || business_setup_dash_handover();
 end $$;
 
