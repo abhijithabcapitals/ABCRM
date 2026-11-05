@@ -70,7 +70,7 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
       {error && <Note tone="bad">{error}</Note>}
 
       {access && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
           {tabs.map((t) => (
             <button key={t} type="button" onClick={() => setTab(t)} style={{ ...btn, background: tab === t ? "#111827" : "#fff", color: tab === t ? "#fff" : "#333" }}>{t}</button>
           ))}
