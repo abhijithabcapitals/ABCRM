@@ -89,7 +89,10 @@ select at_check('letter refuses an option out of range', at_refused(format($f$se
 
 -- Older letter paths: the proposal is accepted first so that the guard is the check that answers.
 select at_as(null);
+-- Test setup only: the accept guard would refuse this on purpose, so it is off for this one update.
+alter table hub_documents disable trigger hub_proposal_accept_guard;
 update hub_documents set status = 'accepted', status_at = now() where id = :'pid';
+alter table hub_documents enable trigger hub_proposal_accept_guard;
 select at_as(:'quoter');
 select at_check('letter guard on hub_document_create',
   at_refused(format($f$select hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', %L::uuid))$f$, :'pid'), 'Choose the accepted option'));
@@ -119,6 +122,15 @@ select at_check('letter marks an issued proposal accepted',
 select hub_proposal_letter_create(jsonb_build_object('quote_id', :'pid2', 'option', 0));
 select at_check('issued proposal is now accepted by the letter maker',
   (select status = 'accepted' and status_at is not null and status_by = :'quoter'::uuid and total_amount = 100 from hub_documents where id = :'pid2'));
+-- The accept guard: no acceptance of a multi-option proposal without a chosen option, by any path.
+select id as pid3 from hub_proposal_create(at_prop()) \gset
+select id as pid4 from hub_proposal_create(at_prop('{}', jsonb_build_object('usd_rate', 3.6725, 'options', jsonb_build_array(at_prop_body() -> 'options' -> 0), 'shared', at_prop_body() -> 'shared'))) \gset
+select at_as(null);
+select at_check('two undecided options cannot be accepted', at_refused(format($f$update hub_documents set status = 'accepted' where id = '%s'$f$, :'pid3'), 'Choose the accepted option first'));
+select at_check('refused acceptance left the proposal issued', (select status = 'issued' from hub_documents where id = :'pid3'));
+select at_check('a single option proposal can be accepted', not at_refused(format($f$update hub_documents set status = 'accepted' where id = '%s'$f$, :'pid4'), 'Choose'));
+select at_check('the letter function still accepts a multi-option proposal',
+  (select status = 'accepted' from hub_documents where id = :'pid2'));
 select at_as(null);
 select at_check('voucher: quote in the register',
   (select count(*) = 1 and bool_and(department = 'Business Setup') from voucher_register where voucher_number = (select document_number from hub_documents where id = :'pid')));

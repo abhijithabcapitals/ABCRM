@@ -292,3 +292,19 @@ begin
   end loop;
 end $$;
 revoke all on function public.hub_proposal_letter_guard() from public, anon, authenticated;
+
+-- A proposal with several options cannot be accepted until one option is chosen, by any path (client, signed copy, staff).
+-- hub_proposal_letter_create sets status and accepted_option in one update, so it passes.
+create or replace function public.hub_proposal_accept_guard() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if new.library_template = 'AB Capital/Proposal' and new.status = 'accepted' and old.status is distinct from 'accepted'
+     and coalesce(jsonb_array_length(case when jsonb_typeof(new.field_values #> '{proposal,options}') = 'array' then new.field_values #> '{proposal,options}' end), 0) > 1
+     and new.field_values #>> '{proposal,accepted_option}' is null then
+    raise exception 'Choose the accepted option first';
+  end if;
+  return new;
+end $$;
+drop trigger if exists hub_proposal_accept_guard on public.hub_documents;
+create trigger hub_proposal_accept_guard before update on public.hub_documents for each row execute function public.hub_proposal_accept_guard();
+revoke all on function public.hub_proposal_accept_guard() from public, anon, authenticated;

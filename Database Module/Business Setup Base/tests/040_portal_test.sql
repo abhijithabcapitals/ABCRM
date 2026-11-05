@@ -71,6 +71,17 @@ select public.bs_expect_error(format($$select business_setup_portal_file('%s','q
 select public.bs_expect_error(format($$select business_setup_portal_file('%s','quote','%s')$$, pg_temp.fx('acc_a'), pg_temp.fx('quote_nofile')), 'not found');
 select public.bs_expect_error(format($$select business_setup_portal_file('%s','anything','%s')$$, pg_temp.fx('acc_a'), pg_temp.fx('quote_a')), 'not found');
 select public.bs_expect_error(format($$select business_setup_portal_file('%s','quote','%s')$$, pg_temp.fx('acc_none'), pg_temp.fx('quote_a')), 'not found');
+-- An undecided multi-option proposal is not listed or served; a decided or single-option one is.
+insert into public.hub_documents (doc_type, department, client_name, client_id, document_number, total_amount, status, storage_path, library_template, field_values) values
+  ('quote', 'Business Setup', 'B', 'CL900081', 'BSQ-UND', 1, 'issued', 'q/u.pdf', 'AB Capital/Proposal', '{"proposal": {"options": [{}, {}]}}'),
+  ('quote', 'Business Setup', 'B', 'CL900081', 'BSQ-ONE', 1, 'issued', 'q/o.pdf', 'AB Capital/Proposal', '{"proposal": {"options": [{}]}}'),
+  ('quote', 'Business Setup', 'B', 'CL900081', 'BSQ-DEC', 1, 'issued', 'q/d.pdf', 'AB Capital/Proposal', '{"proposal": {"options": [{}, {}], "accepted_option": 1}}');
+insert into f40 select 'quote_und', id::text from public.hub_documents where document_number = 'BSQ-UND';
+select public.bs_check('an undecided multi-option proposal is not listed to the client',
+  public.business_setup_portal_view(pg_temp.fx('acc_b')::uuid)::text !~ 'BSQ-UND'
+  and public.business_setup_portal_view(pg_temp.fx('acc_b')::uuid)::text ~ 'BSQ-ONE' and public.business_setup_portal_view(pg_temp.fx('acc_b')::uuid)::text ~ 'BSQ-DEC'
+  and public.business_setup_portal_view(pg_temp.fx('acc_b')::uuid)::text ~ 'BSQ-PDF');
+select public.bs_expect_error(format($$select business_setup_portal_file('%s','quote','%s')$$, pg_temp.fx('acc_b'), pg_temp.fx('quote_und')), 'not found');
 select public.bs_check('a stored PDF keeps its .pdf name, a Word file keeps .docx',
   public.business_setup_portal_file(pg_temp.fx('acc_b')::uuid, 'quote', pg_temp.fx('quote_pdf')::uuid) ->> 'file_name' = 'BSQ-PDF.pdf'
   and public.business_setup_portal_file(pg_temp.fx('acc_b')::uuid, 'letter', pg_temp.fx('let_pdf')::uuid) ->> 'file_name' = 'BSE-PDF.pdf'

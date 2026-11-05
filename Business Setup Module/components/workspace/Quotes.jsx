@@ -77,7 +77,7 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
       {h?.state === "Reverted" && <div className="bk-alert bk-alert-warn">Accounts reverted this quote: {h.remarks}</div>}
       <Decision rows={decisions} doc={q} label="this quote" />
       <ul className="bk-list">{(q.lines || []).map((l, i) => <li key={i}>{l.description}: AED {money(l.amount)}{l.scope && <div className="bk-muted">Scope: {l.scope}</div>}</li>)}</ul>
-      <SignedCopy q={q} clientId={clientId} manage={quotes} after={after} setError={setError} />
+      {isUndecidedProposal(q) ? (quotes && q.status === "issued" && <p className="bk-note">Create the letter from Service Documents</p>) : <SignedCopy q={q} clientId={clientId} manage={quotes} after={after} setError={setError} />}
       <div className="bk-actions bk-wrap">
         {q.storage_path ? <Button onClick={() => openStored(q.storage_path).catch((e) => setError(e.message))}>Open quote</Button>
           : quotes && !q.library_template && <Button busy={busy} onClick={() => act(() => fileQuote(q))}>Create file</Button>}
@@ -85,7 +85,7 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
           <Button onClick={() => setDialog("reject")}>Mark rejected</Button>
           {!q.library_template && <Button onClick={onRevise}>Revise</Button>}
         </>}
-        {quotes && q.status === "rejected" && <Button onClick={onCopy}>Revise</Button>}
+        {quotes && q.status === "rejected" && !isProposal(q) && <Button onClick={onCopy}>Revise</Button>}
         {quotes && q.status === "accepted" && !letter && (isProposal(q) ? <span className="bk-muted">Create the letter from Service Documents</span> : <Button busy={busy} onClick={() => act(async () => { const doc = await createDocument({ doc_type: "letter", parent_id: q.id }); await fileLetter(doc); })}>Create engagement letter</Button>)}
         {letter?.storage_path && <Button onClick={() => openStored(letter.storage_path).catch((e) => setError(e.message))}>Open letter {letter.document_number}</Button>}
         {quotes && letter && !letter.signed_at && <Button onClick={() => setDialog("sign")}>Record signing</Button>}

@@ -1,5 +1,7 @@
 -- Undoes migrations/008_proposals.sql. Proposal quotes and their letters stay as ordinary documents; authority sets, the proposal
 -- defaults and the Word, OneDrive and mail-sent columns are lost.
+drop trigger if exists hub_proposal_accept_guard on public.hub_documents;
+drop function if exists public.hub_proposal_accept_guard();
 drop trigger if exists hub_proposal_letter_guard on public.hub_documents;
 drop function if exists public.hub_proposal_letter_guard();
 drop function if exists public.hub_proposal_can_send();
