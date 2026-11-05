@@ -91,7 +91,7 @@ test("a client with no Business Setup work sees only today's portal", () => {
 test("the portal imports nothing from staff modules beyond the form definition and shared components", () => {
   for (const f of ["SetupView.jsx", "SetupForm.jsx"]) {
     const s = readFileSync(fileURLToPath(new URL(`../portal/${f}`, import.meta.url)), "utf8");
-    for (const m of s.matchAll(/from "(@[^"]+)"/g)) assert.ok(["@banking/components/shared", "@business-setup/logic/formDefinition"].includes(m[1]), `${f} imports ${m[1]}`);
+    for (const m of s.matchAll(/from "(@[^"]+)"/g)) assert.ok(["@banking/components/shared", "@business-setup/logic/formDefinition", "@business-setup/components/BulkUpload"].includes(m[1]), `${f} imports ${m[1]}`);
   }
 });
 

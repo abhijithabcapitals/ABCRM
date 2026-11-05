@@ -160,6 +160,7 @@
 .bk-wizard-steps span { padding: 6px 12px; border-radius: 999px; background: #eef2f4; color: #5f7077; font-size: 12px; font-weight: 700; }
 .bk-wizard-steps span.active { background: #0d7d82; color: #fff; }
 .bk-drop { display: block; width: 100%; padding: 30px; border: 2px dashed #b7d4d5; border-radius: 12px; background: #f8fcfc; color: inherit; font: inherit; text-align: center; cursor: pointer; }
+.bk-drop-over { border-color: #0d7d82; background: #f5fbfb; }
 .bk-drop:hover { border-color: #0d7d82; background: #f5fbfb; }
 .bk-file-input { display: none; }
 .bk-field-auto input, .bk-field-auto select, .bk-field-auto textarea { border-color: #7cc4a1 !important; background: #f3fbf6 !important; }
