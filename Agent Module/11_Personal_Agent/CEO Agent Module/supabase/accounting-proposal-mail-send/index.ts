@@ -58,8 +58,11 @@ Deno.serve(async (req) => {
 
     // Claim the row before sending; no row back means another send holds it or it was just sent.
     const claimedAt = new Date();
-    const rule = claimRule(claimedAt, { resend: !!resend });
-    let claim = admin.from("hub_documents").update({ mail_claimed_at: claimedAt.toISOString() }).eq("id", doc.id).or(`mail_claimed_at.is.null,mail_claimed_at.lt.${rule.staleBefore}`);
+    const rule = claimRule(claimedAt, { resend: !!resend }, doc);
+    if (!rule.storagePath) return json({ error: CLAIM_REFUSED }, 409);
+    let claim = admin.from("hub_documents").update({ mail_claimed_at: claimedAt.toISOString() }).eq("id", doc.id).or(`mail_claimed_at.is.null,mail_claimed_at.lt.${rule.staleBefore}`)
+      .eq("storage_path", rule.storagePath);
+    if (rule.requireApproved) claim = claim.not("approved_at", "is", null);
     if (rule.requireUnsent) claim = claim.is("mail_sent_at", null);
     const { data: claimed, error: claimError } = await claim.select("id");
     if (claimError) throw new Error(claimError.message);

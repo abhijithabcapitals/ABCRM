@@ -45,7 +45,13 @@ Deno.test("the file name is built from number and client, and is safe", () => {
 
 Deno.test("the claim matches only unclaimed or stale rows, and never-sent rows unless resending", () => {
   const now = new Date("2026-11-05T12:00:00.000Z");
-  assertEquals(claimRule(now, { resend: false }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true });
-  assertEquals(claimRule(now, { resend: true }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false });
+  assertEquals(claimRule(now, { resend: false }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: null, requireApproved: false });
+  assertEquals(claimRule(now, { resend: true }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: null, requireApproved: false });
   assert(/in progress/i.test(CLAIM_REFUSED));
+});
+
+Deno.test("the claim must still match the PDF that was read, and an agreement must still be approved", () => {
+  const now = new Date("2026-11-05T12:00:00.000Z");
+  assertEquals(claimRule(now, { resend: false }, quote), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: PDF, requireApproved: false });
+  assertEquals(claimRule(now, { resend: true }, agreement), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: PDF, requireApproved: true });
 });
