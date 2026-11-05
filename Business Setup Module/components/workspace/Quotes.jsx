@@ -79,10 +79,10 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
       <SignedCopy q={q} clientId={clientId} manage={quotes} after={after} setError={setError} />
       <div className="bk-actions bk-wrap">
         {q.storage_path ? <Button onClick={() => openStored(q.storage_path).catch((e) => setError(e.message))}>Open quote</Button>
-          : quotes && <Button busy={busy} onClick={() => act(() => fileQuote(q))}>Create file</Button>}
+          : quotes && !q.library_template && <Button busy={busy} onClick={() => act(() => fileQuote(q))}>Create file</Button>}
         {quotes && q.status === "issued" && <>
           <Button onClick={() => setDialog("reject")}>Mark rejected</Button>
-          <Button onClick={onRevise}>Revise</Button>
+          {!q.library_template && <Button onClick={onRevise}>Revise</Button>}
         </>}
         {quotes && q.status === "rejected" && <Button onClick={onCopy}>Revise</Button>}
         {quotes && q.status === "accepted" && !letter && <Button busy={busy} onClick={() => act(async () => { const doc = await createDocument({ doc_type: "letter", parent_id: q.id }); await fileLetter(doc); })}>Create engagement letter</Button>}

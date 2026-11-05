@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { quoteMerge, letterMerge, receiptMerge } from "../logic/documents.js";
+import { designLetter, designQuote, quoteMerge, letterMerge, receiptMerge } from "../logic/documents.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const here = fileURLToPath(new URL("..", import.meta.url));
@@ -47,8 +47,8 @@ function render(file, data) {
 test("quotation template renders separate lines and memos", () => {
   const q = { quotation_number: "BQ-1", version: 2, status: "Issued", quotation_date: "2026-10-31", valid_until: "2026-11-15", vat_mode: "inclusive", vat_rate: 5, vat_amount: 142.86, discount_total: 0, total_amount: 3000, initial_deposit_memo: 5000, minimum_balance_memo: null, banking_partners: { bank_name: "ADCB" },
     banking_quotation_items: [{ item_type: "Service Fee", description: "Svc", amount: 2000, sort_order: 1 }, { item_type: "Supplementary", description: "Home Ejari", amount: 1000, sort_order: 2 }, { item_type: "Bank Fee", description: "Direct fee", amount: 300, collected_through_ab: false, sort_order: 3 }] };
-  const text = render("Quotation_Template.docx", flat(quoteMerge(q, { display_name: "Client LLC" }, { case_ref: "BC-1" }, company, "Me")));
-  for (const s of ["BQ-1 v2", "Client LLC", "ADCB", "Home Ejari", "2,000", "AED 3,000", "Direct fee", "initial deposit 5,000"]) assert.ok(text.includes(s), s);
+  const text = render("Quotation_Template.docx", designQuote(flat(quoteMerge(q, { display_name: "Client LLC", registered_address: "Road 9, Dubai" }, { case_ref: "BC-1" }, company, "Me"))));
+  for (const s of ["BQ-1 v2", "Client LLC", "Road 9, Dubai", "ADCB", "BC-1", "Home Ejari", "2,000", "3,000", "Direct fee", "initial deposit 5,000", "Me"]) assert.ok(text.includes(s), s);
   assert.ok(!/\{[#/]?\w+\}/.test(text), "no placeholder left");
 });
 
@@ -56,8 +56,8 @@ test("letter template renders terms from the snapshot", () => {
   const l = { letter_number: "EL-1", letter_date: "2026-10-31", content: { client: "Client LLC", case_ref: "BC-1", bank: "Mashreq", total: 2000, vat_mode: "inclusive", vat_rate: 5, quotation_number: "BQ-1", quotation_version: 1, company,
     items: [{ type: "Service Fee", description: "Business Bank Account", amount: 2000, collected: true }],
     terms: { understanding: "Open with {{bank}}.", scope_title: "Best Effort", scope: ["Process"], fee_intro: "Fees", payment_terms: ["{{vat_statement}}"], ab_responsibilities: ["Prepare"], client_responsibilities: ["Provide"], limitations: "No guarantee", reps: "FATF" } } };
-  const text = render("Engagement_Letter_Template.docx", flat(letterMerge(l)));
-  for (const s of ["Open with Mashreq.", "Business Bank Account", "inclusive of applicable UAE VAT", "No guarantee", "Client Signature"]) assert.ok(text.includes(s), s);
+  const text = render("Engagement_Letter_Template.docx", designLetter(flat(letterMerge(l))));
+  for (const s of ["EL-1", "Open with Mashreq.", "Business Bank Account", "inclusive of applicable UAE VAT", "No guarantee", "FATF", "Prepare", "Provide", "Best Effort", "BC-1", "Accepted By"]) assert.ok(text.includes(s), s);
   assert.ok(!/\{[#/]?\w+\}/.test(text), "no placeholder left");
 });
 

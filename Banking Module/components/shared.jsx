@@ -181,6 +181,8 @@ export function useAction(reload) {
 export function DataTable({ columns, rows, onRow, pageSize = 25, search, empty = "Nothing here yet.", activeId }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
+  // True while a header's sort or filter is in use, which must cover every row and not one page.
+  const [allRows, setAllRows] = useState(false);
   const filtered = useMemo(() => {
     if (!search || !q.trim()) return rows;
     const n = q.trim().toLowerCase();
@@ -188,12 +190,12 @@ export function DataTable({ columns, rows, onRow, pageSize = 25, search, empty =
   }, [rows, q, search]);
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safe = Math.min(page, pages - 1);
-  const shown = filtered.slice(safe * pageSize, (safe + 1) * pageSize);
+  const shown = allRows ? filtered : filtered.slice(safe * pageSize, (safe + 1) * pageSize);
   return (
     <div>
       {search && <input className="bk-search" type="search" placeholder={typeof search === "string" ? search : "Search…"} aria-label="Search" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} />}
       <div className="bk-table-wrap">
-        <table className="bk-table">
+        <table className="bk-table" sortFilterAll={setAllRows}>
           <thead><tr>{columns.map((c) => <th key={c.key || c.label} className={c.right ? "bk-right" : ""} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}</tr></thead>
           <tbody>
             {shown.map((r, i) => (
@@ -205,7 +207,7 @@ export function DataTable({ columns, rows, onRow, pageSize = 25, search, empty =
         </table>
         {!shown.length && <Empty>{empty}</Empty>}
       </div>
-      {pages > 1 && (
+      {pages > 1 && !allRows && (
         <div className="bk-pager">
           <Button disabled={safe === 0} onClick={() => setPage(safe - 1)}>Previous</Button>
           <span>Page {safe + 1} of {pages} · {filtered.length} rows</span>

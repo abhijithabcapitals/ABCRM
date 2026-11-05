@@ -139,7 +139,8 @@ def build(path, body, logo):
 
 
 logo = logo_bytes()
-for name, body in (("Quotation_Template.docx", QUOTE), ("Engagement_Letter_Template.docx", LETTER), ("Fee_Receipt_Voucher_Template.docx", RECEIPT)):
+# The quotation and engagement letter come from Template Module/scripts/build_ab_capital_templates.py.
+for name, body in (("Fee_Receipt_Voucher_Template.docx", RECEIPT)):
     build(OUT / name, body, logo)
     if MASTER.exists():
         shutil.copy(OUT / name, MASTER / name)

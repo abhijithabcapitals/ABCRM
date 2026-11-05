@@ -1,5 +1,5 @@
 // The wording of a login email. Pure, so it can be tested without a mail server.
-export const SIGN_IN_URL = "https://abhijithabcapitals.github.io/ABCRM/";
+export const SIGN_IN_URL = "https://crm-abcapital.pages.dev/";
 
 export type CredentialMail = {
   audience: "client" | "staff";

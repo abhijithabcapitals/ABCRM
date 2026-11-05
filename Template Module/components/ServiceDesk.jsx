@@ -68,7 +68,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const finish = async (doc, type) => {
     const company = settings.data?.company;
     const limitations = [...new Set((catalogue.data || []).filter((c) => c.service_items.some((x) => doc.services.includes(x.name))).map((c) => c.limitation).filter(Boolean))];
-    const base = type === "quote" ? quoteData(doc, company) : letterData(doc, company, settings.data?.engagement_terms, limitations);
+    const base = type === "quote" ? quoteData(doc, company, settings.data?.engagement_terms) : letterData(doc, company, settings.data?.engagement_terms, limitations);
     const data = doc.department === "Business Setup" ? withLineVat(doc, base) : base;
     const blob = await renderTemplate(type === "quote" ? "Service_Quotation_Template.docx" : "Service_Engagement_Template.docx", data);
     const fileName = fileNameFor(doc.document_number, doc.client_name);
@@ -119,6 +119,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   };
   // A document whose file failed to save can be filed again under the same number.
   const refile = async (d) => {
+    if (d.library_template) return setError("This document came from Template Hub. Use Retry there.");
     setBusy(`file-${d.id}`); setError(null);
     try { await finish(d, d.doc_type); } catch (e) { setError(e.message); }
     setBusy(null);
@@ -199,7 +200,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
           { key: "total_amount", label: "Total", right: true, render: (d) => `AED ${Number(d.total_amount).toLocaleString("en-AE")}` }, { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
           { key: "mail", label: "Mail", render: mailButton },
           { key: "next", label: "Next step", render: (d) => (d.doc_type !== "quote" ? "–" : (docs.data || []).some((x) => x.doc_type === "letter" && x.parent_id === d.id && x.status !== "rejected") ? <Badge tone="good">Letter generated</Badge> : <Button busy={busy === `letter-${d.id}`} onClick={() => generateLetter(d)}>Engagement Letter + Mail</Button>) },
-          { key: "o", label: "File", render: (d) => (d.storage_path ? <span className="bk-actions"><button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>View</button>{d.local_path ? <button type="button" className="bk-link" title={d.local_path} onClick={() => openInFolder(d.local_path).catch((e) => setError(e.message))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}</span> : <Button busy={busy === `file-${d.id}`} onClick={() => refile(d)}>Create file</Button>) },
+          { key: "o", label: "File", render: (d) => (d.storage_path ? <span className="bk-actions"><button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>View</button>{d.local_path ? <button type="button" className="bk-link" title={d.local_path} onClick={() => openInFolder(d.local_path).catch((e) => setError(e.message))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}</span> : (d.library_template ? <small className="bk-muted">Use Retry in Template Hub</small> : <Button busy={busy === `file-${d.id}`} onClick={() => refile(d)}>Create file</Button>)) },
         ]} />
       </Panel>
     </div>

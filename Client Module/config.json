@@ -8,7 +8,7 @@
   "remoteMode": false,
   "allowedHosts": [],
   "maxUploadMb": 40,
-  "embedOrigins": ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:4173", "http://127.0.0.1:4173", "https://abhijithabcapitals.github.io", "https://abcrm.ceo-intelligence-agent.workers.dev"],
+  "embedOrigins": ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:4173", "http://127.0.0.1:4173", "https://abhijithabcapitals.github.io", "https://abcrm.ceo-intelligence-agent.workers.dev", "https://crm-abcapital.pages.dev"],
   "generatedFolders": {
     "quote": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Banking Business\\Quotes Generated",
     "letter": "D:\\Abhijith Projects\\CRM\\Database Module\\Generated Documents\\Banking Business\\Enagements Generated",

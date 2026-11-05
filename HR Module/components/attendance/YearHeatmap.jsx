@@ -8,7 +8,7 @@ const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 export default function YearHeatmap({ person, year, today, canEdit, onEdit, marks }) {
   return (
     <div className="hr-grid-wrap" tabIndex={0} aria-label={`${person.full_name}, ${year}`}>
-      <table className="hr-grid hr-grid-year">
+      <table data-plain="true" className="hr-grid hr-grid-year">
         <thead>
           <tr>
             <th className="hr-grid-month-name">{year}</th>

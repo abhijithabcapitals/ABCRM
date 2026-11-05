@@ -4,7 +4,7 @@ Internal workspace for AB Capital Services FZC — built with React, Supabase, a
 
 **Cloudflare:** https://crm-abcapital.pages.dev and https://abcrm.ceo-intelligence-agent.workers.dev. `npm run deploy:cloudflare` builds on this PC and uploads to both on Cloudflare with no GitHub Actions. First-time steps are in `scripts/deploy-cloudflare.mjs`. It uses the values in `.env`, not the GitHub repository secrets.
 
-🔗 **GitHub Pages app:** https://abhijithabcapitals.github.io/ABCRM/
+🔗 **App:** https://crm-abcapital.pages.dev/
 
 ---
 
@@ -173,7 +173,7 @@ are pushed to `main`. In GitHub, add these repository Actions secrets under
 - `VITE_SUPABASE_ANON_KEY` (the public anon/publishable key, never a service-role key)
 
 The workflow builds the app at `/ABCRM/` and deploys the `dist` directory. Set
-the Supabase Auth **Site URL** to `https://abhijithabcapitals.github.io/ABCRM/`
+the Supabase Auth **Site URL** to `https://crm-abcapital.pages.dev/`
 and add that URL to **Redirect URLs**. The workflow enables GitHub Pages using
 the Actions deployment source. The first deployment is available at the URL
 above once the Actions run succeeds. When moving to the custom domain, update
@@ -235,7 +235,7 @@ where email = 'their@email.com';
 ```
 
 4. Share login credentials with them on WhatsApp
-5. They log in at https://abhijithabcapitals.github.io/ABCRM/
+5. They log in at https://crm-abcapital.pages.dev/
 
 ---
 

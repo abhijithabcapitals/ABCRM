@@ -1,3 +1,5 @@
+import { ColumnMenu } from "../jsx/SmartTable";
+import { distinctValues, filterIsOn, passesFilter } from "../jsx/tableSortLogic.js";
 import { useState, useEffect, useRef, Fragment, memo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../supabase";
@@ -110,6 +112,8 @@ export default function Tasks({
   const [showSavedMenu, setShowSavedMenu] = useState(false);
   const [groupBy, setGroupBy] = useState("status");
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+  const [columnFilters, setColumnFilters] = useState({});
+  const [columnMenu, setColumnMenu] = useState(null); // { key, label, sortable, rect }
   const [newField, setNewField] = useState({
     field_name: "",
     field_type: "text",
@@ -1569,7 +1573,18 @@ export default function Tasks({
       const num = Number(val);
       return !isNaN(num) && val.trim() !== "" ? num : val.toLowerCase();
     }
-    return "";
+    return String(task[key] ?? "").toLowerCase();
+  }
+
+  // What a column shows for a task, for the header filters.
+  function columnText(task, key) {
+    if (key === "assignees") return (task.assignees?.length ? task.assignees : [task.assignee]).filter(Boolean).join(", ");
+    if (key.startsWith("field_")) {
+      const fieldId = key.replace("field_", "");
+      return String(task.task_field_values?.find((v) => v.field_id === fieldId)?.value ?? "");
+    }
+    if (typeof task[key] === "string" && /^\d{4}-\d{2}-\d{2}/.test(task[key])) return task[key].slice(0, 10);
+    return String(task[key] ?? "");
   }
 
   function sortTasks(taskList) {
@@ -1934,7 +1949,7 @@ export default function Tasks({
     if (search && !t.title.toLowerCase().includes(search.toLowerCase()))
       return false;
     if (!passesFilters(t)) return false;
-    return true;
+    return Object.entries(columnFilters).every(([key, filter]) => passesFilter(columnText(t, key), filter));
   });
 
   // Group tasks by their exact assignee combination — a task with
@@ -3168,6 +3183,17 @@ export default function Tasks({
               {isActive ? (sortConfig.direction === "asc" ? "▲" : "▼") : "↕"}
             </span>
           )}
+          <button
+            type="button"
+            className={`crm-th-btn crm-th-btn-inline${filterIsOn(columnFilters[colKey]) ? " on filtered" : ""}`}
+            aria-label={`Filter ${label}`}
+            title="Filter"
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              setColumnMenu((m) => (m?.key === colKey ? null : { key: colKey, label, sortable, rect }));
+            }}
+          >▾</button>
         </span>
         {/* Resize handle */}
         <div
@@ -4607,6 +4633,16 @@ export default function Tasks({
                 </div>
               )}
             </div>
+            {Object.values(columnFilters).some(filterIsOn) && (
+              <button
+                className="toolbar-btn"
+                onClick={() => setColumnFilters({})}
+                title="Clear the filters set from column headers"
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--accent)", fontWeight: 600 }}
+              >
+                <IconClose size={13} /> Column filters
+              </button>
+            )}
             {sortConfig.key && (
               <button
                 className="toolbar-btn"
@@ -4621,6 +4657,21 @@ export default function Tasks({
           </div>
           )}
         </div>
+
+        {columnMenu && (
+          <ColumnMenu
+            title={columnMenu.label}
+            rect={columnMenu.rect}
+            canSort={!!columnMenu.sortable}
+            sort={sortConfig.key === columnMenu.key ? sortConfig.direction : null}
+            filter={columnFilters[columnMenu.key]}
+            values={distinctValues(tasks.filter((t) => !t.parent_task_id).map((t) => columnText(t, columnMenu.key)))}
+            note={`${filteredTasks.length} of ${tasks.filter((t) => !t.parent_task_id).length} tasks`}
+            onSort={(direction) => setSortConfig(direction ? { key: columnMenu.key, direction } : { key: null, direction: "asc" })}
+            onFilter={(value) => setColumnFilters((all) => ({ ...all, [columnMenu.key]: value }))}
+            onClose={() => setColumnMenu(null)}
+          />
+        )}
 
         <div className="content-area">
           {viewMode === "overview" && activeSpace && (
