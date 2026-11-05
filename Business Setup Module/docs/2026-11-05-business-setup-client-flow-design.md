@@ -320,10 +320,11 @@ Automatic reminders. A connection to the Accounting Team job pipeline. Changes t
 |---|---|
 | Nobody holds the `ACCOUNTS` role | Cases sent to Accounting cannot be validated by a real user |
 | One-client Zoho test still open, and staff were asked not to press Create | Use Record invoice by hand |
-| Names of Managers and team | CRM admins act, and only they can send to Accounting |
+| Assigning Syyed and Garima as `MANAGER` on live | Needs the user's go-ahead at release. CRM admins act until then |
 | Prices for the 45 services | Empty fee cells, and staff enter each figure |
 | Corrected zone templates not uploaded | Zone quotes lack Net and VAT rows, and the AB Capital template is unaffected |
 | AB Capital templates and logo still carry the old name | Quotes and letters show it until replaced |
-| Finance's view on VAT for pass-through fees | Every item stays at 5% |
 | Wording of the notice on the public form | A short plain default is used; the user should check it against privacy advice |
 | `bs_rollback` schema holds client records and password hashes | Stays until the user approves dropping it |
+
+Settled by the user on 2026-11-05: VAT of 5% goes on top of every quoted price, government fees included. The 24 stored amounts are agreed. Anyone onboarding a client can issue a login. Invoices use the existing Zoho token. The open link panel also shows on the Client Onboarding tab.
