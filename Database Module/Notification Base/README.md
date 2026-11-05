@@ -6,6 +6,7 @@ Database layer of the Notification and Alert Centre. Spec: `Hot Alerts Module/do
 | File | What it does |
 |---|---|
 | `001_alert_core.sql` | `alert_settings` (mode, seeded `Preview`), `alert_rules`, `alerts`, `alert_recipients`, `alert_events` (append-only), `alert_scan_log`, `client_owners`; manager rule, visibility, bell and `alert_raise` |
+| `002_alert_scan.sql` | `alert_step_for`, seeded rules, `alert_candidate`, one `alert_rule_*` function per rule, `alert_scan()` (advisory lock, per-rule error isolation, system close) and the `alert-scan` cron job at 02:00 |
 
 Every migration is re-runnable. Rollback for 001 to 004 is `rollback/001_004_rollback.sql` (safe twice; deletes `alert_centre` bell rows only).
 

@@ -46,3 +46,181 @@ select t.ok('anon cannot run alert_step_for', not has_function_privilege('anon',
 select t.ok('public cannot run alert_step_for', (select count(*) = 0 from pg_proc p
   where p.oid = 'alert_step_for(jsonb,int)'::regprocedure
   and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
+
+-- ═══ Rules and the daily scan (Task 3) ═══════════════════════════════
+-- Triage, not Live: Live would call alert_escalate_due(), which Task 4 defines.
+update alert_settings set value = '"Triage"' where key = 'alert_mode';
+update alert_rules set enabled = false where code = 'r';   -- test rule left by 010; it has no rule function
+select (now() at time zone 'Asia/Dubai')::date as today \gset
+select to_char(:'today'::date + 20, 'DD/MM/YYYY') as master20 \gset
+
+insert into client_master (client_id, legal_name, data) values
+  ('C30', 'Thirty LLC', null), ('CM', 'Master LLC', jsonb_build_object('License Expiry Date', :'master20')),
+  ('CBAD', 'Bad Date LLC', '{"License Expiry Date": "garbage"}'), ('CLIQ', 'Liquidated LLC', null), ('CREJ', 'Rejected LLC', null),
+  ('CK', 'Ten Days LLC', null), ('CB', 'Beyond LLC', null), ('CFAR', 'Far LLC', null), ('CV', 'Visa LLC', null),
+  ('CS', 'Service LLC', null), ('CT', 'Tasks LLC', null);
+insert into business_setup_kyc_profiles (client_id, client_status, licence_expiry) values
+  ('C30', 'Active', :'today'::date + 30), ('CM', 'Active', null), ('CBAD', 'Active', null),
+  ('CLIQ', 'LIQUIDATED', :'today'::date + 10), ('CREJ', 'rejected', :'today'::date + 10),
+  ('CK', 'Active', :'today'::date + 10), ('CB', 'Active', :'today'::date + 60), ('CFAR', 'Active', :'today'::date + 200),
+  ('CV', 'Active', null);
+insert into client_owners (client_id, department, owner_id) values
+  ('C30', 'Business Setup', '00000000-0000-0000-0000-0000000000c1'),
+  ('CK', 'Business Setup', '00000000-0000-0000-0000-0000000000c2'),
+  ('CS', 'Accounting', '00000000-0000-0000-0000-0000000000c2');
+
+insert into business_setup_visas (client_id, person_name, expiry_date, status) values
+  ('CV', 'Visa Holder', :'today'::date + 20, 'Active'),
+  ('CNOPROFILE', 'No Profile Person', :'today'::date + 20, 'Active'),
+  ('CLIQ', 'Closed Client Person', :'today'::date + 20, 'Active'),
+  ('CV', 'Cancelled Person', :'today'::date + 20, 'Cancelled'),
+  ('CV', 'Resigned Person', :'today'::date + 20, 'resigned'),
+  ('CV', 'Pending Person', :'today'::date + 20, 'x'),
+  ('CV', 'Dateless Person', null, 'Active');
+select id as x_visa from business_setup_visas where person_name = 'Pending Person' \gset
+
+insert into business_setup_services (client_id, name, status, due_date, owner_id, historical) values
+  ('CS', 'VAT Registration', 'In progress', :'today'::date, '00000000-0000-0000-0000-0000000000c1', false),
+  ('CS', 'Visa Registration', 'In progress', :'today'::date, null, false),
+  ('CS', 'Old Service', 'In progress', :'today'::date, null, true),
+  ('CS', 'Finished Service', 'Completed', :'today'::date, null, false),
+  ('CS', 'Dropped Service', 'Cancelled', :'today'::date, null, false);
+
+insert into accounting_job_list (client_id, client_name, service_name, service_department, due_date, assignee_ids, work_status) values
+  ('CS', 'Service LLC', 'Job two days late', 'Accounting', :'today'::date - 2, array['00000000-0000-0000-0000-0000000000c1']::uuid[], 'In progress'),
+  ('CS', 'Service LLC', 'Job three days late', null, :'today'::date - 3, array['00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000c2']::uuid[], 'In progress'),
+  ('CS', 'Service LLC', 'Job done', 'Accounting', :'today'::date - 5, null, 'Completed'),
+  ('CS', 'Service LLC', 'Job cancelled', 'Accounting', :'today'::date - 5, null, 'Client Cancelled'),
+  ('CS', 'Service LLC', 'Job no date', 'Accounting', null, null, 'In progress');
+
+insert into business_setup_tasks (client_id, title, owner_id, due_date, status) values
+  ('CT', 'Setup open', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Open'),
+  ('CT', 'Setup done', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Done');
+insert into banking_tasks (client_id, title, assigned_to, due_date, status) values
+  ('CT', 'Bank open', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Open'),
+  ('CT', 'Bank progress', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'In Progress'),
+  ('CT', 'Bank closed', '00000000-0000-0000-0000-0000000000c1', :'today'::date, 'Closed');
+insert into tasks (title, status, assignee_id, due_date, deleted_at) values
+  ('Crm live', 'Open', '00000000-0000-0000-0000-0000000000c2', to_char(:'today'::date, 'YYYY-MM-DD'), null),
+  ('Crm done', 'Done', '00000000-0000-0000-0000-0000000000c2', to_char(:'today'::date, 'YYYY-MM-DD'), null),
+  ('Crm deleted', 'Open', '00000000-0000-0000-0000-0000000000c2', to_char(:'today'::date, 'YYYY-MM-DD'), now()),
+  ('Crm bad date', 'Open', '00000000-0000-0000-0000-0000000000c2', 'garbage', null),
+  ('Crm impossible date', 'Open', '00000000-0000-0000-0000-0000000000c2', '2026-13-45', null);
+
+-- Unfiltered figures before the first scan
+select count(*) as alerts0 from alerts \gset
+select count(*) as bells0 from notifications where type = 'alert_centre' \gset
+select count(*) as logs0 from alert_scan_log \gset
+
+select alert_scan() as scan1 \gset
+select t.ok('scan returns Ok and logs one row', (select status = 'Ok' from alert_scan_log order by id desc limit 1) and (select count(*) = :logs0 + 1 from alert_scan_log) and (:'scan1'::jsonb->>'status') = 'Ok');
+select t.ok('scan wrote alerts', (select count(*) > :alerts0 from alerts));
+
+-- Licence
+select t.ok('licence at 30 days is High', (select priority = 'High' and current_step = 30 and due_date = :'today'::date + 30 and assigned_to = '00000000-0000-0000-0000-0000000000c1' from alerts where rule_code = 'licence_expiry' and client_id = 'C30'));
+select t.ok('master date used when profile date null', (select count(*) = 1 and bool_and(due_date = :'today'::date + 20 and priority = 'High') from alerts where rule_code = 'licence_expiry' and client_id = 'CM'));
+select t.ok('unparseable master date counts missing, scan Ok', (select status = 'Ok' and (rule_counts->'licence_expiry'->>'with_data')::int < (rule_counts->'licence_expiry'->>'checked')::int from alert_scan_log order by id desc limit 1)
+  and not exists (select 1 from alerts where client_id = 'CBAD'));
+select t.ok('licence counts are exact', (select rule_counts->'licence_expiry' from alert_scan_log order by id desc limit 1) @> '{"checked": 7, "with_data": 5, "raised": 4}'::jsonb);
+select t.ok('liquidated and rejected clients raise nothing, any case', not exists (select 1 from alerts where client_id in ('CLIQ', 'CREJ') and rule_code = 'licence_expiry'));
+select t.ok('licence 200 days away raises nothing', not exists (select 1 from alerts where client_id = 'CFAR'));
+select t.ok('licence subject carries the legal name and the title is built', (select subject = 'Thirty LLC' and title = 'Licence expiry: Thirty LLC' and department = 'Business Setup' from alerts where client_id = 'C30' and rule_code = 'licence_expiry'));
+select t.ok('three missed steps: one row, top step, one bell', (select count(*) = 1 and bool_and(current_step = 30 and priority = 'High') from alerts where client_id = 'CK')
+  and (select count(*) = 1 from notifications n join alerts a on n.link_scope->>'alert_id' = a.id::text where a.client_id = 'CK'));
+select t.ok('owner from client_owners when the rule gives none', (select assigned_to = '00000000-0000-0000-0000-0000000000c2' from alerts where client_id = 'CK'));
+
+-- Visa
+select t.ok('visa with no profile still raises', (select count(*) = 1 from alerts where rule_code = 'visa_expiry' and subject like 'No Profile Person%'));
+select t.ok('visa of liquidated client raises nothing', not exists (select 1 from alerts where subject like 'Closed Client Person%'));
+select t.ok('cancelled and resigned visas raise nothing', not exists (select 1 from alerts where subject like 'Cancelled Person%' or subject like 'Resigned Person%'));
+select t.ok('visa status X is raised as pending follow-up', (select description = 'Pending follow-up' and priority = 'High' from alerts where source_id = :'x_visa'));
+select t.ok('normal visa has no description and carries person and client', (select description is null and subject = 'Visa Holder (Visa LLC)' and title = 'Visa expiry: Visa Holder (Visa LLC)' from alerts where rule_code = 'visa_expiry' and subject like 'Visa Holder%'));
+select t.ok('visa counts: three raised, dateless counted', (select rule_counts->'visa_expiry' from alert_scan_log order by id desc limit 1) @> '{"checked": 4, "with_data": 3, "raised": 3}'::jsonb
+  and (select count(*) = 3 from alerts where rule_code = 'visa_expiry'));
+
+-- Services
+select t.ok('imported Visa Registration service raises nothing', not exists (select 1 from alerts where subject like 'Visa Registration%'));
+select t.ok('only the live service raises', (select count(*) = 1 and bool_and(subject like 'VAT Registration%' and priority = 'High' and assigned_to = '00000000-0000-0000-0000-0000000000c1') from alerts where rule_code = 'service_due'));
+
+-- Jobs
+select t.ok('job due 2 days ago is High, 3 days Critical', (select priority from alerts where subject like 'Job two days late%') = 'High' and (select priority from alerts where subject like 'Job three days late%') = 'Critical');
+select t.ok('completed, cancelled and dateless jobs raise nothing, exactly two job alerts', (select count(*) = 2 from alerts where rule_code = 'job_due')
+  and (select rule_counts->'job_due' from alert_scan_log order by id desc limit 1) @> '{"checked": 3, "with_data": 2, "raised": 2}'::jsonb);
+select t.ok('first assignee assigned, the rest recipients; department defaults to Accounting', (select department = 'Accounting' and assigned_to = '00000000-0000-0000-0000-0000000000c1'
+    and (select count(*) = 2 and bool_and(reason = 'Assigned') from alert_recipients r where r.alert_id = a.id) from alerts a where a.subject like 'Job three days late%'));
+
+-- Tasks
+select t.ok('setup task Open raises, Done does not', (select count(*) = 1 and bool_and(subject like 'Setup open%') from alerts where rule_code = 'setup_task_due'));
+select t.ok('banking Open and In Progress raise, Closed does not', (select count(*) = 2 from alerts where rule_code = 'banking_task_due') and not exists (select 1 from alerts where subject like 'Bank closed%'));
+select t.ok('crm task: live raises, done and deleted do not, assignee is assignee_id', (select count(*) = 1 and bool_and(subject = 'Crm live' and assigned_to = '00000000-0000-0000-0000-0000000000c2') from alerts where rule_code = 'crm_task_due'));
+select t.ok('bad and impossible crm dates count as missing, scan Ok', (select status = 'Ok' and rule_counts->'crm_task_due' @> '{"checked": 3, "with_data": 1, "raised": 1}'::jsonb from alert_scan_log order by id desc limit 1));
+
+-- Re-scan
+select count(*) as alerts1 from alerts \gset
+select count(*) as bells1 from notifications where type = 'alert_centre' \gset
+select count(*) as events1 from alert_events \gset
+select alert_scan() as scanned \gset
+select t.ok('re-scan same day: no new rows, no new bell, no new events', (select count(*) = :alerts1 from alerts) and (select count(*) = :bells1 from notifications where type = 'alert_centre')
+  and (select count(*) = :events1 from alert_events));
+select t.ok('bells exist to compare against', :bells1 > :bells0);
+
+-- Date moved
+select id as c30_old from alerts where client_id = 'C30' and rule_code = 'licence_expiry' \gset
+update business_setup_kyc_profiles set licence_expiry = :'today'::date + 25 where client_id = 'C30';
+select alert_scan() as scanned \gset
+select t.ok('date moved: old closed with note, new cycle', (select status = 'Resolved' and resolution_note = 'Date changed or no longer applies' and resolved_by is null and resolved_by_system and resolved_at is not null from alerts where id = :'c30_old')
+  and (select count(*) = 2 from alerts where client_id = 'C30') and (select count(*) = 1 from alerts where client_id = 'C30' and status = 'Open' and due_date = :'today'::date + 25)
+  and (select count(*) = 1 from alert_events where alert_id = :'c30_old' and event = 'resolved'));
+update business_setup_kyc_profiles set licence_expiry = :'today'::date + 120 where client_id = 'CB';
+select alert_scan() as scanned \gset
+select t.ok('date moved beyond 90: old closed, no new row', (select count(*) = 1 and bool_and(status = 'Resolved') from alerts where client_id = 'CB'));
+update business_setup_kyc_profiles set licence_expiry = :'today'::date + 30 where client_id = 'C30';   -- back to the first date
+select alert_scan() as scanned \gset
+select t.ok('date moved back: the system-closed alert of that key reopens', (select status = 'Open' from alerts where id = :'c30_old'));
+
+-- A person's close survives the scan
+update alerts set status = 'Resolved', resolved_at = now(), resolved_by = '00000000-0000-0000-0000-0000000000c1' where client_id = 'CK';
+select alert_scan() as scanned \gset
+select t.ok('person-resolved alert stays resolved', (select status = 'Resolved' and not resolved_by_system and resolved_by is not null from alerts where client_id = 'CK'));
+
+-- Broken rule
+select count(*) as banking_open from alerts where rule_code = 'banking_task_due' and status = 'Open' \gset
+create or replace function alert_rule_banking_task_due() returns setof alert_candidate
+language plpgsql security definer set search_path = public, pg_temp as $f$
+begin
+  if current_setting('test.break_rule', true) = '1' then raise exception 'broken on purpose'; end if;
+  return;
+end $f$;
+select set_config('test.break_rule', '1', false);
+insert into accounting_job_list (client_id, client_name, service_name, service_department, due_date, assignee_ids, work_status)
+  values ('CS', 'Service LLC', 'Job added while broken', 'Accounting', :'today'::date, null, 'In progress');
+select alert_scan() as scanned \gset
+select t.ok('broken rule logged, other rules still ran, scan Failed', (select status = 'Failed' and rule_counts->'banking_task_due'->>'error' like '%broken on purpose%' and rule_counts->'job_due'->>'error' is null
+    and error like '%banking_task_due%' from alert_scan_log order by id desc limit 1)
+  and exists (select 1 from alerts where subject like 'Job added while broken%'));
+select t.ok('broken rule closes nothing', (select count(*) = :banking_open from alerts where rule_code = 'banking_task_due' and status = 'Open') and :banking_open = 2);
+select set_config('test.break_rule', '', false);
+\ir ../migrations/002_alert_scan.sql
+select alert_scan() as scanned \gset
+select t.ok('after restoring the rule the scan is Ok again', (select status = 'Ok' and rule_counts->'banking_task_due'->>'error' is null from alert_scan_log order by id desc limit 1));
+
+-- A rule without a function is an error for that rule, not a scan crash
+insert into alert_rules (code, category, title_template, enabled) values ('no_function', 'X', 'x {subject}', true);
+select alert_scan() as scanned \gset
+select t.ok('enabled rule without a function fails alone', (select status = 'Failed' and rule_counts->'no_function'->>'error' is not null and rule_counts->'job_due'->>'error' is null from alert_scan_log order by id desc limit 1));
+update alert_rules set enabled = false where code = 'no_function';
+select alert_scan() as scanned \gset
+select t.ok('a disabled rule is not scanned and the scan is Ok again', (select status = 'Ok' and not rule_counts ? 'no_function' from alert_scan_log order by id desc limit 1));
+
+-- Grants
+select t.ok('postgres and service_role can run alert_scan', has_function_privilege('postgres', 'alert_scan()', 'execute') and has_function_privilege('service_role', 'alert_scan()', 'execute'));
+select t.ok('authenticated and anon cannot run alert_scan', not has_function_privilege('authenticated', 'alert_scan()', 'execute') and not has_function_privilege('anon', 'alert_scan()', 'execute'));
+select t.ok('public cannot run alert_scan', (select count(*) = 0 from pg_proc p where p.oid = 'alert_scan()'::regprocedure
+  and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
+select t.ok('rule functions and the date helper are not browser-callable', (select count(*) = 8 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
+  from pg_proc p where pronamespace = 'public'::regnamespace and (proname like 'alert\_rule\_%' or proname = 'alert_safe_date')));
+select t.ok('alert_scan is scheduled daily at 02:00', (select count(*) = 1 and bool_and(schedule = '0 2 * * *' and command = 'select public.alert_scan()') from cron.job where jobname = 'alert-scan'));
+select t.ok('alert_escalate_due is not defined here', to_regprocedure('alert_escalate_due()') is null);
+
+-- run-local.sh expects the tests to leave the mode on Live.
+update alert_settings set value = '"Live"' where key = 'alert_mode';

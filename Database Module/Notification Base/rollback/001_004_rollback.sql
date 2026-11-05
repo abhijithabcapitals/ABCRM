@@ -6,7 +6,22 @@ do $$ begin
   end if;
 end $$;
 
--- 002: function
+-- 002: unschedule the scan (safe when pg_cron or the job is absent), then scan, rule functions, helper, type, step function
+do $$ begin
+  if to_regclass('cron.job') is not null then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'alert-scan';
+  end if;
+end $$;
+drop function if exists public.alert_scan();
+drop function if exists public.alert_rule_licence_expiry();
+drop function if exists public.alert_rule_visa_expiry();
+drop function if exists public.alert_rule_job_due();
+drop function if exists public.alert_rule_service_due();
+drop function if exists public.alert_rule_setup_task_due();
+drop function if exists public.alert_rule_banking_task_due();
+drop function if exists public.alert_rule_crm_task_due();
+drop function if exists public.alert_safe_date(text);
+drop type if exists public.alert_candidate;
 drop function if exists public.alert_step_for(jsonb, int);
 
 -- 001: tables first (their policies depend on the functions), then functions
