@@ -362,7 +362,7 @@ README states where templates live, how to prepare and upload them, and that his
 
 - [ ] **Step 2: Confirm the build carries no template**
 
-Run: `npm run build` in `Main Module`, then search `dist` for `IFZA`, `Rakez`, `AE120400000372949069001`.
+Run: `npm run build` in `Main Module`, then search `dist` for `IFZA`, `Rakez`.
 Expected: build succeeds, with no `.docx` for those templates and no matching text.
 
 - [ ] **Step 3: Run every test**
