@@ -95,8 +95,39 @@ select alert_assign(:'a_open', :'mgr2');
 select t.ok('assigning a manager promotes their recipient row to Assigned and bells them',
   (select reason = 'Assigned' from alert_recipients where alert_id = :'a_open' and user_id = :'mgr2')
   and (select count(*) = 2 from notifications where user_id = :'mgr2' and link_scope->>'alert_id' = :'a_open'));
+select count(*) as bells_emp2_back from notifications where user_id = :'emp2' and type = 'alert_centre' \gset
 select alert_assign(:'a_open', :'emp2');
-select t.ok('reassigning keeps the earlier recipients', (select count(*) = 3 from alert_recipients where alert_id = :'a_open') and (select assigned_to = :'emp2' from alerts where id = :'a_open'));
+select t.ok('reassigning replaces the assignee: the former Assigned row goes, managers and history stay',
+  (select assigned_to = :'emp2' from alerts where id = :'a_open')
+  and (select count(*) = 2 from alert_recipients where alert_id = :'a_open')
+  and (select reason = 'Manager' from alert_recipients where alert_id = :'a_open' and user_id = :'mgr1')
+  and (select reason = 'Assigned' from alert_recipients where alert_id = :'a_open' and user_id = :'emp2')
+  and not exists (select 1 from alert_recipients where alert_id = :'a_open' and user_id = :'mgr2')
+  and (select count(*) = 4 from alert_events where alert_id = :'a_open' and event = 'assigned'));
+select t.ok('assigning back to someone who was assigned before bells them again',
+  (select count(*) = :bells_emp2_back + 1 from notifications where user_id = :'emp2' and type = 'alert_centre'));
+
+-- A former assignee loses the right to act; one who is a tagged Manager still acts as Manager
+select alert_raise('r', 't4-fa', 'CL000001', 'Former assignee', 'Business Setup', :'today'::date + 5, 1, 'High', :'emp1', 't', 'i') as a_fa \gset
+select alert_assign(:'a_fa', :'emp2');
+select t.ok('the former assignee has no recipient row, the new one has', not exists (select 1 from alert_recipients where alert_id = :'a_fa' and user_id = :'emp1')
+  and exists (select 1 from alert_recipients where alert_id = :'a_fa' and user_id = :'emp2' and reason = 'Assigned'));
+select set_config('test.uid', :'emp1', false);
+select t.fails('former assignee cannot resolve', format('select alert_resolve(%L, %L)', :'a_fa', 'x'), 'You do not have');
+select t.fails('former assignee cannot change status', format('select alert_set_status(%L, %L)', :'a_fa', 'Open'), 'You do not have');
+select t.fails('former assignee cannot escalate', format('select alert_escalate(%L, %L)', :'a_fa', 'x'), 'You do not have');
+select t.fails('former assignee cannot read it', format('select alert_mark_read(%L)', :'a_fa'), 'You do not have');
+select set_config('test.uid', :'emp2', false);
+select alert_set_status(:'a_fa', 'In progress');
+select t.ok('the new assignee can act', (select status = 'In progress' from alerts where id = :'a_fa'));
+select set_config('test.uid', :'mgr1', false);
+select alert_assign(:'a_fa', :'mgr2');
+select alert_assign(:'a_fa', :'emp2');
+select set_config('test.uid', :'mgr2', false);
+select alert_set_status(:'a_fa', 'Open');
+select t.ok('a former assignee who is a tagged Manager still acts as a Manager', (select status = 'Open' from alerts where id = :'a_fa')
+  and not exists (select 1 from alert_recipients where alert_id = :'a_fa' and user_id = :'mgr2'));
+select set_config('test.uid', :'mgr1', false);
 select t.fails('assigning a person who does not exist is refused', format('select alert_assign(%L, %L)', :'a_open', 'ffffffff-ffff-ffff-ffff-ffffffffffff'), 'employee');
 select t.fails('assigning nobody is refused', format('select alert_assign(%L, null)', :'a_open'), 'employee');
 select t.fails('an alert that does not exist is refused', format('select alert_assign(%L, %L)', 'ffffffff-ffff-ffff-ffff-ffffffffffff', :'emp2'), 'does not exist');
@@ -279,7 +310,7 @@ select alert_raise('r', 't4h-open', 'T4H', 'H other client', 'Accounting', :'tod
 -- permission
 select set_config('test.uid', :'emp1', false);
 select t.fails('untagged member cannot set owners', format('select client_owners_set(%L, array[%L], %L)', 'Accounting', 'T4G', :'emp1'), 'You do not have');
-select t.fails('untagged member cannot list owners', 'select * from client_owner_list()', 'You do not have');
+select t.fails('untagged member cannot list owners', $q$select * from client_owner_list('Accounting')$q$, 'You do not have');
 select t.fails('untagged member cannot see proposals', $q$select * from client_owner_proposals('Accounting')$q$, 'You do not have');
 select set_config('test.uid', '', false);
 select t.fails('nobody signed in cannot set owners', format('select client_owners_set(%L, array[%L], %L)', 'Accounting', 'T4G', :'emp1'), 'You do not have');
@@ -307,13 +338,17 @@ select t.ok('admin can read proposals too', (select count(*) = 2 from client_own
 -- list
 select set_config('test.uid', :'mgr1', false);
 select t.ok('list has one row per client and department, owner null when unset',
-  (select count(*) = (select count(*) from service_departments) and bool_and(owner_id is null) from client_owner_list() where client_id = 'T4F')
-  and (select count(distinct department) = (select count(*) from service_departments) from client_owner_list() where client_id = 'T4G'));
+  (select count(*) = (select count(*) from client_master) and count(distinct client_id) = count(*) and bool_and(department = 'Accounting') from client_owner_list('Accounting'))
+  and (select count(*) = (select count(*) from client_master) and bool_and(department = 'Business Setup') from client_owner_list('Business Setup'))
+  and (select array_agg(client_id) = array_agg(client_id order by client_id) from client_owner_list('Accounting'))
+  and (select owner_id is null from client_owner_list('Accounting') where client_id = 'T4F'));
+select t.fails('list refuses a null department', 'select * from client_owner_list(null)', 'department');
+select t.fails('list refuses an unknown department', $q$select * from client_owner_list('Nope')$q$, 'department');
 select t.ok('list joins the KYC profile and the owner',
-  (select client_status = 'Active' and jurisdiction = 'Dubai Mainland' and legal_name = 'T4 Golf' from client_owner_list() where client_id = 'T4G' limit 1)
-  and (select client_status is null and jurisdiction is null from client_owner_list() where client_id = 'T4F' limit 1)
-  and (select owner_id = :'emp1' from client_owner_list() where client_id = 'T4E' and department = 'Accounting')
-  and (select owner_id is null from client_owner_list() where client_id = 'T4E' and department = 'Business Setup'));
+  (select client_status = 'Active' and jurisdiction = 'Dubai Mainland' and legal_name = 'T4 Golf' from client_owner_list('Accounting') where client_id = 'T4G')
+  and (select client_status is null and jurisdiction is null from client_owner_list('Accounting') where client_id = 'T4F')
+  and (select owner_id = :'emp1' from client_owner_list('Accounting') where client_id = 'T4E')
+  and (select owner_id is null from client_owner_list('Business Setup') where client_id = 'T4E'));
 
 -- set: manager, Accounting
 select client_owners_set('Accounting', array['T4G', 'NOT-A-CLIENT'], :'emp2') as set_n \gset
@@ -369,7 +404,7 @@ select t.ok('client added after the seed has no owner, its alert is Unassigned a
   and (select count(*) = 2 from notifications n join alerts a on a.id::text = n.link_scope->>'alert_id' where a.client_id = 'T4N' and n.user_id in (:'mgr1', :'mgr2')));
 select set_config('test.uid', :'mgr1', false);
 select t.ok('the new client shows in the owner list with no owner',
-  (select count(*) = (select count(*) from service_departments) and bool_and(owner_id is null) from client_owner_list() where client_id = 'T4N'));
+  (select count(*) = 1 and bool_and(owner_id is null) from client_owner_list('Business Setup') where client_id = 'T4N'));
 select set_config('test.uid', :'adm', false);
 select client_owners_set('Business Setup', array['T4N'], :'emp2') as n_set \gset
 select t.ok('setting an owner assigns the new client alert',
@@ -452,11 +487,11 @@ select t.ok('the eleven browser actions and owner functions are executable by au
        and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE'))
    from pg_proc p where p.oid in ('alert_assign(uuid,uuid)'::regprocedure, 'alert_set_status(uuid,text)'::regprocedure, 'alert_resolve(uuid,text,boolean)'::regprocedure,
      'alert_escalate(uuid,text)'::regprocedure, 'alert_mark_read(uuid)'::regprocedure, 'alert_rule_save(text,boolean,jsonb)'::regprocedure,
-     'alert_set_mode(text)'::regprocedure, 'alert_scan_now()'::regprocedure, 'client_owner_list()'::regprocedure,
+     'alert_set_mode(text)'::regprocedure, 'alert_scan_now()'::regprocedure, 'client_owner_list(text)'::regprocedure,
      'client_owner_proposals(text)'::regprocedure, 'client_owners_set(text,text[],uuid)'::regprocedure)));
 set role anon;
 select t.fails('anon cannot assign', format('select alert_assign(%L, %L)', :'a_open', :'emp1'), 'permission denied');
-select t.fails('anon cannot list owners', 'select * from client_owner_list()', 'permission denied');
+select t.fails('anon cannot list owners', $q$select * from client_owner_list('Accounting')$q$, 'permission denied');
 select t.fails('anon cannot set owners', $q$select client_owners_set('Accounting', array['T4G'], null)$q$, 'permission denied');
 reset role;
 

@@ -12,7 +12,7 @@ drop function if exists public.alert_set_mode(text);
 drop function if exists public.alert_rule_save(text, boolean, jsonb);
 drop function if exists public.client_owners_set(text, text[], uuid);
 drop function if exists public.client_owner_proposals(text);
-drop function if exists public.client_owner_list();
+drop function if exists public.client_owner_list(text);
 drop function if exists public.alert_escalate_due();
 drop function if exists public.alert_mark_read(uuid);
 drop function if exists public.alert_escalate(uuid, text);

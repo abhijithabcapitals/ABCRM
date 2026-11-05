@@ -36,16 +36,20 @@ begin
 end $$;
 
 -- Make p_user the assigned employee: column, recipient (an existing Manager row becomes Assigned), bell, event.
+-- A replaced assignee loses their Assigned recipient row (and so the right to act as the assignee); other recipients,
+-- including job co-assignees and Manager rows, stay. A bell goes out whenever the assignee actually changes.
 create or replace function public.alert_set_assignee(p_id uuid, p_user uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_old uuid; v_n int;
+declare v_old uuid;
 begin
   select assigned_to into v_old from alerts where id = p_id;
+  if v_old is not null and v_old <> p_user then
+    delete from alert_recipients where alert_id = p_id and user_id = v_old and reason = 'Assigned';
+  end if;
   update alerts set assigned_to = p_user, updated_at = now() where id = p_id;
   insert into alert_recipients (alert_id, user_id, reason) values (p_id, p_user, 'Assigned')
   on conflict (alert_id, user_id) do update set reason = 'Assigned' where alert_recipients.reason <> 'Assigned';
-  get diagnostics v_n = row_count;
-  if v_n = 1 then perform alert_bell(p_id, p_user, 'Assigned'); end if;
+  if v_old is distinct from p_user then perform alert_bell(p_id, p_user, 'Assigned'); end if;
   insert into alert_events (alert_id, event, detail) values (p_id, 'assigned', jsonb_build_object('from', v_old, 'to', p_user));
 end $$;
 
@@ -158,20 +162,21 @@ begin
 end $$;
 
 -- ── Client owners ────────────────────────────────────────────────────
--- One row per client and department (every department in service_departments), owner null when none is set.
-create or replace function public.client_owner_list()
+-- One row per client for the chosen department, ordered by client_id; owner null when none is set.
+create or replace function public.client_owner_list(p_department text)
 returns table (client_id text, legal_name text, client_status text, jurisdiction text, department text, owner_id uuid)
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 #variable_conflict use_column
 begin
   if not (alert_is_admin() or alert_is_manager()) then raise exception 'You do not have permission to see client owners.'; end if;
+  if p_department is null then raise exception 'Choose a department.'; end if;
+  if not exists (select 1 from service_departments where name = p_department) then raise exception 'That department does not exist.'; end if;
   return query
-    select m.client_id, m.legal_name, k.client_status, k.jurisdiction, d.name, o.owner_id
+    select m.client_id, m.legal_name, k.client_status, k.jurisdiction, p_department, o.owner_id
     from client_master m
     left join business_setup_kyc_profiles k on k.client_id = m.client_id
-    cross join service_departments d
-    left join client_owners o on o.client_id = m.client_id and o.department = d.name
-    order by m.client_id, d.sort_order, d.name;
+    left join client_owners o on o.client_id = m.client_id and o.department = p_department
+    order by m.client_id;
 end $$;
 
 -- Suggestions for a person to confirm. Reads only. Clients that already have an owner in the department are left out.
@@ -286,14 +291,14 @@ revoke execute on function
   public.alert_can_act(uuid, boolean), public.alert_notify_managers(uuid, boolean), public.alert_set_assignee(uuid, uuid),
   public.alert_assign(uuid, uuid), public.alert_set_status(uuid, text), public.alert_resolve(uuid, text, boolean),
   public.alert_escalate(uuid, text), public.alert_mark_read(uuid), public.alert_escalate_due(),
-  public.client_owner_list(), public.client_owner_proposals(text), public.client_owners_set(text, text[], uuid),
+  public.client_owner_list(text), public.client_owner_proposals(text), public.client_owners_set(text, text[], uuid),
   public.alert_rule_save(text, boolean, jsonb), public.alert_set_mode(text), public.alert_scan_now()
   from public, anon, authenticated;
 -- Each of these checks the caller inside.
 grant execute on function
   public.alert_assign(uuid, uuid), public.alert_set_status(uuid, text), public.alert_resolve(uuid, text, boolean),
   public.alert_escalate(uuid, text), public.alert_mark_read(uuid),
-  public.client_owner_list(), public.client_owner_proposals(text), public.client_owners_set(text, text[], uuid),
+  public.client_owner_list(text), public.client_owner_proposals(text), public.client_owners_set(text, text[], uuid),
   public.alert_rule_save(text, boolean, jsonb), public.alert_set_mode(text), public.alert_scan_now()
   to authenticated;
 -- The scan runs as postgres (cron) or service_role.
