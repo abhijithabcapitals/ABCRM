@@ -38,6 +38,17 @@ drop function if exists public.business_setup_login_mail(text, boolean, uuid);
 drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
 drop function if exists public.business_setup_case_handover_trg();
 drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
+-- business_setup_form_list(text) goes back to 009's (016 added case_id to each row).
+create or replace function public.business_setup_form_list(p_status text default null) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.access');
+  return (select coalesce(jsonb_agg(jsonb_build_object('id', f.id, 'client_id', f.client_id, 'legal_name', m.legal_name, 'status', f.status, 'submitted_at', f.submitted_at,
+             'taken_by', case when f.taken_by is not null then business_setup_person_name(f.taken_by) end, 'return_note', f.return_note,
+             'missing', to_jsonb(business_setup_form_missing_items(f.id, true))) order by f.submitted_at nulls last, f.created_at), '[]'::jsonb)
+    from business_setup_onboarding_forms f join client_master m on m.client_id = f.client_id
+   where p_status is null or f.status = p_status);
+end $$;
 create or replace function public.business_setup_start_gate(p_quote uuid, p_reason text) returns boolean
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 begin
