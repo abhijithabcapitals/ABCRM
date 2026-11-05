@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Badge, Button, ErrorNote, FilePick, FormModal, Panel, fmtDate, useAction, useLoad } from "@banking/components/shared";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { createDocument, openStored } from "@template-hub/services/hubApi";
+import { isProposal, isUndecidedProposal } from "@template-hub/logic/proposalModel";
 import { useSetup } from "../SetupContext";
 import ZohoPanel from "@integrations/components/ZohoPanel";
 import NewServiceFlow from "../NewServiceFlow";
@@ -85,14 +86,14 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
           {!q.library_template && <Button onClick={onRevise}>Revise</Button>}
         </>}
         {quotes && q.status === "rejected" && <Button onClick={onCopy}>Revise</Button>}
-        {quotes && q.status === "accepted" && !letter && <Button busy={busy} onClick={() => act(async () => { const doc = await createDocument({ doc_type: "letter", parent_id: q.id }); await fileLetter(doc); })}>Create engagement letter</Button>}
+        {quotes && q.status === "accepted" && !letter && (isProposal(q) ? <span className="bk-muted">Create the letter from Service Documents</span> : <Button busy={busy} onClick={() => act(async () => { const doc = await createDocument({ doc_type: "letter", parent_id: q.id }); await fileLetter(doc); })}>Create engagement letter</Button>)}
         {letter?.storage_path && <Button onClick={() => openStored(letter.storage_path).catch((e) => setError(e.message))}>Open letter {letter.document_number}</Button>}
         {quotes && letter && !letter.signed_at && <Button onClick={() => setDialog("sign")}>Record signing</Button>}
         {letter?.signed_at && <span className="bk-muted">Signed {fmtDate(letter.signed_at)}</span>}
       </div>
       {letter && <Decision rows={decisions} doc={letter} label="the letter" />}
       {rejectedLetter && <div className="bk-note bk-overdue">Letter {rejectedLetter.document_number} was rejected by the client. Create a new engagement letter to replace it.<Decision rows={decisions} doc={rejectedLetter} label="the letter" /></div>}
-      {["issued", "accepted"].includes(q.status) && (
+      {["issued", "accepted"].includes(q.status) && !isUndecidedProposal(q) && (
         <div className="bk-mt">
           <ZohoPanel key={`${q.id}:${clientId}`} supabase={supabase} department="business_setup" sourceTable="hub_documents" sourceId={q.id} clientId={clientId} publish={q.status === "accepted" ? { onPublished: () => { after().catch((e) => setError(e.message)); } } : undefined} {...zohoProps(q.status, { quotes, held, ready: !!h?.ready, known: !!h, invoiceRight: can("setup.services.manage") })} />
         </div>

@@ -35,7 +35,7 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
 MINE_OLD=(); MINE_NEW=()
 for n in 01 02 03 04 05 06 07 08 09 10 11 12; do MINE_OLD+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 # Run order 13 14 20 21 15 16 17 18. 19 (intake), 22 (checkpoints) and 23 (bd_transfer) do not exist yet and follow in that order; the glob is empty until then.
-for n in 13 14 20 21 15 16 17 18 19 22 23; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
+for n in 13 14 20 21 15 16 17 18 19 22 23 24; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 MINE=("${MINE_OLD[@]}" "${MINE_NEW[@]}")
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 

@@ -1,5 +1,6 @@
 import { supabase } from "@app/supabase";
 import { templateBuffer } from "@banking/services/masterTemplates";
+import { withoutProposals } from "../logic/proposalModel";
 
 export { openInFolder } from "@banking/services/bankingApi";
 
@@ -140,10 +141,10 @@ export async function listLetterableQuotes() {
   const quotes = check(await supabase.from("hub_documents").select("*").eq("doc_type", "quote").eq("department", "Business Setup").in("status", ["issued", "accepted"]).is("case_id", null).order("created_at", { ascending: false }).limit(500));
   const letters = check(await supabase.from("hub_documents").select("parent_id").eq("doc_type", "letter").not("parent_id", "is", null));
   const taken = new Set(letters.map((l) => l.parent_id));
-  return quotes.filter((q) => !taken.has(q.id));
+  return withoutProposals(quotes).filter((q) => !taken.has(q.id));
 }
 export const createLibraryDocument = async (p) => check(await supabase.rpc("hub_library_create", { p }));
-export const listLibraryDocuments = async () => check(await supabase.from("hub_documents").select("*").not("library_template", "is", null).order("created_at", { ascending: false }).limit(500));
+export const listLibraryDocuments = async () => withoutProposals(check(await supabase.from("hub_documents").select("*").not("library_template", "is", null).order("created_at", { ascending: false }).limit(500)));
 export async function searchClients(name) {
   const rows = check(await supabase.from("client_master").select("client_id, data").limit(5000));
   const needle = String(name || "").trim().toUpperCase();

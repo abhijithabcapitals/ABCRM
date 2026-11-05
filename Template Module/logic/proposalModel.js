@@ -15,6 +15,18 @@ const parseAmount = (v) => {
   return /^[0-9]+(\.[0-9]+)?$/.test(s) ? Number(s) : NaN;
 };
 
+// Readers outside the proposal screens: a proposal is a hub_documents quote holding several alternative options.
+const PROPOSAL_TEMPLATE = "AB Capital/Proposal";
+export const isProposal = (doc) => doc?.library_template === PROPOSAL_TEMPLATE;
+// More than one option and none accepted yet. A single-option proposal is never undecided.
+export const isUndecidedProposal = (doc) => {
+  if (!isProposal(doc)) return false;
+  const p = doc.field_values?.proposal;
+  return (p?.options?.length || 0) > 1 && (p.accepted_option ?? null) === null;
+};
+// Done in JS, so rows with a null library_template stay (a database .neq would drop them).
+export const withoutProposals = (rows) => (rows || []).filter((r) => !isProposal(r));
+
 export const toUsd = (aed, rate) => Math.round(Number(aed || 0) / Number(rate));
 const usdText = (aed, rate) => `$ ${plain(toUsd(aed, rate))}`;
 

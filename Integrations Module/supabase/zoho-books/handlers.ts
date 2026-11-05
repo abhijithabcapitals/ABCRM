@@ -284,6 +284,12 @@ async function loadSource(deps: Deps, table: string, id: string): Promise<Source
     if (row.department !== "Business Setup") {
       throw new UserError("This quote belongs to another department. Only Business Setup quotes can be created here.");
     }
+    // A Business Formation Proposal holds alternative options. Only the accepted one may become an estimate.
+    // Mirrors isUndecidedProposal in Template Module/logic/proposalModel.js: an Edge Function cannot import that module.
+    const options = row.field_values?.proposal?.options;
+    if (row.library_template === "AB Capital/Proposal" && Array.isArray(options) && options.length > 1 && (row.field_values.proposal.accepted_option ?? null) === null) {
+      throw new UserError("Choose the accepted option first");
+    }
     return fromHub(row);
   }
   const quote = await readRow(deps, table, "id", id);

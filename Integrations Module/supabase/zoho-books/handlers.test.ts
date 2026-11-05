@@ -602,6 +602,26 @@ Deno.test("a hub row must be a quote of Business Setup", async () => {
   for (const x of [a, b, c]) assertEquals([x.posts.length, x.db.zoho_documents.length], [0, 0]);
 });
 
+Deno.test("refuses undecided proposal", async () => {
+  const proposal = (options: number, accepted?: number | null) => ({
+    library_template: "AB Capital/Proposal",
+    field_values: { proposal: { options: Array.from({ length: options }, () => ({})), ...(accepted === undefined ? {} : { accepted_option: accepted }) } },
+  });
+  const a = makeDeps();
+  Object.assign(a.db.hub_documents[0], proposal(2, null));
+  await assertRejects(() => handle("document_create", hub, a.deps), UserError, "Choose the accepted option first");
+  const missing = makeDeps();
+  Object.assign(missing.db.hub_documents[0], proposal(2));
+  await assertRejects(() => handle("document_create", hub, missing.deps), UserError, "Choose the accepted option first");
+  for (const x of [a, missing]) assertEquals([x.posts.length, x.db.zoho_documents.length], [0, 0]);
+  for (const extra of [proposal(1, null), proposal(2, 1), { library_template: null }]) {
+    const ok = makeDeps();
+    Object.assign(ok.db.hub_documents[0], extra);
+    await handle("document_create", hub, ok.deps);
+    assertEquals(ok.posts.length, 1);
+  }
+});
+
 Deno.test("amounts come from the stored row, not the browser", async () => {
   const { deps, posts } = makeDeps();
   await handle("document_create", { ...hub, total_amount: 1, lines: [{ amount: 1 }], department: "banking" }, deps);
