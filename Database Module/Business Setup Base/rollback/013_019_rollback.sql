@@ -5,6 +5,9 @@
 -- WARNING (signed copies): every row of business_setup_signed_quotes is lost, including real client and staff uploads and their review
 -- notes. The files stay in storage but nothing points at them. Applying 015 again turns every already accepted quote into a Legacy
 -- row with no file, so a real signed copy is no longer linked after a rollback and re-apply.
+-- WARNING (advances): a payment recorded on a case before any quote has no quote_id. When case_id goes, the advance loses its case and falls out of net_paid, which then
+-- sums by quote only: the money stays on the client's payment list but counts toward nothing. Note such payments before rolling back.
+-- To undo phase 2 alone and keep cases, run rollback/015_018_rollback.sql instead.
 begin;
 
 -- ── 018_portal.sql ───────────────────────────────────────────────────

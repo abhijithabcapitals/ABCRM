@@ -5,7 +5,7 @@
 -- sum VAT line by line, from the fee item's rate read on the server. Other departments calculate exactly as before.
 -- A quote is accepted only on a confirmed signed copy, a payment can be recorded on a case before any quote, and the engagement
 -- letter waits for the signature and a payment (or an override).
--- Run after 014. Re-runnable. Undo with rollback/013_019_rollback.sql.
+-- Run after 014. Re-runnable. Undo with rollback/015_018_rollback.sql (phase 2 only, with 018) or rollback/013_019_rollback.sql (every case migration).
 -- hub_document_create is redefined from 014 and business_setup_client_list from 008: run this file again whenever 004, 008, 013 or 014 is re-run.
 -- Invoices: a hand-recorded invoice meets the Invoice item of Documentation, or the Invoice override does (case_docs, below).
 -- =====================================================================
@@ -107,6 +107,9 @@ begin
   if q.id is null or q.doc_type <> 'quote' or q.department <> 'Business Setup' then raise exception 'Quote not found'; end if;
   if q.status <> 'issued' then raise exception 'Only an issued quote can take a signed copy (this one is %)', q.status; end if;
   if q.client_id is null then raise exception 'Link this quote to a client before adding its signed copy'; end if;
+  if q.case_id is not null and (select stage from business_setup_cases where id = q.case_id) in ('Lost', 'Completed', 'Cancelled') then
+    raise exception 'This case is closed and its quote cannot take a signed copy';
+  end if;
   v_prefix := 'staff/' || q.client_id || '/';
   if not coalesce(left(v_path, length(v_prefix)) = v_prefix, false) or '..' = any (string_to_array(v_path, '/')) or '' = any (string_to_array(v_path, '/')) then
     raise exception 'The file path must be under staff/%/ and cannot contain .. or empty parts', q.client_id;
@@ -256,8 +259,8 @@ begin
     'signed', exists (select 1 from hub_documents q join business_setup_signed_quotes s on s.quote_id = q.id and s.status = 'Confirmed'
                        where q.case_id = p_case and q.doc_type = 'quote' and q.status = 'accepted'),
     'paid', coalesce(business_setup_case_net_paid(p_case) > 0 or v_acc_total = 0 or v_override, false),
-    -- a letter counts when its quote was not replaced (a letter made before the gate on a superseded quote does not satisfy it)
-    'letter', exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and lq.status <> 'superseded'),
+    -- a letter counts only on the accepted quote (one made before the gate on a superseded or rejected quote does not satisfy it). case_sync moves forward only, so a backfilled case already past Documentation stays where it is.
+    'letter', exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and lq.status = 'accepted'),
     'invoice', coalesce(v_inv_override, false) or exists (select 1 from business_setup_invoices i where i.case_id = p_case
                  or i.quote_id in (select id from hub_documents where case_id = p_case and doc_type = 'quote')));
 end $$;
@@ -461,13 +464,15 @@ end $$;
 revoke all on function public.business_setup_case_documents(uuid) from public, anon;
 grant execute on function public.business_setup_case_documents(uuid) to authenticated;
 
--- Marking a case lost, as in 014, with the shared net-paid sum.
+-- Marking a case lost, as in 014, with the shared net-paid sum. Its issued quotes are rejected and their waiting signed copies refused, each audited,
+-- so a client who keeps a login (other work) no longer sees a dead quote as waiting. Quotes are locked before the case, roots first: the order an accept and a payment use.
 create or replace function public.business_setup_case_lost(p_case uuid, p_reason text) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare c business_setup_cases; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_net numeric; v_acct uuid;
+declare c business_setup_cases; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_net numeric; v_acct uuid; q hub_documents; v_sid uuid;
 begin
   perform business_setup_require('setup.leads.manage');
   if v_reason is null then raise exception 'Enter the reason this case is lost'; end if;
+  perform 1 from hub_documents where case_id = p_case and doc_type = 'quote' order by (root_quote_id is not null), id for update;
   select * into c from business_setup_cases where id = p_case for update;
   if c.id is null then raise exception 'Case not found'; end if;
   if c.stage in ('Completed', 'Cancelled', 'Lost') then raise exception 'This case is closed'; end if;
@@ -479,6 +484,15 @@ begin
   if v_net > 0 then raise exception 'This case has a net payment of %: refund it before marking the case lost', v_net; end if;
   update business_setup_cases set lost_reason = v_reason where id = p_case;
   perform business_setup_case_set_stage(p_case, 'Lost', v_reason);
+  for q in select * from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'issued' loop
+    update hub_documents set status = 'rejected', status_at = now(), status_by = auth.uid(), status_reason = 'Case marked lost: ' || v_reason where id = q.id;
+    perform business_setup_audit('hub_documents', q.id::text, 'quote_reject_by_lost', jsonb_build_object('status', 'issued'),
+            jsonb_build_object('client_id', q.client_id, 'document_number', q.document_number, 'case_id', p_case, 'reason', v_reason));
+    for v_sid in update business_setup_signed_quotes set status = 'Refused', note = 'This case was closed, so this signed copy no longer applies',
+           decided_at = now(), decided_by = auth.uid() where quote_id = q.id and status = 'Uploaded' returning id loop
+      perform business_setup_audit('business_setup_signed_quotes', v_sid::text, 'signed_refused_by_lost', jsonb_build_object('status', 'Uploaded'), jsonb_build_object('quote_id', q.id, 'case_id', p_case));
+    end loop;
+  end loop;
   if c.client_id is not null
      and not exists (select 1 from business_setup_cases where client_id = c.client_id and id <> p_case and stage not in ('Completed', 'Cancelled', 'Lost'))
      and not exists (select 1 from business_setup_services where client_id = c.client_id)
@@ -602,6 +616,10 @@ begin
     if business_setup_case_locked(o.case_id) then raise exception 'This quote is locked because Accounts holds it: no payment can be reversed'; end if;
   end if;
   if exists (select 1 from business_setup_payments where reverses_id = o.id) then raise exception 'This payment already has a reversal'; end if;
+  -- The locks above hold the balance still. A reversal may not take the case's or the quote's net paid below zero.
+  if (o.case_id is not null and o.amount > business_setup_case_net_paid(o.case_id)) or (o.quote_id is not null and o.amount > business_setup_net_paid(o.quote_id)) then
+    raise exception 'Reverse the refund first.';
+  end if;
 
   insert into business_setup_payments (client_id, quote_id, case_id, paid_on, amount, method, reference, type, reverses_id, note)
   values (o.client_id, o.quote_id, o.case_id, (now() at time zone 'Asia/Dubai')::date, o.amount, o.method, o.reference, 'Reversal', o.id, v_reason)
@@ -798,6 +816,9 @@ language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_client text;
 begin
   perform business_setup_require('setup.payments.manage');
+  -- This door only creates the client from the case. Linking an existing client, or confirming a duplicate, can attach a quote to another client's portal.
+  if nullif(btrim(coalesce(p_client, '')), '') is not null then raise exception 'A payment cannot link an existing client: ask a manager or Sales to link it'; end if;
+  if coalesce(p_allow_duplicate, false) then raise exception 'A payment cannot confirm a duplicate client: ask a manager or Sales to link it'; end if;
   perform set_config('bs.pay_link', pg_current_xact_id()::text, true);
   v_client := business_setup_case_link_client_body(p_case, p_client, p_allow_duplicate);
   perform set_config('bs.pay_link', '', true);
