@@ -43,6 +43,11 @@ test("an expiry before today is expired; a blank is not", () => {
   assert.equal(isExpired(null, "2026-11-05"), false);
 });
 
+test("All Clients asks for portal access only on a client with a Banking-side row", () => {
+  const src = readFileSync(fileURLToPath(new URL("../../Client Module/crm/ClientsHub.jsx", import.meta.url)), "utf8");
+  assert.match(src, /isAdmin && !open\.setup_only && <ClientAccess/);
+});
+
 test("the row's edit button does not also open the client, and needs the KYC right", () => {
   const src = readFileSync(fileURLToPath(new URL("../components/Clients.jsx", import.meta.url)), "utf8");
   assert.match(src, /stopPropagation/);
