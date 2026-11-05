@@ -4,6 +4,9 @@
 -- WARNING: cases and everything stored only on them are lost. Quotes, letters, payments and forms keep their rows.
 begin;
 
+-- ── 021_visa_registration.sql ────────────────────────────────────────
+drop function if exists public.business_setup_visa_sheet_apply(jsonb);
+
 -- ── 020_client_main_fields.sql ───────────────────────────────────────
 drop function if exists public.business_setup_client_main_save(text, jsonb);
 drop function if exists public.business_setup_client_main_fields();

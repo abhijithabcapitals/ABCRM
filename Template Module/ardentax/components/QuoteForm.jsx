@@ -1,7 +1,8 @@
 // The Quote sheet and the Custom Quote sheet as a form, in the workbook's order.
 import { Panel } from "@banking/components/shared";
 import { ClientLists, listIdFor } from "@banking/components/ClientLookup";
-import { applyClient } from "@banking/logic/clientLookup";
+import ClientPicker from "@banking/components/ClientPicker";
+import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { CHARGE_TYPES, COVERAGE, ERP_LIST, ROW_KEYS, money } from "../logic/quoteModel";
 
 const CLIENT_MAP = { legal: "name", poc: "contact", email: "email", phone: "phone", address: "address" };
@@ -20,11 +21,11 @@ const setIn = (obj, path, value) => {
   return copy;
 };
 
-function Text({ id, label, value, onChange, hint, list, type = "text", required, placeholder, wide, disabled }) {
+function Text({ id, label, value, onChange, hint, list, type = "text", required, placeholder, wide, disabled, picker }) {
   return (
     <div className={`bk-field${wide ? " at-wide" : ""}`}>
       <label htmlFor={id}>{label}{required && <em> *</em>}</label>
-      <input id={id} type={type} list={list} value={value ?? ""} placeholder={placeholder} disabled={disabled} onChange={(e) => onChange(e.target.value)} />
+      {picker ? <ClientPicker id={id} value={value} clients={picker} disabled={disabled} onChange={onChange} /> : <input id={id} type={type} list={list} value={value ?? ""} placeholder={placeholder} disabled={disabled} onChange={(e) => onChange(e.target.value)} />}
       {hint && <small className="bk-muted">{hint}</small>}
     </div>
   );
@@ -42,7 +43,7 @@ function Choice({ id, label, value, options, onChange, hint }) {
 
 export default function QuoteForm({ details: d, setDetails, totals: t, clients, locked, fixedType }) {
   const put = (path) => (value) => setDetails((cur) => setIn(cur, path, value));
-  const putClient = (field) => (value) => setDetails((cur) => ({ ...cur, client: CLIENT_MAP[field] ? applyClient(cur.client, CLIENT_MAP, field, value, clients) : { ...cur.client, [field]: value } }));
+  const putClient = (field) => (value, picked) => setDetails((cur) => ({ ...cur, client: picked ? pickClient(cur.client, CLIENT_MAP, field, picked, clients) : CLIENT_MAP[field] ? applyClient(cur.client, CLIENT_MAP, field, value, clients) : { ...cur.client, [field]: value } }));
   const custom = d.quoteType === "Custom";
   const client = (id, label, field, extra = {}) => <Text id={`at-${id}`} label={label} value={d.client[field]} onChange={putClient(field)} {...extra} />;
 
@@ -61,7 +62,7 @@ export default function QuoteForm({ details: d, setDetails, totals: t, clients, 
 
       <Panel title="1. Client details" sub="Pick a known client to fill the rest. Blank contact lines are left out of the document.">
         <div className="bk-grid">
-          {client("legal", "Client legal name", "legal", { required: true, list: listIdFor("name"), hint: "Exactly as on the trade licence" })}
+          {client("legal", "Client legal name", "legal", { required: true, picker: clients, hint: "Exactly as on the trade licence" })}
           {client("letter", "Client name in the letter", "letterName", { hint: "For a longer form, e.g. with TINs. Blank = legal name" })}
           {client("short", "Short name", "short", { hint: "For the file name" })}
           {client("poc", "POC name", "poc")}
