@@ -132,6 +132,15 @@ export function paginate(host, flags) {
   return pages;
 }
 
+// A page frame is an absolutely placed box inside the page, because the capture draws borders but not outlines.
+function addPageFrame(page, css) {
+  if (getComputedStyle(page).position === "static") page.style.position = "relative";
+  const frame = document.createElement("div");
+  frame.setAttribute("data-page-frame", "");
+  frame.style.cssText = `position:absolute;pointer-events:none;${css}`;
+  page.appendChild(frame);
+}
+
 export async function docxToPdf(docxBlob, opts = {}) {
   const [{ renderAsync }, { default: html2canvas }, { jsPDF }] = await Promise.all([
     import("docx-preview"), import("html2canvas"), import("jspdf"),
@@ -153,6 +162,7 @@ export async function docxToPdf(docxBlob, opts = {}) {
     host.querySelectorAll("[style*='font-family']").forEach((el) => {
       const family = el.style.fontFamily.replace(/"/g, "");
       if (/^(Aptos|Calibri)$/i.test(family)) el.style.fontFamily = `${family}, Calibri, Carlito, "Segoe UI", Arial, sans-serif`;
+      else if (/^Palatino Linotype$/i.test(family)) el.style.fontFamily = `${family}, "Book Antiqua", Palatino, "URW Palladio L", Georgia, serif`;
     });
     // Word aligns a cell's paragraph on its own, while a centred table would pass its alignment on in the browser.
     host.querySelectorAll("td").forEach((cell) => { if (!cell.style.textAlign) cell.style.textAlign = "left"; });
@@ -163,6 +173,8 @@ export async function docxToPdf(docxBlob, opts = {}) {
       span.replaceWith(...words.map((word) => { const part = span.cloneNode(false); part.textContent = word; return part; }));
     });
     const pages = paginate(host, await keepNextFlags(docxBlob));
+    // Optional frame for every page (Word keeps its own page border). Nothing is added unless pageStyle is passed.
+    if (opts.pageStyle) pages.forEach((page) => addPageFrame(page, opts.pageStyle));
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
     for (let i = 0; i < pages.length; i += 1) {
       const canvas = await html2canvas(pages[i], { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false, foreignObjectRendering: !!opts.foreignObject });

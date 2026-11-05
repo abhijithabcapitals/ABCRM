@@ -149,3 +149,14 @@ test("proposalContext: add-ons print text in both columns, or amount and USD", (
   assert.deepEqual([c.documents, c.payment, c.scope, c.notes], [[{ text: "d" }], [{ text: "p" }], [{ text: "s" }], [{ text: "n" }]]);
   assert.equal(c.has_addons, true);
 });
+
+test("proposalContext flags empty sections", () => {
+  const empty = { addons: [], documents: [], payment: [], scope: [], notes: [] };
+  const flags = (sh) => { const c = proposalContext({ document_number: "X", field_values: { proposal: prop([two()], sh) } }, {}); return [c.has_documents, c.has_payment, c.has_scope, c.has_notes, c.has_terms]; };
+  assert.deepEqual(flags(empty), [false, false, false, false, false]);
+  assert.deepEqual(flags({ ...empty, documents: ["d", "  "] }), [true, false, false, false, true]);
+  assert.deepEqual(flags({ ...empty, payment: ["p"] }), [false, true, false, false, true]);
+  assert.deepEqual(flags({ ...empty, scope: ["s"], notes: ["n"] }), [false, false, true, true, false]);
+  const c = proposalContext({ document_number: "X", field_values: { proposal: prop([two(), two()]) } }, {});
+  assert.deepEqual(c.options.map((o) => o.brk), [false, true]);
+});

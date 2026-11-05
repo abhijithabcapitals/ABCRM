@@ -142,7 +142,7 @@ export function proposalContext(doc, settings, images) {
     options: options.map((o, i) => {
       const total = optionTotal(o);
       return {
-        no: i + 1, first: i === 0, show_option_heading: options.length > 1, activity: str(o.activity), authority_name: str(o.authority_name), title: str(o.title), description: str(o.description),
+        no: i + 1, first: i === 0, brk: i > 0, show_option_heading: options.length > 1, activity: str(o.activity), authority_name: str(o.authority_name), title: str(o.title), description: str(o.description),
         has_remarks: (o.services || []).some((s) => str(s.remarks)), rows: printRows(o, rate), total_aed: plain(total), total_usd: usdText(total, rate),
         package_includes: lines(o.package_includes), has_package: texts(o.package_includes).length > 0, red_notes: lines(o.red_notes),
         logo_token: o.logo_path || null, timeline_token: o.timeline_path || null,
@@ -155,6 +155,9 @@ export function proposalContext(doc, settings, images) {
     }),
     has_addons: (shared.addons || []).length > 0,
     documents: lines(shared.documents), payment: lines(shared.payment), scope: lines(shared.scope), notes: lines(shared.notes),
+    has_documents: texts(shared.documents).length > 0, has_payment: texts(shared.payment).length > 0,
+    has_scope: texts(shared.scope).length > 0, has_notes: texts(shared.notes).length > 0,
+    has_terms: texts(shared.documents).length > 0 || texts(shared.payment).length > 0,
     ba_name: bank.account_name || "", ba_bank: bank.bank || "", ba_no: bank.account_no || "", ba_iban: bank.iban || "", ba_swift: bank.swift || "", ba_ccy: bank.currency || "",
     contact_name: contact.name || "", contact_phone: contact.phone || "", contact_email: contact.email || "", contact_website: contact.website || "",
   };

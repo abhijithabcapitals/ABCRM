@@ -8,7 +8,7 @@ Stops if the header holds anything but logos, the footer anything but the office
 Writes Template Module/templates/AB_Capital_Proposal_Template.docx.
 
 Tags (docxtemplater, single braces): see Template Module/logic/proposalModel.js (proposalContext).
-Raw tags {@logo_xml} {@timeline_xml} {@page_break} are filled by Template Module/logic/proposalDocx.js.
+Raw tags {@logo_xml} {@timeline_xml} are filled by Template Module/logic/proposalDocx.js.
 """
 import re
 import sys
@@ -35,8 +35,11 @@ def esc(t):
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def run(text, bold=False, italic=False, color=None, size=None, preserve=True):
-    pr = ""
+FONT = "Palatino Linotype"   # body and heading font of the old proposals (rFonts in their document.xml)
+
+
+def run(text, bold=False, italic=False, color=None, size=20, preserve=True):
+    pr = f'<w:rFonts w:ascii="{FONT}" w:hAnsi="{FONT}" w:cs="{FONT}"/>'
     if bold:
         pr += "<w:b/><w:bCs/>"
     if italic:
@@ -50,10 +53,12 @@ def run(text, bold=False, italic=False, color=None, size=None, preserve=True):
     return f"<w:r>{pr}<w:t{sp}>{text}</w:t></w:r>"
 
 
-def para(runs="", jc=None, before=0, after=60, keep_next=False, ind=None, extra=""):
+def para(runs="", jc=None, before=0, after=60, keep_next=False, ind=None, extra="", page_break=False):
     pr = ""
     if keep_next:
         pr += "<w:keepNext/>"
+    if page_break:
+        pr += "<w:pageBreakBefore/>"
     pr += f'<w:spacing w:before="{before}" w:after="{after}"/>'
     if ind:
         pr += ind
@@ -109,6 +114,15 @@ def cp_raw(runs, jc=None):
     return para(runs, jc=jc, after=20, before=20)
 
 
+def plain_table(widths, rows, borders=False):
+    """Layout table without borders (or with, for the label/value table). Cells hold simple paragraphs only."""
+    grid = "".join(f'<w:gridCol w:w="{w}"/>' for w in widths)
+    b = f"<w:tblBorders>{border()}</w:tblBorders>" if borders else ""
+    return (f'<w:tbl><w:tblPr><w:tblW w:w="{sum(widths)}" w:type="dxa"/><w:jc w:val="center"/>{b}<w:tblLayout w:type="fixed"/>'
+            f'<w:tblCellMar><w:left w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr>'
+            f'<w:tblGrid>{grid}</w:tblGrid>{"".join(rows)}</w:tbl>')
+
+
 def title_bar(widths, text):
     return row([cell(sum(widths), cp(text, bold=True, jc="center", color="FFFFFF"), fill=RED, span=len(widths))])
 
@@ -124,7 +138,7 @@ def service_table(with_remarks):
 
     def tail(open_t, close_t, bold, sub, fill=None):
         # One service row. open_t starts the first cell, close_t ends the last cell.
-        indent = "{#sub}  {/sub}"
+        indent = "{#sub}    {/sub}"
         cells = []
         fields = ["{label}", "{aed}", "{usd}"] + (["{remarks}"] if with_remarks else [])
         for i, (w, f) in enumerate(zip(widths, fields)):
@@ -158,12 +172,12 @@ def addon_table():
     return table(widths, rows)
 
 
-def h(text, color=None, size=24):
-    return para(run(text, bold=True, color=color, size=size), before=160, after=80, keep_next=True)
+def h(text, color=None, size=24, page_break=False):
+    return para(run(text, bold=True, color=color, size=size), before=160, after=80, keep_next=True, page_break=page_break)
 
 
 def labelled(label, value):
-    return para(run(label, bold=True, size=22) + run(value, size=22), after=40)
+    return para(run(label, bold=True) + run(value), after=40)
 
 
 def list_block(items_tag):
@@ -173,15 +187,23 @@ def list_block(items_tag):
 def body():
     b = []
     b.append(para(run("Business Formation Proposal", bold=True, size=36), jc="center", before=120, after=120))
-    b.append(para(run("Date: ", bold=True) + run("{date}") + run("\t") + run("Ref: ", bold=True) + run("{ref_no}"), after=120,
-                  extra='<w:tabs><w:tab w:val="right" w:pos="10900"/></w:tabs>'))
+    half = [5540, 5540]
+    b.append(plain_table(half, [row([cell(half[0], cp_raw(run("Date: ", bold=True) + run("{date}"))),
+                                     cell(half[1], cp_raw(run("Ref: ", bold=True) + run("{ref_no}"), jc="right"))])]))
+    b.append(para("", after=60))
     b.append(tag("{#options}"))
-    b.append(tag("{@page_break}"))
     b.append(tag("{#show_option_heading}"))
+    b.append(tag("{#brk}"))
+    b.append(para(run("Option {no}", bold=True, color=RED, size=28), before=120, after=80, keep_next=True, page_break=True))
+    b.append(tag("{/brk}"))
+    b.append(tag("{^brk}"))
     b.append(para(run("Option {no}", bold=True, color=RED, size=28), before=120, after=80, keep_next=True))
+    b.append(tag("{/brk}"))
     b.append(tag("{/show_option_heading}"))
-    b.append(labelled("Business Activity", ": {activity}"))
-    b.append(labelled("License Authority", ": {authority_name}"))
+    lw = [2800, 8280]
+    b.append(plain_table(lw, [row([cell(lw[0], cp("Business Activity", bold=True)), cell(lw[1], cp("{activity}"))]),
+                              row([cell(lw[0], cp("License Authority", bold=True)), cell(lw[1], cp("{authority_name}"))])], borders=True))
+    b.append(para("", after=40))
     b.append(tag("{@logo_xml}"))
     b.append(para(run("{description}"), after=80))
     b.append(h("Approximate Costing of Company Incorporation", size=26))
@@ -197,28 +219,42 @@ def body():
     b.append(list_block("package_includes"))
     b.append(tag("{/has_package}"))
     b.append(tag("{#red_notes}"))
-    b.append(para(run("{text}", italic=True, color=NOTE_RED, size=20), after=40))
+    b.append(para(run("{text}", italic=True, color=NOTE_RED), after=40))
     b.append(tag("{/red_notes}"))
     b.append(tag("{@timeline_xml}"))
     b.append(tag("{/options}"))
     b.append(tag("{#has_addons}"))
-    b.append(para(run("Add-on services provided by AB Capital", bold=True, size=26), before=240, after=80, keep_next=True))
+    b.append(h("Add-on services provided by AB Capital", size=26, page_break=True))
     b.append(addon_table())
     b.append(para("", after=40))
     b.append(tag("{/has_addons}"))
-    b.append(h("Terms & Conditions:".replace("&", "&amp;"), size=26))
+    b.append(tag("{#has_terms}"))
+    b.append(h("Terms &amp; Conditions:", size=26))
+    b.append(tag("{/has_terms}"))
+    b.append(tag("{#has_documents}"))
     b.append(h("Documents Required"))
     b.append(list_block("documents"))
+    b.append(tag("{/has_documents}"))
+    b.append(tag("{#has_payment}"))
     b.append(h("Payment Terms"))
     b.append(list_block("payment"))
+    b.append(tag("{/has_payment}"))
     b.append(h("Bank Details:"))
     for label, t in [("Account Name - ", "{ba_name}"), ("Bank Name- ", "{ba_bank}"), ("Account Number. -", "{ba_no}"), ("IBAN -", "{ba_iban}"), ("SWIFT -", "{ba_swift}"), ("CURRENCY - ", "{ba_ccy}")]:
         b.append(labelled(label, t))
+    b.append(tag("{#has_scope}"))
     b.append(h("Scope of work"))
     b.append(list_block("scope"))
+    b.append(tag("{/has_scope}"))
+    b.append(tag("{#has_notes}"))
     b.append(h("Notes:"))
     b.append(list_block("notes"))
-    b.append(para(run("Contact: - ", bold=True) + run("{contact_name}  {contact_phone}  {contact_email}  {contact_website}"), before=160, after=60))
+    b.append(tag("{/has_notes}"))
+    cw = [1250, 9830]
+    stack = (cp_raw(run("{contact_name}", bold=True)) + cp_raw(run("{contact_phone}", bold=True)) +
+             cp_raw(run("{contact_email}   {contact_website}", bold=True)))
+    b.append(para("", after=60))
+    b.append(plain_table(cw, [row([cell(cw[0], cp_raw(run("Contact: - ", bold=True))), cell(cw[1], stack)])]))
     return "".join(b)
 
 
@@ -241,6 +277,27 @@ def check_source(z):
         raise SourceError("source footer has relationships")
 
 
+def logo_inline(rid, doc_id, name, cx, cy):
+    ns = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+    return (f'<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{doc_id}" name="{name}"/>'
+            f'<wp:cNvGraphicFramePr><a:graphicFrameLocks {ns} noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+            f'<a:graphic {ns}><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            f'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="{doc_id}" name="{name}"/><pic:cNvPicPr/></pic:nvPicPr>'
+            f'<pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            f'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+            f'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>')
+
+
+def header_xml(source_header, rid_left, rid_right):
+    """Borderless two-cell table: left logo left-aligned, right logo right-aligned. Inline images only."""
+    root = re.match(r"<\?xml[^>]*\?>\s*<w:hdr[^>]*>", source_header).group(0)
+    w = [5540, 5540]
+    left = para(logo_inline(rid_left, 1, "Logo 1", 1005840, 1005840), after=0)
+    right = para(logo_inline(rid_right, 2, "Logo 2", 981633, 452213), jc="right", after=0)
+    tbl = plain_table(w, [row([cell(w[0], left), cell(w[1], right)])])
+    return root + tbl + para("", after=0) + "</w:hdr>"
+
+
 def build(source):
     with zipfile.ZipFile(source) as z:
         check_source(z)
@@ -258,9 +315,14 @@ def build(source):
             raise SourceError("source header has no images")
         for m in media:
             files["word/" + m] = z.read("word/" + m)
+        embeds = re.findall(r'r:embed="(rId\d+)"', z.read("word/header1.xml").decode("utf8"))
+        if len(embeds) != 2:
+            raise SourceError("source header must hold exactly two logos")
+        files["word/header1.xml"] = header_xml(z.read("word/header1.xml").decode("utf8"), embeds[0], embeds[1]).encode("utf8")
         for n in ("word/settings.xml", "word/footnotes.xml", "word/endnotes.xml"):
             if re.search(r"customXml|attachedTemplate|r:id=", files[n].decode("utf8")):
                 raise SourceError(f"{n} points outside the package")
+    sect = re.sub(r'w:header="\d+"', 'w:header="600"', sect)   # header clear of the page border
     body_xml = body() + sect
     files["word/document.xml"] = (head + body_xml + "</w:body></w:document>").encode("utf8")
     files["word/_rels/document.xml.rels"] = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + "".join(rels) + "</Relationships>").encode("utf8")

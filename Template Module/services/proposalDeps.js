@@ -16,7 +16,8 @@ async function render(template, context, images) {
 
 async function toPdf(wordBlob) {
   const { docxToPdf } = await import("../ardentax/logic/docxToPdf.js");
-  return docxToPdf(wordBlob);
+  // One thin border inset from the page edge, as in the old proposals (Word keeps its own page border).
+  return docxToPdf(wordBlob, { pageStyle: "top:24px;left:24px;right:24px;bottom:24px;border:1px solid #000;box-sizing:border-box" });
 }
 
 export const proposalDeps = {

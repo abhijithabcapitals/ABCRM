@@ -7,8 +7,6 @@ const TIMELINE_BOX = { w: 7.2, h: 5.0 };
 const MIME = { png: "image/png", jpeg: "image/jpeg" };
 const REL_IMAGE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 
-const PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-
 // Scales a picture to fit the box, never up past its pixel size at 96 dpi, keeping the aspect ratio.
 export function fitEmu(width, height, box) {
   const w = Number(width), h = Number(height);
@@ -44,16 +42,16 @@ export async function renderProposal(templateBuffer, context, images, deps) {
       const n = media.size + 1;
       media.set(token, { rid: `rIdProposalImg${n}`, file: `proposal_${n}.${img.type}`, type: img.type, bytes: img.bytes });
     }
-    return drawingParagraph(media.get(token).rid, drawingId++, `${label} ${drawingId}`, size);
+    const id = drawingId++;
+    return drawingParagraph(media.get(token).rid, id, `${label} ${id}`, size);
   };
 
   const data = {
     ...context,
-    options: (context.options || []).map((o, i) => ({
+    options: (context.options || []).map((o) => ({
       ...o,
       logo_xml: imageXml(o.logo_token, LOGO_BOX, "Logo"),
       timeline_xml: imageXml(o.timeline_token, TIMELINE_BOX, "Timeline"),
-      page_break: i === 0 ? "" : PAGE_BREAK,
     })),
   };
 
@@ -65,7 +63,7 @@ export async function renderProposal(templateBuffer, context, images, deps) {
   if (media.size) {
     for (const m of media.values()) out.file(`word/media/${m.file}`, m.bytes);
     const relsName = "word/_rels/document.xml.rels";
-    const rels = media.size ? [...media.values()].map((m) => `<Relationship Id="${m.rid}" Type="${REL_IMAGE}" Target="media/${m.file}"/>`).join("") : "";
+    const rels = [...media.values()].map((m) => `<Relationship Id="${m.rid}" Type="${REL_IMAGE}" Target="media/${m.file}"/>`).join("");
     out.file(relsName, out.file(relsName).asText().replace("</Relationships>", `${rels}</Relationships>`));
     let types = out.file("[Content_Types].xml").asText();
     for (const t of new Set([...media.values()].map((m) => m.type))) {
