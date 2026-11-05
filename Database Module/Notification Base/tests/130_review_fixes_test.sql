@@ -157,6 +157,93 @@ select t.ok('a rule that failed keeps its flag', (select baseline_pending from a
 update alert_rules set baseline_pending = false where code = 'client_not_contacted';
 update alert_rules set enabled = false where code = 'client_not_contacted';
 
+-- ── I2, I3, I4: regulatory ───────────────────────────────────────────────────────────────
+set role authenticated;
+set test.uid = :'adm';
+select t.fails('a javascript: source is refused on create', $q$select regulatory_update_save('{"title":"x","category":"Tax","official_url":"javascript:alert(1)"}')$q$, 'https://');
+select t.fails('a plain http source is refused on create', $q$select regulatory_update_save('{"title":"x","category":"Tax","official_url":"http://tax.gov.ae/x"}')$q$, 'https://');
+select t.reg_ready('ENACTED', 'E1') as r1 \gset
+select t.fails('a javascript: source is refused on edit', format($q$select regulatory_update_save(jsonb_build_object('id', %L, 'official_url', 'javascript:alert(1)'))$q$, :'r1'), 'https://');
+select t.ok('a blank source may be saved', regulatory_update_save(jsonb_build_object('id', :'r1', 'official_url', '')) = :'r1');
+select regulatory_update_save(jsonb_build_object('id', :'r1', 'official_url', 'https://tax.gov.ae/r'));
+reset role;
+select t.fails('the Tax Agent intake refuses it too', $q$select regulatory_update_intake('{"title":"x","category":"Tax","official_url":"ftp://x"}')$q$, 'https://');
+update regulatory_updates set official_url = 'javascript:alert(1)' where id = :'r1';
+set role authenticated;
+select t.fails('verify refuses a stored source that is not https', format($q$select regulatory_verify(%L)$q$, :'r1'), 'https://');
+reset role;
+update regulatory_updates set official_url = 'https://tax.gov.ae/r', evidence_level = 'E3' where id = :'r1';
+set role authenticated;
+select t.fails('E3 cannot be verified', format($q$select regulatory_verify(%L)$q$, :'r1'), 'E1 or E2');
+reset role;
+update regulatory_updates set evidence_level = 'E4' where id = :'r1';
+set role authenticated;
+select t.fails('E4 stays information only', format($q$select regulatory_verify(%L)$q$, :'r1'), 'third-party');
+reset role;
+update regulatory_updates set evidence_level = 'E1' where id = :'r1';
+do $$
+declare s text; v_id uuid := (select id from regulatory_updates where title = 'Review ENACTED' order by created_at desc limit 1);
+begin
+  foreach s in array array['ANNOUNCED', 'SUPERSEDED', 'REPEALED', 'UNCERTAIN', 'PROPOSED', 'UNDER CONSULTATION', 'UNVERIFIED'] loop
+    update regulatory_updates set legal_status = s where id = v_id;
+    set local test.uid = '00000000-0000-0000-0000-000000013003';
+    perform t.fails(s || ' cannot be verified', format('select regulatory_verify(%L)', v_id), 'stays information only');
+  end loop;
+  update regulatory_updates set legal_status = 'ENACTED' where id = v_id;
+end $$;
+set role authenticated;
+select regulatory_verify(:'r1');
+reset role;
+select t.ok('ENACTED with E1 verifies, and still closes the new-update alert', (select workflow_status = 'Verified' from regulatory_updates where id = :'r1') and (select status = 'Resolved' from alerts where dedupe_key = 'regulatory:new:' || :'r1'));
+set role authenticated;
+select t.reg_ready('IN FORCE', 'E2') as r2 \gset
+select regulatory_verify(:'r2');
+select t.reg_ready('PUBLISHED', 'E2') as r3 \gset
+select regulatory_verify(:'r3');
+select t.reg_ready('SCHEDULED', 'E1') as r4 \gset
+select regulatory_verify(:'r4');
+reset role;
+select t.ok('IN FORCE, PUBLISHED and SCHEDULED verify', (select count(*) = 3 from regulatory_updates where id in (:'r2', :'r3', :'r4') and workflow_status = 'Verified'));
+
+-- A list goes stale when what it was built from changes.
+set role authenticated;
+select t.reg_ready('ENACTED', 'E1') as r5 \gset
+select regulatory_update_save(jsonb_build_object('id', :'r5', 'title', 'Reworded', 'effective_date', (current_date + 30)::text, 'applicability', '{"jurisdictions":["DMCC"]}'::jsonb));
+reset role;
+select t.ok('other edits keep the list', (select workflow_status = 'List proposed' from regulatory_updates where id = :'r5') and (select count(*) > 0 from regulatory_update_clients where update_id = :'r5'));
+set role authenticated;
+select regulatory_update_save(jsonb_build_object('id', :'r5', 'effective_date', (current_date + 31)::text));
+reset role;
+select t.ok('a new effective date drops the list and returns to review', (select workflow_status = 'Under review' from regulatory_updates where id = :'r5') and (select count(*) = 0 from regulatory_update_clients where update_id = :'r5'));
+set role authenticated;
+select regulatory_propose_list(:'r5');
+select regulatory_update_save(jsonb_build_object('id', :'r5', 'applicability', '{"all_clients":true}'::jsonb));
+reset role;
+select t.ok('a new applicability drops the list and returns to review', (select workflow_status = 'Under review' from regulatory_updates where id = :'r5') and (select count(*) = 0 from regulatory_update_clients where update_id = :'r5'));
+
+-- Matching ignores case and spaces; a blank status under a filter is Check.
+set role authenticated;
+select regulatory_update_save(jsonb_build_object('id', :'r5', 'applicability', '{"jurisdictions":[" DMCC"]}'::jsonb));
+select regulatory_propose_list(:'r5');
+reset role;
+select t.ok('jurisdictions match lower-cased and trimmed', (select decision = 'Applies' from regulatory_update_clients where update_id = :'r5' and client_id = 'W4'));
+set role authenticated;
+select regulatory_update_save(jsonb_build_object('id', :'r5', 'applicability', '{"statuses":["active "]}'::jsonb));
+select regulatory_propose_list(:'r5');
+reset role;
+select t.ok('statuses match lower-cased and trimmed', (select decision = 'Applies' from regulatory_update_clients where update_id = :'r5' and client_id = 'W7'));
+select t.ok('a blank status under a statuses filter is Check', (select decision = 'Check' from regulatory_update_clients where update_id = :'r5' and client_id = 'W4'));
+
+-- An empty list is refused and changes nothing. Every client needs a filled profile for that, so this runs in a transaction.
+begin;
+insert into business_setup_kyc_profiles (client_id, client_status, jurisdiction) select client_id, 'Active', 'ELSEWHERE' from client_master on conflict (client_id) do update set client_status = coalesce(nullif(btrim(business_setup_kyc_profiles.client_status), ''), 'Active'), jurisdiction = 'ELSEWHERE';
+update regulatory_updates set workflow_status = 'Under review', applicability = '{"jurisdictions":["NOWHERE"]}' where id = :'r5';
+set local role authenticated;
+select t.fails('an empty list is refused in a plain sentence', format($q$select regulatory_propose_list(%L)$q$, :'r5'), 'No client matches');
+reset role;
+select t.ok('the status stays as it was', (select workflow_status = 'Under review' from regulatory_updates where id = :'r5'));
+rollback;
+
 reset role;
 reset test.uid;
 update alert_settings set value = '"Live"' where key = 'alert_mode';

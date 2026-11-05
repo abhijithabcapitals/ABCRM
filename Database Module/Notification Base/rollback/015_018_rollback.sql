@@ -1,5 +1,103 @@
 -- Removes the review fixes and restores each function body exactly as it stood before 015. Safe to run twice. Runs before rollback/014_rollback.sql.
 
+-- ── 017: I2, I3, I4 ──
+create or replace function public.regulatory_insert(p jsonb, p_source text) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_id uuid; v_title text := nullif(btrim(p->>'title'), '');
+begin
+  if v_title is null then raise exception 'A title is required.'; end if;
+  insert into regulatory_updates (title, category, issuing_authority, document_number, publication_date, issue_date, effective_date, official_url, summary,
+                                  legal_status, evidence_level, source, created_by)
+  values (v_title, p->>'category', nullif(btrim(p->>'issuing_authority'), ''), nullif(btrim(p->>'document_number'), ''),
+          nullif(p->>'publication_date', '')::date, nullif(p->>'issue_date', '')::date, nullif(p->>'effective_date', '')::date,
+          nullif(btrim(p->>'official_url'), ''), nullif(btrim(p->>'summary'), ''),
+          coalesce(nullif(p->>'legal_status', ''), 'UNVERIFIED'), coalesce(nullif(p->>'evidence_level', ''), 'E4'), p_source, auth.uid())
+  returning id into v_id;
+  perform alert_raise('regulatory_new', 'regulatory:new:' || v_id, null, v_title, null, nullif(p->>'effective_date', '')::date, 0, 'Medium', null, 'regulatory_updates', v_id::text);
+  update alerts set regulatory_update_id = v_id where dedupe_key = 'regulatory:new:' || v_id;
+  return v_id;
+end $$;
+create or replace function public.regulatory_update_save(p jsonb) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_id uuid := nullif(p->>'id', '')::uuid; v_status text;
+begin
+  perform regulatory_require_manage();
+  if v_id is null then return regulatory_insert(p, 'Manual'); end if;
+  select workflow_status into v_status from regulatory_updates where id = v_id for update;
+  if not found then raise exception 'That update does not exist.'; end if;
+  if v_status in ('Verified', 'Tasks created', 'Closed') then raise exception 'A verified update cannot be changed.'; end if;
+  update regulatory_updates set
+    title = coalesce(nullif(btrim(p->>'title'), ''), title), category = coalesce(p->>'category', category),
+    issuing_authority = case when p ? 'issuing_authority' then nullif(btrim(p->>'issuing_authority'), '') else issuing_authority end,
+    document_number = case when p ? 'document_number' then nullif(btrim(p->>'document_number'), '') else document_number end,
+    publication_date = case when p ? 'publication_date' then nullif(p->>'publication_date', '')::date else publication_date end,
+    issue_date = case when p ? 'issue_date' then nullif(p->>'issue_date', '')::date else issue_date end,
+    effective_date = case when p ? 'effective_date' then nullif(p->>'effective_date', '')::date else effective_date end,
+    official_url = case when p ? 'official_url' then nullif(btrim(p->>'official_url'), '') else official_url end,
+    summary = case when p ? 'summary' then nullif(btrim(p->>'summary'), '') else summary end,
+    legal_status = coalesce(nullif(p->>'legal_status', ''), legal_status), evidence_level = coalesce(nullif(p->>'evidence_level', ''), evidence_level),
+    applicability = case when p ? 'applicability' then p->'applicability' else applicability end,
+    updated_at = now()
+  where id = v_id;
+  return v_id;
+end $$;
+create or replace function public.regulatory_propose_list(p_id uuid) returns int
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_u regulatory_updates%rowtype; v_a jsonb; v_all boolean; v_j jsonb; v_s jsonb; v_v jsonb; v_n int;
+begin
+  perform regulatory_require_manage();
+  select * into v_u from regulatory_updates where id = p_id for update;
+  if not found then raise exception 'That update does not exist.'; end if;
+  if v_u.workflow_status not in ('Under review', 'List proposed') then raise exception 'Start the review first.'; end if;
+  if v_u.effective_date is null then raise exception 'Confirm the effective date first.'; end if;
+  v_a := v_u.applicability; v_all := coalesce((v_a->>'all_clients')::boolean, false);
+  v_j := nullif(v_a->'jurisdictions', '[]'::jsonb); v_s := nullif(v_a->'statuses', '[]'::jsonb); v_v := v_a->'has_visa';
+  if not v_all and v_j is null and v_s is null and v_v is null then raise exception 'Set who this applies to first.'; end if;
+
+  delete from regulatory_update_clients where update_id = p_id;
+  insert into regulatory_update_clients (update_id, client_id, match_reason, decision)
+  select p_id, c.client_id,
+         case when c.incomplete then 'Profile incomplete: check by hand' when v_all then 'All clients' else 'Matches the applicability set' end,
+         case when c.incomplete then 'Check' else 'Applies' end
+  from (
+    select m.client_id, k.client_status,
+           (k.client_id is null or (v_j is not null and nullif(btrim(k.jurisdiction), '') is null)) as incomplete,
+           (v_j is null or k.client_id is null or nullif(btrim(k.jurisdiction), '') is null or v_j ? k.jurisdiction) as j_ok,
+           (v_s is null or k.client_id is null or v_s ? coalesce(k.client_status, '')) as s_ok,
+           (v_v is null or v_v = 'null'::jsonb or k.client_id is null
+              or (v_v::text::boolean = exists (select 1 from business_setup_visas x where x.client_id = m.client_id))) as v_ok
+    from client_master m left join business_setup_kyc_profiles k on k.client_id = m.client_id
+    where coalesce(k.client_status, '') !~* 'liquidated|cancel|rejected'
+  ) c
+  where c.j_ok and c.s_ok and c.v_ok;
+  get diagnostics v_n = row_count;
+  update regulatory_updates set workflow_status = 'List proposed', updated_at = now() where id = p_id;
+  return v_n;
+end $$;
+create or replace function public.regulatory_verify(p_id uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_u regulatory_updates%rowtype;
+begin
+  perform regulatory_require_manage();
+  select * into v_u from regulatory_updates where id = p_id for update;
+  if not found then raise exception 'That update does not exist.'; end if;
+  if v_u.workflow_status <> 'List proposed' then raise exception 'Propose the client list first.'; end if;
+  if v_u.effective_date is null then raise exception 'Confirm the effective date first.'; end if;
+  if nullif(btrim(v_u.official_url), '') is null then raise exception 'Add the official source first.'; end if;
+  if v_u.evidence_level = 'E4' then raise exception 'A third-party source stays information only. Find the official document first.'; end if;
+  if v_u.legal_status in ('PROPOSED', 'UNDER CONSULTATION', 'UNVERIFIED') then raise exception 'This status is not yet law, so it stays information only.'; end if;
+  if exists (select 1 from regulatory_update_clients where update_id = p_id and decision = 'Check') then raise exception 'Decide every client marked Check first.'; end if;
+  update regulatory_updates set workflow_status = 'Verified', verified_by = auth.uid(), verified_at = now(), updated_at = now() where id = p_id;
+
+  with closed as (
+    update alerts set status = 'Resolved', resolved_at = now(), resolved_by = auth.uid(), resolution_note = 'Update verified by a manager.', updated_at = now()
+    where dedupe_key = 'regulatory:new:' || p_id and status in ('Open', 'In progress')
+    returning id
+  )
+  insert into alert_events (alert_id, event, detail, created_by)
+  select id, 'resolved', jsonb_build_object('note', 'Update verified by a manager.'), auth.uid() from closed;
+end $$;
+
 -- ── 016: I1 ──
 create or replace function public.alert_raise(
   p_rule text, p_key text, p_client text, p_subject text, p_department text, p_due date, p_step int,
