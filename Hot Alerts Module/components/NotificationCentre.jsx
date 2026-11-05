@@ -5,11 +5,16 @@ import ScopeView from "./ScopeView";
 import DepartmentView from "./DepartmentView";
 import ManagementView from "./ManagementView";
 import CentreSettings from "./CentreSettings";
+import MyPreferences from "./MyPreferences";
+import AlertCalendar from "./AlertCalendar";
+import RegulatoryUpdates from "./RegulatoryUpdates";
+import LogItem from "./LogItem";
+import ComplianceRegister from "./ComplianceRegister";
 import { Note, btn } from "./ui";
 import { dubaiToday, emptyText, isNotSwitchedOn, tabsFor } from "../logic/alertLogic";
 import { alertMyAccess } from "../services/alertsApi";
 
-export default function NotificationCentre({ profile, supabase, fmtDate, openAlertId, onAlertShown, onOpenClient }) {
+export default function NotificationCentre({ profile, supabase, fmtDate, openAlertId, onAlertShown, onOpenClient, CalendarPanel }) {
   const [access, setAccess] = useState(null);
   const [off, setOff] = useState(false);
   const [error, setError] = useState("");
@@ -65,13 +70,14 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
       {error && <Note tone="bad">{error}</Note>}
 
       {access && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
           {tabs.map((t) => (
             <button key={t} type="button" onClick={() => setTab(t)} style={{ ...btn, background: tab === t ? "#111827" : "#fff", color: tab === t ? "#fff" : "#333" }}>{t}</button>
           ))}
         </div>
       )}
 
+      {access && tab === "My Notifications" && <LogItem supabase={supabase} onDone={() => bump()} />}
       {access && tab === "My Notifications" && (
         <ScopeView supabase={supabase} scope="My" today={today} onOpen={open} refreshKey={refreshKey}
           empty={(f) => emptyText(access, f)}
@@ -85,9 +91,17 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
       {access && tab === "Department" && (
         <DepartmentView supabase={supabase} access={access} people={people} today={today} onOpen={open} refreshKey={refreshKey} onChanged={bump} />
       )}
+      {access && tab === "Compliance Register" && <ComplianceRegister supabase={supabase} today={today} fmtDate={fmtDate} />}
       {access && tab === "Management" && <ManagementView supabase={supabase} access={access} today={today} onOpen={open} refreshKey={refreshKey} />}
+      {access && tab === "Calendar" && <AlertCalendar supabase={supabase} CalendarPanel={CalendarPanel} onOpen={open} access={access} />}
+
+      {access && tab === "Regulatory Updates" && <RegulatoryUpdates supabase={supabase} />}
+
       {access && tab === "Settings" && (
-        <CentreSettings supabase={supabase} access={access} onChanged={() => { bump(); alertMyAccess(supabase).then(setAccess).catch(() => {}); }} />
+        <>
+          <MyPreferences supabase={supabase} />
+          {access.is_admin && <CentreSettings supabase={supabase} access={access} onChanged={() => { bump(); alertMyAccess(supabase).then(setAccess).catch(() => {}); }} />}
+        </>
       )}
 
       <div style={{ fontSize: 14, fontWeight: 700, marginTop: 24 }}>My tasks</div>

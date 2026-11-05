@@ -104,8 +104,26 @@ export function resolvePlaceholder(priority) {
 export function tabsFor(access) {
   const tabs = ["My Notifications"];
   if (access?.is_admin || access?.is_manager) tabs.push("Department");
-  if (access?.is_admin) tabs.push("Management", "Settings");
+  if (access?.can_register) tabs.push("Compliance Register");
+  if (access?.is_admin) tabs.push("Management");
+  tabs.push("Calendar", "Regulatory Updates");
+  tabs.push("Settings"); // Everyone sets their own preferences; the admin parts show to admins only.
   return tabs;
+}
+
+// Calendar rows to CalendarPanel events, all-day on the due date.
+export function alertsToEvents(rows) {
+  return (rows || []).map((r) => ({ id: r.id, title: r.title, start: r.due_date, allDay: true, kind: r.priority }));
+}
+
+// A preference is on unless it is listed as off.
+export function prefIsOn(prefs, category, channel) {
+  return !(prefs?.off || []).some((o) => o.category === category && o.channel === channel);
+}
+
+export function prefWithChange(prefs, category, channel, enabled) {
+  const off = (prefs?.off || []).filter((o) => !(o.category === category && o.channel === channel));
+  return { ...prefs, off: enabled ? off : [...off, { category, channel }] };
 }
 
 // The red band over Management: a failed last scan, or no good scan in 26 hours. Null when healthy or unknown.
@@ -130,7 +148,7 @@ export function basedOnNote(rule) {
 // Sums checked and with_data over the rules in the given categories and applies basedOnNote.
 // Null when no such rule has been scanned, so a tile with no matching rule shows no line.
 // The rules behind a tile that counts by due date (Overdue, Upcoming, Today's Work): deadlines, licences and visas alike.
-export const DUE_DATE_CATEGORIES = ["Deadlines", "Licence", "Visa & Emirates ID"];
+export const DUE_DATE_CATEGORIES = ["Deadlines", "Licence", "Visa & Emirates ID", "Ejari & Establishment Card"];
 
 export function noteForCategories(coverage, categories) {
   const rules = (coverage?.rules || []).filter((r) => categories.includes(r.category) && r.checked != null);
@@ -161,4 +179,32 @@ export function fmtScanTime(ts) {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return String(ts);
   return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", dateStyle: "medium", timeStyle: "short" }).format(d);
+}
+
+// Regulatory Updates Centre. The values match the checks in migration 010.
+export const REG_CATEGORIES = ["Company Formation", "Free Zones", "Immigration", "Labour", "Corporate Compliance", "Tax", "Banking", "Municipality", "Customs", "Economic Regulations"];
+export const LEGAL_STATUSES = ["ENACTED", "IN FORCE", "PUBLISHED", "ANNOUNCED", "PROPOSED", "UNDER CONSULTATION", "SCHEDULED", "SUPERSEDED", "REPEALED", "UNVERIFIED", "UNCERTAIN"];
+export const EVIDENCE_LEVELS = [["E1", "full official text read"], ["E2", "official page read"], ["E3", "official listing only"], ["E4", "third party only"]];
+
+export function nextRegStep(status) {
+  return {
+    Draft: { action: "review", label: "Start review" },
+    "Under review": { action: "propose", label: "Propose client list" },
+    "List proposed": { action: "verify", label: "Verify update and list" },
+    Verified: { action: "tasks", label: "Create staff tasks" },
+  }[status] || null;
+}
+
+export function applicabilityFromForm(f) {
+  if (f?.all) return { all_clients: true };
+  const out = {};
+  const j = String(f?.jurisdictions || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (j.length) out.jurisdictions = j;
+  if (f?.visa === "yes") out.has_visa = true;
+  if (f?.visa === "no") out.has_visa = false;
+  return out;
+}
+
+export function applicabilityToForm(a) {
+  return { all: !!a?.all_clients, jurisdictions: (a?.jurisdictions || []).join(", "), visa: a?.has_visa === true ? "yes" : a?.has_visa === false ? "no" : "" };
 }

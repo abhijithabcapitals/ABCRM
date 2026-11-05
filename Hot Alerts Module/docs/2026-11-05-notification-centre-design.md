@@ -77,7 +77,7 @@ The user's words, 2026-11-05, relayed from session "Business setup service check
 
 To confirm with the user, not blocking the build:
 
-- D2 names no department. It is recorded for Business Setup only. Extending it is an owner change at release.
+- D2: confirmed by the user 2026-11-05 as "Business Setup only". Other departments' clients have no first owner, so their alerts stay Unassigned until someone assigns them.
 
 Further answers from the user, 2026-11-05:
 

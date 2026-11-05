@@ -137,3 +137,106 @@ test("the resolve placeholder says a Critical alert needs a note", () => {
   assert.match(resolvePlaceholder("High"), /optional/i);
   assert.match(resolvePlaceholder(undefined), /optional/i);
 });
+
+import { ITEM_TYPES, parseRegisterCsv, validateItem } from "../logic/registerLogic.js";
+
+const HEAD = "client_id,item_type,person_name,reference,issue_date,expiry_date,next_review_date,notes";
+
+test("item types match the SQL list", () => {
+  assert.equal(ITEM_TYPES.length, 16);
+  assert.ok(ITEM_TYPES.includes("Establishment card") && ITEM_TYPES.includes("Tax residency certificate"));
+});
+test("csv: plain row, ISO dates", () => {
+  const { rows, errors } = parseRegisterCsv(`${HEAD}\nCL000001,Ejari,,,2026-01-01,2027-01-01,,ok`);
+  assert.deepEqual(errors, []);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].client_id, "CL000001");
+  assert.equal(rows[0].expiry_date, "2027-01-01");
+  assert.equal(rows[0].notes, "ok");
+});
+test("csv: DD/MM/YYYY becomes ISO", () => {
+  const { rows } = parseRegisterCsv(`${HEAD}\nCL000001,Passport,Ann,P123,05/11/2024,04/11/2034,,`);
+  assert.equal(rows[0].issue_date, "2024-11-05");
+  assert.equal(rows[0].expiry_date, "2034-11-04");
+});
+test("csv: quoted commas and quotes", () => {
+  const { rows, errors } = parseRegisterCsv(`${HEAD}\nCL000001,Ejari,"Smith, John",,,2027-01-01,,"said ""hi"", ok"`);
+  assert.deepEqual(errors, []);
+  assert.equal(rows[0].person_name, "Smith, John");
+  assert.equal(rows[0].notes, 'said "hi", ok');
+});
+test("csv: bad date is an error on its row", () => {
+  const { rows, errors } = parseRegisterCsv(`${HEAD}\nCL000001,Ejari,,,,2027-02-30,,\nCL000002,Ejari,,,,2027-01-01,,`);
+  assert.equal(rows.length, 1);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].row, 1);
+  assert.match(errors[0].error, /date/i);
+});
+test("csv: missing client is an error", () => {
+  const { rows, errors } = parseRegisterCsv(`${HEAD}\n,Ejari,,,,2027-01-01,,`);
+  assert.equal(rows.length, 0);
+  assert.match(errors[0].error, /client/i);
+});
+test("csv: unknown type is an error; blank lines skipped; CRLF ok", () => {
+  const { rows, errors } = parseRegisterCsv(`${HEAD}\r\nCL000001,Nope,,,,,,\r\n\r\nCL000001,Ejari,,,,,,\r\n`);
+  assert.equal(rows.length, 1);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].row, 1);
+});
+test("csv: wrong header is reported", () => {
+  const { rows, errors } = parseRegisterCsv("a,b\n1,2");
+  assert.equal(rows.length, 0);
+  assert.match(errors[0].error, /header/i);
+});
+test("csv: empty text", () => assert.deepEqual(parseRegisterCsv("  "), { rows: [], errors: [] }));
+test("validateItem", () => {
+  const ok = { client_id: "CL000001", item_type: "Ejari", expiry_date: "2027-01-01" };
+  assert.equal(validateItem(ok), null);
+  assert.match(validateItem({ ...ok, client_id: "" }), /client/i);
+  assert.match(validateItem({ ...ok, item_type: "x" }), /type/i);
+  assert.match(validateItem({ ...ok, expiry_date: "2027-13-01" }), /date/i);
+  assert.match(validateItem({ ...ok, issue_date: "2027-02-01" }), /before/i);
+});
+test("Ejari & Establishment Card counts as a due-date category", () => assert.ok(DUE_DATE_CATEGORIES.includes("Ejari & Establishment Card")));
+test("register tab only with can_register", async () => {
+  const { tabsFor } = await import("../logic/alertLogic.js");
+  assert.ok(!tabsFor({}).includes("Compliance Register"));
+  assert.ok(tabsFor({ can_register: true }).includes("Compliance Register"));
+});
+
+test("everyone has Settings; Management stays admin only", async () => {
+  const { tabsFor } = await import("../logic/alertLogic.js");
+  assert.ok(tabsFor({}).includes("Settings"));
+  assert.ok(!tabsFor({ is_manager: true }).includes("Management"));
+  assert.ok(tabsFor({ is_admin: true }).includes("Management"));
+});
+test("preferences read and change", async () => {
+  const { prefIsOn, prefWithChange } = await import("../logic/alertLogic.js");
+  const p = { off: [{ category: "Tax", channel: "Bell" }] };
+  assert.equal(prefIsOn(p, "Tax", "Bell"), false);
+  assert.equal(prefIsOn(p, "Tax", "Email"), true);
+  assert.equal(prefIsOn(prefWithChange(p, "Tax", "Bell", true), "Tax", "Bell"), true);
+  assert.equal(prefIsOn(prefWithChange(p, "Licence", "Email", false), "Licence", "Email"), false);
+  assert.equal(prefIsOn(null, "Tax", "Bell"), true);
+});
+
+test("calendar rows become all-day events with the priority as kind", async () => {
+  const { alertsToEvents, tabsFor } = await import("../logic/alertLogic.js");
+  assert.deepEqual(alertsToEvents([{ id: "1", title: "T", due_date: "2026-12-01", priority: "High" }]),
+    [{ id: "1", title: "T", start: "2026-12-01", allDay: true, kind: "High" }]);
+  assert.deepEqual(alertsToEvents(null), []);
+  assert.ok(tabsFor({}).includes("Calendar"));
+});
+
+test("regulatory steps and applicability", async () => {
+  const { nextRegStep, applicabilityFromForm, applicabilityToForm, tabsFor } = await import("../logic/alertLogic.js");
+  assert.equal(nextRegStep("Draft").action, "review");
+  assert.equal(nextRegStep("List proposed").action, "verify");
+  assert.equal(nextRegStep("Tasks created"), null);
+  assert.deepEqual(applicabilityFromForm({ all: true, jurisdictions: "DMCC" }), { all_clients: true });
+  assert.deepEqual(applicabilityFromForm({ jurisdictions: " DMCC, SHAMS ,", visa: "no" }), { jurisdictions: ["DMCC", "SHAMS"], has_visa: false });
+  assert.deepEqual(applicabilityFromForm({}), {});
+  assert.deepEqual(applicabilityToForm({ jurisdictions: ["A", "B"], has_visa: true }), { all: false, jurisdictions: "A, B", visa: "yes" });
+  assert.deepEqual(applicabilityToForm(null), { all: false, jurisdictions: "", visa: "" });
+  assert.ok(tabsFor({}).includes("Regulatory Updates"));
+});

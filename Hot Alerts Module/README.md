@@ -38,3 +38,10 @@ The Main Module imports this folder directly; there is no copy to keep in sync.
 - The GitHub Pages build checks out the whole repo, so changes here deploy with the next push to `main`.
 
 Import only `react` here. Anything else the page needs (database client, helpers) is passed in as a prop.
+
+## Compliance Register (Phase 2)
+Tab "Compliance Register" in the Notification Centre, shown when `alert_my_access().can_register` is true (admin, Manager, or a member holding the Clients tab).
+- Filter by client code, item type and status; add, edit, and Close with a reason (kept in the notes).
+- **Import** takes pasted CSV with the header `client_id,item_type,person_name,reference,issue_date,expiry_date,next_review_date,notes`; dates `YYYY-MM-DD` or `DD/MM/YYYY`. It previews and lists bad rows, and saves only on Save (at most 500 rows), then reports `saved` and `errors`.
+- The `reference` (passport or card number) appears only on this screen and in the client detail list in `Client Module/crm/ClientComplianceItems.jsx`. Alert screens never show it.
+- Pure helpers (`ITEM_TYPES`, `parseRegisterCsv`, `validateItem`) are in `logic/registerLogic.js`.

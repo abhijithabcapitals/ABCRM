@@ -85,7 +85,7 @@ export default function ManagementView({ supabase, access, today, onOpen, refres
               </tr>
             </thead>
             <tbody>
-              {(coverage.rules || []).map((r) => (
+              {(coverage.rules || []).filter((r) => !/^(regulatory|manual)_/.test(r.rule)).map((r) => (
                 <tr key={r.rule}>
                   <td style={td}>
                     {r.rule}{!r.enabled && <span style={{ color: "#888" }}> (off)</span>}
