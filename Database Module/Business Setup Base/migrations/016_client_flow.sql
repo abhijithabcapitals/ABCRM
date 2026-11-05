@@ -6,7 +6,7 @@
 -- Existing cases map once: Contact to Lead; Services and Documentation to Onboarding; Assignment and In service to Pipeline. The rest stay.
 -- Onboarding holds eight items (business_setup_case_docs): fields, documents, quote, login, quote_accepted, letter, letter_accepted, invoice.
 -- When all are met the case moves to Pipeline by itself. A payment blocks nothing: docs also carries balance, for display only.
--- Until the acceptance records exist (a later migration) login is true when the client has a portal account and letter_accepted when a letter exists;
+-- Acceptance records (business_setup_acceptances, below) back quote_accepted and letter_accepted; login is true for an active portal account only;
 -- fields and documents are true when the case's form is Validated, or KYC is Done and the case has no form.
 -- A service whose quote belongs to a case starts without a payment (start gate). A case reaches Lost only before Pipeline.
 -- Apply this file in a single transaction (the stage check, the mapping and the functions must land together).
@@ -39,10 +39,10 @@ alter table public.business_setup_cases alter column stage set default 'Lead';
 -- ── What Onboarding needs, worked out from the records (never stored). Internal ──
 --   fields, documents  the case's newest form is Validated; a case with no form counts when its client's KYC is Done
 --   quote              a quote that was neither replaced nor rejected exists
---   login              the client has a portal account (a later migration replaces this with the issued login)
---   quote_accepted     the case has an accepted quote
+--   login              the client has an active portal account (a revoked one does not count)
+--   quote_accepted     the case has an accepted quote (a quote becomes accepted only on an Accepted acceptance row or a Confirmed signed copy, see quote_accept_body)
 --   letter             a letter exists on the accepted quote
---   letter_accepted    a letter exists (a later migration replaces this with the acceptance record)
+--   letter_accepted    that letter has an Accepted acceptance row
 --   invoice            an invoice is recorded for the case (or a quote of it), or the Invoice override was given
 --   balance            the accepted quote's total (else the newest live quote's) less the case's net payments. Display only: never blocks a move
 create or replace function public.business_setup_case_docs(p_case uuid) returns jsonb
@@ -60,10 +60,11 @@ begin
     'fields', v_fields,
     'documents', v_fields,
     'quote', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status not in ('superseded', 'rejected')),
-    'login', c.client_id is not null and business_setup_portal_account(c.client_id) is not null,
+    'login', c.client_id is not null and exists (select 1 from client_portal_accounts a where a.id = business_setup_portal_account(c.client_id) and a.status = 'active'),
     'quote_accepted', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted'),
     'letter', v_letter,
-    'letter_accepted', v_letter,
+    'letter_accepted', exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id join business_setup_acceptances a on a.document_id = l.id
+                                where l.case_id = p_case and l.doc_type = 'letter' and lq.status = 'accepted' and a.kind = 'Letter' and a.decision = 'Accepted'),
     'invoice', coalesce(c.invoice_override_reason is not null, false) or exists (select 1 from business_setup_invoices i where i.case_id = p_case
                  or i.quote_id in (select id from hub_documents where case_id = p_case and doc_type = 'quote')),
     'balance', coalesce(v_total, 0) - business_setup_case_net_paid(p_case));
@@ -121,6 +122,7 @@ language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_to text := case new.status when 'Submitted' then 'Review' when 'In review' then 'Review' when 'Returned' then 'Lead' end;
         v_stage text;
 begin
+  if new.case_id is null then return null; end if;   -- a form with no case is left alone
   select stage into v_stage from business_setup_cases where id = new.case_id for update;
   if v_to is not null and v_stage in ('Lead', 'Review') and v_stage <> v_to then
     perform business_setup_case_set_stage(new.case_id, v_to, 'Form ' || lower(new.status));
@@ -399,6 +401,251 @@ begin
                            and not exists (select 1 from hub_documents q where q.case_id = c.id and q.doc_type = 'quote' and q.status not in ('superseded', 'rejected')))
   ) || business_setup_dash_handover();
 end $$;
+
+-- ── Acceptance records ───────────────────────────────────────────────
+-- One row per decision on a quote or an engagement letter, never changed or deleted. A revised quote is a new document, so it has no row until the client
+-- (or staff, from a signed copy) decides again: nothing is cleared, the new revision simply starts without a decision. `revision` is the document's place in
+-- its quote chain (0 for the first quote; a letter takes its quote's). The portal records Portal rows (account_id and username of the login, checked by
+-- business_setup_portal_decide in 018); staff confirming a signed copy records Staff rows with signed_quote_id.
+create table if not exists public.business_setup_acceptances (
+  id uuid primary key default gen_random_uuid(),
+  document_id uuid not null references public.hub_documents(id),
+  kind text not null check (kind in ('Quote', 'Letter')),
+  revision int not null check (revision >= 0),
+  decision text not null check (decision in ('Accepted', 'Rejected')),
+  note text,
+  source text not null check (source in ('Portal', 'Staff')),
+  account_id uuid,   -- no foreign key: deleting a login must not be blocked by (or alter) an append-only record
+  username text,
+  created_at timestamptz not null default now(),
+  created_by uuid default auth.uid(),
+  signed_quote_id uuid references public.business_setup_signed_quotes(id),
+  check ((source = 'Portal') = (account_id is not null)),
+  check ((source = 'Staff') = (signed_quote_id is not null)),
+  check (decision = 'Accepted' or nullif(btrim(coalesce(note, '')), '') is not null)
+);
+create unique index if not exists business_setup_acceptances_one_accepted on public.business_setup_acceptances (document_id) where decision = 'Accepted';
+create unique index if not exists business_setup_acceptances_one_portal on public.business_setup_acceptances (document_id) where source = 'Portal';
+alter table public.business_setup_acceptances enable row level security;
+drop policy if exists business_setup_acceptances_read on public.business_setup_acceptances;
+create policy business_setup_acceptances_read on public.business_setup_acceptances for select to authenticated using (public.business_setup_can('setup.access'));
+revoke all on public.business_setup_acceptances from anon, authenticated;
+grant select on public.business_setup_acceptances to authenticated;
+create or replace function public.business_setup_acceptances_immutable() returns trigger
+language plpgsql set search_path = public, pg_temp as $$
+begin
+  raise exception 'Acceptance records cannot be changed or removed';
+end $$;
+revoke all on function public.business_setup_acceptances_immutable() from public, anon, authenticated;
+drop trigger if exists business_setup_acceptances_immutable on public.business_setup_acceptances;
+create trigger business_setup_acceptances_immutable before update or delete on public.business_setup_acceptances
+  for each row execute function public.business_setup_acceptances_immutable();
+
+-- A document's place in its quote chain: how many quotes it replaced. A letter takes the place of its quote. Internal.
+create or replace function public.business_setup_doc_revision(p_doc uuid) returns int
+language sql stable security definer set search_path = public, pg_temp as $$
+  with recursive up as (
+    select d.id, d.revises_id, 0 as n from hub_documents d
+     where d.id = (select case when doc_type = 'letter' then parent_id else id end from hub_documents where id = p_doc)
+    union all
+    select d.id, d.revises_id, up.n + 1 from up join hub_documents d on d.id = up.revises_id)
+  select coalesce(max(n), 0) from up
+$$;
+revoke all on function public.business_setup_doc_revision(uuid) from public, anon, authenticated;
+
+-- ── Accepting a quote ────────────────────────────────────────────────
+-- The accept logic of 015, split in two: the body has no rights check and serves staff (through the wrapper below) and the client's own Accept (through
+-- business_setup_portal_decide in 018, which has checked the login instead). The one change: a quote is accepted on a Confirmed signed copy as before, or on an
+-- Accepted acceptance row.
+create or replace function public.business_setup_quote_accept_body(p_id uuid, p_allow_expired boolean) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; v_root uuid; ln jsonb; kyc jsonb; v_today date := (now() at time zone 'Asia/Dubai')::date;
+  v_name text; v_action text; v_renews uuid; v_fee uuid; v_svc uuid; n int := 0;
+begin
+  select * into q from hub_documents where id = p_id;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  if q.doc_type <> 'quote' or q.department <> 'Business Setup' then raise exception 'Only a Business Setup quote can be accepted'; end if;
+  v_root := coalesce(q.root_quote_id, q.id);
+  perform 1 from hub_documents where id = v_root for update;
+  select * into q from hub_documents where id = p_id for update;   -- read again: it may have changed while we waited
+  if exists (select 1 from hub_documents where doc_type = 'quote' and status = 'accepted' and coalesce(root_quote_id, id) = v_root) then
+    raise exception 'A quote in this revision chain is already accepted';
+  end if;
+  if q.case_id is not null and (select stage from business_setup_cases where id = q.case_id) in ('Lost', 'Completed', 'Cancelled') then
+    raise exception 'This case is % and cannot take an accepted quote', lower((select stage from business_setup_cases where id = q.case_id));
+  end if;
+  if q.case_id is not null and exists (select 1 from hub_documents where case_id = q.case_id and doc_type = 'quote' and status = 'accepted' and id <> q.id) then
+    raise exception 'Another quote of this case is already accepted: a case holds one quote and its revisions';
+  end if;
+  if q.status <> 'issued' then raise exception 'Only an issued quote can be accepted (this one is %)', q.status; end if;
+  if q.client_id is null then raise exception 'Link this quote to a client before accepting it'; end if;
+  -- KYC already done (validated here, or marked Done in the old records) is not asked for again. The percentage needs a signed-in member of staff
+  -- (business_setup_kyc_status checks the right), so a client accepting from the portal, who has none, is told to contact us instead.
+  if not exists (select 1 from business_setup_kyc_profiles where client_id = q.client_id and kyc_state = 'Done') then
+    if auth.uid() is null then raise exception 'Your details are not complete yet. Please contact AB Capital Services FZE.'; end if;
+    kyc := business_setup_kyc_status(q.client_id);
+    if (kyc ->> 'percent')::int < 100 then
+      raise exception 'The client KYC is incomplete: missing %', (select string_agg(m, ', ') from jsonb_array_elements_text(kyc -> 'missing') m);
+    end if;
+  end if;
+  if q.valid_until is not null and q.valid_until < v_today and not coalesce(p_allow_expired, false) then
+    raise exception 'This quote expired on %: confirm to accept it anyway', to_char(q.valid_until, 'DD Mon YYYY');
+  end if;
+  if not exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Confirmed')
+     and not exists (select 1 from business_setup_acceptances where document_id = q.id and kind = 'Quote' and decision = 'Accepted') then
+    raise exception 'This quote has not been accepted by the client or confirmed from a signed copy yet';
+  end if;
+
+  update hub_documents set status = 'accepted', status_at = now(), status_by = auth.uid(),
+         status_reason = case when q.valid_until is not null and q.valid_until < v_today then 'Accepted after expiry' else null end
+   where id = q.id;
+
+  for ln in select value from jsonb_array_elements(coalesce(q.lines, '[]'::jsonb)) loop
+    v_name := coalesce(nullif(btrim(coalesce(ln ->> 'service_name', '')), ''), nullif(btrim(coalesce(ln ->> 'description', '')), ''));
+    if v_name is null then raise exception 'Every quote line needs a service name'; end if;
+    v_action := coalesce(nullif(btrim(coalesce(ln ->> 'action', '')), ''), 'New');
+    if v_action not in ('New','Renewal','Rectification','Cancellation') then raise exception 'Unknown action % on a quote line', v_action; end if;
+    v_renews := nullif(ln ->> 'renews_service_id', '')::uuid;
+    if v_renews is not null and not exists (select 1 from business_setup_services where id = v_renews and client_id = q.client_id) then
+      raise exception 'A renewal must link to an earlier service of the same client';
+    end if;
+    v_fee := nullif(ln ->> 'fee_item_id', '')::uuid;
+    -- A line for a cost (its fee item is not a service) stays on the quote and creates no service.
+    if v_fee is not null and not coalesce((select is_service from business_setup_fee_items where id = v_fee), true) then continue; end if;
+    insert into business_setup_services (client_id, quote_id, fee_item_id, name, action, amount, renews_service_id)
+    values (q.client_id, q.id, v_fee, v_name, v_action, nullif(ln ->> 'amount', '')::numeric, v_renews)
+    returning id into v_svc;
+    insert into business_setup_service_history (service_id, from_status, to_status, note)
+    values (v_svc, null, 'Not started', 'Created from quote ' || q.document_number);
+    n := n + 1;
+  end loop;
+
+  perform business_setup_audit('hub_documents', q.id::text, 'quote_accept', null,
+          jsonb_build_object('client_id', q.client_id, 'document_number', q.document_number, 'services_created', n,
+                             'after_expiry', q.valid_until is not null and q.valid_until < v_today));
+  return jsonb_build_object('quote_id', q.id, 'status', 'accepted', 'services_created', n);
+end $$;
+create or replace function public.business_setup_quote_accept(p_id uuid, p_allow_expired boolean default false) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.quotes.manage');
+  return business_setup_quote_accept_body(p_id, p_allow_expired);
+end $$;
+revoke all on function public.business_setup_quote_accept_body(uuid, boolean) from public, anon, authenticated;
+revoke all on function public.business_setup_quote_accept(uuid, boolean) from public, anon;
+grant execute on function public.business_setup_quote_accept(uuid, boolean) to authenticated;
+
+-- ── Staff signed copies, for quotes and for letters ──────────────────
+-- business_setup_signed_quotes is keyed on hub_documents, which also holds letters, so a letter takes its signed copy in the same table with kind Letter.
+-- Confirming a copy writes an acceptance row with source Staff and signed_quote_id: for a quote it also accepts the quote (and creates its services),
+-- for a letter it records the letter's acceptance and nothing else.
+create or replace function public.business_setup_signed_add(p_quote uuid, p_path text) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare q hub_documents; pq hub_documents; v_path text := nullif(btrim(coalesce(p_path, '')), ''); v_prefix text; v_id uuid; v_kind text;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  if v_path is null then raise exception 'Enter the file path'; end if;
+  select * into q from hub_documents where id = p_quote for update;
+  if q.id is null or q.doc_type not in ('quote', 'letter') or q.department <> 'Business Setup' then raise exception 'Quote not found'; end if;
+  v_kind := case q.doc_type when 'letter' then 'Letter' else 'Quote' end;
+  if v_kind = 'Quote' then
+    if q.status <> 'issued' then raise exception 'Only an issued quote can take a signed copy (this one is %)', q.status; end if;
+  else
+    select * into pq from hub_documents where id = q.parent_id;
+    if pq.id is null or pq.status <> 'accepted' then raise exception 'The quote must be accepted before its letter can take a signed copy'; end if;
+    if exists (select 1 from business_setup_acceptances where document_id = q.id and decision = 'Accepted') then raise exception 'This letter is already accepted'; end if;
+  end if;
+  if q.client_id is null then raise exception 'Link this quote to a client before adding its signed copy'; end if;
+  if q.case_id is not null and (select stage from business_setup_cases where id = q.case_id) in ('Lost', 'Completed', 'Cancelled') then
+    raise exception 'This case is closed and its quote cannot take a signed copy';
+  end if;
+  v_prefix := 'staff/' || q.client_id || '/';
+  if not coalesce(left(v_path, length(v_prefix)) = v_prefix, false) or '..' = any (string_to_array(v_path, '/')) or '' = any (string_to_array(v_path, '/')) then
+    raise exception 'The file path must be under staff/%/ and cannot contain .. or empty parts', q.client_id;
+  end if;
+  if exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Uploaded') then
+    raise exception 'A signed copy of this quote is already waiting for review: confirm or refuse it first';
+  end if;
+  begin
+    insert into business_setup_signed_quotes (quote_id, storage_path, source, status, kind) values (q.id, v_path, 'Staff', 'Uploaded', v_kind) returning id into v_id;
+  exception when unique_violation then raise exception 'A signed copy is already stored at that path';
+  end;
+  perform business_setup_audit('business_setup_signed_quotes', v_id::text, 'signed_add', null, jsonb_build_object('quote_id', q.id, 'source', 'Staff', 'kind', v_kind));
+  return v_id;
+end $$;
+
+create or replace function public.business_setup_signed_decide(p_id uuid, p_confirm boolean, p_note text, p_allow_expired boolean default false) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare s business_setup_signed_quotes; q hub_documents; v_note text := nullif(btrim(coalesce(p_note, '')), ''); v_root uuid;
+begin
+  perform business_setup_require('setup.quotes.manage');
+  select * into s from business_setup_signed_quotes where id = p_id;
+  if s.id is null then raise exception 'Signed copy not found'; end if;
+  select * into q from hub_documents where id = s.quote_id;
+  -- Lock the chain root and the document first, as an accept and a revision do, so none of them can deadlock.
+  v_root := coalesce((select coalesce(r.root_quote_id, r.id) from hub_documents r where r.id = case when q.doc_type = 'letter' then q.parent_id else q.id end), q.id);
+  perform 1 from hub_documents where id = v_root for update;
+  perform 1 from hub_documents where id = q.id for update;
+  select * into s from business_setup_signed_quotes where id = p_id for update;
+  if s.status <> 'Uploaded' then raise exception 'This signed copy has already been %', lower(s.status); end if;
+  if p_confirm is null then raise exception 'Choose to confirm or refuse the signed copy'; end if;
+  if p_confirm then
+    update business_setup_signed_quotes set status = 'Confirmed', note = v_note, decided_at = now(), decided_by = auth.uid() where id = s.id;
+    if s.kind = 'Letter' then
+      if not exists (select 1 from hub_documents where id = q.parent_id and status = 'accepted') then raise exception 'The quote of this letter is no longer accepted'; end if;
+      if exists (select 1 from business_setup_acceptances where document_id = q.id and decision = 'Accepted') then raise exception 'This letter is already accepted'; end if;
+    else
+      perform business_setup_quote_accept_body(q.id, coalesce(p_allow_expired, false));
+    end if;
+    insert into business_setup_acceptances (document_id, kind, revision, decision, note, source, signed_quote_id)
+    values (q.id, s.kind, business_setup_doc_revision(q.id), 'Accepted', v_note, 'Staff', s.id);
+  else
+    if v_note is null then raise exception 'Tell the client why the signed copy is refused'; end if;
+    update business_setup_signed_quotes set status = 'Refused', note = v_note, decided_at = now(), decided_by = auth.uid() where id = s.id;
+  end if;
+  perform business_setup_audit('business_setup_signed_quotes', s.id::text, 'signed_decide', jsonb_build_object('status', s.status),
+          jsonb_build_object('quote_id', q.id, 'kind', s.kind, 'confirmed', p_confirm, 'note', v_note));
+end $$;
+revoke all on function public.business_setup_signed_add(uuid, text), public.business_setup_signed_decide(uuid, boolean, text, boolean) from public, anon;
+grant execute on function public.business_setup_signed_add(uuid, text), public.business_setup_signed_decide(uuid, boolean, text, boolean) to authenticated;
+
+-- ── Re-checking a case when its login or KYC changes ─────────────────
+-- A case waiting only on the login or on KYC never saw a change, because only forms, documents and payments re-checked it. Both triggers re-check
+-- the Business Setup cases of the client at Onboarding and touch nothing else, so Banking and the other departments use the login table as before.
+create or replace function public.business_setup_case_client_trg() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_client text; v_case uuid;
+begin
+  if tg_table_name = 'client_portal_accounts' then v_client := business_setup_portal_client(new.id);
+  else v_client := new.client_id; end if;
+  if v_client is null then return null; end if;
+  for v_case in select id from business_setup_cases where client_id = v_client and stage = 'Onboarding' loop
+    perform business_setup_case_sync(v_case);
+  end loop;
+  return null;
+end $$;
+revoke all on function public.business_setup_case_client_trg() from public, anon, authenticated;
+drop trigger if exists business_setup_case_login on public.client_portal_accounts;
+create trigger business_setup_case_login after insert or update of status, client_master_id, banking_client_id on public.client_portal_accounts
+  for each row execute function public.business_setup_case_client_trg();
+drop trigger if exists business_setup_case_kyc on public.business_setup_kyc_profiles;
+create trigger business_setup_case_kyc after insert or update of kyc_state on public.business_setup_kyc_profiles
+  for each row execute function public.business_setup_case_client_trg();
+
+-- A decision on a document re-checks its case.
+create or replace function public.business_setup_case_acceptance_trg() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_case uuid;
+begin
+  select case_id into v_case from hub_documents where id = new.document_id;
+  if v_case is not null then perform business_setup_case_sync(v_case); end if;
+  return null;
+end $$;
+revoke all on function public.business_setup_case_acceptance_trg() from public, anon, authenticated;
+drop trigger if exists business_setup_case_acceptance on public.business_setup_acceptances;
+create trigger business_setup_case_acceptance after insert on public.business_setup_acceptances
+  for each row execute function public.business_setup_case_acceptance_trg();
 
 -- ── Privileges ───────────────────────────────────────────────────────
 -- Internal functions (case_docs, case_sync, form_trg, start_gate) were revoked beside their definitions above. The functions below are callable by

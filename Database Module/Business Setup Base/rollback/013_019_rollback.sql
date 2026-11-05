@@ -11,6 +11,21 @@
 begin;
 
 -- ── 016_client_flow.sql ──────────────────────────────────────────────
+-- Acceptance records (016) and the client login and decision functions (018): the triggers, the append-only table (before business_setup_signed_quotes, which it
+-- points at) and the functions go. WARNING: every acceptance row is lost. A quote accepted from the portal stays accepted, with no signed copy behind it; an
+-- accepted quote needs none at 014. The accept logic returns to 014's below (business_setup_quote_accept_body goes with it).
+drop trigger if exists business_setup_case_acceptance on public.business_setup_acceptances;
+drop trigger if exists business_setup_case_login on public.client_portal_accounts;
+drop trigger if exists business_setup_case_kyc on public.business_setup_kyc_profiles;
+drop table if exists public.business_setup_acceptances;
+drop function if exists public.business_setup_acceptances_immutable();
+drop function if exists public.business_setup_case_acceptance_trg();
+drop function if exists public.business_setup_case_client_trg();
+drop function if exists public.business_setup_doc_revision(uuid);
+drop function if exists public.business_setup_portal_decide(uuid, uuid, text, text);
+drop function if exists public.business_setup_issue_login_ok(uuid);
+drop function if exists public.business_setup_login_grant(text, text, text, text, uuid);
+drop function if exists public.business_setup_login_mail(text, boolean, uuid);
 -- The move function goes. The start gate returns to 006's (016 lets a quote of a case start without a payment, which reads case_id). The other functions 016
 -- replaced (case_sync, case_docs, case_list, case_new, case_take, case_shared, case_confirm, case_lost, case_form_trg, dashboard) are dropped or restored by the sections below.
 drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
@@ -87,6 +102,7 @@ drop function if exists public.business_setup_case_documents(uuid);
 drop function if exists public.business_setup_case_locked(uuid);
 drop function if exists public.business_setup_case_link_client_for_payment(uuid, text, boolean);
 drop function if exists public.business_setup_case_link_client_body(uuid, text, boolean);
+drop function if exists public.business_setup_quote_accept_body(uuid, boolean);
 drop table if exists public.business_setup_signed_quotes;
 delete from public.business_setup_fee_items f where f.grp = 'Company' and f.name in ('Company registration', 'Company renewal', 'Visa') and f.default_amount is null
    and not exists (select 1 from public.business_setup_services s where s.fee_item_id = f.id);

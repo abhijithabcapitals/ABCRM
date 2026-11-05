@@ -290,6 +290,261 @@ select public.bs_check('handover: the dashboard counts the closed case', (public
 select public.bs_as(null);
 
 
+-- ═════════════════════════════════════════════════════════════════════
+-- Client flow Task 3: acceptance records, and the login issued with the quote
+-- ═════════════════════════════════════════════════════════════════════
+-- The earlier checks stand a record behind every letter put on a case by hand (the helper trigger of 010). Here the real record is tested, so it goes.
+drop trigger if exists aaa_bs_letter on public.hub_documents;
+create function pg_temp.mkdq(p_key text, p_client text, p_case text, p_valid date default null, p_revises text default null) returns void language plpgsql as $$
+begin
+  perform public.bs_as('00000000-0000-0000-0000-00000000000c');
+  insert into f120 values (p_key, (public.hub_document_create(jsonb_build_object('doc_type', 'quote', 'department', 'Business Setup', 'client_name', p_client || ' LLC', 'contact_name', 'C',
+    'contact_email', 'c@x.ae', 'contact_phone', '1', 'client_id', p_client, 'case_id', pg_temp.fx(p_case), 'valid_until', p_valid, 'revises_id', p_revises,
+    'lines', '[{"description":"Licence","amount":1000},{"description":"Visa","amount":500}]'::jsonb))).id::text);
+  perform public.bs_as(null);
+end $$;
+create function pg_temp.mkletter(p_key text, p_quote text) returns void language plpgsql as $$
+begin
+  perform public.bs_as('00000000-0000-0000-0000-00000000000c');
+  insert into f120 values (p_key, (public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx(p_quote)))).id::text);
+  perform public.bs_as(null);
+end $$;
+create function pg_temp.decide(p_acc text, p_doc text, p_decision text, p_note text default null) returns void language plpgsql as $$
+begin perform public.business_setup_portal_decide(pg_temp.fx(p_acc)::uuid, pg_temp.fx(p_doc)::uuid, p_decision, p_note); end $$;
+create function pg_temp.acc_rows(p_doc text) returns bigint language plpgsql security definer as $$
+begin return (select count(*) from public.business_setup_acceptances where document_id = pg_temp.fx(p_doc)::uuid); end $$;
+create function pg_temp.svc_count(p_quote text, p_status text default null) returns bigint language sql security definer as $$
+  select count(*) from public.business_setup_services where quote_id = pg_temp.fx(p_quote)::uuid and (p_status is null or status = p_status) $$;
+select pg_temp.mkclient('CL973001');
+select pg_temp.mkclient('CL973002');
+insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL973001', 'Done'), ('CL973002', 'Done') on conflict (client_id) do update set kyc_state = 'Done';
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash, email) values ('CL973001', 'A', 'portal.a973', 'x', 'a@x.ae'), ('CL973002', 'B', 'portal.b973', 'x', 'b@x.ae');
+insert into f120 select 't3_acc_a', id::text from public.client_portal_accounts where username = 'portal.a973';
+insert into f120 select 't3_acc_b', id::text from public.client_portal_accounts where username = 'portal.b973';
+
+-- ── revoked: an account that is revoked is not a login ──
+select pg_temp.mkcase('t3_rev', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select public.bs_check('revoked: an active account is a login', (pg_temp.docs('t3_rev') ->> 'login')::boolean);
+update public.client_portal_accounts set status = 'revoked' where username = 'portal.a973';
+select public.bs_check('revoked: a revoked account has login false', not (pg_temp.docs('t3_rev') ->> 'login')::boolean);
+update public.client_portal_accounts set status = 'active' where username = 'portal.a973';
+select public.bs_check('revoked: restoring it makes login true again', (pg_temp.docs('t3_rev') ->> 'login')::boolean);
+
+-- ── who may call ──
+select public.bs_check('decide, login_grant and login_mail are for the service role only',
+  not has_function_privilege('anon', 'public.business_setup_portal_decide(uuid, uuid, text, text)', 'execute') and not has_function_privilege('authenticated', 'public.business_setup_portal_decide(uuid, uuid, text, text)', 'execute')
+  and has_function_privilege('service_role', 'public.business_setup_portal_decide(uuid, uuid, text, text)', 'execute')
+  and not has_function_privilege('authenticated', 'public.business_setup_login_grant(text, text, text, text, uuid)', 'execute') and has_function_privilege('service_role', 'public.business_setup_login_grant(text, text, text, text, uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'public.business_setup_login_mail(text, boolean, uuid)', 'execute') and has_function_privilege('service_role', 'public.business_setup_login_mail(text, boolean, uuid)', 'execute')
+  and has_function_privilege('authenticated', 'public.business_setup_issue_login_ok(uuid)', 'execute') and not has_function_privilege('anon', 'public.business_setup_issue_login_ok(uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'public.business_setup_quote_accept_body(uuid, boolean)', 'execute'));
+select public.bs_check('the acceptance table is read-only through the API', not has_table_privilege('authenticated', 'public.business_setup_acceptances', 'insert') and not has_table_privilege('authenticated', 'public.business_setup_acceptances', 'update')
+  and not has_table_privilege('authenticated', 'public.business_setup_acceptances', 'delete') and not has_table_privilege('anon', 'public.business_setup_acceptances', 'select'));
+
+-- ── decide_quote: Accepted calls the accept logic, creates the services, stores the login and the revision ──
+select pg_temp.mkcase('t3_a', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3_qa', 'CL973001', 't3_a');
+select public.bs_expect_error(format($$select pg_temp.decide('t3_acc_b', 't3_qa', 'Accepted')$$), 'Document not found');
+select public.bs_check('decide_own_only: nothing was recorded and the quote is still issued', pg_temp.acc_rows('t3_qa') = 0 and (select status = 'issued' from public.hub_documents where id = pg_temp.fx('t3_qa')::uuid));
+select public.bs_expect_error($$select pg_temp.decide('t3_acc_a', 't3_qa', 'Maybe')$$, 'Accept or Reject');
+select pg_temp.decide('t3_acc_a', 't3_qa', 'Accepted');
+select public.bs_check('decide_quote: the quote is accepted and its two services exist', (select status = 'accepted' from public.hub_documents where id = pg_temp.fx('t3_qa')::uuid) and pg_temp.svc_count('t3_qa') = 2);
+select public.bs_check('decide_quote: the record holds the login, revision and source', (select count(*) = 1 and bool_and(kind = 'Quote' and decision = 'Accepted' and source = 'Portal' and username = 'portal.a973' and account_id = pg_temp.fx('t3_acc_a')::uuid and revision = 0 and signed_quote_id is null)
+  from public.business_setup_acceptances where document_id = pg_temp.fx('t3_qa')::uuid));
+select public.bs_check('decide_quote: the case reads quote accepted and moves nowhere yet', (pg_temp.docs('t3_a') ->> 'quote_accepted')::boolean and pg_temp.stage('t3_a') = 'Onboarding');
+select public.bs_check('decide_quote: the decision is audited without a password', public.bs_audit_count('portal_decide', null, '{"decision":"Accepted","username":"portal.a973"}') = 1);
+select public.bs_expect_error($$select pg_temp.decide('t3_acc_a', 't3_qa', 'Accepted')$$, 'already been recorded');
+select public.bs_expect_error($$select pg_temp.decide('t3_acc_a', 't3_qa', 'Rejected', 'Changed my mind')$$, 'already been recorded');
+select public.bs_check('decide_twice: still one record and two services', pg_temp.acc_rows('t3_qa') = 1 and pg_temp.svc_count('t3_qa') = 2);
+select public.bs_expect_error($$update public.business_setup_acceptances set note = 'x'$$, 'cannot be changed');
+select public.bs_expect_error($$delete from public.business_setup_acceptances$$, 'cannot be changed');
+
+-- ── letter: needs the accepted quote, then the client decides on it; the last decision moves the case ──
+select pg_temp.mkletter('t3_la', 't3_qa');
+select public.bs_check('letter: it is issued but not accepted', (pg_temp.docs('t3_a') ->> 'letter')::boolean and not (pg_temp.docs('t3_a') ->> 'letter_accepted')::boolean);
+update public.business_setup_cases set invoice_override_reason = 'Invoiced outside the CRM' where id = pg_temp.cid('t3_a');
+select public.bs_check('letter: with everything but the letter decision the case waits at Onboarding', pg_temp.stage('t3_a') = 'Onboarding');
+select pg_temp.decide('t3_acc_a', 't3_la', 'Accepted');
+select public.bs_check('letter: the record is a Letter record with the quote''s revision', (select kind = 'Letter' and revision = 0 and source = 'Portal' from public.business_setup_acceptances where document_id = pg_temp.fx('t3_la')::uuid));
+select public.bs_check('letter: the last decision moves the case to Pipeline by itself', (pg_temp.docs('t3_a') ->> 'letter_accepted')::boolean and pg_temp.stage('t3_a') = 'Pipeline');
+
+-- ── letter_order: a letter decision is refused before the quote is accepted ──
+select pg_temp.mkcase('t3_lo', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3_qlo', 'CL973001', 't3_lo');
+insert into public.hub_documents (parent_id, doc_type, department, client_name, client_id, document_number, case_id)
+  select id, 'letter', 'Business Setup', client_name, client_id, 'T3-LO-L', case_id from public.hub_documents where id = pg_temp.fx('t3_qlo')::uuid;
+insert into f120 select 't3_llo', id::text from public.hub_documents where document_number = 'T3-LO-L';
+select public.bs_expect_error($$select pg_temp.decide('t3_acc_a', 't3_llo', 'Accepted')$$, 'accept the quote');
+select public.bs_check('letter_order: nothing was recorded for the letter', pg_temp.acc_rows('t3_llo') = 0);
+
+-- ── decide_reject: needs a note, creates no service, leaves the quote open ──
+select pg_temp.mkcase('t3_r', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3_qr', 'CL973001', 't3_r');
+select public.bs_expect_error($$select pg_temp.decide('t3_acc_a', 't3_qr', 'Rejected')$$, 'why');
+select public.bs_expect_error($$select pg_temp.decide('t3_acc_a', 't3_qr', 'Rejected', '   ')$$, 'why');
+select public.bs_check('decide_reject: a refused attempt records nothing', pg_temp.acc_rows('t3_qr') = 0);
+select pg_temp.decide('t3_acc_a', 't3_qr', 'Rejected', 'The fee is too high');
+select public.bs_check('decide_reject: the note is kept, no service is made and the quote is not accepted', (select decision = 'Rejected' and note = 'The fee is too high' from public.business_setup_acceptances where document_id = pg_temp.fx('t3_qr')::uuid)
+  and pg_temp.svc_count('t3_qr') = 0 and (select status = 'issued' from public.hub_documents where id = pg_temp.fx('t3_qr')::uuid) and not (pg_temp.docs('t3_r') ->> 'quote_accepted')::boolean);
+select public.bs_expect_error($$select pg_temp.decide('t3_acc_a', 't3_qr', 'Accepted')$$, 'already been recorded');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('decide_reject: staff can read the note', (select note = 'The fee is too high' from public.business_setup_acceptances where document_id = pg_temp.fx('t3_qr')::uuid));
+select public.bs_as(null);
+
+-- ── decide_expired ──
+select pg_temp.mkcase('t3_x', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3_qx', 'CL973001', 't3_x');
+update public.hub_documents set valid_until = current_date - 2 where id = pg_temp.fx('t3_qx')::uuid;
+select public.bs_expect_error($$select pg_temp.decide('t3_acc_a', 't3_qx', 'Accepted')$$, 'expired');
+select public.bs_check('decide_expired: nothing recorded and no service', pg_temp.acc_rows('t3_qx') = 0 and pg_temp.svc_count('t3_qx') = 0 and (select status = 'issued' from public.hub_documents where id = pg_temp.fx('t3_qx')::uuid));
+select public.bs_check('decide_expired: the portal marks it expired and not open for a decision', (public.business_setup_portal_view(pg_temp.fx('t3_acc_a')::uuid) -> 'quotes') @> jsonb_build_array(jsonb_build_object('id', pg_temp.fx('t3_qx'), 'expired', true, 'can_decide', false)));
+
+-- ── revise_clears: revising an accepted quote starts a fresh decision for the quote and its letter; the case stays at Onboarding ──
+select pg_temp.mkcase('t3_v', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3_qv', 'CL973001', 't3_v');
+select pg_temp.decide('t3_acc_a', 't3_qv', 'Accepted');
+select pg_temp.mkletter('t3_lv', 't3_qv');
+select pg_temp.decide('t3_acc_a', 't3_lv', 'Accepted');
+select public.bs_check('revise_clears: before revising, the quote and letter are accepted', (pg_temp.docs('t3_v') ->> 'quote_accepted')::boolean and (pg_temp.docs('t3_v') ->> 'letter_accepted')::boolean and pg_temp.svc_count('t3_qv', 'Not started') = 2);
+select pg_temp.mkdq('t3_qv2', 'CL973001', 't3_v', null, pg_temp.fx('t3_qv'));
+select public.bs_check('revise_clears: the old quote is superseded and its unstarted services are cancelled, with history', (select status = 'superseded' from public.hub_documents where id = pg_temp.fx('t3_qv')::uuid)
+  and pg_temp.svc_count('t3_qv', 'Cancelled') = 2 and pg_temp.svc_count('t3_qv', 'Not started') = 0
+  and (select count(*) = 2 from public.business_setup_service_history h join public.business_setup_services s on s.id = h.service_id where s.quote_id = pg_temp.fx('t3_qv')::uuid and h.to_status = 'Cancelled'));
+select public.bs_check('revise_clears: the case shows no accepted quote and no accepted letter, and stays at Onboarding', not (pg_temp.docs('t3_v') ->> 'quote_accepted')::boolean and not (pg_temp.docs('t3_v') ->> 'letter_accepted')::boolean
+  and not (pg_temp.docs('t3_v') ->> 'letter')::boolean and (pg_temp.docs('t3_v') ->> 'quote')::boolean and pg_temp.stage('t3_v') = 'Onboarding');
+select public.bs_check('revise_clears: the earlier records are kept and the new revision has none', pg_temp.acc_rows('t3_qv') = 1 and pg_temp.acc_rows('t3_lv') = 1 and pg_temp.acc_rows('t3_qv2') = 0);
+select pg_temp.decide('t3_acc_a', 't3_qv2', 'Accepted');
+select public.bs_check('revise_clears: the new revision is decided again, as revision 1, with services of its own', (select revision = 1 from public.business_setup_acceptances where document_id = pg_temp.fx('t3_qv2')::uuid) and pg_temp.svc_count('t3_qv2') = 2
+  and (pg_temp.docs('t3_v') ->> 'quote_accepted')::boolean and not (pg_temp.docs('t3_v') ->> 'letter_accepted')::boolean);
+select pg_temp.mkletter('t3_lv2', 't3_qv2');
+select public.bs_check('revise_clears: the new letter needs its own acceptance', not (pg_temp.docs('t3_v') ->> 'letter_accepted')::boolean and pg_temp.acc_rows('t3_lv2') = 0);
+
+-- ── revise_after_start: refused once a service has started ──
+select pg_temp.mkcase('t3_s', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3_qs', 'CL973001', 't3_s');
+select pg_temp.decide('t3_acc_a', 't3_qs', 'Accepted');
+update public.business_setup_services set started_at = now() where id = (select id from public.business_setup_services where quote_id = pg_temp.fx('t3_qs')::uuid order by name limit 1);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.hub_document_create(jsonb_build_object('doc_type', 'quote', 'department', 'Business Setup', 'client_name', 'x', 'contact_name', 'C', 'contact_email', 'c@x.ae', 'contact_phone', '1',
+  'client_id', 'CL973001', 'case_id', '%s', 'revises_id', '%s', 'lines', '[{"description":"Licence","amount":900}]'::jsonb))$$, pg_temp.fx('t3_s'), pg_temp.fx('t3_qs')), 'has started');
+select public.bs_as(null);
+select public.bs_check('revise_after_start: the quote stays accepted with its services', (select status = 'accepted' from public.hub_documents where id = pg_temp.fx('t3_qs')::uuid) and pg_temp.svc_count('t3_qs', 'Not started') = 2 and pg_temp.svc_count('t3_qs') = 2);
+update public.business_setup_services set started_at = null where quote_id = pg_temp.fx('t3_qs')::uuid;
+update public.business_setup_services set status = 'In progress' where id = (select id from public.business_setup_services where quote_id = pg_temp.fx('t3_qs')::uuid order by name limit 1);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.hub_document_create(jsonb_build_object('doc_type', 'quote', 'department', 'Business Setup', 'client_name', 'x', 'contact_name', 'C', 'contact_email', 'c@x.ae', 'contact_phone', '1',
+  'client_id', 'CL973001', 'case_id', '%s', 'revises_id', '%s', 'lines', '[{"description":"Licence","amount":900}]'::jsonb))$$, pg_temp.fx('t3_s'), pg_temp.fx('t3_qs')), 'has started');
+select public.bs_as(null);
+
+-- ── staff_signed: a staff-uploaded signed copy, confirmed, writes a Staff record for a quote and for a letter ──
+select pg_temp.mkcase('t3_g', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3_qg', 'CL973001', 't3_g');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f120 values ('t3_sg1', public.business_setup_signed_add(pg_temp.fx('t3_qg')::uuid, 'staff/CL973001/quote-g.pdf')::text);
+select public.business_setup_signed_decide(pg_temp.fx('t3_sg1')::uuid, true, null);
+select public.bs_as(null);
+select public.bs_check('staff_signed: the quote is accepted and has one Staff record linked to the signed copy', (select status = 'accepted' from public.hub_documents where id = pg_temp.fx('t3_qg')::uuid)
+  and (select count(*) = 1 and bool_and(kind = 'Quote' and source = 'Staff' and decision = 'Accepted' and signed_quote_id = pg_temp.fx('t3_sg1')::uuid and account_id is null) from public.business_setup_acceptances where document_id = pg_temp.fx('t3_qg')::uuid)
+  and pg_temp.svc_count('t3_qg') = 2);
+select pg_temp.mkletter('t3_lg', 't3_qg');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f120 values ('t3_sg2', public.business_setup_signed_add(pg_temp.fx('t3_lg')::uuid, 'staff/CL973001/letter-g.pdf')::text);
+select public.bs_check('staff_signed: the letter''s copy is kept in the same table with kind Letter', (select kind = 'Letter' and source = 'Staff' and status = 'Uploaded' from public.business_setup_signed_quotes where id = pg_temp.fx('t3_sg2')::uuid));
+select public.business_setup_signed_decide(pg_temp.fx('t3_sg2')::uuid, true, null);
+select public.bs_as(null);
+select public.bs_check('staff_signed: the letter has one Staff record and nothing else was accepted', (select count(*) = 1 and bool_and(kind = 'Letter' and source = 'Staff' and signed_quote_id = pg_temp.fx('t3_sg2')::uuid) from public.business_setup_acceptances where document_id = pg_temp.fx('t3_lg')::uuid)
+  and (pg_temp.docs('t3_g') ->> 'letter_accepted')::boolean and pg_temp.svc_count('t3_qg') = 2);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_signed_add('%s', 'staff/CL973001/letter-g2.pdf')$$, pg_temp.fx('t3_lg')), 'already accepted');
+select public.bs_as(null);
+-- A letter of a quote that is not accepted takes no signed copy.
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_signed_add('%s', 'staff/CL973001/letter-lo.pdf')$$, pg_temp.fx('t3_llo')), 'must be accepted');
+select public.bs_as(null);
+
+-- ── sync: a case that waits only on its login, or only on KYC, moves when that changes ──
+select pg_temp.mkclient('CL973003');
+insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL973003', 'Done') on conflict (client_id) do update set kyc_state = 'Done';
+select pg_temp.mkcase('t3_y', 'CL973003', 'Onboarding');
+select pg_temp.mkquote('t3_y_q', 'T3-Y-Q', 'CL973003', pg_temp.cid('t3_y'), 'accepted', 800);
+insert into public.hub_documents (parent_id, doc_type, department, client_name, client_id, document_number, case_id)
+  select id, 'letter', 'Business Setup', client_name, client_id, 'T3-Y-L', case_id from public.hub_documents where id = pg_temp.fx('t3_y_q')::uuid;
+insert into f120 select 't3_y_l', id::text from public.hub_documents where document_number = 'T3-Y-L';
+insert into public.business_setup_signed_quotes (quote_id, source, status, note, decided_at, kind) values (pg_temp.fx('t3_y_l')::uuid, 'Legacy', 'Confirmed', 'test', now(), 'Letter');
+insert into public.business_setup_acceptances (document_id, kind, revision, decision, source, signed_quote_id)
+  select pg_temp.fx('t3_y_l')::uuid, 'Letter', 0, 'Accepted', 'Staff', id from public.business_setup_signed_quotes where quote_id = pg_temp.fx('t3_y_l')::uuid;
+update public.business_setup_cases set invoice_override_reason = 'Outside the CRM' where id = pg_temp.cid('t3_y');
+select public.bs_check('sync_login: everything but the login is met and the case waits', pg_temp.stage('t3_y') = 'Onboarding' and not (pg_temp.docs('t3_y') ->> 'login')::boolean
+  and (pg_temp.docs('t3_y') ->> 'quote_accepted')::boolean and (pg_temp.docs('t3_y') ->> 'letter_accepted')::boolean);
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values ('CL973003', 'Y', 'portal.y973', 'x');
+select public.bs_check('sync_login: issuing the login moves the case to Pipeline without any other change', pg_temp.stage('t3_y') = 'Pipeline');
+select pg_temp.mkclient('CL973004');
+select pg_temp.mkcase('t3_k', 'CL973004', 'Onboarding');
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values ('CL973004', 'K', 'portal.k973', 'x');
+select pg_temp.mkquote('t3_k_q', 'T3-K-Q', 'CL973004', pg_temp.cid('t3_k'), 'accepted', 800);
+insert into public.hub_documents (parent_id, doc_type, department, client_name, client_id, document_number, case_id)
+  select id, 'letter', 'Business Setup', client_name, client_id, 'T3-K-L', case_id from public.hub_documents where id = pg_temp.fx('t3_k_q')::uuid;
+insert into f120 select 't3_k_l', id::text from public.hub_documents where document_number = 'T3-K-L';
+insert into public.business_setup_signed_quotes (quote_id, source, status, note, decided_at, kind) values (pg_temp.fx('t3_k_l')::uuid, 'Legacy', 'Confirmed', 'test', now(), 'Letter');
+insert into public.business_setup_acceptances (document_id, kind, revision, decision, source, signed_quote_id)
+  select pg_temp.fx('t3_k_l')::uuid, 'Letter', 0, 'Accepted', 'Staff', id from public.business_setup_signed_quotes where quote_id = pg_temp.fx('t3_k_l')::uuid;
+update public.business_setup_cases set invoice_override_reason = 'Outside the CRM' where id = pg_temp.cid('t3_k');
+select public.bs_check('sync_kyc: everything but KYC is met and the case waits', pg_temp.stage('t3_k') = 'Onboarding' and not (pg_temp.docs('t3_k') ->> 'fields')::boolean);
+insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL973004', 'Done') on conflict (client_id) do update set kyc_state = 'Done';
+select public.bs_check('sync_kyc: KYC turning Done moves the case to Pipeline', pg_temp.stage('t3_k') = 'Pipeline');
+-- A form with no case is left alone.
+select pg_temp.mkclient('CL973005');
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values ('CL973005', 'N', 'portal.n973', 'x');
+select public.business_setup_form_create('CL973005', (select id from public.client_portal_accounts where username = 'portal.n973'));
+update public.business_setup_onboarding_forms set status = 'Submitted' where client_id = 'CL973005';
+select public.bs_check('a form with no case is left alone', (select case_id is null from public.business_setup_onboarding_forms where client_id = 'CL973005'));
+
+-- ── issue_login_ok and the login grant ──
+select pg_temp.mkcase('t3_n', 'CL973002', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_issue_login_ok('%s')$$, pg_temp.fx('t3_n')), 'Issue the quote first');
+select public.bs_as(null);
+select pg_temp.mkdq('t3_qn', 'CL973002', 't3_n');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('login_ok: the keys are client_id, email and has_login, and the quote contact''s address is used', (select array_agg(k order by k) = array['client_id', 'email', 'has_login'] from jsonb_object_keys(public.business_setup_issue_login_ok(pg_temp.cid('t3_n'))) k)
+  and public.business_setup_issue_login_ok(pg_temp.cid('t3_n')) ->> 'email' = 'c@x.ae' and public.business_setup_issue_login_ok(pg_temp.cid('t3_n')) ->> 'client_id' = 'CL973002');
+select public.bs_check('login_ok: an active login is reported', (public.business_setup_issue_login_ok(pg_temp.cid('t3_n')) ->> 'has_login')::boolean);
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select public.business_setup_issue_login_ok('%s')$$, pg_temp.fx('t3_n')), 'permission');
+select public.bs_as(null);
+select public.t_anon_refused('login_perm: anon is refused', format($$select public.business_setup_issue_login_ok('%s')$$, pg_temp.fx('t3_n')));
+-- A client with no login: issue it, then issue again.
+select pg_temp.mkclient('CL973006');
+select pg_temp.mkcase('t3_i', 'CL973006', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3_qi', 'CL973006', 't3_i');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('login_ok: no login yet', not (public.business_setup_issue_login_ok(pg_temp.cid('t3_i')) ->> 'has_login')::boolean);
+select public.bs_as(null);
+select public.business_setup_login_grant('CL973006', 'Login.I973', 'Zx7mKq2WpR9tVn', 'i@x.ae', '00000000-0000-0000-0000-00000000000c') as g1 \gset
+select public.bs_check('login_once: the first issue creates the login, lower-cased, with the email', (:'g1'::jsonb ->> 'created')::boolean and :'g1'::jsonb ->> 'username' = 'login.i973' and :'g1'::jsonb ->> 'email' = 'i@x.ae');
+select public.bs_check('login_once: the result carries no password', :'g1'::jsonb::text !~* 'password|Zx7mKq2WpR9tVn');
+select password_hash as h1 from public.client_portal_accounts where client_master_id = 'CL973006' \gset
+select public.business_setup_login_grant('CL973006', 'another.name', 'Different-Pass-1', 'other@x.ae', null) as g2 \gset
+select public.bs_check('login_once: the second issue makes no second account and changes nothing', not (:'g2'::jsonb ->> 'created')::boolean and (select count(*) = 1 from public.client_portal_accounts where client_master_id = 'CL973006')
+  and (select password_hash = :'h1' and username = 'login.i973' and email = 'i@x.ae' from public.client_portal_accounts where client_master_id = 'CL973006'));
+select public.bs_check('login_once: the vault copy is the password issued, and the case sees a login', exists (select 1 from vault.decrypted_secrets where name = 'client_portal_pw:' || (select id from public.client_portal_accounts where client_master_id = 'CL973006') and decrypted_secret = 'Zx7mKq2WpR9tVn')
+  and (pg_temp.docs('t3_i') ->> 'login')::boolean);
+select public.bs_check('login_once: the password is in no audit row', not exists (select 1 from public.business_setup_audit_log where new_data::text like '%Zx7mKq2WpR9tVn%' or old_data::text like '%Zx7mKq2WpR9tVn%')
+  and not exists (select 1 from public.admin_audit where detail::text like '%Zx7mKq2WpR9tVn%') and public.bs_audit_count('login_issue', (select id::text from public.client_portal_accounts where client_master_id = 'CL973006'), '{"username":"login.i973"}') = 1);
+select public.bs_expect_error($$select public.business_setup_login_grant('CL973006', 'ab', 'Zx7mKq2WpR9tVn', 'i@x.ae', null)$$, 'Username needs');
+select public.bs_expect_error($$select public.business_setup_login_grant('CL973006', 'taken.name', 'short', 'i@x.ae', null)$$, 'at least 10');
+-- A revoked login is restored with a new password when staff issue again.
+update public.client_portal_accounts set status = 'revoked' where client_master_id = 'CL973006';
+select public.business_setup_login_grant('CL973006', 'login.i973', 'Nw8pLm3XcV5qTz', 'i@x.ae', null) as g3 \gset
+select public.bs_check('login_once: a revoked login is restored (still one account) with the new password', (:'g3'::jsonb ->> 'created')::boolean and (select count(*) = 1 and bool_and(status = 'active' and password_hash <> :'h1') from public.client_portal_accounts where client_master_id = 'CL973006')
+  and exists (select 1 from vault.decrypted_secrets where name = 'client_portal_pw:' || (select id from public.client_portal_accounts where client_master_id = 'CL973006') and decrypted_secret = 'Nw8pLm3XcV5qTz'));
+-- login_mail: the username and name alone, or with the stored password for Resend.
+select public.bs_check('login_mail: without the password it has none', not (public.business_setup_login_mail('CL973006', false, null) ? 'password') and public.business_setup_login_mail('CL973006', false, null) ->> 'username' = 'login.i973');
+select public.bs_check('login_mail: with the password it returns the stored one', public.business_setup_login_mail('CL973006', true, null) ->> 'password' = 'Nw8pLm3XcV5qTz');
+select public.bs_check('login_mail: the read is logged without the password', exists (select 1 from public.admin_audit where action = 'client_portal_password_emailed' and target = 'login.i973' and detail::text !~ 'Nw8pLm3XcV5qTz'));
+select public.bs_check('login_mail: a client with no login gives nothing', public.business_setup_login_mail('CL973099', true, null) is null);
+
+
 do $$
 declare f int; t int;
 begin

@@ -81,6 +81,7 @@ create table if not exists public.business_setup_signed_quotes (
   id uuid primary key default gen_random_uuid(),
   quote_id uuid not null references public.hub_documents(id),
   storage_path text,
+  kind text not null default 'Quote' check (kind in ('Quote', 'Letter')),   -- what quote_id points at: a quote, or an engagement letter (also a hub_documents row)
   source text not null check (source in ('Client', 'Staff', 'Legacy')),
   status text not null check (status in ('Uploaded', 'Confirmed', 'Refused')),
   note text,
@@ -91,6 +92,7 @@ create table if not exists public.business_setup_signed_quotes (
   check ((source = 'Legacy') = (storage_path is null)),
   check (source <> 'Legacy' or status = 'Confirmed')
 );
+alter table public.business_setup_signed_quotes add column if not exists kind text not null default 'Quote' check (kind in ('Quote', 'Letter'));
 create unique index if not exists business_setup_signed_path_uq on public.business_setup_signed_quotes (storage_path) where storage_path is not null;
 create unique index if not exists business_setup_signed_one_open on public.business_setup_signed_quotes (quote_id) where status = 'Uploaded';
 create unique index if not exists business_setup_signed_one_confirmed on public.business_setup_signed_quotes (quote_id) where status = 'Confirmed';
@@ -843,7 +845,7 @@ declare
   v_mode text := coalesce(p ->> 'vat_mode', 'inclusive'); v_number text; r hub_documents; it jsonb; q hub_documents; o hub_documents; v_id uuid := gen_random_uuid(); v_root uuid;
   v_client text := nullif(trim(p ->> 'client_id'), ''); v_revises uuid := nullif(p ->> 'revises_id', '')::uuid; v_template text := nullif(trim(p ->> 'template_key'), '');
   v_case uuid := nullif(p ->> 'case_id', '')::uuid; v_case_client text;
-  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_docs jsonb; v_sid uuid;
+  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_sid uuid; v_was_accepted boolean := false;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   -- An engagement letter exists only as the next step of a generated quote, and takes everything from it.
@@ -859,14 +861,7 @@ begin
   v_bs_quote := v_type = 'quote' and p ->> 'department' = 'Business Setup';
   -- Business Setup documents reach a client's login, so issuing one needs the department's right. A letter takes its department from its quote above.
   if p ->> 'department' = 'Business Setup' then perform business_setup_require('setup.quotes.manage'); end if;
-  -- A Business Setup letter waits for the signed quote only; a payment is not needed. A quote in a case reads this from the case; a quote
-  -- with no case reads its own signed copy. After the right is checked, so a caller without it learns nothing about the quote.
-  if v_type = 'letter' and q.department = 'Business Setup' then
-    if q.case_id is not null then v_docs := business_setup_case_docs(q.case_id);
-    else v_docs := jsonb_build_object('signed', exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Confirmed'));
-    end if;
-    if not (v_docs ->> 'signed')::boolean then raise exception 'Confirm the signed copy of the quote before the engagement letter'; end if;
-  end if;
+  -- A Business Setup letter waits for the accepted quote only (checked above, before the right); a payment is not needed.
   if v_type <> 'quote' then v_revises := null; v_template := null; end if;
   if v_template is not null and not exists (select 1 from business_setup_quote_templates where key = v_template and active) then raise exception 'Unknown quote template %', v_template; end if;
   if v_client is not null and not exists (select 1 from client_master where client_id = v_client) then raise exception 'Unknown client %', v_client; end if;
@@ -923,7 +918,18 @@ begin
     select * into o from hub_documents where id = v_revises and doc_type = 'quote' for update;
     if o.id is null then raise exception 'The quote to revise was not found'; end if;
     if o.department is distinct from p ->> 'department' then raise exception 'A revision must be for the same department as the quote it replaces'; end if;
-    if o.status <> 'issued' then raise exception 'Only an issued quote can be revised'; end if;
+    -- A Business Setup quote of a case that was accepted can be revised too, while the case is at Client Onboarding and no service on it has started.
+    -- Its acceptance does not carry over: the new revision is a new document with no acceptance row, and the services not yet started are cancelled below.
+    -- A quote outside every case keeps the old rule (only an issued quote can be revised).
+    if o.status = 'accepted' and o.department = 'Business Setup' and o.case_id is not null then
+      if exists (select 1 from business_setup_services s where s.quote_id = o.id and (s.status <> 'Not started' or s.started_at is not null)) then
+        raise exception 'This quote cannot be revised because a service on it has started';
+      end if;
+      if (select stage from business_setup_cases where id = o.case_id) <> 'Onboarding' then
+        raise exception 'This quote cannot be revised because its case has moved past Client Onboarding';
+      end if;
+      v_was_accepted := true;
+    elsif o.status <> 'issued' then raise exception 'Only an issued quote can be revised'; end if;
     -- The revision stays with the old quote's client; a different client is refused.
     if o.client_id is not null then
       if v_client is null then v_client := o.client_id;
@@ -951,9 +957,16 @@ begin
   returning * into r;
   if v_revises is not null then
     update hub_documents set status = 'superseded', status_at = now(), status_by = auth.uid(), status_reason = 'Revised by ' || r.document_number where id = v_revises;
+    -- The services of an accepted quote that was revised: none has started, so they are cancelled, and the new revision creates its own when it is accepted.
+    if v_was_accepted then
+      for v_sid in update business_setup_services set status = 'Cancelled' where quote_id = v_revises and status = 'Not started' returning id loop
+        insert into business_setup_service_history (service_id, from_status, to_status, note) values (v_sid, 'Not started', 'Cancelled', 'Quote revised by ' || r.document_number);
+      end loop;
+    end if;
     -- A signed copy uploaded for the quote just replaced no longer applies.
     for v_sid in update business_setup_signed_quotes set status = 'Refused', note = 'This quote was revised, so this signed copy no longer applies: sign the new quote',
-           decided_at = now(), decided_by = auth.uid() where quote_id = v_revises and status = 'Uploaded' returning id loop
+           decided_at = now(), decided_by = auth.uid()
+           where (quote_id = v_revises or quote_id in (select id from hub_documents where parent_id = v_revises and doc_type = 'letter')) and status = 'Uploaded' returning id loop
       perform business_setup_audit('business_setup_signed_quotes', v_sid::text, 'signed_refused_by_revision', jsonb_build_object('status', 'Uploaded'), jsonb_build_object('quote_id', v_revises, 'revised_by', r.document_number));
     end loop;
   end if;

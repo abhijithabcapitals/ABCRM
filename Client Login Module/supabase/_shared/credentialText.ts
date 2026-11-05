@@ -9,6 +9,29 @@ export type CredentialMail = {
   password: string;
 };
 
+// A client who already has a login is told a new quote is waiting. No password: the login they have stays as it is.
+export type NoticeMail = { name: string; username: string };
+
+export function noticeEmail({ name, username }: NoticeMail) {
+  const clean = name.replace(/[\r\n]+/g, " ").trim();
+  return {
+    subject: "A new quote is waiting for you on the AB Capital Services FZE client portal",
+    text: [
+      `Dear ${clean || "Sir or Madam"},`,
+      "",
+      "A new quote is waiting for you on the AB Capital Services FZE client portal.",
+      "",
+      `Sign in: ${SIGN_IN_URL}`,
+      `Username: ${username}`,
+      "",
+      "Please sign in with the login you already have to read the quote and accept it. If you need a new password, contact AB Capital Services FZE.",
+      "",
+      "*Regards,*",
+      "AB Capital Services FZE",
+    ].join("\n"),
+  };
+}
+
 export function credentialEmail({ audience, reset, name, username, password }: CredentialMail) {
   const place = audience === "client" ? "AB Capital Services FZE client portal" : "AB Capital Services FZE Workspace";
   const clean = name.replace(/[\r\n]+/g, " ").trim();

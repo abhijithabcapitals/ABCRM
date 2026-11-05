@@ -11,6 +11,7 @@
 //   upload_start { for_form: true, ... } files the upload under this login's own Business Setup form
 //   upload_done { id }, doc_url { id }
 //   setup_view, form_get, form_save { answers }, form_submit, setup_file { kind, id }
+//   setup_decide { document_id, decision, note? }   Accepted or Rejected on the client's own quote or letter; the account comes from the session
 //   submit_change { field, value } -> { id }       asks staff to change one company detail
 //   gallery_url { source, id } -> { url }          source is kyc or generated; link lasts 120 seconds
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
@@ -18,11 +19,15 @@
 //   admin_grant_access { banking_client_id, client_master_id, username, password, email, reset }   admins only: saves the login, mails the password
 //   staff_url { id, filed? }, staff_review { id, status, note? }
 //   staff_signed_url { id }                                        setup.quotes.manage: a link to open a signed quote copy
+//   setup_issue_login { case_id, resend? } -> { ok, emailed, username }   setup.leads.manage, with the case's quote issued: makes the client's login with a
+//     server-generated password and emails it (never returned or logged); a client who has a login gets a notice email only; resend: true emails the stored
+//     login again without changing it. emailed: false keeps the login.
 //
 // Deploy: supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { emailCredentials } from "../_shared/credentialMail.ts";
+import { emailCredentials, emailNotice } from "../_shared/credentialMail.ts";
+import { generatePassword, usernameCandidates } from "../_shared/loginSecret.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -39,6 +44,7 @@ const GALLERY_BUCKET = "banking-documents";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOADS_PER_DAY = 100;
+const EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
 const DOC_TYPES = ["Trade Licence", "MOA / AOA", "Passport / ID", "Bank Statement", "Invoice", "VAT Document", "Corporate Tax Document", "Other"];
 const FORM_DOC_TYPES = ["Passport", "Emirates visa", "Emirates ID", "Ejari", "Bank statement", "Utility bill", "Old visa", "Old Emirates ID", "Other"];
 const SETUP_FILE_KINDS = ["quote", "letter", "receipt", "output", "invoice"];
@@ -72,7 +78,7 @@ Deno.serve(async (req) => {
       return json({ token: data.token });
     }
 
-    if (action === "admin_preview" || action === "admin_grant_access" || action === "staff_url" || action === "staff_review" || action === "staff_signed_url") {
+    if (action === "admin_preview" || action === "admin_grant_access" || action === "staff_url" || action === "staff_review" || action === "staff_signed_url" || action === "setup_issue_login") {
       // Runs as the signed-in staff member, so the SQL's auth.uid() checks apply.
       const staff = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
         auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
@@ -108,6 +114,61 @@ Deno.serve(async (req) => {
         const { data: file, error: fileErr } = await staff.rpc("business_setup_signed_file", { p_id: String(body.id || "") });
         if (fileErr) return json({ error: fileErr.message }, 403);
         return json({ url: await signed(file.path, file.file_name) });
+      }
+      if (action === "setup_issue_login") {
+        // The SQL checks the right (setup.leads.manage) and that the case has an issued quote; it says whether the client has an active login and where to write.
+        const caseId = String(body.case_id || "");
+        if (!UUID.test(caseId)) throw new InputError("Case not found.");
+        const { data: info, error: okErr } = await staff.rpc("business_setup_issue_login_ok", { p_case: caseId });
+        if (okErr) {
+          if (/permission/i.test(okErr.message)) return json({ error: okErr.message }, 403);
+          if (okErr.code === "P0001") throw new InputError(okErr.message);
+          throw new Error(okErr.message);
+        }
+        const { data: who } = await staff.auth.getUser();
+        const actor: string | null = who?.user?.id ?? null;
+        const loginMail = async (withPassword: boolean) => {
+          const { data, error } = await admin.rpc("business_setup_login_mail", { p_client: info.client_id, p_with_password: withPassword, p_actor: actor });
+          if (error) throw new Error(error.message);
+          return data;
+        };
+        const notice = async () => {
+          const mail = await loginMail(false);
+          const to = String(mail?.email || info.email || "").trim();
+          if (!mail || !EMAIL.test(to)) return json({ ok: true, emailed: false, username: mail?.username ?? null });
+          const result = await emailNotice(admin, actor, to, { name: mail.display_name, username: mail.username });
+          return json({ ok: true, emailed: result.emailed, username: mail.username });
+        };
+        if (body.resend === true) {
+          if (!info.has_login) throw new InputError("This client has no active login to send. Issue it first.");
+          const mail = await loginMail(true);
+          if (!mail?.password) throw new InputError("The password of this login is not stored, so it cannot be sent again. Ask an administrator to reset it.");
+          const to = String(mail.email || info.email || "").trim();
+          if (!EMAIL.test(to)) throw new InputError("This client has no email address on the quote or the case. Add one first.");
+          const result = await emailCredentials(admin, actor, to, { audience: "client", reset: false, name: mail.display_name, username: mail.username, password: mail.password });
+          return json({ ok: true, emailed: result.emailed, username: mail.username });
+        }
+        if (info.has_login) return await notice();
+        const email = String(info.email || "").trim();
+        if (!EMAIL.test(email)) throw new InputError("This client has no email address on the quote or the case. Add one first.");
+        const { data: client } = await admin.from("client_master").select("legal_name").eq("client_id", info.client_id).maybeSingle();
+        const password = generatePassword();
+        let granted: { created: boolean; username: string; display_name: string; email: string } | null = null;
+        for (const username of usernameCandidates(client?.legal_name || "", info.client_id)) {
+          const { data, error } = await admin.rpc("business_setup_login_grant", { p_client: info.client_id, p_username: username, p_password: password, p_email: email, p_actor: actor });
+          if (error) {
+            if (/username is taken/i.test(error.message)) continue;
+            if (error.code === "P0001") throw new InputError(error.message);
+            throw new Error(error.message);
+          }
+          granted = data;
+          break;
+        }
+        if (!granted) throw new InputError("No free username was found for this client. Please try again.");
+        // Someone issued the login between the check and the save: nothing changed, so the client gets the notice only.
+        if (!granted.created) return await notice();
+        const result = await emailCredentials(admin, actor, granted.email, { audience: "client", reset: false, name: granted.display_name, username: granted.username, password });
+        return json({ ok: true, emailed: result.emailed, username: granted.username });
       }
       const { data: doc, error: docErr } = await staff.rpc("client_inputs_file", { p_id: String(body.id || "") });
       if (docErr) return json({ error: docErr.message }, 403);
@@ -236,6 +297,20 @@ Deno.serve(async (req) => {
           throw new Error(error.message);
         }
         return json({ id: data });
+      }
+      case "setup_decide": {
+        const documentId = String(body.document_id || "");
+        const decision = String(body.decision || "");
+        if (!UUID.test(documentId)) throw new InputError("Document not found.");
+        if (decision !== "Accepted" && decision !== "Rejected") throw new InputError("Choose Accept or Reject.");
+        const note = String(body.note ?? "").trim().slice(0, 1000);
+        // The account is the one of the live session. The database works out the client and refuses a document that is not theirs.
+        const { error } = await admin.rpc("business_setup_portal_decide", { p_account: accountId, p_document: documentId, p_decision: decision, p_note: note || null });
+        if (error) {
+          if (error.code === "P0001") throw new InputError(error.message);
+          throw new Error(error.message);
+        }
+        return json({ ok: true });
       }
       case "gallery_url": {
         const source = String(body.source || "");

@@ -1,6 +1,9 @@
 -- LOCAL TEST ONLY. Run by run-local.sh with ROLLBACK_TEST=1, after 015 and 018 and before rollback/015_018_rollback.sql. Rows only phase 2 can make.
 insert into public.business_setup_signed_quotes (quote_id, storage_path, source, status)
   select id, 'staff/CL990015/signed.pdf', 'Staff', 'Refused' from public.hub_documents where document_number = 'RB-015-Q';
+-- An acceptance row (016) and a login-sync trigger target: both go with the rollback.
+insert into public.business_setup_acceptances (document_id, kind, revision, decision, source, signed_quote_id)
+  select q.id, 'Quote', 0, 'Accepted', 'Staff', s.id from public.hub_documents q join public.business_setup_signed_quotes s on s.quote_id = q.id where q.document_number = 'RB-015-Q' limit 1;
 -- An advance: a payment on the case, with no quote.
 insert into public.business_setup_payments (client_id, case_id, paid_on, amount, type, note)
   select 'CL990015', id, current_date, 70, 'Payment', 'rollback-015-advance' from public.business_setup_cases where lead_name = 'rollback-015';

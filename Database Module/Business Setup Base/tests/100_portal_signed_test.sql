@@ -58,6 +58,10 @@ select public.business_setup_signed_decide(pg_temp.fx('sa2')::uuid, true, 'Confi
 select public.bs_as(null);
 select public.bs_check('confirming the staff copy accepts the quote', (select status = 'accepted' from public.hub_documents where id = pg_temp.fx('qa')::uuid) and (select count(*) = 1 from public.business_setup_services where quote_id = pg_temp.fx('qa')::uuid));
 select public.bs_check('after acceptance the portal hides the confirm note', pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'status' = 'Confirmed' and pg_temp.vq('acc_a', 'qa') -> 'signed' -> 'note' = 'null'::jsonb);
+select public.bs_check('staff_signed: confirming the staff copy writes one Staff acceptance for the quote, linked to the signed copy', (select count(*) = 1 and bool_and(source = 'Staff' and kind = 'Quote' and decision = 'Accepted' and signed_quote_id = pg_temp.fx('sa2')::uuid and revision = 0 and account_id is null)
+  from public.business_setup_acceptances where document_id = pg_temp.fx('qa')::uuid));
+select public.bs_check('staff_signed: the portal shows the decision as staff-confirmed and nothing left to decide', pg_temp.vq('acc_a', 'qa') -> 'decision' ->> 'decision' = 'Accepted' and pg_temp.vq('acc_a', 'qa') -> 'decision' ->> 'source' = 'Staff'
+  and not (pg_temp.vq('acc_a', 'qa') ->> 'can_decide')::boolean);
 select public.bs_check('client B is unaffected', pg_temp.vq('acc_b', 'qb') -> 'signed' = 'null'::jsonb and (select status = 'issued' from public.hub_documents where id = pg_temp.fx('qb')::uuid));
 
 -- ── the login name for the quote message: quote staff only, and never a password or vault reference ──

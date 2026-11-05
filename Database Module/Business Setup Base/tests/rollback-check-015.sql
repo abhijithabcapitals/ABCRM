@@ -40,6 +40,7 @@ begin
   if bad is not null then raise exception 'Indexes differ from 014: %', bad; end if;
   -- Tables phase 2 added are gone; phase 1 rows stay.
   if to_regclass('public.business_setup_signed_quotes') is not null then raise exception 'business_setup_signed_quotes remains'; end if;
+  if to_regclass('public.business_setup_acceptances') is not null then raise exception 'business_setup_acceptances remains'; end if;
   if to_regclass('public.business_setup_cases') is null then raise exception 'business_setup_cases went'; end if;
   if (select count(*) from public.business_setup_cases where lead_name not like 'rollback-016%') <> (select cases from public.bs_pre015_kept) then raise exception 'cases lost rows'; end if;
   -- 016: the stages map back, and the old check is back.

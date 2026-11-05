@@ -23,6 +23,21 @@
 begin;
 
 -- ── 018_portal.sql ───────────────────────────────────────────────────
+-- Acceptance records (016) and the client login and decision functions (018): the triggers, the append-only table (before business_setup_signed_quotes, which it
+-- points at) and the functions go. WARNING: every acceptance row is lost. A quote accepted from the portal stays accepted, with no signed copy behind it; an
+-- accepted quote needs none at 014. The accept logic returns to 014's below (business_setup_quote_accept_body goes with it).
+drop trigger if exists business_setup_case_acceptance on public.business_setup_acceptances;
+drop trigger if exists business_setup_case_login on public.client_portal_accounts;
+drop trigger if exists business_setup_case_kyc on public.business_setup_kyc_profiles;
+drop table if exists public.business_setup_acceptances;
+drop function if exists public.business_setup_acceptances_immutable();
+drop function if exists public.business_setup_case_acceptance_trg();
+drop function if exists public.business_setup_case_client_trg();
+drop function if exists public.business_setup_doc_revision(uuid);
+drop function if exists public.business_setup_portal_decide(uuid, uuid, text, text);
+drop function if exists public.business_setup_issue_login_ok(uuid);
+drop function if exists public.business_setup_login_grant(text, text, text, text, uuid);
+drop function if exists public.business_setup_login_mail(text, boolean, uuid);
 drop function if exists public.business_setup_portal_signed_add(uuid, uuid, text);
 drop function if exists public.business_setup_portal_login_name(text);
 
@@ -1043,6 +1058,7 @@ begin
 end $function$
 ;
 
+drop function if exists public.business_setup_quote_accept_body(uuid, boolean);
 -- These two were used by the 015 versions replaced above.
 drop function if exists public.business_setup_case_locked(uuid);
 drop function if exists public.business_setup_case_net_paid(uuid);

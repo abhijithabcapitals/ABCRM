@@ -253,6 +253,18 @@ begin
   return null;
 end $$;
 create trigger aaa_bs_sign after insert or update of status on public.hub_documents for each row execute function public.bs_sign_trg();
+-- Older checks also put a letter on a case by hand and expect Letter accepted to follow. This trigger stands an accepted record behind any Business Setup
+-- letter inserted that way (a Legacy signed copy of the letter and a Staff acceptance row). 120 drops it before it tests the real record.
+create function public.bs_letter_trg() returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_sid uuid;
+begin
+  if new.doc_type = 'letter' and new.department = 'Business Setup' then
+    insert into public.business_setup_signed_quotes (quote_id, source, status, note, decided_at, kind) values (new.id, 'Legacy', 'Confirmed', 'test helper', now(), 'Letter') returning id into v_sid;
+    insert into public.business_setup_acceptances (document_id, kind, revision, decision, source, signed_quote_id) values (new.id, 'Letter', 0, 'Accepted', 'Staff', v_sid);
+  end if;
+  return null;
+end $$;
+create trigger aaa_bs_letter after insert on public.hub_documents for each row execute function public.bs_letter_trg();
 insert into public.profiles (id, full_name, role) values
   ('00000000-0000-0000-0000-00000000000a', 'Admin', 'admin'),
   ('00000000-0000-0000-0000-00000000000b', 'Manager', 'member'),
