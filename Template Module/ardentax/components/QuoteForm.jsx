@@ -40,7 +40,7 @@ function Choice({ id, label, value, options, onChange, hint }) {
   );
 }
 
-export default function QuoteForm({ details: d, setDetails, totals: t, clients, locked }) {
+export default function QuoteForm({ details: d, setDetails, totals: t, clients, locked, fixedType }) {
   const put = (path) => (value) => setDetails((cur) => setIn(cur, path, value));
   const putClient = (field) => (value) => setDetails((cur) => ({ ...cur, client: CLIENT_MAP[field] ? applyClient(cur.client, CLIENT_MAP, field, value, clients) : { ...cur.client, [field]: value } }));
   const custom = d.quoteType === "Custom";
@@ -51,7 +51,7 @@ export default function QuoteForm({ details: d, setDetails, totals: t, clients, 
       <ClientLists clients={clients} />
       <Panel title="Document">
         <div className="bk-grid">
-          {locked
+          {locked || fixedType
             ? <div className="bk-field"><label>Document</label><div className="at-fixed">{d.docType === "letter" ? "Engagement Letter" : "Quote"}</div></div>
             : <Choice id="at-doc" label="Document" value={d.docType === "letter" ? "Engagement Letter" : "Quote"} options={["Quote", "Engagement Letter"]} onChange={(v) => put(["docType"])(v === "Quote" ? "quote" : "letter")} hint="Quote = short quotation, no legal terms. Engagement Letter = full terms for signing." />}
           <Choice id="at-type" label="Quote type" value={d.quoteType} options={["Standard", "Custom"]} onChange={put(["quoteType"])} hint="Standard = three package cards. Custom = no cards, your own line items." />

@@ -1,13 +1,23 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import defaultManifest from "../Template Docs/manifest.json";
 import { COMPANIES, TEMPLATE_TYPES, templatesFor } from "../logic/companyTemplates";
 
+// Brings in the Word and PDF tools, so it loads only when opened.
+const ArdentTaxTab = lazy(() => import("../ardentax/components/ArdentTaxTab"));
+
+// The columns of a company that open a generator, by template type.
+const GENERATORS = { ardentax: { quote: "quote", el: "letter" } };
+
 // Company template library: pick a company, see its Quote / EL / Email /
-// Social templates side by side. Structure only for now — actions on each
-// template (open, fill, copy) come later.
-export default function CompanyTemplatesPage({ manifest = defaultManifest }) {
+// Social templates side by side. Ardentax's Quote and Engagement Letter open
+// its generator; other columns are structure only for now.
+// ArdentaxPane: the development page passes one with the fake backend.
+export default function CompanyTemplatesPage({ manifest = defaultManifest, canArdentax = false, ArdentaxPane = ArdentTaxTab }) {
   const [companyKey, setCompanyKey] = useState(COMPANIES[0].key);
+  const [openType, setOpenType] = useState(null);
   const company = COMPANIES.find((c) => c.key === companyKey) || COMPANIES[0];
+  const generators = GENERATORS[company.key] || {};
+  const opened = TEMPLATE_TYPES.find((t) => t.key === openType && generators[t.key]);
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "calc(100vh - var(--brand-footer-h))", overflow: "hidden", background: "#f7f8fa" }}>
@@ -36,7 +46,7 @@ export default function CompanyTemplatesPage({ manifest = defaultManifest }) {
           Company
           <select
             value={companyKey}
-            onChange={(e) => setCompanyKey(e.target.value)}
+            onChange={(e) => { setCompanyKey(e.target.value); setOpenType(null); }}
             style={{ padding: "7px 10px", borderRadius: 7, border: "1px solid #e0e0e0", fontSize: 13, background: "#fff", minWidth: 220 }}
           >
             {COMPANIES.map((c) => (
@@ -48,7 +58,17 @@ export default function CompanyTemplatesPage({ manifest = defaultManifest }) {
         </label>
       </div>
 
-      {/* Columns */}
+      {opened ? (
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 40px 28px" }}>
+          <button type="button" onClick={() => setOpenType(null)} style={{ border: "none", background: "none", padding: 0, marginBottom: 14, color: "var(--accent)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            ← All {company.label} templates
+          </button>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a1a", margin: "0 0 14px" }}>{opened.label}</h2>
+          <Suspense fallback={<div style={{ color: "#9ca3af", fontSize: 13 }}>Loading…</div>}>
+            <ArdentaxPane key={opened.key} docType={generators[opened.key]} />
+          </Suspense>
+        </div>
+      ) : (
       <div
         style={{
           flex: 1,
@@ -69,7 +89,15 @@ export default function CompanyTemplatesPage({ manifest = defaultManifest }) {
                 {type.sub && <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>{type.sub}</div>}
               </div>
               <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-                {items.length === 0 ? (
+                {generators[type.key] ? (
+                  canArdentax ? (
+                    <button type="button" onClick={() => setOpenType(type.key)} style={{ alignSelf: "flex-start", padding: "8px 12px", border: "1px solid var(--accent)", borderRadius: 7, background: "#fff", color: "var(--accent)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      Open {type.label}
+                    </button>
+                  ) : (
+                    <div style={{ fontSize: 13, color: "#9ca3af" }}>Needs the ArdentTax (ASP) access from an admin.</div>
+                  )
+                ) : items.length === 0 ? (
                   <div style={{ fontSize: 13, color: "#9ca3af" }}>No templates yet.</div>
                 ) : (
                   items.map((t) => (
@@ -86,6 +114,7 @@ export default function CompanyTemplatesPage({ manifest = defaultManifest }) {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

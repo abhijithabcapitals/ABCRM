@@ -1,4 +1,5 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { isHubAdmin } from "../services/hubApi";
 import "@banking/components/banking.css";
 import CompanyLibrary from "./CompanyLibrary";
 import ServiceDesk from "./ServiceDesk";
@@ -18,8 +19,11 @@ const TABS = [
   { key: "settings", label: "⚙ Settings" },
 ];
 
-export default function TemplateHub({ profile }) {
+export default function TemplateHub({ profile, canArdentax = false }) {
   const [tab, setTab] = useState("services");
+  // CRM admins and managers. The database checks this again on every change.
+  const [hubAdmin, setHubAdmin] = useState(false);
+  useEffect(() => { isHubAdmin().then(setHubAdmin).catch(() => setHubAdmin(false)); }, []);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "calc(100vh - var(--brand-footer-h))", overflow: "hidden", background: "#f7f8fa" }}>
       <div style={{ padding: "22px 40px 0", background: "#fff", borderBottom: "1px solid #ebebeb" }}>
@@ -60,7 +64,7 @@ export default function TemplateHub({ profile }) {
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><ServiceDesk profile={profile} /></div>
         ) : tab === "quotations" || tab === "company-templates" ? (
           <Suspense fallback={<div style={{ color: "#9ca3af", fontSize: 13 }}>Loading…</div>}>
-            {tab === "quotations" ? <QuotationsPage profile={profile} /> : <CompanyTemplatesPage />}
+            {tab === "quotations" ? <QuotationsPage profile={profile} hubAdmin={hubAdmin} /> : <CompanyTemplatesPage canArdentax={canArdentax} />}
           </Suspense>
         ) : (
           <CompanyLibrary profile={profile} />

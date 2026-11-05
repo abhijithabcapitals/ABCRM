@@ -6,7 +6,7 @@ Source of the CRM's **Template Hub** tab. `components/TemplateHub.jsx` is the li
 
 The Word files hold prices and bank details and this repository is public, so they are kept in the private `hub-documents` bucket and never committed. To prepare them, run `scripts/update_library_templates.py` with an output folder outside any repository, then upload each file in Settings. A file with `{{tags}}` gets a form as soon as it is uploaded. Copies from before 2026-11-05 remain in git history. AB Capital documents share the Business Setup quote series; Ardentax documents use the `ADTD` series. Design: `docs/2026-11-05-library-fill-design.md`.
 
-`ardentax/` is the separate ArdentTax (ASP) tab, with its own README.
+`ardentax/` is the ArdentTax (ASP) generator, opened from Company Templates > Ardentax > Quote or Engagement Letter, with its own README.
 
 The rest of this README describes the earlier split copy (`QuotationsPage` and its parts), kept for reuse in another CRM. The Template Hub tab does not use it.
 

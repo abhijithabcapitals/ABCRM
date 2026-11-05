@@ -1,4 +1,7 @@
 .at-page { flex: 1; display: flex; flex-direction: column; height: calc(100vh - var(--brand-footer-h, 0px)); overflow: hidden; background: #f7f8fa; }
+.at-embedded { display: block; flex: none; height: auto; overflow: visible; background: transparent; }
+.at-embedded .at-head { padding: 0; border: 0; background: none; }
+.at-embedded .at-body { overflow: visible; padding: 0; }
 .at-head { padding: 22px 40px 18px; background: #fff; border-bottom: 1px solid #ebebeb; font-size: 13px; color: #777; }
 .at-head h1 { font-size: 24px; font-weight: 800; color: #1a1a1a; margin: 0 0 4px; letter-spacing: -0.3px; }
 .at-body { flex: 1; overflow-y: auto; padding: 24px 40px; }

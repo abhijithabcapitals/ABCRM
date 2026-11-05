@@ -4,9 +4,9 @@ import { slugify, keyLive, DEFAULT_USD_RATE } from "../logic/helpers";
 import { diffTemplateFields } from "../logic/diffTemplateFields";
 import { fetchTemplateHistory, saveTemplate, deleteTemplate } from "../services/templatesApi";
 
-export default function TemplateEditor({ template, profile, onClose, onSaved }) {
+export default function TemplateEditor({ template, profile, hubAdmin = false, onClose, onSaved }) {
   const isNew = !template.id;
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = profile?.role === "admin" || hubAdmin;
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
 

@@ -100,7 +100,7 @@ A generated document is not edited. **New from this** opens the form pre-filled 
 
 ## Data changes
 
-New migration `Database Module/Template Hub Base/migrations/004_library_fill.sql`. Re-runnable, with a rollback file. Each function changed below must first be read from live, because later migrations have replaced earlier definitions.
+New migration `Database Module/Template Hub Base/migrations/005_library_fill.sql`. Re-runnable, with a rollback file. Each function changed below must first be read from live, because later migrations have replaced earlier definitions.
 
 **`hub_documents`**
 - New columns: `library_template text`, `library_file_id bigint`, `field_values jsonb`.

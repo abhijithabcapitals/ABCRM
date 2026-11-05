@@ -20,6 +20,7 @@ export const listDocuments = async (department) => {
   return check(await q);
 };
 export const updateMail = async (id, subject, body) => check(await supabase.rpc("hub_mail_update", { p_id: id, p_subject: subject, p_body: body }));
+export const isHubAdmin = async () => check(await supabase.rpc("hub_is_admin"));
 export const numberingStatus = async () => check(await supabase.rpc("hub_numbering_status"));
 export const saveNumbering = async (department, kind, v) => check(await supabase.rpc("hub_numbering_save", { p_department: department, p_kind: kind, p_format: v.format, p_digits: v.digits, p_restart: v.restart, p_next: v.next_serial }));
 export const loadVouchers = async () => check(await supabase.from("voucher_register").select("*").order("created_at", { ascending: false }).limit(5000));

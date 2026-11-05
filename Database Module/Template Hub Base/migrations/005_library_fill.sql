@@ -4,9 +4,9 @@
 -- Staff fill a Word template from the Company Library and get a numbered document.
 --   AB Capital documents stay doc_type 'quote' in Business Setup (BSQ numbers, Voucher Register, engagement letter step).
 --   Ardentax documents are doc_type 'library' in the department 'Ardentax Documents' (ADTD numbers, own counter).
--- hub_numbering_status and hub_numbering_save are the Business Setup 004 text with 'document' added; hub_doc_read hides
+-- hub_numbering_status and hub_numbering_save are the live text from Template Hub 004_hub_admin with 'document' added; hub_doc_read hides
 -- library rows from people without the ArdentTax tab. Run after Business Setup 001-014, ArdentTax 001 and Template Hub 003.
--- Re-runnable. Undo with rollback/004_rollback.sql.
+-- Re-runnable. Undo with rollback/005_rollback.sql.
 -- =====================================================================
 
 -- ── Columns, checks and numbering ────────────────────────────────────
@@ -70,7 +70,7 @@ create or replace function public.hub_numbering_status() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   v_on date := (now() at time zone 'Asia/Dubai')::date; cfg jsonb := (select value from hub_settings where key = 'document_numbering');
-  out jsonb := jsonb_build_object('can_manage', banking_can('settings.manage') or business_setup_can('setup.settings.manage')); d text; k text; c jsonb; n int;
+  out jsonb := jsonb_build_object('can_manage', hub_is_admin() or banking_can('settings.manage') or business_setup_can('setup.settings.manage')); d text; k text; c jsonb; n int;
 begin
   for d in select jsonb_object_keys(cfg) loop
     for k in select unnest(array['quote','letter','receipt','document']) loop
@@ -92,7 +92,7 @@ language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_period text; v_cfg jsonb;
 begin
   -- Numbering is shared by every department: Banking rights as before, and Business Setup settings rights for Business Setup only.
-  if not (p_department = 'Business Setup' and business_setup_can('setup.settings.manage')) then perform banking_require('settings.manage'); end if;
+  if not (hub_is_admin() or (p_department = 'Business Setup' and business_setup_can('setup.settings.manage'))) then perform banking_require('settings.manage'); end if;
   if p_department = 'Business Banking' then perform banking_numbering_save(p_kind, p_format, p_digits, p_restart, p_next); return; end if;
   -- Receipt and document are accepted only where the department's setting already has them. A department with a setting
   -- takes only the kinds it has; one without a setting keeps the earlier rule (quote and letter).
@@ -114,7 +114,7 @@ end $$;
 -- ── Functions ────────────────────────────────────────────────────────
 create or replace function public.hub_library_my_access() returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
-  select jsonb_build_object('ab', coalesce(business_setup_can('setup.quotes.manage'), false), 'ardentax', coalesce(ardentax_can(), false), 'manage', coalesce(banking_can('settings.manage'), false))
+  select jsonb_build_object('ab', coalesce(business_setup_can('setup.quotes.manage'), false), 'ardentax', coalesce(ardentax_can(), false), 'manage', coalesce(hub_is_admin() or banking_can('settings.manage'), false))
 $$;
 
 create or replace function public.hub_library_template_save(p jsonb) returns text
@@ -125,7 +125,7 @@ declare
   v_rows jsonb := coalesce(p -> 'fee_rows', '[]'::jsonb); v_rate numeric := nullif(btrim(coalesce(p ->> 'usd_rate', '')), '')::numeric;
   v_active boolean := coalesce((p ->> 'active')::boolean, true);
 begin
-  perform banking_require('settings.manage');
+  if not hub_is_admin() then perform banking_require('settings.manage'); end if;
   if v_company not in ('AB Capital','Ardentax') then raise exception 'Company must be AB Capital or Ardentax'; end if;
   if v_folder = '' or v_name = '' then raise exception 'A template needs a folder and a name'; end if;
   if v_key <> v_company || '/' || v_folder || '/' || v_name then raise exception 'The template key must be Company/Folder/Name'; end if;
@@ -142,7 +142,7 @@ create or replace function public.hub_library_template_upload(p_key text, p_name
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare t hub_library_templates; v_id bigint;
 begin
-  perform banking_require('settings.manage');
+  if not hub_is_admin() then perform banking_require('settings.manage'); end if;
   select * into t from hub_library_templates where template_key = p_key;
   if t.template_key is null then raise exception 'Unknown template %', p_key; end if;
   if coalesce(p_name, '') !~* '\.docx$' or coalesce(p_path, '') not like 'library-templates/%' then raise exception 'A library template must be an uploaded Word (.docx) file'; end if;

@@ -182,3 +182,13 @@ select at_check('AB Capital stores a valid client id',
 select at_as(:'ardent');
 select at_check('Ardentax stores a valid client id',
   (select client_id = 'CL900901' and doc_type = 'library' from hub_library_create(at_lib('Ardentax/Test/Doc', :ardent_file, '{"client_id": "CL900901"}'))));
+
+-- ── Rights from Template Hub 004_hub_admin stay in place ─────────────
+select at_as(null);
+select at_check('the numbering functions keep hub_is_admin',
+  position('hub_is_admin' in pg_get_functiondef('public.hub_numbering_status'::regproc)) > 0
+  and position('hub_is_admin' in pg_get_functiondef('public.hub_numbering_save'::regproc)) > 0);
+select at_check('library settings accept a hub admin',
+  position('hub_is_admin' in pg_get_functiondef('public.hub_library_template_save'::regproc)) > 0
+  and position('hub_is_admin' in pg_get_functiondef('public.hub_library_template_upload'::regproc)) > 0
+  and position('hub_is_admin' in pg_get_functiondef('public.hub_library_my_access'::regproc)) > 0);
