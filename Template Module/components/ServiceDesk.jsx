@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { listFees } from "@business-setup/services/businessSetupApi";
 import { createDocument, listDocuments, loadCatalogue, loadHubSettings, openInFolder, openStored, renderTemplate, saveFile, updateMail } from "../services/hubApi";
 import ClientPicker from "@banking/components/ClientPicker";
 import { ClientLists, listIdFor, useClientLookup } from "@banking/components/ClientLookup";
 import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
-import { addLine, checkReady, DEPARTMENTS, fileNameFor, folderKind, letterData, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs";
+import { withLineVat } from "@business-setup/logic/quoteData";
+import { addLine, checkReady, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
 
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
 const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
@@ -18,6 +20,7 @@ const inDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return
 // initial: form values to start from, plus service (the first line's service). onDocument(doc): called once a quote or letter is filed.
 export default function ServiceDesk({ department, profile, initial, onDocument }) {
   const catalogue = useLoad(loadCatalogue, []);
+  const fees = useLoad(() => listFees(), []);
   const settings = useLoad(loadHubSettings, []);
   const clients = useClientLookup();
   const [dept, setDept] = useState(department || DEPARTMENTS[0]);
@@ -44,23 +47,29 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const mailButton = (d) => (mailOf(d) ? <button type="button" className={`bk-mail-icon${mail?.id === mailOf(d).id ? " active" : ""}`} title={`Draft mail for ${d.document_number}`} aria-label={`Open draft mail for ${d.document_number}`} onClick={() => openMail(d)}><MailIcon /></button> : null);
 
   const categories = useMemo(() => (catalogue.data || []).filter((c) => c.department === dept), [catalogue.data, dept]);
-  const totals = serviceTotals(lines, form.vat_mode, 5);
+  const totals = deskTotals(dept, lines, form.vat_mode);
   // Choosing or typing a detail of a known client fills the rest; everything stays editable.
   const set = (k) => (e) => { const v = e.target.value; setForm((f) => (CLIENT_MAP[k] ? applyClient(f, CLIENT_MAP, k, v, clients) : { ...f, [k]: v })); };
   const chooseDept = (d) => { setDept(d); setLines([]); setService(""); setFee(""); setMail(null); };
   const add = () => {
-    const r = addLine(lines, service, fee);
+    const svc = categories.flatMap((c) => c.service_items).find((s) => s.name === service);
+    // A Business Setup line needs its fee item's VAT rate, so adding waits for the fee list.
+    if (dept === "Business Setup" && !fees.data) { setError(fees.error || "The fee list is still loading."); return; }
+    const m = dept === "Business Setup" && svc ? feeItemFor(fees.data, svc.id) : { item: null };
+    if (m.error) { setError(m.error); return; }
+    const r = addLine(lines, service, fee, m.item);
     if (r.error) { setError(r.error); flagMissing([/fee/.test(r.error) ? "d-fee" : "d-service"]); return; }
     setError(null); setLines(r.lines); setService(""); setFee("");
   };
 
-  const payload = (doc_type, extra = {}) => ({ doc_type, department: dept, client_name: form.client, contact_name: form.contact || null, contact_email: form.email || null, contact_phone: form.phone || null, client_address: form.address || null, license_number: form.license || null, vat_trn: form.trn || null, services: lines.map((l) => l.description), lines, vat_mode: form.vat_mode, vat_rate: 5, valid_until: form.valid_until || null, notes: form.notes || null, ...extra });
+  const payload = (doc_type, extra = {}) => ({ doc_type, department: dept, client_name: form.client, contact_name: form.contact || null, contact_email: form.email || null, contact_phone: form.phone || null, client_address: form.address || null, license_number: form.license || null, vat_trn: form.trn || null, services: lines.map((l) => l.description), lines, vat_mode: deskVatMode(dept, form.vat_mode), vat_rate: 5, valid_until: form.valid_until || null, notes: form.notes || null, ...extra });
 
   // Files a generated document and keeps its mail draft beside it.
   const finish = async (doc, type) => {
     const company = settings.data?.company;
     const limitations = [...new Set((catalogue.data || []).filter((c) => c.service_items.some((x) => doc.services.includes(x.name))).map((c) => c.limitation).filter(Boolean))];
-    const data = type === "quote" ? quoteData(doc, company, settings.data?.engagement_terms) : letterData(doc, company, settings.data?.engagement_terms, limitations);
+    const base = type === "quote" ? quoteData(doc, company, settings.data?.engagement_terms) : letterData(doc, company, settings.data?.engagement_terms, limitations);
+    const data = doc.department === "Business Setup" ? withLineVat(doc, base) : base;
     const blob = await renderTemplate(type === "quote" ? "Service_Quotation_Template.docx" : "Service_Engagement_Template.docx", data);
     const fileName = fileNameFor(doc.document_number, doc.client_name);
     const saved = await saveFile(doc, folderKind(doc.department, type), blob, fileName);
@@ -123,7 +132,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   if (catalogue.loading && !catalogue.data) return <Spinner />;
   return (
     <div>
-      <ErrorNote message={catalogue.error || settings.error || error} onClose={error ? () => setError(null) : undefined} />
+      <ErrorNote message={catalogue.error || settings.error || (dept === "Business Setup" && fees.error ? `The fee list could not be loaded, so VAT rates are unknown: ${fees.error}` : null) || error} onClose={error ? () => setError(null) : undefined} />
       {note && <div className={`bk-alert ${note.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{note.text}</div>}
       {!department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>}
       <Panel title="1. Client details" sub="Choose any detail of an existing client to fill in the rest, or type them for a new one.">
@@ -146,7 +155,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
             </select>
           </div>
           <div className="bk-field"><label htmlFor="d-fee">Fee offered (AED)</label><input id="d-fee" type="number" min="0" step="any" value={fee} onChange={(e) => setFee(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} /></div>
-          <Button variant="primary" onClick={add}>+ Add service</Button>
+          <Button variant="primary" disabled={dept === "Business Setup" && !fees.data} onClick={add}>+ Add service</Button>
         </div>
         {lines.length > 0 && (
           <div className="bk-table-wrap bk-mt">
@@ -157,11 +166,11 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
           </div>
         )}
         <div className="bk-grid bk-mt">
-          <div className="bk-field"><label htmlFor="d-vat">VAT treatment</label><select id="d-vat" value={form.vat_mode} onChange={set("vat_mode")}><option value="inclusive">Fees include VAT</option><option value="exclusive">VAT added on top</option><option value="none">No VAT</option></select></div>
+          {!fixedVat(dept) && <div className="bk-field"><label htmlFor="d-vat">VAT treatment</label><select id="d-vat" value={form.vat_mode} onChange={set("vat_mode")}><option value="inclusive">Fees include VAT</option><option value="exclusive">VAT added on top</option><option value="none">No VAT</option></select></div>}
           <div className="bk-field"><label htmlFor="d-valid">Quotation valid until</label><input id="d-valid" type="date" value={form.valid_until} onChange={set("valid_until")} /></div>
           <div className="bk-field bk-full"><label htmlFor="d-notes">Notes on the quotation</label><textarea id="d-notes" rows={2} value={form.notes} onChange={set("notes")} /></div>
         </div>
-        {lines.length > 0 && <p className="bk-desk-total">Total <strong>AED {totals.total.toLocaleString("en-AE", { maximumFractionDigits: 2 })}</strong>{form.vat_mode !== "none" && <small className="bk-muted"> (VAT {totals.vat.toLocaleString("en-AE", { maximumFractionDigits: 2 })})</small>}</p>}
+        {lines.length > 0 && <p className="bk-desk-total">Total <strong>AED {totals.total.toLocaleString("en-AE", { maximumFractionDigits: 2 })}</strong>{deskVatMode(dept, form.vat_mode) !== "none" && <small className="bk-muted"> (VAT {totals.vat.toLocaleString("en-AE", { maximumFractionDigits: 2 })})</small>}</p>}
       </Panel>
       <Panel title="3. Generate" sub="The engagement letter is the next step after the quote.">
         <div className="bk-actions">
@@ -190,7 +199,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
           { key: "client_name", label: "Client" }, ...(department ? [] : [{ key: "department", label: "Department" }]), { key: "services", label: "Services", render: (d) => d.services.join(", ") },
           { key: "total_amount", label: "Total", right: true, render: (d) => `AED ${Number(d.total_amount).toLocaleString("en-AE")}` }, { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
           { key: "mail", label: "Mail", render: mailButton },
-          { key: "next", label: "Next step", render: (d) => (d.doc_type !== "quote" ? "–" : (docs.data || []).some((x) => x.doc_type === "letter" && x.parent_id === d.id) ? <Badge tone="good">Letter generated</Badge> : <Button busy={busy === `letter-${d.id}`} onClick={() => generateLetter(d)}>Engagement Letter + Mail</Button>) },
+          { key: "next", label: "Next step", render: (d) => (d.doc_type !== "quote" ? "–" : (docs.data || []).some((x) => x.doc_type === "letter" && x.parent_id === d.id && x.status !== "rejected") ? <Badge tone="good">Letter generated</Badge> : <Button busy={busy === `letter-${d.id}`} onClick={() => generateLetter(d)}>Engagement Letter + Mail</Button>) },
           { key: "o", label: "File", render: (d) => (d.storage_path ? <span className="bk-actions"><button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>View</button>{d.local_path ? <button type="button" className="bk-link" title={d.local_path} onClick={() => openInFolder(d.local_path).catch((e) => setError(e.message))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}</span> : (d.library_template ? <small className="bk-muted">Use Retry in Template Hub</small> : <Button busy={busy === `file-${d.id}`} onClick={() => refile(d)}>Create file</Button>)) },
         ]} />
       </Panel>

@@ -423,6 +423,7 @@ The spec needs a handover with queue `Business Setup`, but the Won form sends no
 **Interfaces:**
 - Consumes: `bd_onboarding_handovers`, `bd_lead_services`, `bd_can_edit_lead`, `business_setup_case_link_client`.
 - Produces: a trigger on `bd_onboarding_handovers` insert. With `onboarding_queue = 'Business Setup'`, it creates one case at `Lead` with `source = 'Business Development'`, and lead fields from `bd_leads`. `business_setup_case_take` sets the handover to `Accepted`, and `assigned_onboarding_user_id` to the taker.
+- Produces, user's rule of 2026-11-05 (see the spec): column `business_setup_cases.bd_lead_id` (unique), `business_setup_bd_leads_list() returns jsonb` and `business_setup_bd_lead_take(p_lead uuid) returns uuid`, both needing `setup.leads.manage`. The trigger above attaches a handover to the case already holding that lead instead of creating a second one.
 - Produces: `business_setup_case_bd_services(p_case uuid) returns jsonb`, with accepted services and agreed fees for the quote prefill.
 - Produces: `business_setup_bd_payment_add(p_lead uuid, p jsonb) returns jsonb`, gated by `bd_can_edit_lead`. It finds the case, links the client if needed, and calls the payment logic through a shared internal function, so `setup.payments.manage` is not needed.
 - Produces: Won form gets a **Hand over to** select, with `Business Setup` and `Client Onboarding Queue`.
@@ -433,6 +434,11 @@ The spec needs a handover with queue `Business Setup`, but the Won form sends no
 queue_creates_case: Business Setup queue creates one case at Lead
 other_queue_ignored: Client Onboarding Queue creates none
 retry_no_duplicate: a retried Won with the same idempotency_key leaves one case
+bd_list_all: an Open lead with no Won is listed for a setup.leads.manage user with no BD role, without fees; Lost, Disqualified and archived leads are not
+bd_list_refused: a user without setup.leads.manage is refused
+bd_take: Assign to me creates one case at Lead with the taker as owner; the lead's BD owner is unchanged
+bd_take_twice: a second person is refused with the first owner's name
+won_after_take: Won with queue Business Setup after a take attaches the handover to that case and creates no second case
 take_accepts: taking sets the handover to Accepted with the owner
 prefill: accepted services and fees are returned; rejected ones are not
 bd_payment: a BD editor records one with a receipt, in the same numbering and balance

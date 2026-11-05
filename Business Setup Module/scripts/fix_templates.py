@@ -4,7 +4,8 @@
 
 Double-brace tags become the single-brace tags the CRM's generator reads. Under activity headings, business_name
 becomes business_activity (Liquidation keeps business_name, where it is the company name). Fixed add-on USD
-figures are recalculated from one rate; AED figures stay as they are. The
+figures are recalculated from one rate; AED figures stay as they are. Above the Total row, a Net row ({net},
+{net_usd}) and a VAT row ({vat}, {vat_usd}) are added, and Total becomes "Total (incl. VAT)". The
 files hold prices, so keep the output out of the repository and upload it as master templates in Settings.
 """
 import re
@@ -69,6 +70,47 @@ def fix_usd(xml):
     return head + ROW.sub(fix_row, tail), changed[0]
 
 
+def _copy_row(row, label, tags):
+    """A copy of the Total row with its own label and tags. Word's paragraph ids and bookmarks must be unique, so the copy drops them."""
+    row = re.sub(r' w14:(?:paraId|textId)="[^"]*"', "", row)
+    row = re.sub(r"<w:bookmark(?:Start|End)[^>]*/>", "", row)
+    for old, new in tags.items():
+        row = row.replace(old, new)
+    return _label(row, label)
+
+
+def _label(row, label):
+    for cell in CELL.findall(row):
+        text = cell_text(cell)
+        if text.lower() == "total":
+            return row.replace(cell, set_cell(cell, label.upper() if text.isupper() else label))
+    return row
+
+
+def add_vat_rows(xml):
+    """Puts a Net row and a VAT row above the row that holds {total}. Returns the xml and how many rows were added; safe to run twice."""
+    if "{net}" in xml:
+        return xml, 0
+    added = [0]
+
+    def fix_row(m):
+        row = m.group(0)
+        if "{total}" not in row:
+            return row
+        if not any(cell_text(c).lower() == "total" for c in CELL.findall(row)):
+            print("  WARNING: the row with {total} has no cell labelled Total, so the Net and VAT rows were not added")
+            return row
+        added[0] += 2
+        net = _copy_row(row, "Net amount", {"{total_usd}": "{net_usd}", "{total}": "{net}"})
+        vat = _copy_row(row, "VAT", {"{total_usd}": "{vat_usd}", "{total}": "{vat}"})
+        return net + vat + _label(row, "Total (incl. VAT)")
+
+    xml = ROW.sub(fix_row, xml)
+    if not added[0]:
+        print("  WARNING: no table row holds {total}; add the Net and VAT rows by hand")
+    return xml, added[0]
+
+
 def fix_activity(xml):
     return re.sub(r"\{\s*business_name\s*\}", "{business_activity}", xml)
 
@@ -88,7 +130,7 @@ def single_braces(xml):
 
 
 def fix_file(src, dst):
-    changes = 0
+    changes = (0, 0)
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
@@ -98,6 +140,8 @@ def fix_file(src, dst):
                     xml = fix_activity(xml)
                 if item.filename == "word/document.xml":
                     xml, changes = fix_usd(xml)
+                    xml, rows = add_vat_rows(xml)
+                    changes = (changes, rows)
                 data = xml.encode("utf8")
             zout.writestr(item, data)
     return changes
@@ -111,7 +155,8 @@ def main(argv=None):
     src, out = Path(argv[0]), Path(argv[1])
     out.mkdir(parents=True, exist_ok=True)
     for name in ALL:
-        print(f"{name}: {fix_file(src / name, out / name)} USD cells changed")
+        usd, rows = fix_file(src / name, out / name)
+        print(f"{name}: {usd} USD cells changed, {rows} VAT rows added")
     return 0
 
 

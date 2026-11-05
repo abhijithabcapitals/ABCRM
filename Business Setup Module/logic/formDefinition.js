@@ -38,6 +38,6 @@ export function portalSections(view) {
   if (!view) return [];
   const out = [];
   if (view.form) out.push("form");
-  for (const k of ["services", "quotes", "payments", "invoices", "documents"]) if ((view[k] || []).length) out.push(k);
+  for (const k of ["services", "quotes", "letters", "payments", "invoices", "documents"]) if ((view[k] || []).length) out.push(k);
   return out;
 }

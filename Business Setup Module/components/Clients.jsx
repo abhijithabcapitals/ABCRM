@@ -5,6 +5,7 @@ import { rpc } from "@banking/services/bankingApi";
 import { useSetup } from "./SetupContext";
 import { clientList, clientMainFields, clientMainSave, saveKyc } from "../services/businessSetupApi";
 import { isExpired, mainFieldsForm, mainFieldsPayload, mergeMainFields, needsAttention } from "../logic/mainFields";
+import { kycLabel, kycTone } from "../logic/kyc";
 import Workspace from "./Workspace";
 import { money } from "@app/money";
 
@@ -45,7 +46,7 @@ export default function Clients() {
           { key: "shareholder", label: "Shareholder" }, { key: "manager", label: "Manager" }, { key: "visa", label: "Visa" },
           { key: "edit", label: "", render: (r) => (can("setup.kyc.manage") && <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><Button onClick={() => setEditing(r)}>{needsAttention(r) ? "Complete" : "Edit"}</Button></span>) },
           { key: "client_status", label: "Status" },
-          { key: "kyc_state", label: "KYC", render: (r) => <Badge tone={r.kyc_state === "Done" ? "good" : "warn"}>{r.kyc_state || "Not done"}</Badge> },
+          { key: "kyc_state", label: "KYC", render: (r) => { const label = kycLabel(r.kyc_state, r.kyc_missing); return <Badge tone={kycTone(label)}>{label}</Badge>; } },
           { key: "active_services", label: "Active services", right: true }, { key: "balance", label: "Balance", right: true, render: (r) => money(r.balance) },
           { key: "missing_contact", label: "Contact", render: (r) => (r.missing_contact ? <Badge tone="warn">Missing</Badge> : "OK") },
         ]} />

@@ -3,6 +3,7 @@ import { createDocument, loadCatalogue, loadHubSettings, renderTemplate, saveFil
 import { fileNameFor, folderKind, letterData, mailDraft, quoteData } from "@template-hub/logic/serviceDocs";
 import { receiptDocx } from "@banking/logic/documents";
 import { storeReceipt } from "./businessSetupApi";
+import { withLineVat } from "../logic/quoteData";
 
 const download = async (blob, name) => { const { saveAs } = await import("file-saver"); saveAs(blob, name); };
 
@@ -16,8 +17,8 @@ async function fileWithMail(doc, type, blob) {
 export async function fileQuote(doc) {
   if (doc.library_template) throw new Error("This document came from Template Hub. Use Retry there.");
   const settings = await loadHubSettings();
-  // Every AB Capital quote uses the same design. The zone stays as a label on the quote.
-  const blob = await renderTemplate("Service_Quotation_Template.docx", quoteData(doc, settings.company, settings.engagement_terms));
+  // Every AB Capital quote uses the same design. The zone stays as a label on the quote. A Business Setup quote with line VAT adds its net and VAT rows.
+  const blob = await renderTemplate("Service_Quotation_Template.docx", withLineVat(doc, quoteData(doc, settings.company, settings.engagement_terms)));
   const saved = await fileWithMail(doc, "quote", blob);
   const draft = mailDraft({ type: "quote", client: doc.client_name, contact: doc.contact_name, services: doc.services, number: doc.document_number, total: doc.total_amount, validUntil: doc.valid_until, company: settings.company });
   await createDocument({ doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email, lines: doc.lines, mail_subject: draft.subject, mail_body: draft.body }).catch(() => null);
@@ -28,7 +29,7 @@ export async function fileLetter(doc) {
   const [settings, catalogue] = await Promise.all([loadHubSettings(), loadCatalogue()]);
   const names = (doc.lines || []).map((l) => l.service_name || l.description);
   const limitations = [...new Set(catalogue.filter((c) => c.service_items.some((x) => names.includes(x.name))).map((c) => c.limitation).filter(Boolean))];
-  const blob = await renderTemplate("Service_Engagement_Template.docx", letterData(doc, settings.company, settings.engagement_terms, limitations));
+  const blob = await renderTemplate("Service_Engagement_Template.docx", withLineVat(doc, letterData(doc, settings.company, settings.engagement_terms, limitations)));
   return fileWithMail(doc, "letter", blob);
 }
 

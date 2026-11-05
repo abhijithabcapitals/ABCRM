@@ -29,5 +29,22 @@ begin
   exception when others then
     if sqlerrm not ilike '%append-only%' then raise; end if;
   end;
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_fee_items' and column_name = 'vat_rate') then raise exception 'vat_rate remains'; end if;
+  if (select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_fee_items' and column_name = 'default_amount') <> 'NO' then raise exception 'default_amount is nullable again'; end if;
+  if exists (select 1 from public.business_setup_fee_items where default_amount is null) then raise exception 'a fee item has no amount'; end if;
+  select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('business_setup_invoice_record', 'business_setup_invoice_sync_trg', 'business_setup_case_invoice_override', 'business_setup_invoice_upload_ok');
+  if bad is not null then raise exception 'invoice functions remain: %', bad; end if;
+  if exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'business_setup_invoice_upload') then raise exception 'the invoice upload policy remains'; end if;
+  select string_agg(column_name, ', ') into bad from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_invoices' and column_name in ('case_id', 'created_by');
+  if bad is not null then raise exception 'invoice columns remain: %', bad; end if;
+  if pg_get_functiondef('public.business_setup_client_list()'::regprocedure) ilike '%kyc_missing%' then raise exception 'the client list still has kyc_missing'; end if;
+  if to_regclass('public.business_setup_signed_quotes') is not null then raise exception 'business_setup_signed_quotes remains'; end if;
+  if to_regclass('public.business_setup_acceptances') is not null then raise exception 'business_setup_acceptances remains'; end if;
+  if to_regclass('public.business_setup_payment_claims') is not null then raise exception 'business_setup_payment_claims remains'; end if;
+  select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
+     and p.proname in ('business_setup_signed_add', 'business_setup_signed_file', 'business_setup_signed_decide', 'business_setup_portal_signed_add', 'business_setup_case_paid_override', 'business_setup_case_net_paid', 'business_setup_case_documents', 'business_setup_case_locked', 'business_setup_case_link_client_for_payment', 'business_setup_case_link_client_body', 'business_setup_portal_login_name', 'business_setup_portal_decide', 'business_setup_issue_login_ok', 'business_setup_login_grant', 'business_setup_login_mail', 'business_setup_quote_accept_body', 'business_setup_doc_revision');
+  if bad is not null then raise exception 'signed copy functions remain: %', bad; end if;
+  if pg_get_functiondef('public.business_setup_start_gate(uuid, text)'::regprocedure) ilike '%case_id%' then raise exception 'the start gate still reads case_id'; end if;
+  if pg_get_functiondef('public.business_setup_portal_view(uuid)'::regprocedure) ilike '%can_sign%' then raise exception 'the portal view still has the signed copy fields'; end if;
   raise notice 'rollback 013 check ok';
 end $$;

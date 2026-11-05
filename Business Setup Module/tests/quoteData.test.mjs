@@ -45,3 +45,65 @@ test("a missing or bad rate falls back to the default", () => {
   assert.equal(quoteContext(q750, ifza).items[0].amount_usd, "204");
   assert.equal(quoteContext(q750, ifza, 0).items[0].amount_usd, "204");
 });
+
+test("net, VAT and total come from the stored amounts, with USD from the same rate", () => {
+  const c = quoteContext({ ...base, lines: [{ service_name: "A", amount: 1000 }, { service_name: "B", amount: 500 }], vat_mode: "exclusive", vat_amount: 50, total_amount: 1550 }, ifza, 3.6725);
+  assert.equal(c.net, "1,500");
+  assert.equal(c.vat, "50");
+  assert.equal(c.total, "1,550");
+  assert.equal(c.net_usd, "408");
+  assert.equal(c.vat_usd, "14");
+  assert.equal(c.total_usd, "422");
+  const none = quoteContext(qZero, ifza, 3.6725);
+  assert.deepEqual([none.net, none.vat, none.total], ["0", "0", "0"]);
+});
+
+test("a line's own VAT is listed for templates that show it", () => {
+  const c = quoteContext({ ...base, lines: [{ service_name: "A", amount: 1000, vat_rate: 5 }, { service_name: "B", amount: 500, vat_rate: 0 }], vat_mode: "exclusive", vat_amount: 50, total_amount: 1550 }, ifza, 3.6725);
+  assert.deepEqual(c.items.map((i) => [i.vat, i.vat_rate]), [["50", 5], ["0", 0]]);
+  assert.equal(quoteContext({ ...base, vat_mode: "exclusive", lines: [{ service_name: "A", amount: 42.7, vat_rate: 5 }], vat_amount: 2.14, total_amount: 44.84 }, ifza, 3.6725).items[0].vat, "2.14");
+});
+
+test("the built-in quote and letter get net and VAT and the lines say when a fee carries no VAT", async () => {
+  const { lineVatData } = await import("../logic/quoteData.js");
+  const d = lineVatData({ lines: [{ description: "A", amount: 1000, vat_rate: 5 }, { description: "B", amount: 500, vat_rate: 0 }], vat_amount: 50, total_amount: 1550 });
+  assert.equal(d.net, "1,500"); assert.equal(d.vat, "50"); assert.equal(d.total, "1,550"); assert.equal(d.show_breakdown, true); assert.equal(d.has_vat, false);
+  assert.deepEqual(d.lines.map((l) => l.description), ["A", "B (0% VAT)"]);
+  assert.match(d.vat_statement, /5%/);
+});
+
+// ── The built-in quote and letter templates (Template Module), rendered for real ──
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { quoteData, letterData } from "../../Template Module/logic/serviceDocs.js";
+import { lineVatData } from "../logic/quoteData.js";
+
+const req = createRequire(new URL("../../Main Module/package.json", import.meta.url));
+const renderBuiltIn = (file, data) => {
+  const PizZip = req("pizzip"); const Docxtemplater = req("docxtemplater");
+  const d = new Docxtemplater(new PizZip(readFileSync(fileURLToPath(new URL(`../../Template Module/templates/${file}`, import.meta.url)))), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
+  d.render(data);
+  return d.getZip().file("word/document.xml").asText().replace(/<\/w:p>/g, "\n").replace(/<[^>]+>/g, "");
+};
+const bsDoc = { client_name: "Acme", department: "Business Setup", document_number: "Q1", created_at: "2026-11-05T08:00:00Z", vat_mode: "exclusive", vat_rate: 5, vat_amount: 50, total_amount: 1550,
+  services: ["A", "B"], lines: [{ description: "A", service_name: "A", amount: 1000, vat_rate: 5 }, { description: "B", service_name: "B", amount: 500, vat_rate: 0 }] };
+
+test("the built-in quote shows net, VAT and total for a Business Setup quote, and keeps one Total row for other departments", () => {
+  const withVat = renderBuiltIn("Service_Quotation_Template.docx", { ...quoteData(bsDoc, {}), ...lineVatData(bsDoc) });
+  assert.match(withVat, /Net amount\s*1,500/); assert.match(withVat, /VAT\s*50\b/); assert.match(withVat, /Total\s*1,550/); assert.match(withVat, /B \(0% VAT\)/);
+  assert.doesNotMatch(withVat, /VAT: AED/);
+  const other = renderBuiltIn("Service_Quotation_Template.docx", quoteData({ ...bsDoc, department: "Accounting", vat_mode: "inclusive", vat_amount: 71.43, total_amount: 1500 }, {}));
+  assert.doesNotMatch(other, /Net amount/); assert.match(other, /Total\s*1,500/); assert.match(other, /VAT included\s*71.43/);
+});
+
+test("the built-in letter shows net, VAT and total with line VAT", () => {
+  const t = renderBuiltIn("Service_Engagement_Template.docx", { ...letterData(bsDoc, {}, {}, []), ...lineVatData(bsDoc) });
+  assert.match(t, /Net amount\s*1,500/); assert.match(t, /Total\s*1,550/);
+});
+
+test("an older inclusive quote shows the total less its VAT as the net, and no per-line VAT", () => {
+  const old = quoteContext({ ...base, vat_mode: "inclusive", lines: [{ service_name: "A", amount: 1000 }, { service_name: "B", amount: 500 }], vat_amount: 71.43, total_amount: 1500 }, ifza, 3.6725);
+  assert.equal(old.net, "1,428.57"); assert.equal(old.vat, "71.43"); assert.equal(old.total, "1,500");
+  assert.deepEqual(old.items.map((i) => [i.vat, i.vat_rate]), [["", null], ["", null]]);
+});

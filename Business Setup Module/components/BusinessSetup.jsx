@@ -3,14 +3,14 @@ import { useMemo, useState } from "react";
 import "@banking/components/banking.css";
 import { ErrorNote, Spinner, useLoad } from "@banking/components/shared";
 import { myAccess, profiles } from "../services/businessSetupApi";
-import { visibleNav } from "../logic/nav";
+import { pageKey, visibleNav } from "../logic/nav";
 import { SetupContext } from "./SetupContext";
 import Settings from "./Settings";
 import Dashboard from "./Dashboard";
-import Leads from "./Leads";
-import Onboarding from "./Onboarding";
-import DocumentationPage from "./DocumentationPage";
+import AllLeads from "./AllLeads";
+import ClientOnboarding from "./ClientOnboarding";
 import Cases from "./Cases";
+import Completion from "./Completion";
 import Clients from "./Clients";
 import FeeMaster from "./FeeMaster";
 import Tasks from "./Tasks";
@@ -30,7 +30,7 @@ export default function BusinessSetup({ profile }) {
       people: people.data || [],
       personName: (id) => (people.data || []).find((x) => x.id === id)?.full_name || "–",
       personOptions: (people.data || []).map((x) => ({ value: x.id, label: x.full_name || x.id })),
-      goTo: (p, params = null) => { setPage(p); setPageParams(params); },
+      goTo: (p, params = null) => { setPage(pageKey(p)); setPageParams(params); },
       pageParams,
     };
   }, [access.data, people.data, profile, pageParams]);
@@ -61,10 +61,10 @@ export default function BusinessSetup({ profile }) {
           ))}
         </nav></div>
         {current === "dashboard" && <Dashboard />}
-        {current === "leads" && <Leads />}
-        {current === "review" && <Onboarding />}
-        {current === "documentation" && <DocumentationPage />}
-        {current === "cases" && <Cases />}
+        {current === "leads" && <AllLeads />}
+        {current === "onboarding" && <ClientOnboarding />}
+        {current === "pipeline" && <Cases />}
+        {current === "completion" && <Completion />}
         {current === "clients" && <Clients />}
         {current === "services" && <FeeMaster />}
         {current === "tasks" && <Tasks />}

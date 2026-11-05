@@ -65,15 +65,21 @@ def set_row_text(row, values, bold=False):
     return row
 
 
-def add_fee_rows(xml, name):
-    """A VAT row that shows only when VAT applies, and a Total row, in the style of the fee row."""
+def add_fee_rows(xml, name, breakdown=False):
+    """A VAT row that shows only when VAT applies, and a Total row, in the style of the fee row.
+    breakdown (the service templates): a Business Setup line prints its scope after its name, and Net and VAT rows show when
+    show_breakdown is set (a quote or letter with line VAT). Other documents never send these tags, so they print as before."""
     m = next((r for r in ROW.finditer(xml) if "{#lines}" in r.group(0)), None)
     if not m:
         raise DesignError(f"{name}: the fee row was not found")
     row = m.group(0)
+    extra = ""
+    if breakdown:
+        row = set_row_text(row, ("{#lines}{description}{#scope_note}: {scope_note}{/scope_note}", "{amount}{/lines}"))
+        extra = set_row_text(row, ("{#show_breakdown}Net amount", "{net}{/show_breakdown}"), bold=True) + set_row_text(row, ("{#show_breakdown}VAT", "{vat}{/show_breakdown}"), bold=True)
     vat = set_row_text(row, ("{#has_vat}{vat_label}", "{vat}{/has_vat}"))
     total = set_row_text(row, ("Total", "{total}"), bold=True)
-    return xml[: m.end()] + vat + total + xml[m.end() :]
+    return xml[: m.start()] + row + extra + vat + total + xml[m.end() :]
 
 
 def para_with(xml, tag, name):
@@ -104,14 +110,14 @@ def add_letter_ref(xml, name):
     return xml[: m.end()] + line + xml[m.end() :]
 
 
-def fix_quote(xml):
+def fix_quote(xml, breakdown=False):
     xml = fill_brackets(xml, QUOTE_TAGS, QUOTE)
-    return add_bank_details(add_fee_rows(xml, QUOTE), QUOTE)
+    return add_bank_details(add_fee_rows(xml, QUOTE, breakdown), QUOTE)
 
 
-def fix_letter(xml):
+def fix_letter(xml, breakdown=False):
     xml = fill_brackets(xml, LETTER_TAGS, LETTER)
-    return add_letter_ref(add_bank_details(add_fee_rows(xml, LETTER), LETTER), LETTER)
+    return add_letter_ref(add_bank_details(add_fee_rows(xml, LETTER, breakdown), LETTER), LETTER)
 
 
 def add_second_phone(xml, name):
@@ -143,8 +149,8 @@ def rewrite(src, dst, change):
 
 
 if __name__ == "__main__":
-    rewrite(ORIGINALS / QUOTE, SERVICE / "Service_Quotation_Template.docx", fix_quote)
-    rewrite(ORIGINALS / LETTER, SERVICE / "Service_Engagement_Template.docx", fix_letter)
+    rewrite(ORIGINALS / QUOTE, SERVICE / "Service_Quotation_Template.docx", lambda x: fix_quote(x, True))
+    rewrite(ORIGINALS / LETTER, SERVICE / "Service_Engagement_Template.docx", lambda x: fix_letter(x, True))
     rewrite(ORIGINALS / QUOTE, BANKING / "Quotation_Template.docx", fix_quote)
     rewrite(ORIGINALS / LETTER, BANKING / "Engagement_Letter_Template.docx", fix_letter)
     print("built 4 templates")

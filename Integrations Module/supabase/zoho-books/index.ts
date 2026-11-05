@@ -11,6 +11,7 @@
 //   contact_get     { client_id, department }        needs view permission
 //   document_state  { source_table, source_id, force? }   saved rows, and Zoho status at most every 15 minutes
 //   document_pdf    { source_table, source_id, kind }     returns the PDF itself (application/pdf)
+//   document_publish { source_table, source_id, kind }    stores a sent invoice's PDF in the client's login. Reads Zoho only (GET)
 //
 // Deploy with this folder's files together:
 //   supabase functions deploy zoho-books --project-ref pnnakrhfzyxudjaghoxx --use-api

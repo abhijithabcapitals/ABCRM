@@ -1,4 +1,5 @@
 // Quotation, engagement letter and mail draft content for any service. Pure, so it is tested.
+import { lineTotals } from "../../Business Setup Module/logic/lines.js";
 // The database recalculates totals when a document is created, and its figures are the ones stored.
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -13,13 +14,22 @@ export function checkReady(form, lines) {
   return null;
 }
 
+// The fee item linked to a catalogue service: { item } (null when none is linked: the line then takes the server's 5%), or { error } when
+// more than one fee item is linked to the service, which the desk cannot choose between.
+export function feeItemFor(feeItems, serviceItemId) {
+  const hits = (feeItems || []).filter((f) => f.service_item_id && f.service_item_id === serviceItemId);
+  if (hits.length > 1) return { error: "More than one fee item is linked to this service: ask a manager to fix the Services & Fees list." };
+  return { item: hits[0] || null };
+}
+
 // A service goes on the list only once, and only with a fee.
-export function addLine(lines, name, fee) {
+// item: the catalogue fee item of the service, if any. A Business Setup line carries its fee item and that item's VAT rate, so the desk totals match the server's.
+export function addLine(lines, name, fee, item = null) {
   if (!name) return { error: "Choose a service." };
   const amount = Number(fee);
   if (fee === "" || fee === null || !Number.isFinite(amount) || amount < 0) return { error: "Enter the fee offered." };
   if (lines.some((l) => l.description === name)) return { error: "That service is already added." };
-  return { lines: [...lines, { description: name, amount }] };
+  return { lines: [...lines, { description: name, amount, ...(item?.id ? { fee_item_id: item.id, vat_rate: Number(item.vat_rate) } : {}) }] };
 }
 
 export const DEPARTMENTS = ["Business Setup", "Accounting", "Tax Compliance", "Business Banking"];
@@ -32,6 +42,11 @@ export function serviceTotals(lines, mode = "inclusive", rate = 5) {
   if (mode === "inclusive") return { net, vat: round2((net * rate) / (100 + rate)), total: round2(net) };
   return { net, vat: 0, total: round2(net) };
 }
+
+// Business Setup quotes are always exclusive, VAT worked out line by line on the server: the desk offers no choice and shows the same totals.
+export const fixedVat = (dept) => dept === "Business Setup";
+export const deskVatMode = (dept, mode) => (fixedVat(dept) ? "exclusive" : mode);
+export const deskTotals = (dept, lines, mode) => (fixedVat(dept) ? lineTotals(lines) : serviceTotals(lines, mode, 5));
 
 export const vatStatement = (mode, rate) => (mode === "inclusive" ? "The fees are inclusive of applicable UAE VAT." : mode === "exclusive" ? `UAE VAT at ${rate}% is added to the fees.` : "No VAT has been charged.");
 
@@ -62,6 +77,7 @@ function common(doc, company) {
 const bullets = (items) => (items || []).filter(Boolean).map((t) => `• ${t}`).join("\n");
 const paymentText = (doc, t) => (t?.payment_terms || []).map((text) => String(text).replace("{{vat_statement}}", vatStatement(doc.vat_mode, doc.vat_rate))).join("\n");
 const wording = (doc, key, fallback) => { const own = doc.field_values?.sections?.[key]; return own !== undefined && own !== null ? String(own).replace("{{vat_statement}}", vatStatement(doc.vat_mode, doc.vat_rate)) : fallback; };
+const scopeItems = (doc) => (doc.department === "Business Setup" && (doc.lines || []).length ? doc.lines.map((l) => l.scope || l.description || l.service_name || "") : (doc.services || []));
 const understandingOf = (doc) => `We understand that you require the following: ${listWords(doc.services || [])}.`;
 
 export function quoteData(doc, company, terms) {
@@ -88,10 +104,11 @@ export function letterData(doc, company, terms, limitations = []) {
   const lines = (a) => (a || []).map((text) => ({ text: String(text).replace("{{vat_statement}}", vatStatement(doc.vat_mode, doc.vat_rate)) }));
   return {
     ...common(doc, company),
-    understanding: wording(doc, "understanding", understandingOf(doc)), scope_text: wording(doc, "scope", bullets(doc.services)),
+    understanding: wording(doc, "understanding", understandingOf(doc)), scope_text: wording(doc, "scope", bullets(scopeItems(doc))),
     has_vat: doc.vat_mode !== "none", vat_label: vatLabel(doc), vat: plain(doc.vat_amount), payment_text: wording(doc, "payment", paymentText(doc, t)),
     other_terms: wording(doc, "other", otherTerms(t, limitations)),
-    scope: (doc.services || []).map((text) => ({ text })),
+    // A Business Setup line prints its scope of work, or its name when it has none. Other departments list their services.
+    scope: scopeItems(doc).map((text) => ({ text })),
     fee_intro: wording(doc, "fee_intro", t.fee_intro || ""), payment_terms: lines(t.payment_terms), ab_responsibilities: lines(t.ab_responsibilities), client_responsibilities: lines(t.client_responsibilities),
     limitations: [t.limitations, ...limitations].filter(Boolean).join(" "), reps: wording(doc, "reps", t.reps || ""),
   };

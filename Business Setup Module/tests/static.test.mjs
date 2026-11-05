@@ -47,38 +47,36 @@ test("the navigation asks only for permissions the database knows", () => {
 });
 
 test("navigation follows the spec and is filtered by permission", () => {
-  assert.deepEqual(NAV.map(([k]) => k), ["dashboard", "leads", "review", "documentation", "cases", "clients", "services", "tasks", "settings"]);
+  assert.deepEqual(NAV.map(([k, label]) => [k, label]), [["dashboard", "Dashboard"], ["leads", "All Leads"], ["onboarding", "Client Onboarding"], ["pipeline", "Pipeline"], ["completion", "Completion"], ["clients", "Clients"], ["services", "Services & Fees"], ["tasks", "Tasks"], ["settings", "⚙ Settings"]]);
   assert.deepEqual(visibleNav(() => false), []);
-  assert.ok(!visibleNav((p) => p === "setup.access").some(([k]) => k === "review"));
   const readOnly = new Set(["setup.access"]);
-  assert.deepEqual(visibleNav((p) => readOnly.has(p)).map(([k]) => k), ["dashboard", "leads", "documentation", "cases", "clients", "services", "tasks", "settings"]);
-  assert.ok(visibleNav((p) => p === "setup.access" || p === "setup.kyc.manage").some(([k]) => k === "review"));
+  assert.deepEqual(visibleNav((p) => readOnly.has(p)).map(([k]) => k), ["dashboard", "leads", "onboarding", "pipeline", "completion", "clients", "services", "tasks", "settings"]);
 });
 
 test("the shell opens each page of the spec", () => {
   const shell = readFileSync(join(here, "components/BusinessSetup.jsx"), "utf8");
-  for (const c of ["Dashboard", "Leads", "Onboarding", "DocumentationPage", "Cases", "Clients", "FeeMaster", "Tasks", "Settings"]) assert.match(shell, new RegExp(`<${c} />`));
+  for (const c of ["Dashboard", "AllLeads", "ClientOnboarding", "Cases", "Completion", "Clients", "FeeMaster", "Tasks", "Settings"]) assert.match(shell, new RegExp(`<${c} />`));
   assert.doesNotMatch(shell, /<Import \/>/);
   assert.match(readFileSync(join(here, "components/Settings.jsx"), "utf8"), /<Import \/>/);
   assert.match(shell, /myAccess\(\)/);
   assert.match(readFileSync(join(here, "services/businessSetupApi.js"), "utf8"), /rpc\("business_setup_my_access"\)/);
 });
 
-test("the dashboard shows the six planned figures, each opening its list", () => {
+test("the dashboard figures each open a tab of the module", () => {
   const src = readFileSync(join(here, "components/Dashboard.jsx"), "utf8");
   const block = src.slice(src.indexOf("export const FIGURES"), src.indexOf("const STAGES"));
   const rows = [...block.matchAll(/\["(\w+)", "([^"]+)", "(\w+)"\]/g)].map((m) => m.slice(1));
-  assert.deepEqual(rows.map((r) => r[0]), ["processes_pending", "receivables", "cases_completed_month", "pipeline_total", "forms_to_review", "pending_after_kyc"]);
-  // Targets: leads, review, documentation and cases are screens of the case pipeline, all in NAV.
-  for (const k of ["cases", "clients", "leads", "review", "documentation"]) assert.ok(NAV.some(([n]) => n === k), k);
-  assert.deepEqual(rows.map((r) => r[2]), ["cases", "clients", "cases", "leads", "review", "documentation"]);
+  assert.deepEqual(rows.map((r) => r[0]), ["processes_pending", "receivables", "cases_completed_month", "pipeline_total", "client_inputs", "awaiting_client", "payment_claims", "at_completion"]);
+  for (const r of rows) assert.ok(NAV.some(([n]) => n === r[2]), r[2]);
+  assert.deepEqual(rows.map((r) => r[2]), ["pipeline", "clients", "clients", "pipeline", "leads", "onboarding", "onboarding", "completion"]);
+  assert.doesNotMatch(block, /forms_to_review|pending_after_kyc/);
   assert.match(src, /Cases by stage/);
 });
 
 test("the new pages call the case functions with the right parameters", () => {
   const api = readFileSync(join(here, "services/businessSetupApi.js"), "utf8");
-  for (const f of ["case_new", "case_take", "case_link_client", "case_shared", "case_lost", "case_confirm", "case_assign", "reassign_request", "reassign_respond", "case_list", "form_staff_save", "form_doc_add"]) assert.ok(api.includes(`rpc("business_setup_${f}"`), f);
-  for (const c of ["Leads", "DocumentationPage", "Cases", "ShareLink"]) assert.ok(readFileSync(join(here, `components/${c}.jsx`), "utf8").length > 200, c);
+  for (const f of ["case_new", "case_take", "case_link_client", "case_move_to_onboarding", "case_shared", "case_lost", "case_confirm", "case_assign", "reassign_request", "reassign_respond", "case_list", "form_staff_save", "form_doc_add"]) assert.ok(api.includes(`rpc("business_setup_${f}"`), f);
+  for (const c of ["AllLeads", "ClientOnboarding", "Cases", "Completion"]) assert.ok(readFileSync(join(here, `components/${c}.jsx`), "utf8").length > 200, c);
   const flow = readFileSync(join(here, "components/NewServiceFlow.jsx"), "utf8");
   assert.match(flow, /caseId/);
   assert.match(flow, /case_id: caseId/);
@@ -90,11 +88,19 @@ test("staff uploads for a form go under staff/<client_id>/ in the portal bucket"
   assert.match(api, /from\("client-portal"\)/);
 });
 
-test("Resend reuses the login and never saves a new one", () => {
-  const share = readFileSync(join(here, "components/ShareLink.jsx"), "utf8");
-  const part = (from, to) => share.slice(share.indexOf(from), share.indexOf(to));
-  assert.match(part("const send =", "const issue"), /emailLogin\(/);
-  assert.doesNotMatch(part("const send =", "const issue"), /loginSave/);
-  assert.doesNotMatch(part("const resend", "return ("), /loginSave/);
-  assert.match(part("const issue", "const resend"), /loginSave/);
+
+test("the dashboard stage cards and the review link follow the tab and right rules", () => {
+  const dash = readFileSync(join(here, "components/Dashboard.jsx"), "utf8");
+  assert.match(dash, /goTo\(stageTab\(st\)\)/);
+  const leads = readFileSync(join(here, "components/AllLeads.jsx"), "utf8");
+  assert.match(leads, /x\.case_id === c\.id/);
+  assert.match(leads, /can\("setup\.kyc\.manage"\)/);
+});
+
+test("only a manager or admin sends a case to Accounting, on both screens", () => {
+  for (const f of ["components/Completion.jsx", "components/workspace/Quotes.jsx"]) {
+    const text = readFileSync(join(here, f), "utf8");
+    assert.match(text, /can\("setup\.cases\.approve"\)[^\n]*Send to Accounts|can\("setup\.cases\.approve"\) && <Button variant="primary" onClick=\{\(\) => setDialog\("send"\)\}>/, f);
+    assert.doesNotMatch(text, /can\("setup\.services\.manage"\) && <Button variant="primary" onClick=\{\(\) => (setSending|setDialog\("send"\))/, f);
+  }
 });

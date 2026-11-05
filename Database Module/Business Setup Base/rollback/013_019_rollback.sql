@@ -2,7 +2,174 @@
 -- Run with psql (it uses \ir to re-run the file that last defined a replaced function). Each migration adds its section
 -- at the top of the body, above the one before it, so the order here is the reverse of the order they were applied.
 -- WARNING: cases and everything stored only on them are lost. Quotes, letters, payments and forms keep their rows.
+-- WARNING (signed copies): every row of business_setup_signed_quotes is lost, including real client and staff uploads and their review
+-- notes. The files stay in storage but nothing points at them. Applying 015 again turns every already accepted quote into a Legacy
+-- row with no file, so a real signed copy is no longer linked after a rollback and re-apply.
+-- WARNING (advances): a payment recorded on a case before any quote has no quote_id. When case_id goes, the advance loses its case and falls out of net_paid, which then
+-- sums by quote only: the money stays on the client's payment list but counts toward nothing. Note such payments before rolling back.
+-- To undo phase 2 alone and keep cases, run rollback/015_018_rollback.sql instead.
 begin;
+
+-- ── 016_client_flow.sql ──────────────────────────────────────────────
+-- Acceptance records (016) and the client login and decision functions (018): the triggers, the append-only table (before business_setup_signed_quotes, which it
+-- points at) and the functions go. WARNING: every acceptance row is lost. A quote accepted from the portal stays accepted, with no signed copy behind it; an
+-- accepted quote needs none at 014. The accept logic returns to 014's below (business_setup_quote_accept_body goes with it).
+-- Payment claims (016, 018): the table with its trigger, and the functions. WARNING: every claim row is lost, with its status and refusal note. A confirmed claim's
+-- payment and receipt stay (payments are append-only); payment_add returns to 014's below and no longer takes claim_id.
+drop table if exists public.business_setup_payment_claims;
+drop function if exists public.business_setup_payment_claims_guard();
+drop function if exists public.business_setup_claim_refuse(uuid, text);
+-- Client Onboarding screen (client flow Task 7): the claim list and the claim-proof right go, client_inputs_file returns to 009's text, and the trigger that
+-- re-checks a case when one of its form documents changes goes.
+create or replace function public.client_inputs_file(p_id uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare r jsonb;
+begin
+  if not (client_inputs_can() or business_setup_form_doc_can(p_id)) then raise exception 'You do not have access to Client Inputs.'; end if;
+  select jsonb_build_object('id', d.id, 'storage_path', d.storage_path, 'file_name', d.file_name, 'doc_type', d.doc_type,
+         'status', d.status, 'client', a.display_name, 'filed_path', d.filed_path, 'actor', auth.uid(),
+         'can_review', d.assigned_to = auth.uid() or client_portal_is_admin())
+    into r from client_portal_documents d join client_portal_accounts a on a.id = d.account_id
+   where d.id = p_id and d.upload_complete;
+  if r is null then raise exception 'Document not found.'; end if;
+  return r;
+end $$;
+drop function if exists public.business_setup_claim_proof_can(uuid);
+drop function if exists public.business_setup_claim_list(uuid);
+drop trigger if exists business_setup_case_doc on public.client_portal_documents;
+drop function if exists public.business_setup_case_doc_trg();
+drop function if exists public.business_setup_portal_claim_add(uuid, jsonb);
+drop function if exists public.business_setup_portal_claims(uuid);
+drop trigger if exists business_setup_case_acceptance on public.business_setup_acceptances;
+drop trigger if exists business_setup_case_login on public.client_portal_accounts;
+drop trigger if exists business_setup_case_kyc on public.business_setup_kyc_profiles;
+drop table if exists public.business_setup_acceptances;
+drop function if exists public.business_setup_acceptances_immutable();
+drop function if exists public.business_setup_case_acceptance_trg();
+drop function if exists public.business_setup_case_client_trg();
+drop function if exists public.business_setup_doc_revision(uuid);
+drop function if exists public.business_setup_portal_decide(uuid, uuid, text, text);
+drop function if exists public.business_setup_issue_login_ok(uuid);
+drop function if exists public.business_setup_login_grant(text, text, text, text, uuid);
+drop function if exists public.business_setup_login_mail(text, boolean, uuid);
+-- The move function goes. The start gate returns to 006's (016 lets a quote of a case start without a payment, which reads case_id). The other functions 016
+-- replaced (case_sync, case_docs, case_list, case_new, case_take, case_shared, case_confirm, case_lost, case_form_trg, dashboard) are dropped or restored by the sections below.
+drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
+drop function if exists public.business_setup_case_handover_trg();
+drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
+-- 017's two KYC functions go.
+drop function if exists public.business_setup_kyc_finished(text);
+drop function if exists public.business_setup_kyc_missing(text);
+-- business_setup_send_to_accounts goes back to 011's (016 asked for setup.cases.approve).
+create or replace function public.business_setup_send_to_accounts(p_quote uuid, p_remarks text default null) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare q hub_documents; v_state jsonb; v_remarks text := nullif(btrim(coalesce(p_remarks, '')), '');
+begin
+  perform business_setup_require('setup.services.manage');
+  select * into q from hub_documents where id = p_quote and doc_type = 'quote' and department = 'Business Setup' for update;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  v_state := business_setup_handover_read(p_quote);
+  if v_state ->> 'state' in ('With Accounts', 'Closed') then raise exception 'This quote is already %', lower(v_state ->> 'state'); end if;
+  if jsonb_array_length(v_state -> 'blockers') > 0 then
+    raise exception 'This quote is not completed: %', (select string_agg(b, ', ') from jsonb_array_elements_text(v_state -> 'blockers') b);
+  end if;
+  insert into business_setup_handovers (quote_id, status, sent_at, sent_by, remarks) values (p_quote, 'With Accounts', now(), auth.uid(), v_remarks)
+  on conflict (quote_id) do update set status = 'With Accounts', sent_at = now(), sent_by = auth.uid(), reviewed_at = null, reviewed_by = null, remarks = v_remarks;
+  update business_setup_services set locked = true where quote_id = p_quote;
+  insert into business_setup_accounts_reviews (quote_id, action, remarks) values (p_quote, 'Sent', v_remarks);
+  perform business_setup_audit('business_setup_handovers', p_quote::text, 'send_to_accounts', null, jsonb_build_object('client_id', q.client_id, 'number', q.document_number));
+end $$;
+-- business_setup_form_list(text) goes back to 009's (016 added case_id to each row).
+create or replace function public.business_setup_form_list(p_status text default null) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.access');
+  return (select coalesce(jsonb_agg(jsonb_build_object('id', f.id, 'client_id', f.client_id, 'legal_name', m.legal_name, 'status', f.status, 'submitted_at', f.submitted_at,
+             'taken_by', case when f.taken_by is not null then business_setup_person_name(f.taken_by) end, 'return_note', f.return_note,
+             'missing', to_jsonb(business_setup_form_missing_items(f.id, true))) order by f.submitted_at nulls last, f.created_at), '[]'::jsonb)
+    from business_setup_onboarding_forms f join client_master m on m.client_id = f.client_id
+   where p_status is null or f.status = p_status);
+end $$;
+create or replace function public.business_setup_start_gate(p_quote uuid, p_reason text) returns boolean
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  if p_quote is null or coalesce((select total_amount from hub_documents where id = p_quote), 0) <= 0 or business_setup_net_paid(p_quote) > 0 then
+    return false;
+  end if;
+  if not business_setup_can('setup.services.override') then raise exception 'A payment is needed before this service can start'; end if;
+  if nullif(btrim(coalesce(p_reason, '')), '') is null then raise exception 'Give a reason for starting without a payment'; end if;
+  return true;
+end $$;
+
+-- ── 018_portal.sql ───────────────────────────────────────────────────
+-- The portal view goes back to 010's (no signed-copy fields) and the client upload function goes.
+drop function if exists public.business_setup_portal_signed_add(uuid, uuid, text);
+drop function if exists public.business_setup_portal_login_name(text);
+\ir ../migrations/010_portal.sql
+
+-- ── 015_documentation.sql ────────────────────────────────────────────
+-- Invoices recorded by hand (Task 9): their functions and trigger go, and the invoice rows keep their other columns (case_id and created_by are dropped,
+-- so a hand-recorded invoice stays in the client's portal list but no longer belongs to a case). The client list goes back to 008's, without kyc_missing.
+drop policy if exists business_setup_invoice_upload on storage.objects;
+drop function if exists public.business_setup_invoice_upload_ok(text, text);
+drop trigger if exists business_setup_case_invoice on public.business_setup_invoices;
+drop function if exists public.business_setup_invoice_sync_trg();
+drop function if exists public.business_setup_invoice_record(jsonb);
+drop function if exists public.business_setup_invoice_publish(jsonb);
+drop index if exists public.business_setup_invoices_quote_number_uq;
+drop function if exists public.business_setup_case_invoice_override(uuid, text);
+drop index if exists public.business_setup_invoices_case_idx;
+alter table public.business_setup_invoices drop column if exists case_id cascade;
+alter table public.business_setup_invoices drop column if exists created_by;
+create or replace function public.business_setup_client_list() returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.access');
+  return (
+    with ids as (
+      select client_id from business_setup_kyc_profiles
+      union select client_id from business_setup_services
+      union select client_id from hub_documents where department = 'Business Setup' and doc_type = 'quote' and client_id is not null
+    )
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'client_id', m.client_id, 'legal_name', m.legal_name, 'client_status', k.client_status, 'kyc_state', k.kyc_state,
+             'active_services', (select count(*) from business_setup_services s where s.client_id = m.client_id and s.status not in ('Completed', 'Cancelled') and not s.historical),
+             'balance', (select coalesce(sum(q.total_amount - business_setup_net_paid(q.id)), 0) from hub_documents q
+                          where q.client_id = m.client_id and q.doc_type = 'quote' and q.department = 'Business Setup' and q.status = 'accepted'),
+             'missing_contact', client_master_plain(m.data ->> 'General Email') is null or client_master_plain(m.data ->> 'General Phone') is null)
+             order by m.legal_name), '[]'::jsonb)
+      from ids join client_master m on m.client_id = ids.client_id
+      left join business_setup_kyc_profiles k on k.client_id = m.client_id);
+end $$;
+-- hub_document_create goes back to 014's, and fee_item_save to 005's, by running those files again. Quotes keep their rows: the
+-- vat_rate and scope stored on their lines stay in the JSON, where nothing reads them, and a quote issued with line VAT keeps its amounts.
+-- The three company items go unless a service uses them (then they stay, at 0), and every other empty amount becomes 0.
+-- 006 (quote_reject), 011 (child lock, Accounts queue) and 014 (link client, accept, case_lost, create) come back in that order.
+\ir ../migrations/002_client_master_access.sql
+\ir ../migrations/006_quotes_tracker.sql
+\ir ../migrations/011_accounts_handover.sql
+\ir ../migrations/014_leads_ownership.sql
+\ir ../migrations/005_kyc_fees.sql
+-- Signed copies, payment by case and the letter gate (Task 8): payment_add and payment_reverse go back to 007's by running it again
+-- (014 above already restored quote_accept, case_lost and hub_document_create; case_docs goes back with 013's file further down).
+-- The signed copies table goes with its functions. Quotes accepted through it stay accepted, and payments keep their case_id until 013's section.
+\ir ../migrations/007_payments.sql
+drop function if exists public.business_setup_signed_add(uuid, text);
+drop function if exists public.business_setup_signed_file(uuid);
+drop function if exists public.business_setup_signed_decide(uuid, boolean, text, boolean);
+drop function if exists public.business_setup_case_paid_override(uuid, text);
+drop function if exists public.business_setup_case_net_paid(uuid);
+drop function if exists public.business_setup_case_documents(uuid);
+drop function if exists public.business_setup_case_locked(uuid);
+drop function if exists public.business_setup_case_link_client_for_payment(uuid, text, boolean);
+drop function if exists public.business_setup_case_link_client_body(uuid, text, boolean);
+drop function if exists public.business_setup_quote_accept_body(uuid, boolean);
+drop table if exists public.business_setup_signed_quotes;
+delete from public.business_setup_fee_items f where f.grp = 'Company' and f.name in ('Company registration', 'Company renewal', 'Visa') and f.default_amount is null
+   and not exists (select 1 from public.business_setup_services s where s.fee_item_id = f.id);
+update public.business_setup_fee_items set default_amount = 0 where default_amount is null;
+alter table public.business_setup_fee_items alter column default_amount set not null;
+alter table public.business_setup_fee_items drop column if exists vat_rate;
 
 -- ── 021_visa_registration.sql ────────────────────────────────────────
 drop function if exists public.business_setup_visa_sheet_apply(jsonb);

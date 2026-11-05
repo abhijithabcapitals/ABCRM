@@ -40,7 +40,8 @@ function Documents() {
   const [deciding, setDeciding] = useState(null);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
-  const rows = list.data || [];
+  // A proof of payment belongs to its payment claim in Business Setup; staff open it there, so it is not a Client Input to review.
+  const rows = (list.data || []).filter((d) => d.doc_type !== "Payment proof");
   const act = async (fn) => {
     setError(null); setMessage(null);
     try { await fn(); } catch (e) { setError(e.message); }

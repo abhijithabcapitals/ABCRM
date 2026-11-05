@@ -1,6 +1,8 @@
 // Supabase access for the Business Setup module. The generic helpers are Banking's; the functions below are this module's.
 import { rpc, run, table } from "@banking/services/bankingApi";
 import { supabase } from "@app/supabase";
+import { staffPost } from "@client-login/portal/portalApi";
+import { caseInvoiceFilter } from "../logic/caseWorkspace";
 
 export { rpc, table, run, listAll, insertRow, updateRow, profiles } from "@banking/services/bankingApi";
 
@@ -41,7 +43,6 @@ export const listQuoteTemplates = () => run(table("business_setup_quote_template
 export const saveQuoteTemplate = (p) => rpc("business_setup_quote_template_save", { p });
 
 // Quotes and services
-export const acceptQuote = (id, allowExpired = false) => rpc("business_setup_quote_accept", { p_id: id, p_allow_expired: allowExpired });
 export const rejectQuote = (id, reason) => rpc("business_setup_quote_reject", { p_id: id, p_reason: reason });
 export const linkQuote = (id, client) => rpc("business_setup_quote_link", { p_id: id, p_client: client });
 export const signLetter = (id, date, path) => rpc("business_setup_letter_sign", { p_id: id, p_date: date, p_path: path });
@@ -83,6 +84,8 @@ export const returnForm = (id, note) => rpc("business_setup_form_return", { p_id
 export const validateForm = (id, contact, version) => rpc("business_setup_form_validate", { p_id: id, p_contact: contact, p_version: version });
 
 // Client login
+// The login name for the quote message: id, username and status, for anyone who may issue quotes.
+export const loginName = (client) => rpc("business_setup_portal_login_name", { p_client: client });
 export const loginState = (client) => rpc("business_setup_portal_login_state", { p_client: client });
 export const loginSave = (client, username, password) => rpc("business_setup_portal_login_save", { p_client: client, p_username: username, p_password: password });
 export const loginStatus = (client, active) => rpc("business_setup_portal_login_status", { p_client: client, p_active: active });
@@ -91,7 +94,11 @@ export const loginStatus = (client, active) => rpc("business_setup_portal_login_
 export const caseList = (view) => rpc("business_setup_case_list", { p_view: view });
 export const caseNew = (p) => rpc("business_setup_case_new", { p });
 export const caseTake = (id) => rpc("business_setup_case_take", { p_case: id });
+// The same checked step for Finance, on the payment right (no login is issued).
+export const caseLinkClientForPayment = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client_for_payment", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 export const caseLinkClient = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
+// The owner (or a manager) moves a Lead or Review case to Client Onboarding. The checked client step runs first; returns the client id.
+export const caseMoveToOnboarding = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_move_to_onboarding", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 export const caseShared = (id) => rpc("business_setup_case_shared", { p_case: id });
 export const caseLost = (id, reason) => rpc("business_setup_case_lost", { p_case: id, p_reason: reason });
 export const caseConfirm = (id) => rpc("business_setup_case_confirm", { p_case: id });
@@ -118,3 +125,38 @@ export const latestImport = async () => (await run(table("business_setup_import_
 export const importReport = (id) => rpc("business_setup_import_report", { p_import: id });
 export const importDecide = (row, client, decision) => rpc("business_setup_import_decide", { p_row: row, p_client: client, p_decision: decision });
 export const importApply = (id) => rpc("business_setup_import_apply", { p_import: id });
+
+// Signed copies of quotes. A client uploads through the portal; staff add one under staff/<client_id>/ in the same bucket.
+export const listSigned = (quote) => run(table("business_setup_signed_quotes").select("id,quote_id,source,status,note,storage_path,created_at,decided_at").eq("quote_id", quote).order("created_at", { ascending: false }));
+export const signedAdd = (quote, path) => rpc("business_setup_signed_add", { p_quote: quote, p_path: path });
+export const signedDecide = (id, confirm, note = null, allowExpired = false) => rpc("business_setup_signed_decide", { p_id: id, p_confirm: confirm, p_note: note, p_allow_expired: allowExpired });
+export async function addStaffSignedCopy(quote, clientId, file) {
+  const path = `staff/${clientId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
+  const { error } = await supabase.storage.from("client-portal").upload(path, file);
+  if (error) throw new Error(error.message);
+  return signedAdd(quote, path);
+}
+
+// Payment by case, and a case's documents when it has no client yet
+export const invoiceRecord = (p) => rpc("business_setup_invoice_record", { p });
+export const caseInvoiceOverride = (id, reason) => rpc("business_setup_case_invoice_override", { p_case: id, p_reason: reason });
+export const caseInvoices = async (caseId) => {
+  const quotes = (await caseDocuments(caseId)).filter((d) => d.doc_type === "quote").map((d) => d.id);
+  return run(table("business_setup_invoices").select("id,invoice_number,issued_on,amount,file_path,source,created_at").or(caseInvoiceFilter(caseId, quotes)).order("created_at", { ascending: false }));
+};
+export const caseDocuments = (id) => rpc("business_setup_case_documents", { p_case: id });
+
+// Client Onboarding (client flow Task 7)
+// The login that goes out with a quote. The client-portal function makes the password on the server and emails it, so none is returned here.
+// resend: true emails the stored login again without changing it. A refusal comes back as an error carrying the server's own sentence.
+export async function issueLogin(caseId, resend = false) {
+  const token = (await supabase.auth.getSession()).data.session?.access_token;
+  return staffPost(token, "setup_issue_login", resend ? { case_id: caseId, resend: true } : { case_id: caseId });
+}
+// A case's payment claims, newest first, each with the portal document that holds its proof (opened through the staff document link).
+export const claimList = (caseId) => rpc("business_setup_claim_list", { p_case: caseId });
+export const claimRefuse = (id, note) => rpc("business_setup_claim_refuse", { p_id: id, p_note: note });
+// What the client decided on quotes and letters, with their notes (business_setup_acceptances is readable by Business Setup staff).
+export const listDecisions = (documentIds) => (documentIds.length
+  ? run(table("business_setup_acceptances").select("document_id,kind,revision,decision,note,source,username,created_at").in("document_id", documentIds).order("created_at", { ascending: false }))
+  : Promise.resolve([]));

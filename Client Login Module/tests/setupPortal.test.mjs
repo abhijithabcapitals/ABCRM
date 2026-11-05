@@ -85,6 +85,7 @@ test("a client with no Business Setup work sees only today's portal", () => {
   assert.deepEqual(portalSections({ form: null, services: [], quotes: [], payments: [], invoices: [], documents: [] }), []);
   assert.deepEqual(portalSections(null), []);
   assert.deepEqual(portalSections({ form: {}, services: [{}], quotes: [], payments: [{}], invoices: [], documents: [] }), ["form", "services", "payments"]);
+  assert.deepEqual(portalSections({ form: null, services: [], quotes: [{}], letters: [{}], payments: [], invoices: [{}], documents: [] }), ["quotes", "letters", "invoices"]);
 });
 
 test("the portal imports nothing from staff modules beyond the form definition and shared components", () => {
@@ -92,4 +93,43 @@ test("the portal imports nothing from staff modules beyond the form definition a
     const s = readFileSync(fileURLToPath(new URL(`../portal/${f}`, import.meta.url)), "utf8");
     for (const m of s.matchAll(/from "(@[^"]+)"/g)) assert.ok(["@banking/components/shared", "@business-setup/logic/formDefinition"].includes(m[1]), `${f} imports ${m[1]}`);
   }
+});
+
+test("the client has no signed quote upload: no action, no limit code, no SQL function", () => {
+  assert.doesNotMatch(src, /setup_signed_upload/); assert.doesNotMatch(src, /business_setup_portal_signed_add/); assert.doesNotMatch(src, /SIGNED_EXT/);
+  const view = readFileSync(fileURLToPath(new URL("../portal/SetupView.jsx", import.meta.url)), "utf8");
+  assert.doesNotMatch(view, /can_sign|signedUpload|FilePick/);
+  const api = readFileSync(fileURLToPath(new URL("../portal/portalApi.js", import.meta.url)), "utf8");
+  assert.doesNotMatch(api, /signedUpload|setup_signed_upload/);
+});
+
+test("staff open a signed copy through the SQL right check, never a path from the browser", () => {
+  const i = src.indexOf('if (action === "staff_signed_url")');
+  assert.ok(i > 0);
+  const b = src.slice(i, i + 500);
+  assert.match(b, /staff\.rpc\("business_setup_signed_file"/);
+  assert.doesNotMatch(b, /body\.(path|storage_path)/);
+});
+
+test("a quote of a closed case does not read as waiting for the client", () => {
+  const view = readFileSync(fileURLToPath(new URL("../portal/SetupView.jsx", import.meta.url)), "utf8");
+  assert.match(view, /q\.status === "issued" && q\.closed \? "Closed" : QUOTE\[q\.status\]/);
+});
+
+test("setup_payment_claim runs after the session check and takes the account from the session only", () => {
+  assert.ok(src.indexOf('case "setup_payment_claim":') > src.indexOf('"client_portal_session"'), "it runs before the session check");
+  const b = branch("setup_payment_claim");
+  assert.doesNotMatch(b, /body\.(client_id|client|account_id|account|case_id|case|status)/, "it reads an identity or a status from the browser");
+  assert.match(b, /business_setup_portal_claim_add/);
+  assert.match(b, /p_account: accountId/);
+  assert.match(b, /eq\("account_id", accountId\)/, "the proof is not tied to the session's account");
+});
+
+test("a proof of payment is a PDF, JPG or PNG up to 10 MB and is filed as the login's own upload", () => {
+  const b = branch("upload_start");
+  assert.match(b, /for_claim/);
+  assert.match(src, /MAX_CLAIM_PROOF_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(src, /CLAIM_PROOF_EXT = \["pdf", "jpg", "jpeg", "png"\]/);
+  assert.match(b, /"Payment proof"/);
+  assert.match(b, /incoming\/\$\{accountId\}/);
 });

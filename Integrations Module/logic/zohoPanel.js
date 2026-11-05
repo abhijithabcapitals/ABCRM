@@ -48,6 +48,15 @@ export function rowActions(mode, { canCreate, connected, linked, hasUrl, reissue
   };
 }
 
+export const PUBLISH_LABEL = "Publish to client";
+export const PUBLISHED = "Published to the client.";
+
+// The button exists only when the screen passes a publish prop, and only for an invoice that Zoho has made.
+// The function decides whether the invoice has been sent; Banking and Accounting pass no prop, so they never see it.
+export function canPublish({ publish, kind, mode } = {}) {
+  return !!publish && kind === "invoice" && mode === "created";
+}
+
 // Notes for one row, each as { tone: "warn" | "error", text }.
 export function rowNotes(row, mode) {
   const notes = [];

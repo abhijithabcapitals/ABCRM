@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  NOT_CONNECTED, POPUP_BLOCKED, callZoho, NO_ACCESS, canReissue, contactLinkable, linkContact, makeGuard, openPdf, readInvokeError, safeZohoUrl, contactLine, createRights, formatAmount, panelMode, panelNotes, pdfReply, replaceQuestion, rowActions, rowNotes,
+  NOT_CONNECTED, POPUP_BLOCKED, PUBLISH_LABEL, PUBLISHED, callZoho, canPublish, NO_ACCESS, canReissue, contactLinkable, linkContact, makeGuard, openPdf, readInvokeError, safeZohoUrl, contactLine, createRights, formatAmount, panelMode, panelNotes, pdfReply, replaceQuestion, rowActions, rowNotes,
 } from "../logic/zohoPanel.js";
 
 const file = (rel) => fileURLToPath(new URL(rel, import.meta.url));
@@ -330,4 +330,29 @@ test("Documentation locks, selects and gates the panel", () => {
 test("a job that is not Completed says why there is no Create", () => {
   assert.match(read("../../Accounting Module/components/JobWorkspace.jsx"), /readyNote=\{zohoReadyNote\(job\)\}/);
   assert.match(read("../components/ZohoPanel.jsx"), /mode === "ready" && readyNote/);
+});
+
+test("Publish to client shows only with a publish prop, for a created invoice", () => {
+  assert.equal(canPublish({ publish: { onPublished() {} }, kind: "invoice", mode: "created" }), true);
+  assert.equal(canPublish({ publish: true, kind: "invoice", mode: "created" }), true);
+  assert.equal(canPublish({ publish: undefined, kind: "invoice", mode: "created" }), false);
+  assert.equal(canPublish({ publish: null, kind: "invoice", mode: "created" }), false);
+  assert.equal(canPublish({ publish: true, kind: "estimate", mode: "created" }), false);
+  for (const m of ["ready", "failed", "unknown", "gone", "needs_contact", "not_connected"]) assert.equal(canPublish({ publish: true, kind: "invoice", mode: m }), false, m);
+  assert.equal(PUBLISH_LABEL, "Publish to client");
+});
+
+test("the panel calls document_publish for the invoice only, shows its errors, and Banking and Accounting pass no publish prop", () => {
+  const panel = read("../components/ZohoPanel.jsx");
+  assert.match(panel, /action: "document_publish"/);
+  assert.match(panel, /kind: "invoice"/);
+  assert.match(panel, /canPublish\(/);
+  assert.match(panel, /publishError/);
+  assert.match(panel, /\{PUBLISHED\}/);
+  assert.equal(PUBLISHED, "Published to the client.");
+  assert.doesNotMatch(panel, /catch \{\s*\}/);
+  for (const f of ["../../Banking Module/components/BankProcess.jsx", "../../Banking Module/components/Documentation.jsx", "../../Accounting Module/components/BankingValidation.jsx",
+    "../../Accounting Module/components/JobWorkspace.jsx", "../../Accounting Module/components/SetupValidation.jsx"]) {
+    assert.doesNotMatch(read(f), /<ZohoPanel[^>]*publish/, f);
+  }
 });

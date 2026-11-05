@@ -89,6 +89,14 @@ Advances on cases with no accepted quote are shown beside Receivables as a separ
 
 **Business Development lead:** `bd_mark_lead_won` already writes `bd_onboarding_handovers`, but nothing reads it. A handover with queue `Business Setup` creates a case at Lead, and sets the handover to Accepted when someone takes it. The lead's accepted services and agreed fees prefill the quote. A handover to any other queue is ignored. Won still needs an accepted service with an agreed fee, as it does today.
 
+**Business Development leads, user's rule of 2026-11-05:** every open lead in Business Development's All Leads can be picked up by a Business Setup employee, who assigns it to their own name. It does not wait for Won.
+- The Leads tab has a Business Development section listing leads with status Open or On Hold, and Won leads not yet with a case. It leaves out Lost, Disqualified, archived and already picked-up leads. It shows lead number, name, contact, phone, email, source, stage and the Business Development owner, and no fees.
+- The list and **Assign to me** need `setup.leads.manage`, through security definer functions, so no Business Setup employee needs a Business Development role.
+- **Assign to me** creates one case at Lead, with `source = 'Business Development'`, the lead's id in the new unique `bd_lead_id`, and the employee as owner. A second person is refused with the first owner's name.
+- The lead keeps its Business Development owner and stays editable in Business Development. Only the case gets the Business Setup owner.
+- If the lead is later marked Won with queue `Business Setup`, the handover attaches to the existing case and no second case is created. If no case exists, the handover creates one as above.
+- If the lead is later marked Lost in Business Development, the case stays open and shows a note to the owner.
+
 **Share link:** this checks for a duplicate through `client_master_save`, and staff can link an existing client instead. It then issues the login with the existing password email, and creates the form. From this point, Client Master is the source for phone and email. This is the only exception to the rule that contacts live only in Client Master, and it applies only to leads with no client row.
 
 **Taking and reassigning:**

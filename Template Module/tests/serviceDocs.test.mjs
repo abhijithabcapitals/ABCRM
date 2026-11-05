@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { DEPARTMENTS, NUMBERING_DEPARTMENTS, addLine, checkReady, fileNameFor, folderKind, letterData, listWords, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs.js";
+import { DEPARTMENTS, NUMBERING_DEPARTMENTS, addLine, checkReady, feeItemFor, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, listWords, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const render = (file, data) => {
@@ -88,6 +88,51 @@ test("ArdentTax shows on the numbering page, not among the Service Desk departme
 test("ArdentTax files stay in the CRM, so they never wait for a PC copy", () => {
   assert.equal(needsPcCopy({ storage_path: "a", local_path: null, source: "ardentax" }), false);
   assert.equal(needsPcCopy({ storage_path: "a", local_path: null, source: "hub" }), true);
+});
+
+test("Business Setup on the desk has no VAT choice and exclusive totals; other departments keep theirs", () => {
+  assert.equal(fixedVat("Business Setup"), true); assert.equal(fixedVat("Accounting"), false);
+  assert.equal(deskVatMode("Business Setup", "inclusive"), "exclusive"); assert.equal(deskVatMode("Accounting", "inclusive"), "inclusive"); assert.equal(deskVatMode("Tax Compliance", "none"), "none");
+  const totals = deskTotals("Business Setup", [{ amount: 0.1 }, { amount: 0.1 }], "inclusive");
+  assert.deepEqual(totals, { net: 0.2, vat: 0.02, total: 0.22 });   // per line, as the server rounds
+  // A 0% fee item keeps its rate on the desk line, so the totals match the stored ones.
+  const zero = addLine([], "Govt", "100", { id: "f0", vat_rate: 0 }).lines;
+  assert.deepEqual(zero, [{ description: "Govt", amount: 100, fee_item_id: "f0", vat_rate: 0 }]);
+  assert.deepEqual(deskTotals("Business Setup", zero, "inclusive"), { net: 100, vat: 0, total: 100 });
+  assert.deepEqual(deskTotals("Business Setup", addLine(zero, "Svc", "100", { id: "f5", vat_rate: 5 }).lines, "inclusive"), { net: 200, vat: 5, total: 205 });
+  assert.deepEqual(addLine([], "S", "10").lines, [{ description: "S", amount: 10 }]);
+  assert.deepEqual(deskTotals("Accounting", [{ amount: 105 }], "inclusive"), serviceTotals([{ amount: 105 }], "inclusive", 5));
+  const desk = readFileSync(fileURLToPath(new URL("../components/ServiceDesk.jsx", import.meta.url)), "utf8");
+  assert.match(desk, /!fixedVat\(dept\) && <div className="bk-field"><label htmlFor="d-vat">/);
+  assert.match(desk, /withLineVat\(doc, /); assert.match(desk, /vat_mode: deskVatMode\(dept, form\.vat_mode\)/);
+});
+
+test("the letter's scope prints each Business Setup line's scope, falling back to its name; other departments are unchanged", () => {
+  const doc = { client_name: "X", department: "Business Setup", services: ["Visa", "Licence"], lines: [{ description: "Visa", amount: 1, scope: "Two investor visas" }, { description: "Licence", amount: 1, scope: "" }] };
+  assert.deepEqual(letterData(doc, {}, {}).scope, [{ text: "Two investor visas" }, { text: "Licence" }]);
+  const other = { ...doc, department: "Accounting" };
+  assert.deepEqual(letterData(other, {}, {}).scope, [{ text: "Visa" }, { text: "Licence" }]);
+});
+
+test("the Word quote prints a line's scope beside it only when given", () => {
+  const base = { ...quoteData({ client_name: "X", document_number: "N", services: ["Visa"], lines: [], vat_mode: "exclusive", total_amount: 105, vat_amount: 5 }, {}) };
+  const withScope = render("Service_Quotation_Template.docx", { ...base, lines: [{ no: 1, description: "Visa", amount: "100", scope_note: "Two investor visas" }] });
+  assert.match(withScope, /Visa/); assert.match(withScope, /Two investor visas/);
+  const none = render("Service_Quotation_Template.docx", { ...base, lines: [{ no: 1, description: "Visa", amount: "100" }] });
+  assert.match(none, /Visa/); assert.doesNotMatch(none, /Visa\s*:/);
+});
+
+test("feeItemFor: no link, one match, two matches", () => {
+  const fees = [{ id: "a", service_item_id: "s1", vat_rate: 0 }, { id: "b", service_item_id: "s2", vat_rate: 5 }, { id: "c", service_item_id: "s2", vat_rate: 0 }, { id: "d", service_item_id: null, vat_rate: 5 }];
+  assert.deepEqual(feeItemFor(fees, "s9"), { item: null });
+  assert.deepEqual(feeItemFor(fees, null), { item: null });
+  assert.equal(feeItemFor(fees, "s1").item.id, "a");
+  assert.match(feeItemFor(fees, "s2").error, /More than one/);
+  assert.deepEqual(feeItemFor(undefined, "s1"), { item: null });
+});
+test("the desk reports a failed fee list and disables Add until fees load", () => {
+  const desk = readFileSync(fileURLToPath(new URL("../components/ServiceDesk.jsx", import.meta.url)), "utf8");
+  assert.doesNotMatch(desk, /listFees\(\)\.catch/); assert.match(desk, /fee list could not be loaded/); assert.match(desk, /disabled=\{dept === "Business Setup" && !fees\.data\}/);
 });
 test("quotation prints the saved payment terms, the bank details and any notes", () => {
   const t = render("Service_Quotation_Template.docx", quoteData({ ...doc, notes: "Note here" }, { ...company, bank: { account_name: "Acct", iban: "IBAN-1" } }, { payment_terms: ["Pay first. {{vat_statement}}"] }));

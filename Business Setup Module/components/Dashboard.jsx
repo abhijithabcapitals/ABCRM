@@ -1,19 +1,21 @@
 // What needs attention across the department. Each card opens the page that deals with it.
 import { DataTable, ErrorNote, PageHead, Panel, Badge, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { useSetup } from "./SetupContext";
-import { visibleNav } from "../logic/nav";
+import { stageTab, visibleNav } from "../logic/nav";
 import { dashboard, expiries } from "../services/businessSetupApi";
 import { expiryNote } from "../logic/expiries";
 import { aedMoney as money } from "@app/money";
 
-// Six figures, each opening the list behind it. The pages leads, review, documentation and cases arrive with the case screens.
+// Eight figures, each opening the tab that lists the cases behind it.
 export const FIGURES = [
-  ["processes_pending", "Processes pending", "cases"], ["receivables", "Receivables", "clients"], ["cases_completed_month", "Cases completed", "cases"],
-  ["pipeline_total", "Cases in the pipeline", "leads"], ["forms_to_review", "Forms to review", "review"], ["pending_after_kyc", "Pending after KYC", "documentation"],
+  ["processes_pending", "Processes pending", "pipeline"], ["receivables", "Receivables", "clients"], ["cases_completed_month", "Cases completed", "clients"],
+  ["pipeline_total", "Cases in the pipeline", "pipeline"], ["client_inputs", "Client inputs to review", "leads"], ["awaiting_client", "Awaiting client", "onboarding"],
+  ["payment_claims", "Payment claims", "onboarding"], ["at_completion", "At Completion", "completion"],
 ];
-const STAGES = ["Lead", "Contact", "Review", "Services", "Documentation", "Assignment", "In service"];
+const STAGES = ["Lead", "Review", "Onboarding", "Pipeline", "Completion", "With Accounts"];
 
-const pipelineTotal = (d) => Object.values(d.pipeline || {}).reduce((a, n) => a + Number(n || 0), 0);
+// All open cases, summed over the stages (the earlier definition). The card opens the Pipeline tab.
+export const pipelineTotal = (d) => Object.values(d.pipeline || {}).reduce((a, n) => a + Number(n || 0), 0);
 const figure = (k, d) => (k === "receivables" ? money(d.receivables) : k === "pipeline_total" ? pipelineTotal(d) : d[k] ?? 0);
 // The second line under a figure: advances beside receivables, all-time beside this month's completions.
 const sub = (k, d) => (k === "receivables" ? `Advances ${money(d.advances)}` : k === "cases_completed_month" ? `This month. ${d.cases_completed_total ?? 0} in total` : "");
@@ -49,7 +51,9 @@ export default function Dashboard() {
           </div>
           <Panel title="Cases by stage" sub="Open cases only. Completed, cancelled and lost cases are not counted.">
             <div className="bk-cards">
-              {STAGES.map((st) => <div className="bk-card" key={st}><span>{st}</span><strong>{d.data.pipeline?.[st] ?? 0}</strong></div>)}
+              {STAGES.map((st) => (allowed.has(stageTab(st))
+                ? <button type="button" className="bk-card bk-click" key={st} onClick={() => goTo(stageTab(st))}><span>{st}</span><strong>{d.data.pipeline?.[st] ?? 0}</strong></button>
+                : <div className="bk-card" key={st}><span>{st}</span><strong>{d.data.pipeline?.[st] ?? 0}</strong></div>))}
             </div>
           </Panel>
         </>

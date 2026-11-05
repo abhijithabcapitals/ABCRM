@@ -194,6 +194,7 @@ async function run(action: string, body: Json, deps: Deps): Promise<object> {
   if (action === "document_create") return await createDocument(body, deps);
   if (action === "document_state") return await documentState(body, deps);
   if (action === "document_pdf") return await documentPdf(body, deps);
+  if (action === "document_publish") return await documentPublish(body, deps);
 
   if (action === "contact_get") {
     const department = departmentOf(body);
@@ -830,4 +831,109 @@ async function documentPdf(body: Json, deps: Deps): Promise<object> {
     if (!isMissing(e)) throw e;
     throw new UserError((await markGone(deps, row, kind)) ? NO_LONGER : GONE_NOT_SAVED);
   }
+}
+
+// ---- Publish to client ----
+
+const INVOICE_BUCKET = "business-setup-documents";
+// The bucket's own limit, the same as an uploaded invoice.
+const MAX_INVOICE_BYTES = 26_214_400;
+const SEND_FIRST = "Send this invoice in Zoho first.";
+const PUBLISH_VOID = "This invoice was voided in Zoho, so it cannot be published.";
+const PUBLISH_NO_DRAFT = "Create the Zoho draft first.";
+const PUBLISH_NOT_ACCEPTED = "An invoice can be published only for an accepted quote.";
+const PUBLISH_TAKEN = "This Zoho invoice is already published for another quote.";
+const PUBLISH_NO_PDF = "Zoho did not return a PDF.";
+const PUBLISH_STORE_FAILED = "Could not store the invoice file.";
+const PUBLISH_SAVE_FAILED = "Could not publish the invoice to the client.";
+
+// Stores a sent Zoho invoice's PDF in the client's login. Only GET calls leave for Zoho. The status, number, date and amount
+// come from Zoho's reply, the file path is made here, and the SQL function holds the rest of the rules.
+async function documentPublish(body: Json, deps: Deps): Promise<object> {
+  if (kindOf(body) !== "invoice") throw new UserError("Only an invoice can be published to the client.");
+  const { table, id } = sourceOf(body);
+  if (table !== "hub_documents") throw new UserError("Only a Business Setup quote can be published to the client.");
+  await needPermission(deps, "business_setup", MANAGE.business_setup);
+
+  const src = await loadSource(deps, table, id);
+  if (!src.clientId) throw new UserError(NO_MASTER);
+  const quote = await readRow(deps, "hub_documents", "id", id, "status");
+  if (quote?.status !== "accepted") throw new UserError(PUBLISH_NOT_ACCEPTED);
+
+  // The Zoho id comes from the saved draft row only, never from the request.
+  const found = await deps.db.from("zoho_documents").select("*").eq("source_table", table).eq("source_id", id).eq("kind", "invoice")
+    .maybeSingle();
+  if (found.error) {
+    console.error("zoho-books: publish lookup failed:", found.error.code, found.error.message);
+    throw new UserError("Could not read the draft record.");
+  }
+  const row = found.data;
+  if (!row || row.state !== "created" || !/^\d+$/.test(String(row.zoho_id ?? ""))) throw new UserError(PUBLISH_NO_DRAFT);
+  const zohoId = String(row.zoho_id);
+
+  const zoho = await deps.zoho();
+  let doc: Json;
+  try {
+    doc = (await zoho.get(`/invoices/${zohoId}`))?.invoice;
+  } catch (e) {
+    if (!isMissing(e)) throw e;
+    throw new UserError((await markGone(deps, row, "invoice")) ? NO_LONGER : GONE_NOT_SAVED);
+  }
+  if (!doc) throw new Error("Zoho reply had no document");
+  const status = String(doc.status ?? "").toLowerCase();
+  if (status === "void") throw new UserError(PUBLISH_VOID);
+  if (!clientVisible(status)) throw new UserError(SEND_FIRST);
+
+  // The invoice must be billed to the contact linked to this client, or another company could see it.
+  const link = await readRow(deps, "zoho_contact_links", "client_id", src.clientId, "zoho_contact_id");
+  if (!link || doc.customer_id == null || String(doc.customer_id) !== String(link.zoho_contact_id)) throw new UserError(OTHER_CONTACT);
+  const number = doc.invoice_number == null ? "" : String(doc.invoice_number).trim();
+  const amount = Number(doc.total);
+  if (!number || doc.total == null || !Number.isFinite(amount) || amount < 0) {
+    throw new UserError("Zoho has no number or total for this invoice yet.");
+  }
+  const date = typeof doc.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(doc.date) ? doc.date : undefined;
+
+  // A repeat returns the same row. A row the read-back made without a file is completed below.
+  const existing = await deps.db.from("business_setup_invoices").select("id, quote_id, file_path").eq("zoho_id", zohoId).maybeSingle();
+  if (existing.error) {
+    console.error("zoho-books: publish row read failed:", existing.error.code, existing.error.message);
+    throw new UserError(PUBLISH_SAVE_FAILED);
+  }
+  if (existing.data) {
+    if (existing.data.quote_id !== id) throw new UserError(PUBLISH_TAKEN);
+    if (existing.data.file_path) return { invoice_id: existing.data.id };
+  }
+
+  const pdf = await zoho.getPdf(`/invoices/${zohoId}`);
+  const magic = [0x25, 0x50, 0x44, 0x46];
+  if (!(pdf instanceof Uint8Array) || pdf.length < 5 || !magic.every((b, i) => pdf[i] === b)) throw new UserError(PUBLISH_NO_PDF);
+  if (pdf.length > MAX_INVOICE_BYTES) throw new UserError("The invoice file is too large to store (25 MB at most).");
+
+  const path = `${src.clientId}/invoice/zoho-${zohoId}.pdf`;
+  const up = await deps.db.storage.from(INVOICE_BUCKET).upload(path, pdf, { contentType: "application/pdf", upsert: false });
+  // A file left by an earlier attempt that stopped before the row was saved is the same file, so it is reused.
+  const already = up.error && (String(up.error.statusCode) === "409" || /already exists|duplicate/i.test(String(up.error.message ?? "")));
+  if (up.error && !already) {
+    console.error("zoho-books: publish upload failed:", up.error.statusCode, up.error.error ?? "");
+    throw new UserError(PUBLISH_STORE_FAILED);
+  }
+
+  const { data, error } = await deps.db.rpc("business_setup_invoice_publish", {
+    p: {
+      quote_id: id,
+      invoice_number: number,
+      ...(date ? { invoice_date: date } : {}),
+      amount,
+      file_path: path,
+      zoho_id: zohoId,
+      published_by: deps.userId,
+    },
+  });
+  if (error) {
+    console.error("zoho-books: publish save failed:", error.code, error.message);
+    // The SQL function's own refusals are plain sentences. Anything else gets fixed wording.
+    throw new UserError(error.code === "P0001" && typeof error.message === "string" && error.message ? error.message : PUBLISH_SAVE_FAILED);
+  }
+  return { invoice_id: data };
 }

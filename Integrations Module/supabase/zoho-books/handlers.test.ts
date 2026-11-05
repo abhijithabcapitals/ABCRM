@@ -15,10 +15,41 @@ function fakeDb(
 ) {
   let seq = 0;
   return {
+    // Stands in for Supabase storage. An existing path is refused, as with upsert off.
+    storage: {
+      from: (bucket: string) => ({
+        upload: (path: string, bytes: Uint8Array, opts: Row) => {
+          log.tables.push(`storage:${bucket}`);
+          const files = (tables["storage.objects"] ??= []);
+          if (errors["storage.upload"]) return Promise.resolve({ data: null, error: errors["storage.upload"] });
+          if (files.some((f) => f.bucket === bucket && f.path === path)) {
+            return Promise.resolve({ data: null, error: { statusCode: "409", message: "The resource already exists" } });
+          }
+          files.push({ bucket, path, bytes, opts });
+          return Promise.resolve({ data: { path }, error: null });
+        },
+      }),
+    },
     // Stands in for accounting_zoho_invoice_fill, with the same rules as the SQL.
     rpc: (name: string, args: Row) => {
       log.tables.push(`rpc:${name}`);
       if (errors[`rpc.${name}`]) return Promise.resolve({ data: null, error: errors[`rpc.${name}`] });
+      if (name === "business_setup_invoice_publish") {
+        // Same rule as the SQL: a repeat with the same zoho_id returns the same row.
+        const p = args.p as Row;
+        const rows = (tables.business_setup_invoices ??= []);
+        const hit = rows.find((r) => r.zoho_id === p.zoho_id);
+        if (hit) {
+          hit.file_path ??= p.file_path;
+          return Promise.resolve({ data: hit.id, error: null });
+        }
+        const row = {
+          id: `inv-${++seq}`, client_id: "CL000001", quote_id: p.quote_id, invoice_number: p.invoice_number, issued_on: p.invoice_date,
+          amount: p.amount, file_path: p.file_path, source: "zoho", zoho_id: p.zoho_id, created_by: p.published_by,
+        };
+        rows.push(row);
+        return Promise.resolve({ data: row.id, error: null });
+      }
       if (name !== "accounting_zoho_invoice_fill") return Promise.resolve({ data: null, error: { message: "no such function" } });
       const job = (tables.accounting_jobs ?? []).find((j) => j.id === args.p_job);
       if (!job) return Promise.resolve({ data: null, error: { message: "Job not found" } });
@@ -2118,4 +2149,153 @@ Deno.test("a job whose quote can't be read, or has another VAT rate, is refused 
   Object.assign(odd.db.accounting_jobs[0], { quote_id: "q7", fee_amount: "900.00" });
   await assertRejects(() => handle("document_create", JOB, odd.deps), UserError, "VAT rate other than 5%");
   assertEquals([gone.posts.length, odd.posts.length, gone.db.zoho_documents.length, odd.db.zoho_documents.length], [0, 0, 0, 0]);
+});
+
+// ---- Publish to client ----
+
+const PUB = { source_table: "hub_documents", source_id: "h1", kind: "invoice" };
+
+function publishSetup(status: string, extra: Row = {}) {
+  const m = makeDeps();
+  m.db.hub_documents[0].status = "accepted";
+  seed(m.db, { zoho_status: "draft" });
+  m.replies["/invoices/9001"] = invoiceReply(status, { invoice_number: "INV-0001", total: 105, date: "2026-11-03", ...extra });
+  return m;
+}
+
+Deno.test("publish_refuses_draft: a draft invoice is refused with the plain message and nothing is stored", async () => {
+  const m = publishSetup("draft");
+  await assertRejects(() => handle("document_publish", PUB, m.deps), UserError, "Send this invoice in Zoho first.");
+  assertEquals([m.pdfCalls.length, (m.db["storage.objects"] ?? []).length, (m.db.business_setup_invoices ?? []).length], [0, 0, 0]);
+});
+
+Deno.test("publish refuses void and every other status that is not issued", async () => {
+  for (const status of ["void", "", "unknown_status", "DRAFT"]) {
+    const m = publishSetup(status);
+    await assertRejects(() => handle("document_publish", PUB, m.deps), UserError);
+    assertEquals([m.pdfCalls.length, (m.db["storage.objects"] ?? []).length, (m.db.business_setup_invoices ?? []).length], [0, 0, 0]);
+  }
+  const v = publishSetup("void");
+  await assertRejects(() => handle("document_publish", PUB, v.deps), UserError, "voided in Zoho");
+});
+
+Deno.test("publish_stores: a sent invoice has its PDF read, stored and one invoice recorded from Zoho's figures", async () => {
+  for (const status of ["sent", "viewed", "overdue", "paid", "partially_paid"]) {
+    const m = publishSetup(status, { total: 210.5, invoice_number: "INV-0042", date: "2026-11-04" });
+    const r = await handle("document_publish", { ...PUB, amount: 1, invoice_number: "FAKE", invoice_date: "2020-01-01", file_path: "x/y.pdf" }, m.deps) as Row;
+    assertEquals(m.pdfCalls, ["/invoices/9001"]);
+    const files = m.db["storage.objects"];
+    assertEquals(files.length, 1);
+    assertEquals([files[0].bucket, files[0].path], ["business-setup-documents", "CL000001/invoice/zoho-9001.pdf"]);
+    assertEquals(files[0].opts.contentType, "application/pdf");
+    const rows = m.db.business_setup_invoices;
+    assertEquals(rows.length, 1);
+    assertEquals(r, { invoice_id: rows[0].id });
+    assertEquals(
+      [rows[0].amount, rows[0].invoice_number, rows[0].issued_on, rows[0].file_path, rows[0].zoho_id, rows[0].quote_id, rows[0].created_by],
+      [210.5, "INV-0042", "2026-11-04", "CL000001/invoice/zoho-9001.pdf", "9001", "h1", "user-1"],
+    );
+  }
+});
+
+Deno.test("publish_twice: a repeat returns the same invoice and stores no second file", async () => {
+  const m = publishSetup("sent");
+  const a = await handle("document_publish", PUB, m.deps) as Row;
+  const pdfsBefore = m.pdfCalls.length;
+  const b = await handle("document_publish", PUB, m.deps) as Row;
+  assertEquals(b, a);
+  assertEquals([m.db["storage.objects"].length, m.db.business_setup_invoices.length, m.pdfCalls.length], [1, 1, pdfsBefore]);
+});
+
+Deno.test("publish adopts a Client Login row that the Zoho read-back made without a file", async () => {
+  const m = publishSetup("sent");
+  (m.db.business_setup_invoices ??= []).push({ id: "pre", client_id: "CL000001", quote_id: "h1", zoho_id: "9001", file_path: null, source: "zoho" });
+  const r = await handle("document_publish", PUB, m.deps) as Row;
+  assertEquals(r, { invoice_id: "pre" });
+  assertEquals([m.db["storage.objects"].length, m.db.business_setup_invoices.length], [1, 1]);
+  assertEquals(m.db.business_setup_invoices[0].file_path, "CL000001/invoice/zoho-9001.pdf");
+});
+
+Deno.test("publish retries after a crash left the file stored but no row", async () => {
+  const m = publishSetup("sent");
+  (m.db["storage.objects"] ??= []).push({ bucket: "business-setup-documents", path: "CL000001/invoice/zoho-9001.pdf" });
+  const r = await handle("document_publish", PUB, m.deps) as Row;
+  assertEquals(m.db.business_setup_invoices.length, 1);
+  assertEquals(r, { invoice_id: m.db.business_setup_invoices[0].id });
+});
+
+Deno.test("publish_get_only: every Zoho call is a read, and nothing is posted", async () => {
+  const m = publishSetup("sent");
+  await handle("document_publish", PUB, m.deps);
+  assertEquals(m.posts.length, 0);
+  assertEquals(m.calls.map((c) => c.path), ["/invoices/9001"]);
+  assertEquals(m.pdfCalls, ["/invoices/9001"]);
+});
+
+Deno.test("publish_estimate_refused: an estimate, another department's quote and a job are refused before Zoho is called", async () => {
+  const est = publishSetup("sent");
+  await assertRejects(() => handle("document_publish", { ...PUB, kind: "estimate" }, est.deps), UserError, "Only an invoice");
+  const bank = publishSetup("sent");
+  await assertRejects(() => handle("document_publish", { ...PUB, source_table: "banking_quotations", source_id: "b1" }, bank.deps), UserError, "Business Setup quote");
+  const job = publishSetup("sent");
+  await assertRejects(() => handle("document_publish", { ...PUB, source_table: "accounting_jobs", source_id: "a1" }, job.deps), UserError, "Business Setup quote");
+  const other = publishSetup("sent");
+  other.db.hub_documents[0].department = "Banking";
+  await assertRejects(() => handle("document_publish", PUB, other.deps), UserError, "another department");
+  for (const m of [est, bank, job, other]) assertEquals([m.calls.length, m.pdfCalls.length, (m.db.business_setup_invoices ?? []).length], [0, 0, 0]);
+});
+
+Deno.test("publish needs the Business Setup manage permission and calls nothing when refused", async () => {
+  const m = publishSetup("sent");
+  const asked: [string, string][] = [];
+  m.deps.can = (d: string, p: string) => {
+    asked.push([d, p]);
+    return Promise.resolve(false);
+  };
+  await assertRejects(() => handle("document_publish", PUB, m.deps), UserError, "permission");
+  assertEquals(asked, [["business_setup", "setup.quotes.manage"]]);
+  assertEquals([m.calls.length, m.pdfCalls.length, (m.db.business_setup_invoices ?? []).length], [0, 0, 0]);
+});
+
+Deno.test("publish refuses a quote that is not accepted, a missing draft, another contact's invoice and a non-PDF reply", async () => {
+  const notAccepted = publishSetup("sent");
+  notAccepted.db.hub_documents[0].status = "issued";
+  await assertRejects(() => handle("document_publish", PUB, notAccepted.deps), UserError, "accepted");
+  const noDraft = publishSetup("sent");
+  noDraft.db.zoho_documents.length = 0;
+  await assertRejects(() => handle("document_publish", PUB, noDraft.deps), UserError, "Create the Zoho draft first.");
+  const other = publishSetup("sent", { customer_id: "999" });
+  await assertRejects(() => handle("document_publish", PUB, other.deps), UserError, "different Zoho contact");
+  const html = publishSetup("sent");
+  html.state.pdfImpl = () => Promise.resolve(new TextEncoder().encode("<html>login</html>"));
+  await assertRejects(() => handle("document_publish", PUB, html.deps), UserError, "did not return a PDF");
+  const big = publishSetup("sent");
+  big.state.pdfImpl = () => Promise.resolve(new Uint8Array(26214401).fill(37));
+  await assertRejects(() => handle("document_publish", PUB, big.deps), UserError);
+  for (const m of [notAccepted, noDraft, other, html, big]) {
+    assertEquals([(m.db["storage.objects"] ?? []).length, (m.db.business_setup_invoices ?? []).length], [0, 0]);
+  }
+});
+
+Deno.test("publish: a row for this Zoho invoice on another quote is refused, and a storage or save failure is reported plainly", async () => {
+  const taken = publishSetup("sent");
+  (taken.db.business_setup_invoices ??= []).push({ id: "x", quote_id: "other", zoho_id: "9001", file_path: "CL000001/invoice/zoho-9001.pdf" });
+  await assertRejects(() => handle("document_publish", PUB, taken.deps), UserError, "another quote");
+  const store = publishSetup("sent");
+  store.errors["storage.upload"] = { statusCode: "500", message: "boom secret" };
+  await assertRejects(() => handle("document_publish", PUB, store.deps), UserError, "Could not store the invoice file.");
+  const save = publishSetup("sent");
+  save.errors["rpc.business_setup_invoice_publish"] = { code: "XX000", message: "internal detail" };
+  const e = await assertRejects(() => handle("document_publish", PUB, save.deps), UserError);
+  assertEquals(e.message.includes("internal detail"), false);
+  const plain = publishSetup("sent");
+  plain.errors["rpc.business_setup_invoice_publish"] = { code: "P0001", message: "This quote is with Accounts. It can be changed only if Accounts reverts it." };
+  await assertRejects(() => handle("document_publish", PUB, plain.deps), UserError, "with Accounts");
+});
+
+Deno.test("publish: a 404 from Zoho marks the document gone and says so", async () => {
+  const m = publishSetup("sent");
+  m.replies["/invoices/9001"] = notFound;
+  await assertRejects(() => handle("document_publish", PUB, m.deps), UserError, "Zoho no longer has this document.");
+  assertEquals(m.db.zoho_documents[0].state, "gone");
 });
