@@ -48,13 +48,6 @@ export const portalApi = {
   formSave: (answers) => call("form_save", { answers }),
   formSubmit: () => call("form_submit"),
   setupFile: async (kind, id) => (await call("setup_file", { kind, id })).url,
-  // The signed copy of a quote that is waiting for the client: the Edge Function makes the upload link, then checks the file and records it.
-  signedUpload: async (quoteId, file) => {
-    const { path, upload_url, mime } = await call("setup_signed_upload", { step: "start", quote_id: quoteId, file_name: file.name, size: file.size });
-    const put = await fetch(upload_url, { method: "PUT", headers: { "Content-Type": mime }, body: file });
-    if (!put.ok) throw new Error(`${file.name} could not be uploaded. Please try again.`);
-    await call("setup_signed_upload", { step: "done", quote_id: quoteId, path });
-  },
   formUpload: async (file, doc_type) => {
     const { id, upload_url, mime } = await call("upload_start", { file_name: file.name, size: file.size, doc_type, for_form: true });
     const put = await fetch(upload_url, { method: "PUT", headers: { "Content-Type": mime }, body: file });

@@ -17,4 +17,4 @@ insert into public.hub_documents (doc_type, department, client_name, client_id, 
   select 'quote', 'Business Setup', 'Rollback 015', 'CL990015', 'RB-015-Q', 1, id, 'accepted', 1000 from public.business_setup_cases where lead_name = 'rollback-015';
 create table public.bs_pre015_kept as select
   (select count(*) from public.business_setup_cases) as cases, (select count(*) from public.hub_documents) as docs,
-  (select count(*) from public.business_setup_fee_items where not (grp = 'Company' and name in ('Company registration', 'Company renewal', 'Visa'))) as fees;
+  (select count(*) from public.business_setup_fee_items) as fees;

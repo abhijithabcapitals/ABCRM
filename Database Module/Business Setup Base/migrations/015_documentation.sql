@@ -1,13 +1,14 @@
 -- =====================================================================
 -- Business Setup Base - suggested fee amounts and per-item VAT   015
 -- =====================================================================
--- Fee items may have no amount, carry a VAT rate (5 or 0), and three company items are added. Business Setup quotes
+-- Fee items may have no amount, carry a VAT rate (5 or 0) and say whether they are a service (is_service). Business Setup quotes
 -- sum VAT line by line, from the fee item's rate read on the server. Other departments calculate exactly as before.
 -- A quote is accepted only on a confirmed signed copy, a payment can be recorded on a case before any quote, and the engagement
--- letter waits for the signature and a payment (or an override).
+-- letter waits for an accepted quote only: a payment blocks nothing, and there is no paid override. A quote line whose fee item is not a
+-- service (a cost passed on to the client) is billed but creates no service when the quote is accepted.
 -- Run after 014. Re-runnable. Undo with rollback/015_018_rollback.sql (phase 2 only, with 018) or rollback/013_019_rollback.sql (every case migration).
 -- hub_document_create is redefined from 014 and business_setup_client_list from 008: run this file again whenever 004, 008, 013 or 014 is re-run.
--- Invoices: a hand-recorded invoice meets the Invoice item of Documentation, or the Invoice override does (case_docs, below).
+-- Documentation holds four items: quote, signed (accepted), letter and invoice. A hand-recorded invoice meets the Invoice item, or the Invoice override does (case_docs, below).
 -- =====================================================================
 
 -- ── Fee items ────────────────────────────────────────────────────────
@@ -15,12 +16,16 @@
 alter table public.business_setup_fee_items alter column default_amount drop not null;
 alter table public.business_setup_fee_items add column if not exists vat_rate numeric(5,2) not null default 5 check (vat_rate in (0, 5));
 
--- Company services have no stored price. Re-runnable: an existing row keeps what was edited.
-insert into public.business_setup_fee_items (grp, name, default_amount, sort_order) values
-  ('Company', 'Company registration', null, 101),
-  ('Company', 'Company renewal', null, 102),
-  ('Company', 'Visa', null, 103)
-on conflict (grp, name) do nothing;
+-- is_service: false for a fee item that is only a cost billed to the client (it creates no service when a quote is accepted). Every item that
+-- exists when the column is first added is set to false, which matches the 24 items of the first release; the update runs only on that first run,
+-- so running this file again never flips a row added or edited later.
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'business_setup_fee_items' and column_name = 'is_service') then
+    alter table public.business_setup_fee_items add column is_service boolean not null default true;
+    update public.business_setup_fee_items set is_service = false;
+  end if;
+end $$;
 
 -- Add or edit a fee item (p.id edits; otherwise group + name is the key). An empty default_amount means no stored amount.
 create or replace function public.business_setup_fee_item_save(p jsonb) returns uuid
@@ -217,6 +222,8 @@ begin
       raise exception 'A renewal must link to an earlier service of the same client';
     end if;
     v_fee := nullif(ln ->> 'fee_item_id', '')::uuid;
+    -- A line for a cost (its fee item is not a service) stays on the quote and creates no service.
+    if v_fee is not null and not coalesce((select is_service from business_setup_fee_items where id = v_fee), true) then continue; end if;
     insert into business_setup_services (client_id, quote_id, fee_item_id, name, action, amount, renews_service_id)
     values (q.client_id, q.id, v_fee, v_name, v_action, nullif(ln ->> 'amount', '')::numeric, v_renews)
     returning id into v_svc;
@@ -246,19 +253,16 @@ revoke all on function public.business_setup_case_net_paid(uuid) from public, an
 
 -- What Documentation needs, worked out from the records. Internal.
 --   signed  the case's accepted quote has a Confirmed signed copy (a legacy row counts for a quote accepted before 015)
---   paid    net payments above zero, or the accepted quote's total is zero, or the Paid override was given
 --   invoice an invoice is recorded for the case (or for a quote of it), or the Invoice override was given
 create or replace function public.business_setup_case_docs(p_case uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
-declare v_acc_total numeric; v_override boolean; v_inv_override boolean;
+declare v_inv_override boolean;
 begin
-  select total_amount into v_acc_total from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted' order by created_at desc limit 1;
-  select paid_override_reason is not null, invoice_override_reason is not null into v_override, v_inv_override from business_setup_cases where id = p_case;
+  select invoice_override_reason is not null into v_inv_override from business_setup_cases where id = p_case;
   return jsonb_build_object(
     'quote', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status <> 'superseded'),
     'signed', exists (select 1 from hub_documents q join business_setup_signed_quotes s on s.quote_id = q.id and s.status = 'Confirmed'
                        where q.case_id = p_case and q.doc_type = 'quote' and q.status = 'accepted'),
-    'paid', coalesce(business_setup_case_net_paid(p_case) > 0 or v_acc_total = 0 or v_override, false),
     -- a letter counts only on the accepted quote (one made before the gate on a superseded or rejected quote does not satisfy it). case_sync moves forward only, so a backfilled case already past Documentation stays where it is.
     'letter', exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and lq.status = 'accepted'),
     'invoice', coalesce(v_inv_override, false) or exists (select 1 from business_setup_invoices i where i.case_id = p_case
@@ -266,23 +270,8 @@ begin
 end $$;
 revoke all on function public.business_setup_case_docs(uuid) from public, anon, authenticated;
 
--- Waives the Paid item for a case, with a reason. Moves the case on if it was the last item.
-create or replace function public.business_setup_case_paid_override(p_case uuid, p_reason text) returns void
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare c business_setup_cases; v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
-begin
-  perform business_setup_require('setup.payments.override');
-  if v_reason is null then raise exception 'Give a reason for waiving the payment'; end if;
-  select * into c from business_setup_cases where id = p_case for update;
-  if c.id is null then raise exception 'Case not found'; end if;
-  if c.stage in ('Lost', 'Cancelled', 'Completed') then raise exception 'This case is % and cannot take a payment override', lower(c.stage); end if;
-  if c.paid_override_reason is not null then raise exception 'The payment has already been waived for this case'; end if;
-  update business_setup_cases set paid_override_reason = v_reason where id = p_case;
-  perform business_setup_audit('business_setup_cases', p_case::text, 'case_paid_override', null, jsonb_build_object('reason', v_reason));
-  perform business_setup_case_sync(p_case);
-end $$;
-revoke all on function public.business_setup_case_paid_override(uuid, text) from public, anon;
-grant execute on function public.business_setup_case_paid_override(uuid, text) to authenticated;
+-- The Paid item and its override are gone: a payment blocks nothing. Dropped here so a database that ran an earlier copy of this file loses it too.
+drop function if exists public.business_setup_case_paid_override(uuid, text);
 
 -- ── Invoices recorded by hand ────────────────────────────────────────
 -- business_setup_invoices comes from 010 (the portal's Invoices section reads it by client_id). A hand-recorded invoice also names its
@@ -855,19 +844,13 @@ begin
   v_bs_quote := v_type = 'quote' and p ->> 'department' = 'Business Setup';
   -- Business Setup documents reach a client's login, so issuing one needs the department's right. A letter takes its department from its quote above.
   if p ->> 'department' = 'Business Setup' then perform business_setup_require('setup.quotes.manage'); end if;
-  -- A Business Setup letter waits for the signed quote and for a payment (or a zero total, or the override). A quote in a case reads
-  -- both from the case; a quote with no case reads its own signed copy and payments. After the right is checked, so a caller
-  -- without it learns nothing about the quote.
+  -- A Business Setup letter waits for the signed quote only; a payment is not needed. A quote in a case reads this from the case; a quote
+  -- with no case reads its own signed copy. After the right is checked, so a caller without it learns nothing about the quote.
   if v_type = 'letter' and q.department = 'Business Setup' then
     if q.case_id is not null then v_docs := business_setup_case_docs(q.case_id);
-    else v_docs := jsonb_build_object('signed', exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Confirmed'),
-                                      'paid', business_setup_net_paid(q.id) > 0 or coalesce(q.total_amount, 0) = 0);
+    else v_docs := jsonb_build_object('signed', exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Confirmed'));
     end if;
     if not (v_docs ->> 'signed')::boolean then raise exception 'Confirm the signed copy of the quote before the engagement letter'; end if;
-    if not (v_docs ->> 'paid')::boolean then
-      raise exception '%', case when q.case_id is not null then 'The engagement letter needs a payment first: record one, or ask someone who may waive it'
-                                else 'The engagement letter needs a payment first: record a payment on this quote' end;
-      end if;
   end if;
   if v_type <> 'quote' then v_revises := null; v_template := null; end if;
   if v_template is not null and not exists (select 1 from business_setup_quote_templates where key = v_template and active) then raise exception 'Unknown quote template %', v_template; end if;

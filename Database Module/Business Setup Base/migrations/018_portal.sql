@@ -1,13 +1,13 @@
 -- =====================================================================
--- Business Setup Base - client portal: signed quote upload   018
+-- Business Setup Base - client portal: signed copy state   018
 -- =====================================================================
--- Holds only portal functions. The portal view gains, on each quote, whether the client may upload a signed copy and the state of the
--- latest one (with the refusal note the client may read, never a staff name). business_setup_portal_signed_add records the client's
--- upload. Clients are not Supabase Auth users: both take p_account and are callable by the service role only.
+-- Holds only portal functions. The portal view gains, on each quote, the state of the latest signed copy staff added (with the refusal note
+-- the client may read, never a staff name). The client cannot upload one. Clients are not Supabase Auth users: the view takes p_account and is
+-- callable by the service role only.
 -- Run after 015. Re-runnable. Undo with rollback/015_018_rollback.sql (phase 2 only, with 015) or rollback/013_019_rollback.sql (every case migration).
 -- =====================================================================
 
--- The portal view as 010 defines it, plus 'can_sign', 'closed' and 'signed' on each quote. A quote of a Lost, Completed or Cancelled case cannot be signed.
+-- The portal view as 010 defines it, plus 'closed' and 'signed' on each quote.
 create or replace function public.business_setup_portal_view(p_account uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare v_client text := business_setup_portal_client(p_account);
@@ -20,8 +20,6 @@ begin
                    from business_setup_services s where s.client_id = v_client and not s.historical),
     'quotes', (select coalesce(jsonb_agg(jsonb_build_object('id', q.id, 'number', q.document_number, 'date', q.created_at::date, 'status', q.status, 'total', q.total_amount,
                   'net_paid', case when q.status in ('issued', 'accepted') then business_setup_net_paid(q.id) end, 'outstanding', case when q.status in ('issued', 'accepted') then q.total_amount - business_setup_net_paid(q.id) end, 'has_file', q.storage_path is not null,
-                  'can_sign', q.status = 'issued' and not exists (select 1 from business_setup_signed_quotes s where s.quote_id = q.id and s.status = 'Uploaded')
-                              and not exists (select 1 from business_setup_cases c where c.id = q.case_id and c.stage in ('Lost', 'Completed', 'Cancelled')),
                   'closed', exists (select 1 from business_setup_cases c where c.id = q.case_id and c.stage in ('Lost', 'Completed', 'Cancelled')),
                   'signed', (select jsonb_build_object('status', s.status, 'date', s.created_at::date, 'note', case when s.status = 'Refused' then s.note end)
                                from business_setup_signed_quotes s where s.quote_id = q.id order by s.created_at desc limit 1),
@@ -38,33 +36,8 @@ begin
                     from business_setup_documents d where d.client_id = v_client and d.is_output and d.client_visible));
 end $$;
 
--- The client's own signed copy of a quote. The file is already in storage under incoming/<account>/ (the Edge Function made the upload
--- link and checked the file is there). The quote must be this client's and issued. One copy waits for review at a time.
-create or replace function public.business_setup_portal_signed_add(p_account uuid, p_quote uuid, p_path text) returns uuid
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_client text := business_setup_portal_client(p_account); q hub_documents; v_path text := nullif(btrim(coalesce(p_path, '')), ''); v_prefix text; v_id uuid;
-begin
-  if v_client is null then raise exception 'Quote not found'; end if;
-  select * into q from hub_documents where id = p_quote and doc_type = 'quote' and department = 'Business Setup' and client_id = v_client for update;
-  if q.id is null then raise exception 'Quote not found'; end if;
-  if q.status <> 'issued' or exists (select 1 from business_setup_cases c where c.id = q.case_id and c.stage in ('Lost', 'Completed', 'Cancelled')) then
-    raise exception 'Only a quote that is waiting for you can take a signed copy';
-  end if;
-  if v_path is null then raise exception 'The file path is missing'; end if;
-  v_prefix := 'incoming/' || p_account || '/';
-  if not coalesce(left(v_path, length(v_prefix)) = v_prefix, false) or '..' = any (string_to_array(v_path, '/')) or '' = any (string_to_array(v_path, '/')) then
-    raise exception 'The file path is not valid';
-  end if;
-  if exists (select 1 from business_setup_signed_quotes where quote_id = q.id and status = 'Uploaded') then
-    raise exception 'A signed copy of this quote is already waiting for review';
-  end if;
-  begin
-    insert into business_setup_signed_quotes (quote_id, storage_path, source, status, created_by) values (q.id, v_path, 'Client', 'Uploaded', null) returning id into v_id;
-  exception when unique_violation then raise exception 'That file has already been sent';
-  end;
-  perform business_setup_audit('business_setup_signed_quotes', v_id::text, 'signed_add', null, jsonb_build_object('quote_id', q.id, 'source', 'Client', 'account_id', p_account));
-  return v_id;
-end $$;
+-- A client no longer uploads a signed copy: business_setup_portal_signed_add is gone. Dropped here so a database that ran an earlier copy loses it too.
+drop function if exists public.business_setup_portal_signed_add(uuid, uuid, text);
 
 -- The client's login name for the quote message: id, username and status only. Never the password or a vault reference. For staff who
 -- issue quotes (setup.quotes.manage), who do not hold the wider login rights of business_setup_portal_login_state.
@@ -78,5 +51,5 @@ end $$;
 revoke all on function public.business_setup_portal_login_name(text) from public, anon;
 grant execute on function public.business_setup_portal_login_name(text) to authenticated;
 
-revoke all on function public.business_setup_portal_view(uuid), public.business_setup_portal_signed_add(uuid, uuid, text) from public, anon, authenticated;
-grant execute on function public.business_setup_portal_view(uuid), public.business_setup_portal_signed_add(uuid, uuid, text) to service_role;
+revoke all on function public.business_setup_portal_view(uuid) from public, anon, authenticated;
+grant execute on function public.business_setup_portal_view(uuid) to service_role;

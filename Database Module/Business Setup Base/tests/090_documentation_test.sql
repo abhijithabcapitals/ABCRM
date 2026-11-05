@@ -37,8 +37,8 @@ select public.bs_check('the table refuses a negative amount and a rate other tha
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error($$select public.business_setup_fee_item_save('{"grp":"T90","name":"Five","vat_rate":0}')$$, 'permission');
 select public.bs_as(null);
-select public.bs_check('Company registration, renewal and Visa exist with no amount, 5%', (select count(*) = 3 and bool_and(default_amount is null and vat_rate = 5 and active) from public.business_setup_fee_items
-  where grp = 'Company' and name in ('Company registration', 'Company renewal', 'Visa')));
+select public.bs_check('no_task7_items: Company registration, Company renewal and Visa are not seeded', (select count(*) = 0 from public.business_setup_fee_items
+  where grp = 'Company' and name in ('Company registration', 'Company renewal', 'Visa') and default_amount is null));
 
 -- ── Business Setup quotes: VAT line by line ──
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
@@ -164,7 +164,7 @@ select public.bs_expect_error(format($$select business_setup_signed_add('%s', 's
 select public.bs_check('the staff file link names the stored path', public.business_setup_signed_file(pg_temp.fx('sA2')::uuid) ->> 'path' = 'staff/CL990092/signed-a2.pdf');
 select public.business_setup_signed_decide(pg_temp.fx('sA2')::uuid, true, null);
 select public.bs_check('confirming accepts the quote and creates its services', pg_temp.qst('qA') = 'accepted' and (select count(*) = 1 from public.business_setup_services where quote_id = pg_temp.fx('qA')::uuid));
-select public.bs_check('the case reads signed', (pg_temp.docs('cA') ->> 'signed')::boolean and not (pg_temp.docs('cA') ->> 'paid')::boolean);
+select public.bs_check('the case reads signed', (pg_temp.docs('cA') ->> 'signed')::boolean and not (pg_temp.docs('cA') ? 'paid'));
 select public.bs_expect_error(format($$select business_setup_signed_add('%s', 'staff/CL990092/signed-a3.pdf')$$, pg_temp.fx('qA')), 'issued');
 
 -- ── advance_payment, payment_needs_client, overpay only after acceptance ──
@@ -174,7 +174,7 @@ select public.bs_check('advance_payment: a payment before any quote is recorded 
   from public.business_setup_payments where id = (pg_temp.fx('advB')::jsonb ->> 'payment_id')::uuid));
 select public.bs_check('advance_payment: it has a receipt', (select count(*) = 1 from public.business_setup_receipts where payment_id = (pg_temp.fx('advB')::jsonb ->> 'payment_id')::uuid and receipt_number = pg_temp.fx('advB')::jsonb ->> 'receipt_number'));
 select public.bs_check('advance_payment: and a receipt voucher', exists (select 1 from public.voucher_register where source = 'business_setup' and voucher_type = 'Receipt' and source_id = (pg_temp.fx('advB')::jsonb ->> 'payment_id')::uuid and amount = 500 and status = 'Valid'));
-select public.bs_check('the case pays the advance', pg_temp.cnp('cB') = 500 and (pg_temp.docs('cB') ->> 'paid')::boolean);
+select public.bs_check('the case pays the advance', pg_temp.cnp('cB') = 500);
 select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('cN'), 'amount', 10)), 'Link a client');
 select public.bs_expect_error($$select business_setup_payment_add('{"amount":10}')$$, 'case or the quote');
 select public.bs_expect_error(format($$select business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('cB'), 'amount', 0)), 'amount');
@@ -208,14 +208,12 @@ select public.bs_check('overpay: the payment follows the accepted quote', (selec
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select pg_temp.mkcq('qD', 'cD', 1000);
 select pg_temp.signaccept('qD', 'staff/CL990092/signed-d.pdf');
-select public.bs_expect_error(format($$select hub_document_create('%s')$$, jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qD'))), 'payment first');
-select public.bs_check('letter_gate: a refused letter leaves no letter', not exists (select 1 from public.hub_documents where parent_id = pg_temp.fx('qD')::uuid and doc_type = 'letter'));
+insert into f90 values ('letD', (public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qD')))).id::text);
+select public.bs_check('letter_without_payment: an accepted quote with no payment allows the letter', exists (select 1 from public.hub_documents where id = pg_temp.fx('letD')::uuid and doc_type = 'letter' and parent_id = pg_temp.fx('qD')::uuid));
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 insert into f90 values ('payD', public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cD'), 'amount', 100))::text);
 select public.bs_check('the payment lands on the accepted quote', (select quote_id = pg_temp.fx('qD')::uuid from public.business_setup_payments where id = (pg_temp.fx('payD')::jsonb ->> 'payment_id')::uuid));
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
-insert into f90 values ('letD', (public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qD')))).id::text);
-select public.bs_check('letter_gate: a part payment is enough for the letter, and the case then waits for its invoice', pg_temp.fx('letD') is not null and pg_temp.stg('cD') = 'Documentation');
+select public.bs_check('letter_without_payment: a part payment afterwards leaves the case at Documentation, waiting for its invoice', pg_temp.stg('cD') = 'Documentation');
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.business_setup_invoice_record(jsonb_build_object('case_id', pg_temp.fx('cD'), 'invoice_number', 'T90-INV-D', 'amount', 1050)) as ignored \gset
 select public.bs_check('letter_gate: with the invoice the case moves to Assignment', pg_temp.stg('cD') = 'Assignment');
@@ -224,7 +222,7 @@ select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select pg_temp.dash('receivables') as recv_before \gset
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.business_setup_payment_reverse((pg_temp.fx('payD')::jsonb ->> 'payment_id')::uuid, 'Cheque bounced') as ignored \gset
-select public.bs_check('reversal_after_letter: the reversal takes the money away from the case', (select sum(case when type = 'Payment' then amount else -amount end) from public.business_setup_payments where case_id = pg_temp.fx('cD')::uuid) = 0 and not (pg_temp.docs('cD') ->> 'paid')::boolean);
+select public.bs_check('reversal_after_letter: the reversal takes the money away from the case', (select sum(case when type = 'Payment' then amount else -amount end) from public.business_setup_payments where case_id = pg_temp.fx('cD')::uuid) = 0 and not (pg_temp.docs('cD') ? 'paid'));
 select public.bs_check('reversal_after_letter: the stage does not go back', pg_temp.stg('cD') = 'Assignment');
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.bs_check('reversal_after_letter: receivables go up by the reversed amount', pg_temp.dash('receivables') = :recv_before + 100, pg_temp.dash('receivables')::text || ' vs ' || :'recv_before');
@@ -234,26 +232,19 @@ select public.bs_expect_error(format($$select business_setup_service_update('%s'
 -- ── letter_gate: zero total, override ──
 select pg_temp.mkcq('qE', 'cE', 0);
 select pg_temp.signaccept('qE', 'staff/CL990092/signed-e.pdf');
-select public.bs_check('a zero total on the accepted quote counts as paid', (pg_temp.docs('cE') ->> 'paid')::boolean);
 select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qE'))) as ignored \gset
-select public.bs_check('letter_gate: a zero total allows the letter', exists (select 1 from public.hub_documents where parent_id = pg_temp.fx('qE')::uuid and doc_type = 'letter'));
+select public.bs_check('letter_without_payment: a zero total allows the letter', exists (select 1 from public.hub_documents where parent_id = pg_temp.fx('qE')::uuid and doc_type = 'letter'));
 select pg_temp.mkcq('qF', 'cF', 1000);
-select public.bs_check('a case with an unaccepted quote is neither paid nor signed', not (pg_temp.docs('cF') ->> 'paid')::boolean and not (pg_temp.docs('cF') ->> 'signed')::boolean);
-select public.bs_check('a case with no quote is not paid, not signed and has no quote', not (pg_temp.docs('cN') ->> 'paid')::boolean and not (pg_temp.docs('cN') ->> 'signed')::boolean and not (pg_temp.docs('cN') ->> 'quote')::boolean);
+select public.bs_check('a case with an unaccepted quote is not signed', not (pg_temp.docs('cF') ->> 'signed')::boolean);
+select public.bs_expect_error(format($$select hub_document_create('%s')$$, jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qF'))), 'Confirm the signed quote first');
+select public.bs_check('letter_needs_acceptance: the refused letter leaves no letter', not exists (select 1 from public.hub_documents where parent_id = pg_temp.fx('qF')::uuid and doc_type = 'letter'));
+select public.bs_check('a case with no quote is not signed and has no quote', not (pg_temp.docs('cN') ->> 'signed')::boolean and not (pg_temp.docs('cN') ->> 'quote')::boolean);
 select pg_temp.signaccept('qF', 'staff/CL990092/signed-f.pdf');
-select public.bs_expect_error(format($$select business_setup_case_paid_override('%s', 'Family friend')$$, pg_temp.fx('cF')), 'permission');
-select public.bs_as('00000000-0000-0000-0000-00000000000e');
-select public.bs_expect_error(format($$select business_setup_case_paid_override('%s', 'Family friend')$$, pg_temp.fx('cF')), 'permission');
-select public.bs_as('00000000-0000-0000-0000-00000000000b');
-select public.bs_expect_error(format($$select business_setup_case_paid_override('%s', '  ')$$, pg_temp.fx('cF')), 'reason');
-select public.bs_expect_error(format($$select business_setup_case_paid_override('%s', 'x')$$, gen_random_uuid()), 'Case not found');
-select public.bs_check('letter_gate: still unpaid before the override', not (pg_temp.docs('cF') ->> 'paid')::boolean);
-select public.business_setup_case_paid_override(pg_temp.fx('cF')::uuid, 'Family friend');
-select public.bs_check('letter_gate: the override with a reason marks Paid and is audited', (pg_temp.docs('cF') ->> 'paid')::boolean and public.bs_audit_count('case_paid_override', pg_temp.fx('cF'), '{"reason":"Family friend"}') = 1);
-select public.bs_expect_error(format($$select business_setup_case_paid_override('%s', 'again')$$, pg_temp.fx('cF')), 'already');
+select public.bs_as(null);
+select public.bs_check('no_paid_override: business_setup_case_paid_override no longer exists', not exists (select 1 from pg_proc where proname = 'business_setup_case_paid_override'));
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qF'))) as ignored \gset
-select public.bs_check('letter_gate: with the override the letter is allowed, and the case then waits for its invoice', pg_temp.stg('cF') = 'Documentation');
+select public.bs_check('letter_without_payment: once accepted the letter is allowed with no payment, and the case then waits for its invoice', pg_temp.stg('cF') = 'Documentation');
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.business_setup_case_invoice_override(pg_temp.fx('cF')::uuid, 'Billed outside the CRM');
 select public.bs_check('letter_gate: with the invoice waived the case moves on', pg_temp.stg('cF') = 'Assignment');
@@ -292,7 +283,7 @@ select public.bs_check('signed copies cannot be written through the API', not ha
   and not has_table_privilege('authenticated', 'public.business_setup_signed_quotes', 'update') and not has_table_privilege('anon', 'public.business_setup_signed_quotes', 'select'));
 select public.bs_check('the shared case sum is internal', not has_function_privilege('authenticated', 'public.business_setup_case_net_paid(uuid)', 'execute') and not has_function_privilege('anon', 'public.business_setup_case_net_paid(uuid)', 'execute'));
 select public.bs_check('staff may call the signed and override functions, anon may not', has_function_privilege('authenticated', 'public.business_setup_signed_decide(uuid, boolean, text, boolean)', 'execute')
-  and has_function_privilege('authenticated', 'public.business_setup_case_paid_override(uuid, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_signed_add(uuid, text)', 'execute'));
+  and has_function_privilege('authenticated', 'public.business_setup_case_invoice_override(uuid, text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_signed_add(uuid, text)', 'execute'));
 
 -- ══ Task 8 review fixes ══
 create function pg_temp.np(p_k text) returns numeric language sql security definer as $$ select public.business_setup_net_paid(pg_temp.fx(p_k)::uuid) $$;
@@ -378,8 +369,10 @@ with a as (insert into public.hub_documents (doc_type, department, client_name, 
   insert into f90 select 'qNC', id::text from a;
 with a as (insert into public.hub_documents (doc_type, department, client_name, client_id, document_number, total_amount, status) values ('quote', 'Business Setup', 'NI LLC', 'CL990092', 'NI-Q1', 100, 'issued') returning id)
   insert into f90 select 'qNI', id::text from a;
+select public.bs_as(null);
+update public.hub_documents set contact_name = 'C', contact_email = 'c@x.ae', contact_phone = '1', lines = '[{"description":"S","amount":100}]' where id = pg_temp.fx('qNC')::uuid;
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.bs_expect_error(format($$select hub_document_create('%s')$$, jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qNC'))), 'record a payment on this quote');
+select public.bs_check('letter_without_payment: an accepted quote with no case and no payment allows the letter', (public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qNC')))).id is not null);
 select public.bs_expect_error(format($$select hub_document_create('%s')$$, jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qNI'))), 'Confirm the signed quote first');
 
 -- ── 9, 11: rejecting or revising a quote refuses its waiting copy, audited ──
@@ -416,10 +409,9 @@ select public.bs_as('00000000-0000-0000-0000-000000000099');
 select public.bs_expect_error(format($$select business_setup_case_documents('%s')$$, pg_temp.fx('cX')), 'permission');
 select public.bs_as(null);
 -- ══ Task 8 fix round 2 ══
--- Why the gate test for qNC expects the payment message: the test trigger aaa_bs_sign gives a quote inserted as accepted a Legacy Confirmed row,
--- so the signature is met and only the payment is missing. This check makes that explicit.
+-- The test trigger aaa_bs_sign gives a quote inserted as accepted a Legacy Confirmed row, so the signature is met and the letter on qNC goes through.
 select public.bs_as(null);
-select public.bs_check('qNC (accepted, no case) has a Legacy Confirmed signed row, so its letter is refused for payment and not for the signature',
+select public.bs_check('qNC (accepted, no case) has a Legacy Confirmed signed row, so its letter is not refused for the signature',
   exists (select 1 from public.business_setup_signed_quotes where quote_id = pg_temp.fx('qNC')::uuid and status = 'Confirmed' and source = 'Legacy'));
 
 -- ── the payment door's Client Master right does not leak: Finance cannot call client_master_save directly ──
@@ -471,8 +463,8 @@ select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.f
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qiA'))) as ignored \gset
 select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.fx('qiB'))) as ignored \gset
-select public.bs_check('assignment_needs_invoice: accepted, paid and letter stay at Documentation with no invoice',
-  pg_temp.stg('iA') = 'Documentation' and pg_temp.docs('iA') = '{"quote":true,"signed":true,"paid":true,"letter":true,"invoice":false}'::jsonb);
+select public.bs_check('assignment_needs_invoice: accepted and letter stay at Documentation with no invoice',
+  pg_temp.stg('iA') = 'Documentation' and pg_temp.docs('iA') = '{"quote":true,"signed":true,"letter":true,"invoice":false}'::jsonb);
 select public.bs_check('a case with no invoice and no override reads invoice false', not (pg_temp.docs('iN') ->> 'invoice')::boolean);
 
 -- who may record, and what is checked
@@ -536,7 +528,6 @@ select public.business_setup_case_invoice_override(pg_temp.fx('iO')::uuid, 'Bill
 select public.bs_check('invoice_override: a reason marks Invoice met, moves the case on and is audited', (pg_temp.docs('iO') ->> 'invoice')::boolean and pg_temp.stg('iO') = 'Assignment'
   and public.bs_audit_count('case_invoice_override', pg_temp.fx('iO'), '{"reason":"Billed outside the CRM"}') = 1);
 select public.bs_expect_error(format($$select business_setup_case_invoice_override('%s', 'again')$$, pg_temp.fx('iO')), 'already');
-select public.bs_check('the override leaves the Paid item alone', (select paid_override_reason is null from public.business_setup_cases where id = pg_temp.fx('iO')::uuid));
 select public.bs_as(null);
 update public.business_setup_cases set stage = 'Lost' where id = pg_temp.fx('iL')::uuid;
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
@@ -590,6 +581,25 @@ select public.bs_check('invoice upload: a user without setup.payments.manage is 
 select public.bs_as(null);
 select public.bs_check('invoice upload: the policy is INSERT only on storage.objects', (select count(*) = 1 and bool_and(cmd = 'INSERT') from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'business_setup_invoice_upload'));
 select public.bs_as(null);
+
+-- ── cost_line_no_service: a line whose fee item is not a service creates no service on accept ──
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+insert into f90 values ('feecost', public.business_setup_fee_item_save('{"grp":"T90","name":"GovtCost","default_amount":300}')::text);
+select public.bs_check('is_service: a new fee item is a service by default', (select is_service from public.business_setup_fee_items where id = pg_temp.fx('feecost')::uuid));
+select public.bs_as(null);
+update public.business_setup_fee_items set is_service = false where id = pg_temp.fx('feecost')::uuid;
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select pg_temp.mk('costq', 'Business Setup', jsonb_build_array(
+  jsonb_build_object('description', 'Real service', 'amount', 1000, 'fee_item_id', pg_temp.fx('fee5')),
+  jsonb_build_object('description', 'Government cost', 'amount', 300, 'fee_item_id', pg_temp.fx('feecost'))), '{"client_id":"CL990090"}');
+select public.bs_accept(pg_temp.fx('costq')::uuid) as ignored \gset
+select public.bs_check('cost_line_no_service: only the service line creates a service', (select count(*) = 1 and bool_and(name = 'Real service') from public.business_setup_services where quote_id = pg_temp.fx('costq')::uuid));
+select public.bs_check('cost_line_no_service: the cost line stays on the quote', (select jsonb_array_length(lines) = 2 from public.hub_documents where id = pg_temp.fx('costq')::uuid));
+-- A re-run flips nothing: an item that is a service after the column existed keeps its value.
+select public.bs_as(null);
+update public.business_setup_fee_items set is_service = true where id = pg_temp.fx('feecost')::uuid;
+\ir ../migrations/015_documentation.sql
+select public.bs_check('is_service: running 015 again does not flip later rows', (select is_service from public.business_setup_fee_items where id = pg_temp.fx('feecost')::uuid));
 
 -- ── Summary ──
 do $$

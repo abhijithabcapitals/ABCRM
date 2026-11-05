@@ -1,4 +1,4 @@
--- LOCAL TEST ONLY: a client's signed quote upload through the portal (restructure Task 8). Run through tests/run-local.sh, after 090.
+-- LOCAL TEST ONLY: the portal view of signed copies (staff upload, state only) and invoices (restructure Task 8). The client's own upload is gone. Run through tests/run-local.sh, after 090.
 \set QUIET on
 \pset tuples_only on
 \pset format unaligned
@@ -30,55 +30,32 @@ select pg_temp.mkq('CL900101', 'qb');
 select public.bs_as(null);
 
 -- ── who may call ──
-select public.bs_check('portal_roles: anon and authenticated cannot call business_setup_portal_signed_add', not has_function_privilege('anon', 'public.business_setup_portal_signed_add(uuid, uuid, text)', 'execute')
-  and not has_function_privilege('authenticated', 'public.business_setup_portal_signed_add(uuid, uuid, text)', 'execute') and has_function_privilege('service_role', 'public.business_setup_portal_signed_add(uuid, uuid, text)', 'execute'));
+select public.bs_check('no_client_upload: business_setup_portal_signed_add no longer exists', not exists (select 1 from pg_proc where proname = 'business_setup_portal_signed_add'));
 select public.bs_check('the portal view stays service-role only', not has_function_privilege('anon', 'public.business_setup_portal_view(uuid)', 'execute')
   and not has_function_privilege('authenticated', 'public.business_setup_portal_view(uuid)', 'execute') and has_function_privilege('service_role', 'public.business_setup_portal_view(uuid)', 'execute'));
-select public.t_anon_refused('portal_roles: anon is refused', format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/x/a.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa'), pg_temp.fx('acc_a')));
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/x/a.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa'), pg_temp.fx('acc_a')), 'permission denied');
-select public.bs_as(null);
-
--- ── the quote must be this client's, and issued ──
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/x/a.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qb'), pg_temp.fx('acc_a')), 'Quote not found');
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/x/a.pdf')$$, pg_temp.fx('acc_b'), pg_temp.fx('qa'), pg_temp.fx('acc_b')), 'Quote not found');
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/x/a.pdf')$$, gen_random_uuid(), pg_temp.fx('qa'), pg_temp.fx('acc_a')), 'Quote not found');
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', gen_random_uuid(), 'incoming/%s/x/a.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('acc_a')), 'Quote not found');
-select public.bs_check('portal_other_client: nothing was stored by the refused calls', not exists (select 1 from public.business_setup_signed_quotes where storage_path like 'incoming/%'));
 select public.bs_check('portal_other_client: account A does not see client B in its view', pg_temp.view('acc_a')::text !~ 'Client B100' and pg_temp.vq('acc_a', 'qb') is null and pg_temp.vq('acc_a', 'qa') is not null);
--- path rules, same as the staff side
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/x/a.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa'), pg_temp.fx('acc_b')), 'not valid');
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'staff/CL900100/a.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa')), 'not valid');
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/../%s/a.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa'), pg_temp.fx('acc_a'), pg_temp.fx('acc_b')), 'not valid');
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s//a.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa'), pg_temp.fx('acc_a')), 'not valid');
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', null)$$, pg_temp.fx('acc_a'), pg_temp.fx('qa')), 'missing');
 
--- ── upload, view and refuse ──
-select public.bs_check('before any upload the quote can be signed and shows no copy', (pg_temp.vq('acc_a', 'qa') ->> 'can_sign')::boolean and pg_temp.vq('acc_a', 'qa') -> 'signed' = 'null'::jsonb);
-insert into f100 values ('sa1', public.business_setup_portal_signed_add(pg_temp.fx('acc_a')::uuid, pg_temp.fx('qa')::uuid, 'incoming/' || pg_temp.fx('acc_a') || '/f1/signed.pdf')::text);
-select public.bs_check('a client upload is kept as Client / Uploaded with no staff author', (select source = 'Client' and status = 'Uploaded' and created_by is null from public.business_setup_signed_quotes where id = pg_temp.fx('sa1')::uuid));
-select public.bs_check('the portal shows it as waiting, and no second upload yet', pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'status' = 'Uploaded' and not (pg_temp.vq('acc_a', 'qa') ->> 'can_sign')::boolean);
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/f2/signed.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa'), pg_temp.fx('acc_a')), 'already waiting');
+-- ── a signed copy added by staff shows in the portal as state only ──
+select public.bs_check('before any copy the quote shows none, and offers no client upload', pg_temp.vq('acc_a', 'qa') -> 'signed' = 'null'::jsonb and not (pg_temp.vq('acc_a', 'qa') ? 'can_sign'));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f100 values ('sa1', public.business_setup_signed_add(pg_temp.fx('qa')::uuid, 'staff/CL900100/signed.pdf')::text);
+select public.bs_as(null);
+select public.bs_check('a staff upload is kept as Staff / Uploaded', (select source = 'Staff' and status = 'Uploaded' from public.business_setup_signed_quotes where id = pg_temp.fx('sa1')::uuid));
+select public.bs_check('the portal shows it as waiting', pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'status' = 'Uploaded');
 select public.bs_check('an upload does not accept the quote', (select status = 'issued' from public.hub_documents where id = pg_temp.fx('qa')::uuid));
-select public.bs_check('the upload is audited without client data', public.bs_audit_count('signed_add', pg_temp.fx('sa1'), '{"source":"Client"}') = 1);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.business_setup_signed_decide(pg_temp.fx('sa1')::uuid, false, 'The signature page is missing');
 select public.bs_as(null);
-select public.bs_check('refuse_note: the portal shows the refusal and its note, and a new upload is allowed',
-  pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'status' = 'Refused' and pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'note' = 'The signature page is missing' and (pg_temp.vq('acc_a', 'qa') ->> 'can_sign')::boolean);
+select public.bs_check('refuse_note: the portal shows the refusal and its note',
+  pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'status' = 'Refused' and pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'note' = 'The signature page is missing');
 select public.bs_check('the portal view never carries a staff name, id or the decided_by column', pg_temp.view('acc_a')::text !~* '(decided_by|created_by|Sales|Manager|00000000-0000-0000-0000-00000000000)');
-insert into f100 values ('sa2', public.business_setup_portal_signed_add(pg_temp.fx('acc_a')::uuid, pg_temp.fx('qa')::uuid, 'incoming/' || pg_temp.fx('acc_a') || '/f2/signed.pdf')::text);
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/f2/signed.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa'), pg_temp.fx('acc_a')), 'already');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f100 values ('sa2', public.business_setup_signed_add(pg_temp.fx('qa')::uuid, 'staff/CL900100/signed-2.pdf')::text);
 select public.business_setup_signed_decide(pg_temp.fx('sa2')::uuid, true, 'Confirmed, thank you');
 select public.bs_as(null);
-select public.bs_check('confirming the client copy accepts the quote', (select status = 'accepted' from public.hub_documents where id = pg_temp.fx('qa')::uuid) and (select count(*) = 1 from public.business_setup_services where quote_id = pg_temp.fx('qa')::uuid));
-select public.bs_check('after acceptance the portal hides the confirm note and offers no upload', pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'status' = 'Confirmed' and pg_temp.vq('acc_a', 'qa') -> 'signed' -> 'note' = 'null'::jsonb and not (pg_temp.vq('acc_a', 'qa') ->> 'can_sign')::boolean);
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/f3/signed.pdf')$$, pg_temp.fx('acc_a'), pg_temp.fx('qa'), pg_temp.fx('acc_a')), 'waiting for you');
-select public.bs_check('client B is unaffected', (pg_temp.vq('acc_b', 'qb') ->> 'can_sign')::boolean and (select status = 'issued' from public.hub_documents where id = pg_temp.fx('qb')::uuid));
-
--- ── the Edge Function checks the same file path before it calls this function ──
-select public.bs_check('the same path cannot be sent twice (unique)', (select count(*) = 1 from public.business_setup_signed_quotes where storage_path = 'incoming/' || pg_temp.fx('acc_a') || '/f2/signed.pdf'));
+select public.bs_check('confirming the staff copy accepts the quote', (select status = 'accepted' from public.hub_documents where id = pg_temp.fx('qa')::uuid) and (select count(*) = 1 from public.business_setup_services where quote_id = pg_temp.fx('qa')::uuid));
+select public.bs_check('after acceptance the portal hides the confirm note', pg_temp.vq('acc_a', 'qa') -> 'signed' ->> 'status' = 'Confirmed' and pg_temp.vq('acc_a', 'qa') -> 'signed' -> 'note' = 'null'::jsonb);
+select public.bs_check('client B is unaffected', pg_temp.vq('acc_b', 'qb') -> 'signed' = 'null'::jsonb and (select status = 'issued' from public.hub_documents where id = pg_temp.fx('qb')::uuid));
 
 -- ── the login name for the quote message: quote staff only, and never a password or vault reference ──
 select public.bs_as('00000000-0000-0000-0000-00000000000c');

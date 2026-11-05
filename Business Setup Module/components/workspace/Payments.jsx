@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, fmtDate, today, useAction } from "@banking/components/shared";
 import { openStored } from "@template-hub/services/hubApi";
 import { useSetup } from "../SetupContext";
-import { addPayment, addRefund, caseLinkClientForPayment, casePaidOverride, reversePayment } from "../../services/businessSetupApi";
+import { addPayment, addRefund, caseLinkClientForPayment, reversePayment } from "../../services/businessSetupApi";
 import { paymentLinkError, validAmount } from "../../logic/quoteMessage";
 import { fileReceipt } from "../../services/documents";
 import { money } from "@app/money";
@@ -18,7 +18,6 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
   const [adding, setAdding] = useState(false);
   const [reversing, setReversing] = useState(null);
   const [refunding, setRefunding] = useState(false);
-  const [waiving, setWaiving] = useState(false);
   const quotes = w?.quotes || [];
   const payments = w?.payments || [];
   const accepted = quotes.filter((q) => q.status === "accepted");
@@ -28,14 +27,12 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
   // What the case has net paid, from its payments (a refund or reversal takes away).
   const caseNet = payments.filter((p) => !caseId || p.case_id === caseId).reduce((n, p) => n + (p.type === "Payment" ? 1 : -1) * Number(p.amount || 0), 0);
   const done = async () => { await reload?.(); await onChanged?.(); };
-  const canWaive = !!caseId && can("setup.payments.override") && caseRow?.docs?.quote && !caseRow.docs.paid && !["Lost", "Cancelled", "Completed"].includes(caseRow.stage);
   return (
     <div>
       <ErrorNote message={error} onClose={() => setError(null)} />
       {manage && <div className="bk-actions bk-mb">
         <Button variant="primary" disabled={!caseId && !accepted.length} onClick={() => setAdding(true)}>+ Record payment</Button>
         {w && <Button disabled={caseId ? !(caseNet > 0) : !accepted.some((q) => Number(q.balance?.net_paid) > 0)} onClick={() => setRefunding(true)}>Record refund</Button>}
-        {canWaive && <Button onClick={() => setWaiving(true)}>Waive payment</Button>}
         {!caseId && !accepted.length && <small className="bk-muted">A payment needs an accepted quote.</small>}
         {caseId && !caseRow?.client_id && <small className="bk-muted">Recording a payment first creates the client from the lead details.</small>}</div>}
       {w && <DataTable rows={payments} empty="No payments yet." columns={[
@@ -69,8 +66,6 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
           } catch (e) { setError(`Payment saved as ${r.receipt_number}, but the file was not created: ${e.message}. Use Create file.`); }
           await done();
         }} />}
-      {waiving && <FormModal title="Waive payment" submitLabel="Waive payment" note="Marks Paid as met without a payment. This is logged with your reason." fields={[{ name: "reason", label: "Reason", type: "textarea", required: true, full: true }]} onClose={() => setWaiving(false)}
-        onSubmit={async (v) => { await casePaidOverride(caseId, v.reason); await done(); }} />}
       {refunding && <FormModal title="Record refund" submitLabel="Record refund" note={caseId ? `For money really returned to the client, up to AED ${money(caseNet)} paid on this case (an advance included). To undo a payment recorded by mistake, use Reverse.` : "For money really returned to the client. To undo a payment recorded by mistake, use Reverse."}
         initial={{ quote_id: accepted.find((q) => Number(q.balance?.net_paid) > 0)?.id }} onClose={() => setRefunding(false)}
         fields={[...(caseId ? [] : [{ name: "quote_id", label: "Quote", type: "select", required: true, options: accepted.filter((q) => Number(q.balance?.net_paid) > 0).map((q) => ({ value: q.id, label: `${q.document_number}: paid AED ${money(q.balance?.net_paid)}` })) }]),

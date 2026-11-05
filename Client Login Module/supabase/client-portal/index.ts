@@ -11,8 +11,6 @@
 //   upload_start { for_form: true, ... } files the upload under this login's own Business Setup form
 //   upload_done { id }, doc_url { id }
 //   setup_view, form_get, form_save { answers }, form_submit, setup_file { kind, id }
-//   setup_signed_upload { step: "start", quote_id, file_name, size } -> { path, upload_url, mime }   the client's signed copy of an issued quote
-//   setup_signed_upload { step: "done", quote_id, path }              checks the file is in storage, then records it for staff to review
 //   submit_change { field, value } -> { id }       asks staff to change one company detail
 //   gallery_url { source, id } -> { url }          source is kyc or generated; link lasts 120 seconds
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
@@ -44,7 +42,6 @@ const MAX_UPLOADS_PER_DAY = 100;
 const DOC_TYPES = ["Trade Licence", "MOA / AOA", "Passport / ID", "Bank Statement", "Invoice", "VAT Document", "Corporate Tax Document", "Other"];
 const FORM_DOC_TYPES = ["Passport", "Emirates visa", "Emirates ID", "Ejari", "Bank statement", "Utility bill", "Old visa", "Old Emirates ID", "Other"];
 const SETUP_FILE_KINDS = ["quote", "letter", "receipt", "output", "invoice"];
-const SIGNED_EXT = ["pdf", "png", "jpg", "jpeg", "webp", "tif", "tiff"];
 const MIME: Record<string, string> = {
   pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", tif: "image/tiff", tiff: "image/tiff",
   doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -230,66 +227,6 @@ Deno.serve(async (req) => {
         const { data: link, error: linkErr } = await admin.storage.from(data.bucket).createSignedUrl(data.path, 300, { download: data.file_name });
         if (linkErr) throw new Error(linkErr.message);
         return json({ url: link.signedUrl });
-      }
-      case "setup_signed_upload": {
-        // Same start and finish pattern as upload_start and upload_done. The link is made only for an issued quote of this client that can take a copy;
-        // the path is checked again on finish, and the SQL refuses any quote that is not this client's.
-        const quoteId = String(body.quote_id || "");
-        if (!UUID.test(quoteId)) throw new InputError("Quote not found.");
-        const step = String(body.step || "");
-        if (step === "start") {
-          const name = displayName(String(body.file_name || ""));
-          const ext = name.split(".").pop()?.toLowerCase() || "";
-          if (!name || !SIGNED_EXT.includes(ext)) throw new InputError("Upload the signed quote as a PDF or an image.");
-          const size = Number(body.size);
-          if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) throw new InputError("Files must be under 25 MB.");
-          // Starts count toward the daily limit even when no row was ever written: every object this account has stored under incoming/<account>/
-          // in the last 24 hours (signed copies and other uploads share that path), read from storage. A list error refuses, never allows.
-          const since = Date.now() - 86400000;
-          const root = `incoming/${accountId}`;
-          const { data: folders, error: listErr } = await admin.storage.from(BUCKET).list(root, { limit: 1000 });
-          if (listErr || !folders) throw new Error("Could not check the upload limit.");
-          let recent = 0;
-          for (const folder of folders.filter((f: { id: string | null }) => f.id === null)) {
-            const { data: objs, error: objErr } = await admin.storage.from(BUCKET).list(`${root}/${folder.name}`, { limit: 100 });
-            if (objErr || !objs) throw new Error("Could not check the upload limit.");
-            recent += objs.filter((o: { created_at?: string }) => o.created_at && Date.parse(o.created_at) >= since).length;
-          }
-          if (recent >= MAX_UPLOADS_PER_DAY) throw new InputError("Upload limit reached for today. Please try again tomorrow.");
-          const { data: view, error: viewErr } = await admin.rpc("business_setup_portal_view", { p_account: accountId });
-          if (viewErr) throw new Error(viewErr.message);
-          const quote = (view?.quotes || []).find((q: { id: string }) => q.id === quoteId);
-          if (!quote) throw new InputError("Quote not found.");
-          if (!quote.can_sign) throw new InputError("This quote cannot take a signed copy now.");
-          const path = `incoming/${accountId}/${crypto.randomUUID()}/${storageSafe(name)}`;
-          const { data: up, error: upErr } = await admin.storage.from(BUCKET).createSignedUploadUrl(path);
-          if (upErr) throw new Error(upErr.message);
-          return json({ path, upload_url: up.signedUrl, mime: MIME[ext] });
-        }
-        if (step === "done") {
-          const path = String(body.path || "");
-          const mine = new RegExp(`^incoming/${accountId}/[0-9a-f-]{36}/[A-Za-z0-9._-]+$`, "i");
-          if (!mine.test(path)) throw new InputError("The upload did not finish. Please try again.");
-          const folder = path.slice(0, path.lastIndexOf("/"));
-          const { data: files } = await admin.storage.from(BUCKET).list(folder);
-          const base = path.slice(path.lastIndexOf("/") + 1);
-          const stored = files?.find((f: { name: string }) => f.name === base);
-          if (!stored) throw new InputError("The upload did not finish. Please try again.");
-          // The link was made for a checked name and size, but what was really stored is what counts: wrong type or too big is deleted and refused.
-          const realSize = Number(stored.metadata?.size);
-          const realExt = base.split(".").pop()?.toLowerCase() || "";
-          if (!SIGNED_EXT.includes(realExt) || !Number.isFinite(realSize) || realSize <= 0 || realSize > MAX_BYTES) {
-            await admin.storage.from(BUCKET).remove([path]);
-            throw new InputError("The signed copy must be a PDF or an image under 25 MB. The file was not kept.");
-          }
-          const { data, error } = await admin.rpc("business_setup_portal_signed_add", { p_account: accountId, p_quote: quoteId, p_path: path });
-          if (error) {
-            if (error.code === "P0001") throw new InputError(error.message);
-            throw new Error(error.message);
-          }
-          return json({ id: data });
-        }
-        throw new InputError("Unknown step.");
       }
       case "submit_change": {
         const { data, error } = await admin.rpc("client_change_submit", { p_account: accountId, p_field: String(body.field || "").slice(0, 60), p_value: String(body.value ?? "").slice(0, 600) });

@@ -128,7 +128,7 @@ test("Zoho panel: a held quote is read-only, and the invoice needs a ready accep
 // ── Phase 1 review fixes ──
 import { readdirSync } from "node:fs";
 import { DOC_KINDS, FIELDS, SERVICES_FIELD, changedAnswers, formValues } from "../logic/staffForm.js";
-import { itemState, itemTone } from "../logic/checklist.js";
+import { CHECKLIST, itemState, itemTone } from "../logic/checklist.js";
 const onboardingSql = readFileSync(fileURLToPath(new URL("../../Database Module/Business Setup Base/migrations/009_onboarding.sql", import.meta.url)), "utf8");
 
 test("staff document kinds are exactly the types the client form asks for, including address proofs", () => {
@@ -157,12 +157,12 @@ test("changed answers keep services and the first partner in their stored shape"
 });
 
 test("the checklist shows the real state of the invoice: Done on an invoice or the override, else Open", () => {
-  const all = { stage: "Documentation", docs: { quote: true, signed: true, paid: true, letter: true, invoice: true } };
+  const all = { stage: "Documentation", docs: { quote: true, signed: true, letter: true, invoice: true } };
   assert.equal(itemState(all, "invoice"), "Done");
   assert.equal(itemState({ ...all, docs: { ...all.docs, invoice: false } }, "invoice"), "Open");
   assert.equal(itemState({ stage: "Documentation", docs: {} }, "invoice"), "Open");
   assert.equal(itemState(all, "signed"), "Done");
-  assert.equal(itemState({ stage: "Documentation", docs: {} }, "paid"), "Open");
+  assert.deepEqual(CHECKLIST.map(([k]) => k), ["services", "quote", "signed", "letter", "invoice"]);   // no Paid item: a payment blocks nothing
   assert.equal(itemTone("Done"), "good");
   assert.equal(itemTone("Open"), "warn");
 });

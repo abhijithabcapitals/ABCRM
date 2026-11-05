@@ -44,9 +44,8 @@ begin
   if (select count(*) from public.business_setup_cases) <> (select cases from public.bs_pre015_kept) then raise exception 'cases lost rows'; end if;
   if (select count(*) from public.hub_documents) <> (select docs from public.bs_pre015_kept) then raise exception 'hub_documents lost rows'; end if;
   if (select status from public.hub_documents where document_number = 'RB-015-Q') <> 'accepted' then raise exception 'an accepted quote changed'; end if;
-  if (select count(*) from public.business_setup_fee_items where not (grp = 'Company' and name in ('Company registration', 'Company renewal', 'Visa')) and grp <> 'RB015') <> (select fees from public.bs_pre015_kept) then raise exception 'fee items lost rows'; end if;
+  if (select count(*) from public.business_setup_fee_items where grp <> 'RB015') <> (select fees from public.bs_pre015_kept) then raise exception 'fee items lost rows'; end if;
   if (select default_amount from public.business_setup_fee_items where grp = 'RB015') <> 0 then raise exception 'an empty fee amount did not become 0'; end if;
-  if exists (select 1 from public.business_setup_fee_items where grp = 'Company' and name in ('Company registration', 'Company renewal', 'Visa') and default_amount is null) then raise exception 'an empty company item remains'; end if;
   -- The header's statements about what a hand-recorded invoice and an advance become.
   if not exists (select 1 from public.business_setup_invoices where invoice_number = 'RB-015') then raise exception 'the invoice row went'; end if;
   if not exists (select 1 from public.business_setup_payments p join public.business_setup_cases c on c.id = p.case_id where p.note = 'rollback-015-advance' and p.quote_id is null) then raise exception 'the advance lost its case in this rollback'; end if;

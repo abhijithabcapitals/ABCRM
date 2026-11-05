@@ -78,12 +78,10 @@ test("a case with no client lists its quote and letter read-only and offers no i
 
 test("the payments panel of a case has no quote picker, and the ledger shows advances", { skip }, async () => {
   const w = { client: { legal_name: "Acme" }, quotes: [], letters: [], services: [], payments: [{ id: "p1", type: "Payment", amount: 500, paid_on: "2026-11-04", quote_id: null, case_id: "c1", receipt_number: "R1" }] };
-  const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", client_id: "CL000001", docs: { quote: true, paid: false } };
+  const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", client_id: "CL000001", docs: { quote: true } };
   const out = await html("workspace/Payments.jsx", "default", { w, reload() {}, caseId: "c1", caseRow: c });
-  assert.match(out, /\+ Record payment/); assert.match(out, /Advance/); assert.match(out, /Waive payment/);
+  assert.match(out, /\+ Record payment/); assert.match(out, /Advance/); assert.doesNotMatch(out, /Waive payment/);
   assert.doesNotMatch(out, /A payment needs an accepted quote/);
-  const paid = await html("workspace/Payments.jsx", "default", { w, reload() {}, caseId: "c1", caseRow: { ...c, docs: { paid: true } } });
-  assert.doesNotMatch(paid, /Waive payment/);
 });
 
 test("the quote message area shows the login ID and link and never a password (rendered with a stubbed login)", { skip }, async () => {

@@ -14,7 +14,7 @@
 -- lose their case and fall out of net_paid altogether.
 -- WARNING (invoices): case_id and created_by go from business_setup_invoices. A hand-recorded invoice stays in the client's portal list but no longer belongs to a case,
 -- and the Paid and Invoice items of 014's checklist go back to how 013 defined them. Override reasons stay on the case rows (the columns are 013's) and are read by nothing.
--- WARNING (fee items): the three company items go unless a service uses them (then they stay, at 0), every other empty amount becomes 0, and each item's VAT rate is lost.
+-- WARNING (fee items): every empty amount becomes 0, and each item's VAT rate and its is_service flag are lost (a cost-only item then creates a service again when a quote is accepted).
 -- Quotes keep their rows: the vat_rate and scope on their lines stay in the JSON, where nothing reads them, and a quote issued with line VAT keeps its amounts.
 -- Quotes that a Lost case rejected stay rejected, and cases keep their stage: stages only move forward.
 begin;
@@ -606,10 +606,9 @@ drop table if exists public.business_setup_signed_quotes;
 drop index if exists public.business_setup_invoices_case_idx;
 alter table public.business_setup_invoices drop column if exists case_id cascade;
 alter table public.business_setup_invoices drop column if exists created_by;
-delete from public.business_setup_fee_items f where f.grp = 'Company' and f.name in ('Company registration', 'Company renewal', 'Visa') and f.default_amount is null
-   and not exists (select 1 from public.business_setup_services s where s.fee_item_id = f.id);
 update public.business_setup_fee_items set default_amount = 0 where default_amount is null;
 alter table public.business_setup_fee_items alter column default_amount set not null;
 alter table public.business_setup_fee_items drop column if exists vat_rate;
+alter table public.business_setup_fee_items drop column if exists is_service;
 
 commit;

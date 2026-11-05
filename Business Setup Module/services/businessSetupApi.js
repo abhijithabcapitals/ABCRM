@@ -139,5 +139,4 @@ export const caseInvoices = async (caseId) => {
   const quotes = (await caseDocuments(caseId)).filter((d) => d.doc_type === "quote").map((d) => d.id);
   return run(table("business_setup_invoices").select("id,invoice_number,issued_on,amount,file_path,source,created_at").or(caseInvoiceFilter(caseId, quotes)).order("created_at", { ascending: false }));
 };
-export const casePaidOverride = (id, reason) => rpc("business_setup_case_paid_override", { p_case: id, p_reason: reason });
 export const caseDocuments = (id) => rpc("business_setup_case_documents", { p_case: id });

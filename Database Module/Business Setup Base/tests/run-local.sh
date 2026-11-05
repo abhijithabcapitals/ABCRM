@@ -54,6 +54,8 @@ if [ -n "${ROLLBACK_TEST:-}" ]; then
   "${PSQL[@]}" -f "$HERE/rollback-snapshot-015.sql" >/dev/null || exit 1
   P2=("$DB/Business Setup Base/migrations"/015_*.sql "$DB/Business Setup Base/migrations"/018_*.sql)
   for f in "${P2[@]}"; do pass=phase2; run_sql "$f"; done
+  # Every fee item that existed before 015 is not a service (the column is added on the first run only).
+  "${PSQL[@]}" -c "do \$\$ begin if exists (select 1 from public.business_setup_fee_items where is_service) or not exists (select 1 from public.business_setup_fee_items) then raise exception 'fee items that existed before 015 must all have is_service false'; end if; end \$\$" >/dev/null 2>"$DATA/err" || { echo "IS_SERVICE CHECK FAILED"; cat "$DATA/err"; exit 1; }
   "${PSQL[@]}" -f "$HERE/rollback-data-015.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK DATA FAILED"; cat "$DATA/err"; exit 1; }
   "${PSQL[@]}" -f "$HERE/../rollback/015_018_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK 015-018 FAILED"; cat "$DATA/err"; exit 1; }
   "${PSQL[@]}" -f "$HERE/rollback-check-015.sql" 2>&1 | grep -E "ok|ERROR" ; [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1

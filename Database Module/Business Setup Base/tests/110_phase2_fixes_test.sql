@@ -49,9 +49,9 @@ select pg_temp.mkq('qL2', 'CL900110', 'cL2', 1000);
 select pg_temp.mkq('qC', 'CL900112', 'cC', 1000);
 select pg_temp.mkq('qX', 'CL900112', 'cX', 1000);
 select public.bs_as(null);
-select public.bs_check('lost: before Lost the client sees a quote waiting and may sign', pg_temp.vq('acc', 'qL') ->> 'status' = 'issued' and (pg_temp.vq('acc', 'qL') ->> 'can_sign')::boolean);
-insert into f110 values ('sL', public.business_setup_portal_signed_add(pg_temp.fx('acc')::uuid, pg_temp.fx('qL')::uuid, 'incoming/' || pg_temp.fx('acc') || '/x/a.pdf')::text);
+select public.bs_check('lost: before Lost the client sees a quote waiting', pg_temp.vq('acc', 'qL') ->> 'status' = 'issued');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f110 values ('sL', public.business_setup_signed_add(pg_temp.fx('qL')::uuid, 'staff/CL900110/a.pdf')::text);
 select public.business_setup_case_lost(pg_temp.fx('cL')::uuid, 'Went elsewhere');
 select public.business_setup_case_lost(pg_temp.fx('cL2')::uuid, 'Went elsewhere');
 select public.bs_as(null);
@@ -62,15 +62,11 @@ select public.bs_check('lost: the waiting signed copy is refused', (select statu
 select public.bs_check('lost: the refusal is audited', pg_temp.audited('signed_refused_by_lost', pg_temp.fx('sL')));
 select public.bs_check('lost: the client with other work keeps the login', (select status = 'active' from public.client_portal_accounts where id = pg_temp.fx('acc')::uuid));
 select public.bs_check('lost: that client no longer sees Waiting for you', pg_temp.vq('acc', 'qL2') ->> 'status' = 'rejected' and pg_temp.vq('acc', 'qL') ->> 'status' = 'rejected');
-select public.bs_check('lost: and may not sign', not (pg_temp.vq('acc', 'qL2') ->> 'can_sign')::boolean and not (pg_temp.vq('acc', 'qL') ->> 'can_sign')::boolean);
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/x/b.pdf')$$, pg_temp.fx('acc'), pg_temp.fx('qL2'), pg_temp.fx('acc')), 'waiting for you');
 
 -- ── I7: a Completed or Cancelled case takes no signature either ──
 select public.business_setup_case_set_stage(pg_temp.fx('cC')::uuid, 'Completed', 'test');
 select public.business_setup_case_set_stage(pg_temp.fx('cX')::uuid, 'Cancelled', 'test');
-select public.bs_check('closed case: an issued quote cannot be signed in the portal', not (pg_temp.vq('acc_c', 'qC') ->> 'can_sign')::boolean and not (pg_temp.vq('acc_c', 'qX') ->> 'can_sign')::boolean);
 select public.bs_check('closed case: the view says the quote is closed', (pg_temp.vq('acc_c', 'qC') ->> 'closed')::boolean and (pg_temp.vq('acc_c', 'qX') ->> 'closed')::boolean);
-select public.bs_expect_error(format($$select public.business_setup_portal_signed_add('%s', '%s', 'incoming/%s/x/c.pdf')$$, pg_temp.fx('acc_c'), pg_temp.fx('qC'), pg_temp.fx('acc_c')), 'waiting for you');
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.bs_expect_error(format($$select public.business_setup_signed_add('%s', 'staff/CL900112/c.pdf')$$, pg_temp.fx('qC')), 'closed');
 select public.bs_as(null);

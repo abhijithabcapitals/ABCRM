@@ -94,16 +94,12 @@ test("the portal imports nothing from staff modules beyond the form definition a
   }
 });
 
-test("the signed quote upload uses the session's account, checks the path and the file, and names no client", () => {
-  const session = src.indexOf('"client_portal_session"');
-  assert.ok(src.indexOf('case "setup_signed_upload":') > session, "runs before the session check");
-  const b = branch("setup_signed_upload");
-  assert.doesNotMatch(b, /body\.(client_id|client|account_id|account|form_id)/);
-  assert.match(b, /business_setup_portal_view/); assert.match(b, /can_sign/);
-  assert.match(b, /incoming\/\$\{accountId\}\//);
-  assert.match(b, /storage\.from\(BUCKET\)\.list\(/);
-  assert.match(b, /business_setup_portal_signed_add/); assert.match(b, /p_account: accountId/);
-  assert.match(b, /SIGNED_EXT/);
+test("the client has no signed quote upload: no action, no limit code, no SQL function", () => {
+  assert.doesNotMatch(src, /setup_signed_upload/); assert.doesNotMatch(src, /business_setup_portal_signed_add/); assert.doesNotMatch(src, /SIGNED_EXT/);
+  const view = readFileSync(fileURLToPath(new URL("../portal/SetupView.jsx", import.meta.url)), "utf8");
+  assert.doesNotMatch(view, /can_sign|signedUpload|FilePick/);
+  const api = readFileSync(fileURLToPath(new URL("../portal/portalApi.js", import.meta.url)), "utf8");
+  assert.doesNotMatch(api, /signedUpload|setup_signed_upload/);
 });
 
 test("staff open a signed copy through the SQL right check, never a path from the browser", () => {
@@ -112,16 +108,6 @@ test("staff open a signed copy through the SQL right check, never a path from th
   const b = src.slice(i, i + 500);
   assert.match(b, /staff\.rpc\("business_setup_signed_file"/);
   assert.doesNotMatch(b, /body\.(path|storage_path)/);
-});
-
-test("on finish the stored object's real type and size are checked, and a bad file is deleted", () => {
-  const b = branch("setup_signed_upload");
-  assert.match(b, /stored\.metadata\?\.size/); assert.match(b, /realExt/); assert.match(b, /MAX_BYTES/);
-  assert.match(b, /storage\.from\(BUCKET\)\.remove\(\[path\]\)/);
-  assert.match(b, /MAX_UPLOADS_PER_DAY/);
-  // starts are counted from storage, and a list error refuses
-  assert.match(b, /storage\.from\(BUCKET\)\.list\(root/); assert.match(b, /listErr \|\| !folders\) throw/); assert.match(b, /objErr \|\| !objs\) throw/);
-  assert.ok(b.indexOf("MAX_UPLOADS_PER_DAY") < b.indexOf("createSignedUploadUrl"), "the limit is checked before the upload link is made");
 });
 
 test("a quote of a closed case does not read as waiting for the client", () => {

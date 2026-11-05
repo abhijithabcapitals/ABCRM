@@ -27,7 +27,7 @@ export default function DocumentationPage() {
   }
   return (
     <div>
-      <PageHead title="Documentation" sub="Quote, signature, payment, letter and invoice for each case. A case moves on when all are met." />
+      <PageHead title="Documentation" sub="Quote, signature, letter and invoice for each case. A case moves on when all are met. A payment blocks nothing." />
       <div className="bk-tabs" role="tablist" aria-label="Documentation">
         {[["cases", "Cases"], ["register", "Document register"]].map(([k, label]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
       </div>
