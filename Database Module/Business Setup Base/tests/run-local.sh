@@ -34,8 +34,8 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
 # and only once business_setup_fee_items exists.
 MINE_OLD=(); MINE_NEW=()
 for n in 01 02 03 04 05 06 07 08 09 10 11 12; do MINE_OLD+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
-# Run order 13 14 20 21 15 16 18. 19 (intake), 22 (checkpoints) and 23 (bd_transfer) do not exist yet and follow in that order; the glob is empty until then.
-for n in 13 14 20 21 15 16 18 19 22 23; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
+# Run order 13 14 20 21 15 16 17 18. 19 (intake), 22 (checkpoints) and 23 (bd_transfer) do not exist yet and follow in that order; the glob is empty until then.
+for n in 13 14 20 21 15 16 17 18 19 22 23; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 MINE=("${MINE_OLD[@]}" "${MINE_NEW[@]}")
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 
@@ -54,7 +54,7 @@ if [ -n "${ROLLBACK_TEST:-}" ]; then
   # Phase 2 alone: snapshot at 014, apply 015, 016 and 018, add data, roll back with rollback/015_018_rollback.sql, compare, and apply again.
   for f in "$DB/Business Setup Base/migrations"/013_*.sql "$DB/Business Setup Base/migrations"/014_*.sql; do pass=new; run_sql "$f"; done
   "${PSQL[@]}" -f "$HERE/rollback-snapshot-015.sql" >/dev/null || exit 1
-  P2=("$DB/Business Setup Base/migrations"/015_*.sql "$DB/Business Setup Base/migrations"/016_*.sql "$DB/Business Setup Base/migrations"/018_*.sql)
+  P2=("$DB/Business Setup Base/migrations"/015_*.sql "$DB/Business Setup Base/migrations"/016_*.sql "$DB/Business Setup Base/migrations"/017_*.sql "$DB/Business Setup Base/migrations"/018_*.sql)
   for f in "${P2[@]}"; do pass=phase2; run_sql "$f"; done
   # Every fee item that existed before 015 is not a service (the column is added on the first run only).
   "${PSQL[@]}" -c "do \$\$ begin if exists (select 1 from public.business_setup_fee_items where is_service) or not exists (select 1 from public.business_setup_fee_items) then raise exception 'fee items that existed before 015 must all have is_service false'; end if; end \$\$" >/dev/null 2>"$DATA/err" || { echo "IS_SERVICE CHECK FAILED"; cat "$DATA/err"; exit 1; }

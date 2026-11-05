@@ -29,7 +29,7 @@ export default function FieldsPanel({ c, onOpenForm, onChanged }) {
       </span>}>
       <div className="bk-actions bk-wrap bk-mb">{["fields", "documents"].map((k) => <Badge key={k} tone={itemTone(itemState(c, k))}>{k === "fields" ? "Fields" : "Documents"}: {itemState(c, k)}</Badge>)}</div>
       <ErrorNote message={f.error} />
-      {!c.form_id ? <p className="bk-note">This case has no client form. Fields and Documents follow the client's KYC: they are met once it is Done.</p>
+      {!c.form_id ? <p className="bk-note">This case has no client form. Fields and Documents follow the client's KYC: they are met once nothing is missing. Complete it on the client's page, using Open client.</p>
         : f.loading && !d ? <Spinner /> : d && <>
           {d.status === "Returned" && d.return_note && <div className="bk-alert bk-alert-warn">Returned to the client: {d.return_note}</div>}
           {d.missing?.length > 0 && <div className="bk-alert bk-alert-warn">Still missing: {d.missing.join(", ")}.</div>}

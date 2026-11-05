@@ -57,6 +57,9 @@ drop function if exists public.business_setup_login_mail(text, boolean, uuid);
 drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
 drop function if exists public.business_setup_case_handover_trg();
 drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
+-- 017's two KYC functions go.
+drop function if exists public.business_setup_kyc_finished(text);
+drop function if exists public.business_setup_kyc_missing(text);
 -- business_setup_send_to_accounts goes back to 011's (016 asked for setup.cases.approve).
 create or replace function public.business_setup_send_to_accounts(p_quote uuid, p_remarks text default null) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$

@@ -9,6 +9,7 @@ alter table public.business_setup_cases drop constraint if exists business_setup
 \ir ../migrations/014_leads_ownership.sql
 \ir ../migrations/015_documentation.sql
 \ir ../migrations/016_client_flow.sql
+\ir ../migrations/017_kyc_finished.sql
 \ir ../migrations/018_portal.sql
 create temp table f150 (k text primary key, v text);
 grant all on f150 to authenticated, service_role;
@@ -81,6 +82,35 @@ select public.bs_expect_error(format($$select public.business_setup_portal_decid
 select public.business_setup_portal_decide(pg_temp.fx('acc')::uuid, pg_temp.fx('dq')::uuid, 'Accepted');
 select public.bs_check('nocase_accept: Accept with no case accepts the quote', (select status = 'accepted' from public.hub_documents where id = pg_temp.fx('dq')::uuid));
 select public.bs_check('nocase_letter: the letter can be decided once the quote is accepted', exists (select 1 from jsonb_array_elements(public.business_setup_portal_view(pg_temp.fx('acc')::uuid) -> 'letters') e where e ->> 'id' = pg_temp.fx('l') and (e ->> 'can_decide')::boolean));
+
+-- ── A KYC is finished when it is marked Done or nothing is missing (017) ──
+select public.bs_as(null);
+insert into public.client_master (client_id, legal_name, data) values ('CL990152', 'Complete LLC', '{"Primary Contact":"P","General Email":"c@x.ae","General Phone":"050"}') on conflict do nothing;
+insert into public.business_setup_kyc_profiles (client_id, business_activity, company_status) values ('CL990152', 'Trading', 'New') on conflict (client_id) do nothing;
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash, status) values ('CL990152', 'C', 'portal.c152', 'x', 'active');
+insert into f150 select 'acc2', id::text from public.client_portal_accounts where username = 'portal.c152';
+insert into public.business_setup_cases (client_id, stage, lead_name) values ('CL990152', 'Onboarding', 'T152');
+insert into f150 select 'c152', id::text from public.business_setup_cases where lead_name = 'T152';
+create function pg_temp.d(p_k text) returns jsonb language sql security definer as $$ select public.business_setup_case_docs(pg_temp.fx(p_k)::uuid) $$;
+select public.bs_check('kyc_finished: a missing partner leaves Fields open', not (pg_temp.d('c152') ->> 'fields')::boolean and 'partner' = any(public.business_setup_kyc_missing('CL990152')));
+insert into public.business_setup_kyc_partners (kyc_id, full_name, nationality) select id, 'P', 'UAE' from public.business_setup_kyc_profiles where client_id = 'CL990152';
+select public.bs_check('kyc_finished: nothing missing meets Fields and Documents with no Done and no form',
+  public.business_setup_kyc_finished('CL990152') and (pg_temp.d('c152') ->> 'fields')::boolean and (pg_temp.d('c152') ->> 'documents')::boolean
+  and (select kyc_state is null from public.business_setup_kyc_profiles where client_id = 'CL990152'));
+select public.bs_check('kyc_finished: an unknown client and no client are not finished', not public.business_setup_kyc_finished('CL000NONE') and not public.business_setup_kyc_finished(null));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error($$select public.business_setup_kyc_missing('CL990152')$$, 'permission denied');
+select public.bs_expect_error($$select public.business_setup_kyc_finished('CL990152')$$, 'permission denied');
+select public.bs_as(null);
+-- The client can accept from the portal once nothing is missing, and cannot while something is.
+insert into public.hub_documents (doc_type, department, document_number, document_serial, client_id, client_name, vat_mode, total_amount, lines, status)
+  values ('quote', 'Business Setup', 'T152-Q1', 915201, 'CL990152', 'Complete LLC', 'exclusive', 105, '[{"description":"S","amount":100,"vat_rate":5}]', 'issued');
+select public.business_setup_portal_decide(pg_temp.fx('acc2')::uuid, (select id from public.hub_documents where document_number = 'T152-Q1'), 'Accepted');
+select public.bs_check('kyc_finished: Accept works in the portal with no Done', (select status = 'accepted' from public.hub_documents where document_number = 'T152-Q1'));
+update public.business_setup_kyc_partners set deleted_at = now() where kyc_id = (select id from public.business_setup_kyc_profiles where client_id = 'CL990152');
+insert into public.hub_documents (doc_type, department, document_number, document_serial, client_id, client_name, vat_mode, total_amount, lines, status)
+  values ('quote', 'Business Setup', 'T152-Q2', 915202, 'CL990152', 'Complete LLC', 'exclusive', 105, '[{"description":"S","amount":100,"vat_rate":5}]', 'issued');
+select public.bs_expect_error(format($$select public.business_setup_portal_decide('%s', '%s', 'Accepted')$$, pg_temp.fx('acc2'), (select id from public.hub_documents where document_number = 'T152-Q2')), 'details are not complete');
 
 do $$
 declare f int; t int;
