@@ -7,7 +7,8 @@ import { createCrmTask } from "../services/crmTask";
 import { recordTemplateDocument } from "../services/hubApi";
 import { ErrorNote } from "@banking/components/Attention";
 import { ClientLists, listIdFor, useClientLookup } from "@banking/components/ClientLookup";
-import { applyClient, clientKeyOf } from "@banking/logic/clientLookup";
+import ClientPicker from "@banking/components/ClientPicker";
+import { applyClient, clientKeyOf, pickClient } from "@banking/logic/clientLookup";
 
 // ─────────────────────────── Generate ───────────────────────────
 export default function GenerateTab({ templates, downloadTemplateBuffer, profile }) {
@@ -172,6 +173,17 @@ export default function GenerateTab({ templates, downloadTemplateBuffer, profile
                     value={values[f.key] ?? ""}
                     onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                     style={{ width: "100%", padding: "8px 11px", borderRadius: 8, border: "1px solid #e0e0e0", fontSize: 13, resize: "vertical", fontFamily: "inherit" }}
+                  />
+                ) : clientKeyOf(f) === "name" ? (
+                  <ClientPicker
+                    id={`gen-${f.key}`}
+                    value={values[f.key] ?? ""}
+                    clients={clients}
+                    style={{ width: "100%", padding: "8px 11px", borderRadius: 8, border: "1px solid #e0e0e0", fontSize: 13 }}
+                    onChange={(val, picked) => {
+                      const map = Object.fromEntries(fields.filter((x) => clientKeyOf(x)).map((x) => [x.key, clientKeyOf(x)]));
+                      setValues((v) => (picked ? pickClient(v, map, f.key, picked, clients) : applyClient(v, map, f.key, val, clients)));
+                    }}
                   />
                 ) : (
                   <input

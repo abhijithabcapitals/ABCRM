@@ -1,7 +1,8 @@
 // Client first: an existing client, a new one, or Others with a title. Then employee, task, priority, date,
 // remarks and status. Inside a case the client is already known, so that row is skipped.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { flagMissing } from "./Attention";
+import ClientPicker from "./ClientPicker";
 import { Button, ErrorNote, Field, FormModal, Modal, useBanking, useLoad } from "./shared";
 import { insertRow, rpc, run, table, updateRow } from "../services/bankingApi";
 import { PRIORITIES, TASK_STATUSES, TASK_TYPES } from "../logic/constants";
@@ -11,6 +12,7 @@ const emptyToNull = (v) => (v === "" || v === undefined ? null : v);
 export default function TaskForm({ task, caseId, caseAssignee, onClose, onSaved }) {
   const { can, personOptions } = useBanking();
   const clients = useLoad(() => (caseId ? Promise.resolve([]) : run(table("banking_clients").select("id, display_name, client_master_id").order("display_name").limit(5000))), [caseId]);
+  const taskClients = useMemo(() => (clients.data || []).map((c) => ({ id: c.id, ref: c.client_master_id, name: c.display_name })), [clients.data]);
   const existingName = task?.banking_clients?.display_name || task?.banking_cases?.banking_clients?.display_name || "";
   const [clientText, setClientText] = useState(existingName);
   const [clientId, setClientId] = useState(task?.client_id || null);
@@ -59,8 +61,7 @@ export default function TaskForm({ task, caseId, caseAssignee, onClose, onSaved 
           <div className="bk-task-client">
             <div className="bk-field">
               <label htmlFor="t-client">Client name <em>*</em></label>
-              <input id="t-client" list="t-client-list" value={clientText} disabled={others} placeholder={others ? "Not for a client" : "Type to search existing clients"} onChange={(e) => pickClient(e.target.value)} autoComplete="off" />
-              <datalist id="t-client-list">{(clients.data || []).map((c) => <option key={c.id} value={c.display_name} />)}</datalist>
+              <ClientPicker id="t-client" value={clientText} disabled={others} placeholder={others ? "Not for a client" : "Search by client code or name"} clients={taskClients} onChange={(text, picked) => { if (picked) { setClientText(text); setClientId(picked.id); } else pickClient(text); }} />
             </div>
             {can("cases.manage") && <Button disabled={others} onClick={() => setAddClient(true)}>+ Add Client</Button>}
             <label className="bk-check"><input type="checkbox" checked={others} onChange={(e) => { setOthers(e.target.checked); if (e.target.checked) { setClientText(""); setClientId(null); } }} /> Others</label>

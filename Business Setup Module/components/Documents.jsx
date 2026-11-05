@@ -31,7 +31,7 @@ export default function Documents({ embedded = false }) {
           ) },
         ]} />
       )}
-      {link && <FormModal title={`Link ${link.document_number} to a client`} fields={[{ name: "client", label: "Client ID (CL000001)", required: true }]} onClose={() => setLink(null)}
+      {link && <FormModal title={`Link ${link.document_number} to a client`} fields={[{ name: "client", label: "Client", type: "clientCode", required: true }]} onClose={() => setLink(null)}
         onSubmit={async (v) => { await linkQuote(link.id, v.client); await docs.reload(); }} />}
     </div>
   );

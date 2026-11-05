@@ -50,3 +50,45 @@ export function clientKeyOf(field) {
   if (/nationality/.test(s)) return "nationality";
   return null;
 }
+
+// ── Client picker ────────────────────────────────────────────────────
+// One row per client: a banking client carrying a Client Master code folds into that master row, which keeps its own
+// values and takes only what it lacks. Clients with a code come first, so the Client Master leads the list.
+const blank = (v) => v === null || v === undefined || v === "";
+
+export function pickerRows(clients) {
+  const master = new Map();
+  for (const c of clients || []) if (Number(c.rank) === 1 && c.ref) master.set(String(c.ref), { ...c });
+  const rest = [];
+  for (const c of clients || []) {
+    if (Number(c.rank) === 1 && c.ref) continue;
+    const base = Number(c.rank) === 2 && c.ref ? master.get(String(c.ref)) : null;
+    if (!base) { rest.push(c); continue; }
+    for (const [k, v] of Object.entries(c)) if (blank(base[k]) && !blank(v)) base[k] = v;
+  }
+  return [...master.values(), ...rest.filter((c) => c.ref), ...rest.filter((c) => !c.ref)];
+}
+
+// Every word typed must appear in the client's code, names, licence, TRN, email or phone.
+export function searchClients(rows, query) {
+  const words = text(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return rows || [];
+  return (rows || []).filter((c) => {
+    const hay = [c.ref, c.name, c.legal_name, c.trade_name, c.license, c.trn, c.email, c.phone].filter(Boolean).join(" ").toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}
+
+// A client chosen from the list. Unlike typing, this knows exactly which client was meant, even if two share a name.
+// Moving from one known client to another clears what the new one lacks, so the old client's email or licence
+// cannot stay on the form. Anything typed before a first choice is kept unless the client has a value for it.
+export function pickClient(values, map, changedField, client, clients) {
+  const previous = findClient(clients, "name", values[changedField]);
+  const next = { ...values, [changedField]: client.name };
+  for (const [field, k] of Object.entries(map)) {
+    if (field === changedField) continue;
+    if (!blank(client[k])) next[field] = client[k];
+    else if (previous) next[field] = "";
+  }
+  return next;
+}

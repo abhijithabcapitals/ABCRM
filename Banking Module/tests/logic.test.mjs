@@ -264,3 +264,30 @@ test("bank badge initials skip legal words", () => {
   assert.equal(bankInitials("The National Bank of Ras Al Khaimah PJSC (RAKBANK)"), "NR");
   assert.equal(bankInitials(""), "?");
 });
+
+test("client picker: one row per client, codes first, search by code or name, clean switching", async () => {
+  const { pickerRows, searchClients, pickClient } = await import("../logic/clientLookup.js");
+  const raw = [
+    { rank: 3, ref: null, name: "Lead Only LLC", contact: "Sam" },
+    { rank: 2, ref: "CL000002", name: "Beta Trading", contact: "Rae", email: null },
+    { rank: 2, ref: null, name: "Bank Only LLC" },
+    { rank: 1, ref: "CL000002", name: "Beta Trading LLC", email: "b@x.ae", contact: null, license: "L-2" },
+    { rank: 1, ref: "CL000012", name: "Alpha FZE", trade_name: "Alpha", license: "L-12" },
+  ];
+  const rows = pickerRows(raw);
+  assert.deepEqual(rows.map((r) => r.ref), ["CL000002", "CL000012", null, null]);
+  assert.equal(rows[0].name, "Beta Trading LLC", "the master row keeps its own name");
+  assert.equal(rows[0].contact, "Rae", "takes only what it lacks from the banking row");
+  assert.equal(raw[3].contact, null, "the loaded rows are not changed");
+  assert.deepEqual(searchClients(rows, "cl000012").map((r) => r.name), ["Alpha FZE"]);
+  assert.deepEqual(searchClients(rows, "fze alpha").map((r) => r.ref), ["CL000012"]);
+  assert.deepEqual(searchClients(rows, "l-2").map((r) => r.ref), ["CL000002"]);
+  assert.equal(searchClients(rows, "  ").length, 4);
+  assert.deepEqual(searchClients(rows, "nothing"), []);
+
+  const map = { client: "name", email: "email", license: "license" };
+  const first = pickClient({ client: "", email: "typed@x.ae", license: "" }, map, "client", rows[1], rows);
+  assert.deepEqual(first, { client: "Alpha FZE", email: "typed@x.ae", license: "L-12" }, "a first choice keeps what was typed when the client has no value");
+  const second = pickClient({ client: "Beta Trading LLC", email: "b@x.ae", license: "L-2" }, map, "client", rows[1], rows);
+  assert.deepEqual(second, { client: "Alpha FZE", email: "", license: "L-12" }, "switching clients clears the old client's email");
+});

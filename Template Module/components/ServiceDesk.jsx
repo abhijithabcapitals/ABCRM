@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { createDocument, listDocuments, loadCatalogue, loadHubSettings, openInFolder, openStored, renderTemplate, saveFile, updateMail } from "../services/hubApi";
+import ClientPicker from "@banking/components/ClientPicker";
 import { ClientLists, listIdFor, useClientLookup } from "@banking/components/ClientLookup";
-import { applyClient } from "@banking/logic/clientLookup";
+import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
 import { addLine, checkReady, DEPARTMENTS, fileNameFor, folderKind, letterData, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs";
 
@@ -126,7 +127,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
       {!department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>}
       <Panel title="1. Client details" sub="Choose any detail of an existing client to fill in the rest, or type them for a new one.">
         <div className="bk-grid">
-          <div className="bk-field"><label htmlFor="d-client">Client name <em>*</em></label><input id="d-client" list={listIdFor("name")} value={form.client} onChange={set("client")} autoComplete="off" /><ClientLists clients={clients} /></div>
+          <div className="bk-field"><label htmlFor="d-client">Client name <em>*</em></label><ClientPicker id="d-client" value={form.client} clients={clients} onChange={(v, picked) => setForm((f) => (picked ? pickClient(f, CLIENT_MAP, "client", picked, clients) : applyClient(f, CLIENT_MAP, "client", v, clients)))} /><ClientLists clients={clients} keys={["email", "phone", "license", "trn"]} /></div>
           <div className="bk-field"><label htmlFor="d-contact">Contact person <em>*</em></label><input id="d-contact" value={form.contact} onChange={set("contact")} /></div>
           <div className="bk-field"><label htmlFor="d-email">Email <em>*</em></label><input id="d-email" type="email" list={listIdFor("email")} value={form.email} onChange={set("email")} /></div>
           <div className="bk-field"><label htmlFor="d-phone">Phone <em>*</em></label><input id="d-phone" list={listIdFor("phone")} value={form.phone} onChange={set("phone")} /></div>
