@@ -32,7 +32,8 @@ export default function AccountingDesk({ profile }) {
   const [note, setNote] = useState(null);
   const [refresh, setRefresh] = useState(0);
 
-  const set = (k) => (e) => { const v = e.target.value; setForm((f) => applyClient(f, CLIENT_MAP, k, v, clients)); };
+  // A detail that matches another client can change the name, so the client code is dropped whenever the name changes.
+  const set = (k) => (e) => { const next = applyClient(form, CLIENT_MAP, k, e.target.value, clients); if (next.client_name !== form.client_name) setClientId(null); setForm(next); };
   const setShared = (k) => (e) => setQuote((q) => ({ ...q, shared: { ...q.shared, [k]: toLines(e.target.value) } }));
   const setOption = (i, o) => setQuote((q) => ({ ...q, options: q.options.map((x, j) => (j === i ? o : x)) }));
 
@@ -54,6 +55,7 @@ export default function AccountingDesk({ profile }) {
     setBusy(false);
     setRefresh((n) => n + 1);
     if (r.error && r.doc) {
+      setForm(blankForm()); setClientId(null); setQuote(blankQuote());
       setError(`${r.doc.document_number} was numbered but its files did not finish: ${r.error} Use Retry in the list below.`);
     } else if (r.error) setError(r.error);
     else {

@@ -61,3 +61,14 @@ test("status words", () => {
   assert.equal(docStatus(quote()).label, "Issued");
   assert.equal(docStatus(quote({ field_values: { quote: { accepted_option: 0 } } })).label, "Accepted");
 });
+
+import { mailRowLines } from "../logic/accountingUi.js";
+test("mailRowLines turns null amounts into 0 and keeps the rest", () => {
+  const out = mailRowLines([{ description: "A", amount: null }, { description: "B", amount: 5 }, { description: "C" }]);
+  assert.deepEqual(out.map((l) => l.amount), [0, 5, 0]);
+  assert.deepEqual(mailRowLines(undefined), []);
+});
+test("edit is hidden once the agreement is signed", () => {
+  assert.equal(docActions({ library_template: "AB Capital/Accounting Agreement", storage_path: "p" }).edit, true);
+  assert.equal(docActions({ library_template: "AB Capital/Accounting Agreement", storage_path: "p", signed_at: "2026-11-05" }).edit, false);
+});

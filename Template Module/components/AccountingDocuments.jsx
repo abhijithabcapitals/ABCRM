@@ -83,7 +83,7 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
   const all = docs.data || [];
   const rows = all.filter((d) => isAccountingQuote(d) || isAccountingAgreement(d));
   const mailOf = (d) => all.find((x) => x.doc_type === "mail" && x.parent_id === d.id);
-  const agreementOf = (q) => all.find((x) => isAccountingAgreement(x) && x.parent_id === q.id);
+  const agreementOf = (q) => all.find((x) => isAccountingAgreement(x) && x.parent_id === q.id && x.status !== "rejected");
   const deps = () => accountingDeps(settings);
 
   // Runs one action. Nothing else starts while it runs; the list is read again afterwards.
@@ -170,7 +170,7 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
         {a.makeAgreement && <Button disabled={off} onClick={() => openAgreement(d)}>Agreement</Button>}
         {a.edit && <Button disabled={off} onClick={() => setDialog({ kind: "edit", doc: d, initial: d.field_values?.agreement })}>Edit</Button>}
         {a.approve && <Button variant="primary" disabled={off} busy={busy === key("approve")} onClick={() => run(key("approve"), async () => report(await approveAgreement(d, deps()), "Approval"))}>Approve</Button>}
-        {a.retry && <Button disabled={off} busy={busy === key("retry")} onClick={() => run(key("retry"), async () => report(await retryDocument(d, deps()), "Files rebuilt for"))}>Retry</Button>}
+        {a.retry && <Button disabled={off} busy={busy === key("retry")} onClick={() => run(key("retry"), async () => report(await retryDocument(d, deps(), { mail: !mailOf(d) }), "Files rebuilt for"))}>Retry</Button>}
         {a.recordSigned && !d.signed_path && <Button disabled={off} onClick={() => setDialog({ kind: "signed", doc: d })}>Record signed</Button>}
       </span>
     );

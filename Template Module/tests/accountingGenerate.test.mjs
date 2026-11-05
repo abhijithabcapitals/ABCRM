@@ -182,3 +182,14 @@ test("save now copies stored files and records the path", async () => {
   assert.ok((await saveToOneDrive(quoteDoc, off.deps)).error);
   assert.equal(names(off.calls).includes("markSaved"), false);
 });
+
+test("retry with mail false creates no second mail draft", async () => {
+  const first = fakes({ toPdf: new Error("pdf broke") });
+  const r = await generateQuote(qIn(), first.deps);
+  const second = fakes();
+  await retryDocument(r.doc, second.deps, { mail: false });
+  assert.equal(names(second.calls).includes("createMail"), false);
+  const third = fakes();
+  await retryDocument(r.doc, third.deps);
+  assert.equal(names(third.calls).includes("createMail"), true);
+});

@@ -15,6 +15,9 @@ export function moveRow(list, i, dir) {
   return next;
 }
 
+// Lines for the mail row. Fee lines with no price (Included, NA, Charged separately) carry a null amount, which hub_document_create refuses.
+export const mailRowLines = (lines) => (Array.isArray(lines) ? lines.map((l) => (l && typeof l === "object" && (l.amount === null || l.amount === undefined) ? { ...l, amount: 0 } : l)) : []);
+
 // Which actions a document row offers. hasAgreement: an agreement already exists under this quote. busy turns every button off.
 export function docActions(doc, { canApprove = false, hasAgreement = false, busy = false } = {}) {
   const agreement = isAccountingAgreement(doc);
@@ -28,7 +31,7 @@ export function docActions(doc, { canApprove = false, hasAgreement = false, busy
     saveNow: files && !doc.onedrive_path,
     accept: !agreement && files && !hasAgreement,
     makeAgreement: !agreement && files && accepted && !hasAgreement,
-    edit: agreement,
+    edit: agreement && !doc.signed_at,
     approve: agreement && files && !doc.approved_at && !!canApprove,
     awaitingApproval: agreement && !doc.approved_at,
     send: files && (!agreement || !!doc.approved_at),

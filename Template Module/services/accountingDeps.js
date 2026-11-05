@@ -4,6 +4,7 @@ import { supabase } from "@app/supabase";
 import { BUCKET, createDocument, storedBlob } from "./hubApi";
 import { approveDoc, attachDoc, createAgreement, createQuote, markSaved, saveFolder, updateAgreement, uploadDoc } from "./accountingApi";
 import { checkQuote } from "../logic/accountingQuote.js";
+import { mailRowLines } from "../logic/accountingUi.js";
 import { checkAgreement } from "../logic/accountingAgreement.js";
 import { renderAccountingDoc } from "../logic/accountingDocx.js";
 
@@ -44,7 +45,7 @@ const toPdf = async (wordBlob) => (await import("../ardentax/logic/docxToPdf.js"
 // The mail draft sits beside its document, as in the other Service Documents.
 const createMail = (doc, { subject, body }) => createDocument({
   doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email,
-  services: doc.services, lines: doc.lines, vat_mode: doc.vat_mode, vat_rate: doc.vat_rate, mail_subject: subject, mail_body: body,
+  services: doc.services, lines: mailRowLines(doc.lines), vat_mode: doc.vat_mode, vat_rate: doc.vat_rate, mail_subject: subject, mail_body: body,
 });
 
 export function accountingDeps(settings) {

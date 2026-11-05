@@ -104,14 +104,14 @@ export function generateAgreement({ quoteId, agreement, guard }, deps) {
 }
 
 // Rebuilds a stored draft from its field_values. It takes no number.
-export async function retryDocument(doc, deps) {
+export async function retryDocument(doc, deps, { mail = true } = {}) {
   let buffer;
   try {
     buffer = await deps.loadTemplate(kindOf(doc));
   } catch (e) {
     return { doc, error: e.message };
   }
-  return buildDraft(doc, deps, buffer, { mail: true });
+  return buildDraft(doc, deps, buffer, { mail });
 }
 
 // An approver releases the agreement: the signed files are built first and the server records approval only after that.
