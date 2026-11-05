@@ -32,7 +32,7 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
 BS=(); for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14; do BS+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 AFTER=("$DB/ArdentTax Base/migrations/001_ardentax.sql" "$DB/Template Hub Base/migrations/003_brand_name.sql" "$DB/../Template Module/database/01_quotation_maker.sql" "$DB/../Template Module/database/02_quotation_templates_access.sql" "$DB/Template Hub Base/migrations/004_hub_admin.sql")
-MINE=("$HERE/../migrations/005_library_fill.sql" "$HERE/../migrations/006_library_letter.sql" "$HERE/../migrations/007_work_types.sql")
+MINE=("$HERE/../migrations/005_library_fill.sql" "$HERE/../migrations/006_library_letter.sql" "$HERE/../migrations/007_work_types.sql" "$HERE/../migrations/008_accounting_proposals.sql")
 
 run_sql() { "${PSQL[@]}" -f "$1" >/dev/null 2>"$DATA/err" || { echo "FAILED: $1"; cat "$DATA/err"; exit 1; }; }
 for f in "${BASE[@]}"; do run_sql "$f"; done
@@ -57,6 +57,17 @@ for t in "$HERE"/[01][0-9]0_*; do
   esac
 done
 
+# 008 undone first: it refuses while Accounting proposals exist unless forced, removes everything it added, and leaves quotes made the old way.
+OLDQ_BEFORE="$("${PSQL[@]}" -At -c "select count(*) from hub_documents where department = 'Accounting' and library_template is null")"
+"${PSQL[@]}" -f "$HERE/../rollback/008_rollback.sql" >/dev/null 2>&1 && { echo "FAIL accounting proposals rollback ran with proposals present"; RC=1; } || echo "ok   accounting proposals rollback refuses while proposals exist"
+"${PSQL[@]}" -c "set acct_proposal.rollback_force = 'yes'" -f "$HERE/../rollback/008_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL accounting proposals rollback: $(cat "$DATA/err")"; RC=1; }
+LEFT8="$("${PSQL[@]}" -At -c "select (to_regclass('public.hub_accounting_packages') is not null)::int + (select count(*) from pg_proc where proname like 'hub\_acct\_%')
+  + (select count(*) from information_schema.columns where table_name = 'hub_documents' and column_name in ('word_path','onedrive_path','onedrive_saved_at','mail_sent_at','mail_sent_by','mail_sent_to','approved_by','approved_at','agreement_changed_at'))
+  + (select count(*) from hub_settings where key = 'accounting_proposal_defaults') + (select count(*) from pg_trigger where tgname = 'hub_acct_letter_guard')
+  + (select count(*) from pg_policies where policyname like 'hub\_docs\_accounting\_signature%')")"
+if [ "$LEFT8" = "0" ]; then echo "ok   accounting proposals rollback leaves nothing behind"; else echo "FAIL accounting proposals rollback left $LEFT8 items"; RC=1; fi
+OLDQ_AFTER="$("${PSQL[@]}" -At -c "select count(*) from hub_documents where department = 'Accounting' and library_template is null")"
+if [ "$OLDQ_BEFORE" = "$OLDQ_AFTER" ] && [ "$OLDQ_BEFORE" != "0" ]; then echo "ok   accounting proposals rollback keeps the old quotes and letters ($OLDQ_AFTER)"; else echo "FAIL old quotes before $OLDQ_BEFORE, after $OLDQ_AFTER"; RC=1; fi
 # Rollback refuses while library documents exist unless forced, then restores what 004 changed.
 "${PSQL[@]}" -f "$HERE/../rollback/007_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL work types rollback: $(cat "$DATA/err")"; RC=1; }
 "${PSQL[@]}" -f "$HERE/../rollback/006_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL letter rollback: $(cat "$DATA/err")"; RC=1; }
