@@ -15,7 +15,7 @@ export const loadCatalogue = async () => {
 export const loadHubSettings = async () => Object.fromEntries(check(await supabase.from("hub_settings").select("key, value")).map((r) => [r.key, r.value]));
 export const createDocument = async (p) => check(await supabase.rpc("hub_document_create", { p }));
 export const listDocuments = async (department) => {
-  let q = supabase.from("hub_documents").select("*").order("created_at", { ascending: false }).limit(500);
+  let q = supabase.from("hub_documents").select("*").neq("doc_type", "library").order("created_at", { ascending: false }).limit(500);
   if (department) q = q.eq("department", department);
   return check(await q);
 };
@@ -95,4 +95,43 @@ export async function renderTemplate(templateFile, data, { builtIn = true } = {}
   const doc = new Docxtemplater(new PizZip(buffer), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
   doc.render(data);
   return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+}
+
+// ── Company Library: Word templates filled by staff ──
+export const libraryAccess = async () => check(await supabase.rpc("hub_library_my_access"));
+export async function listLibraryTemplates() {
+  const templates = check(await supabase.from("hub_library_templates").select("*").order("template_key"));
+  const files = check(await supabase.from("hub_library_template_files").select("*").order("id", { ascending: false }));
+  const latest = new Map();
+  for (const f of files) if (!latest.has(f.template_key)) latest.set(f.template_key, f);
+  return templates.map((t) => ({ ...t, file: latest.get(t.template_key) || null }));
+}
+export const saveLibraryTemplate = async (p) => check(await supabase.rpc("hub_library_template_save", { p }));
+export async function uploadLibraryFile(templateKey, company, file) {
+  const path = `library-templates/${company}/${crypto.randomUUID()}.docx`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file);
+  if (error) throw new Error(error.message);
+  return check(await supabase.rpc("hub_library_template_upload", { p_key: templateKey, p_name: file.name, p_path: path }));
+}
+async function libraryPath(fileId) {
+  const row = check(await supabase.from("hub_library_template_files").select("storage_path").eq("id", fileId).maybeSingle());
+  if (!row) throw new Error("Template file not found.");
+  return row.storage_path;
+}
+export async function libraryFileBuffer(fileId) {
+  const { data, error } = await supabase.storage.from(BUCKET).download(await libraryPath(fileId));
+  if (error || !data) throw new Error(`Could not download the template file: ${error?.message || "no data"}`);
+  return data.arrayBuffer();
+}
+export async function libraryFileUrl(fileId) {
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(await libraryPath(fileId), 300);
+  if (error) throw new Error(error.message);
+  return data.signedUrl;
+}
+export const createLibraryDocument = async (p) => check(await supabase.rpc("hub_library_create", { p }));
+export const listLibraryDocuments = async () => check(await supabase.from("hub_documents").select("*").not("library_template", "is", null).order("created_at", { ascending: false }).limit(500));
+export async function searchClients(name) {
+  const rows = check(await supabase.from("client_master").select("client_id, data").limit(5000));
+  const needle = String(name || "").trim().toUpperCase();
+  return rows.filter((r) => JSON.stringify(r.data).toUpperCase().includes(needle)).slice(0, 20);
 }

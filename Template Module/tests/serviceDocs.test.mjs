@@ -80,6 +80,8 @@ test("master templates are compared by their tags, even when Word splits them", 
 test("ArdentTax shows on the numbering page, not among the Service Desk departments", () => {
   assert.ok(NUMBERING_DEPARTMENTS.includes("ArdentTax (ASP)"));
   assert.ok(!DEPARTMENTS.includes("ArdentTax (ASP)"));
+  assert.ok(NUMBERING_DEPARTMENTS.includes("Ardentax Documents"));
+  assert.ok(!DEPARTMENTS.includes("Ardentax Documents"));
   for (const d of DEPARTMENTS) assert.ok(NUMBERING_DEPARTMENTS.includes(d));
 });
 
