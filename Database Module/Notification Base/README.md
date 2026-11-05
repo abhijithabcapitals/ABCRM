@@ -18,6 +18,7 @@ Database layer of the Notification and Alert Centre. Spec: `Hot Alerts Module/do
 | `011_followups_payments.sql` | Contact log, document requests, follow-up and payment rules, items logged by hand |
 | `012_compliance_tax.sql` | Review-date rules, `alert_tax_items`, `tax_deadline`, off-by-default `ct_dereg_review`. Edge Function `alert-tax-scan` fills the items |
 | `013_relationship.sql` | `multiple_services`, plus off-by-default not contacted, inactive and anniversary rules |
+| `014_regulatory_close_new.sql` | Verifying an update closes its new-update alert |
 | `006_compliance_register.sql` | `client_compliance_items` (RLS, read through `client_compliance_can_read()`), browser functions `client_compliance_save`, `_close`, `_list`, `_import`, `_can_read`, `_can_write` (admin, tagged Manager or the Clients tab), nine `compliance_*` rules (Business Setup), `alert_compliance_candidates(type)` with one `alert_rule_compliance_*` wrapper per type, the renewals tile and management summary now count `compliance_%` rules, and `alert_my_access` returns `can_register`. Types with no rule (UBO, AML, KYC and so on) raise nothing until Phase 5 |
 
 Every migration is re-runnable. Rollback for 001 to 004 is `rollback/001_004_rollback.sql` (safe twice; deletes `alert_centre` bell rows only). Rollback for Phase 2 (006 onward) is `rollback/006_009_rollback.sql`: run it first, then 005, then 001 to 004. It restores 004's read functions and drops what Phase 2 added.
