@@ -57,6 +57,13 @@ test("schedule 1 description blank when package lacks it; subs give indented row
   assert.equal(a.schedule2[2].sub, true);
 });
 
+test("sub row fees parse string amounts and handle once", () => {
+  const m = agreementFromQuote(qdoc([opt("One", [svc("Payroll", "month", null, [{ name: "S1", amount: "1,000" }])])], 0), pkg, defaults);
+  assert.equal(m.schedule2[1].fee, "AED 1,000/- + VAT per month");
+  const o = agreementFromQuote(qdoc([opt("One", [svc("Setup", "once", null, [{ name: "S1", amount: "250" }])])], 0), pkg, defaults);
+  assert.equal(o.schedule2[1].fee, "AED 250/- + VAT");
+});
+
 test("checkAgreement names each gap", () => {
   assert.equal(checkAgreement(good()), null);
   assert.match(checkAgreement({ ...good(), address: [] }), /address/i);

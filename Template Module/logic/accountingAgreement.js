@@ -43,7 +43,7 @@ export function agreementFromQuote(quoteDoc, pkg, defaults) {
   const described = new Map((pkg?.schedule1 || []).map((s) => [s.name, s.description || ""]));
   const schedule2 = services.flatMap((s) => [
     { description: s.name, fee: feeWording(s, start) },
-    ...(baseOf(s.basis)?.priced ? (s.subs || []).map((b) => ({ description: b.name, fee: `AED ${plain(b.amount)}/- + VAT ${baseOf(s.basis).printed}`.replace(/ one-time$/, ""), sub: true })) : []),
+    ...(baseOf(s.basis)?.priced ? (s.subs || []).map((b) => ({ description: b.name, fee: `AED ${plain(serviceAmount({ basis: s.basis, amount: b.amount }))}/- + VAT ${baseOf(s.basis).printed}`.replace(/ one-time$/, ""), sub: true })) : []),
   ]);
   return {
     accepted_option: i, address: [], attention: "", signatory_name: "", signatory_title: "", notices_email: quoteDoc?.contact_email || "",
