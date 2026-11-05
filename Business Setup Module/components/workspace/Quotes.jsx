@@ -46,7 +46,7 @@ function Quote({ q, w, clientId, reload, can, onRevise }) {
       sub={`${fmtDate(q.created_at)} · AED ${money(q.total_amount)} · net paid ${money(q.balance?.net_paid)} · outstanding ${money(q.balance?.outstanding)}`}>
       <ErrorNote message={error || state.error} onClose={error ? () => setError(null) : undefined} />
       {h?.state === "Reverted" && <div className="bk-alert bk-alert-warn">Accounts reverted this quote: {h.remarks}</div>}
-      <ul className="bk-list">{(q.lines || []).map((l, i) => <li key={i}>{l.description}: AED {money(l.amount)}</li>)}</ul>
+      <ul className="bk-list">{(q.lines || []).map((l, i) => <li key={i}>{l.description}: AED {money(l.amount)}{l.scope && <div className="bk-muted">Scope: {l.scope}</div>}</li>)}</ul>
       <SignedCopy q={q} clientId={clientId} manage={quotes} after={after} setError={setError} />
       {quotes && q.status === "issued" && <PortalMessage q={q} clientId={clientId} />}
       <div className="bk-actions bk-wrap">
@@ -86,7 +86,7 @@ function Quote({ q, w, clientId, reload, can, onRevise }) {
 // The client signs the quote and uploads it in the portal (or staff add the file for them). Confirming it accepts the quote.
 function SignedCopy({ q, clientId, manage, after, setError }) {
   const list = useLoad(() => listSigned(q.id), [q.id, q.status]);
-  const { busy, act } = useAction(async () => { await list.reload(); await after(); });
+  const { error, setError: setActionError, busy, act } = useAction(async () => { await list.reload(); await after(); });
   const [refusing, setRefusing] = useState(null);
   const rows = list.data || [];
   const waiting = rows.find((s) => s.status === "Uploaded");
@@ -100,7 +100,7 @@ function SignedCopy({ q, clientId, manage, after, setError }) {
   return (
     <div className="bk-mt">
       <strong>Signed copy</strong>
-      <ErrorNote message={list.error} />
+      <ErrorNote message={list.error || error} onClose={error ? () => setActionError(null) : undefined} />
       {!rows.length && <p className="bk-note">None yet. The client can upload it in the portal, or add the signed file here.</p>}
       <ul className="bk-list">{rows.map((s) => (
         <li key={s.id}>{s.source} · {fmtDate(s.created_at)} <Badge tone={s.status === "Confirmed" ? "good" : s.status === "Refused" ? "bad" : "warn"}>{s.status === "Uploaded" ? "Waiting for review" : s.status}</Badge>

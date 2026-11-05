@@ -10,3 +10,14 @@ export function caseWorkspace(w, caseId) {
     payments: w.payments.filter((p) => p.case_id === caseId || ids.has(p.quote_id)),
   };
 }
+
+// The row to show for an opened case. A case leaves the Documentation list when it moves on, so the last known row is kept and flagged moved.
+export function caseRowFor(rows, id, last, loading) {
+  const found = (rows || []).find((x) => x.id === id);
+  if (found) return { row: found, moved: false };
+  const known = last?.id === id ? last : null;
+  return { row: known || { id }, moved: !!rows && !loading && !!known };
+}
+
+// PostgREST filter for a case's invoices: those naming the case, and those carrying only a quote of it.
+export const caseInvoiceFilter = (caseId, quoteIds) => (quoteIds.length ? `case_id.eq.${caseId},quote_id.in.(${quoteIds.join(",")})` : `case_id.eq.${caseId}`);

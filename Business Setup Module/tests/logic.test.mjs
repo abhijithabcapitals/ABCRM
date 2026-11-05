@@ -201,7 +201,7 @@ test("invoices are recorded through the database function, with the file under t
 test("pages use the decided rules: superseded is not live, Share link needs the login right, Mark lost on Documentation and Cases", () => {
   const rd = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
   assert.match(rd("../components/workspace/Quotes.jsx"), /\["rejected", "superseded"\]/);
-  assert.match(rd("../components/Leads.jsx"), /setup\.portal\.manage/);
+  assert.match(rd("../logic/leads.js"), /setup\.portal\.manage/);
   assert.match(rd("../components/Leads.jsx"), /A manager issues the login\./);
   for (const f of ["DocumentationPage", "Cases", "Leads"]) assert.match(rd(`../components/${f}.jsx`), /LostDialog/);
   for (const f of ["DocumentationPage", "Cases", "Leads"]) assert.match(rd(`../components/${f}.jsx`), /ReassignActions/);

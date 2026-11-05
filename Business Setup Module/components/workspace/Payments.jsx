@@ -6,7 +6,7 @@ import { Badge, Button, DataTable, ErrorNote, FormModal, fmtDate, today, useActi
 import { openStored } from "@template-hub/services/hubApi";
 import { useSetup } from "../SetupContext";
 import { addPayment, addRefund, caseLinkClientForPayment, casePaidOverride, reversePayment } from "../../services/businessSetupApi";
-import { validAmount } from "../../logic/quoteMessage";
+import { paymentLinkError, validAmount } from "../../logic/quoteMessage";
 import { fileReceipt } from "../../services/documents";
 import { money } from "@app/money";
 
@@ -60,7 +60,9 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
         onSubmit={async (v) => {
           // A case with no client gets its client first. A client that already exists is not made twice: the error says so and the form stays open.
           if (caseId && !validAmount(v.amount)) throw new Error("Enter an amount above zero with at most two decimals");
-          if (caseId && !caseRow?.client_id) await caseLinkClientForPayment(caseId);
+          if (caseId && !caseRow?.client_id) {
+            try { await caseLinkClientForPayment(caseId); } catch (e) { throw new Error(paymentLinkError(e.message, can("setup.leads.manage"))); }
+          }
           const r = await addPayment(caseId ? { ...v, case_id: caseId } : v);
           try {
             await fileReceipt({ ...v, receipt_id: r.receipt_id, receipt_number: r.receipt_number }, clientName, number(v.quote_id) || accepted[0]?.document_number || caseRow?.case_number || "");

@@ -123,3 +123,8 @@ test("on finish the stored object's real type and size are checked, and a bad fi
   assert.match(b, /storage\.from\(BUCKET\)\.list\(root/); assert.match(b, /listErr \|\| !folders\) throw/); assert.match(b, /objErr \|\| !objs\) throw/);
   assert.ok(b.indexOf("MAX_UPLOADS_PER_DAY") < b.indexOf("createSignedUploadUrl"), "the limit is checked before the upload link is made");
 });
+
+test("a quote of a closed case does not read as waiting for the client", () => {
+  const view = readFileSync(fileURLToPath(new URL("../portal/SetupView.jsx", import.meta.url)), "utf8");
+  assert.match(view, /q\.status === "issued" && q\.closed \? "Closed" : QUOTE\[q\.status\]/);
+});

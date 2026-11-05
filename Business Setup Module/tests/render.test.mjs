@@ -109,3 +109,19 @@ test("Record refund is offered in case mode only when the case has money, with n
   const empty = await html("workspace/Payments.jsx", "default", { w: { ...mk(0), payments: [] }, reload() {}, caseId: "c1", caseRow: c });
   assert.match(empty.match(/<button[^>]*>Record refund<\/button>/)[0], /disabled/);
 });
+
+test("a case that moved on says so, and shows no false no-client note or stale checklist", { skip }, async () => {
+  const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", lead_name: "Lead", docs: {}, client_id: "CL000001" };
+  const moved = await html("DocumentationPage.jsx", "CaseDocs", { c, moved: true, onBack() {} });
+  assert.match(moved, /This case has moved to Assignment/); assert.match(moved, /Back to the list/);
+  assert.doesNotMatch(moved, /no client yet/); assert.doesNotMatch(moved, /Invoice: Open/); assert.doesNotMatch(moved, /Mark lost/);
+  const bare = await html("DocumentationPage.jsx", "CaseDocs", { c: { id: "c1", case_number: "BSC000001" }, moved: true, onBack() {} });
+  assert.match(bare, /This case has moved to Assignment/); assert.doesNotMatch(bare, /no client yet/);
+  assert.doesNotMatch(await html("DocumentationPage.jsx", "CaseDocs", { c, onBack() {} }), /moved to Assignment/);
+});
+
+test("a lead's payment panel works in case mode for a client-less lead", { skip }, async () => {
+  const c = { id: "c1", case_number: "BSC000001", stage: "Lead", lead_name: "Lead", docs: {} };
+  const panel = await html("Leads.jsx", "LeadPayments", { c, onClose() {}, onChanged() {} });
+  assert.match(panel, /Record payment/); assert.match(panel, /first creates the client from the lead details/);
+});

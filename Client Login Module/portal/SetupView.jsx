@@ -52,7 +52,7 @@ export default function SetupView({ api }) {
       {sections.includes("quotes") && (
         <Panel title="Quotes and agreements">
           <DataTable rows={v.quotes} columns={[{ key: "number", label: "Quote", render: (q) => (q.has_file ? file("quote", q.id, q.number) : q.number) }, { key: "date", label: "Date", render: (q) => fmtDate(q.date) },
-            { key: "status", label: "Status", render: (q) => <Badge tone={q.status === "accepted" ? "good" : undefined}>{QUOTE[q.status]}</Badge> }, { key: "total", label: "Total (AED)", right: true, render: (q) => money(q.total) },
+            { key: "status", label: "Status", render: (q) => <Badge tone={q.status === "accepted" ? "good" : undefined}>{q.status === "issued" && q.closed ? "Closed" : QUOTE[q.status]}</Badge> }, { key: "total", label: "Total (AED)", right: true, render: (q) => money(q.total) },
             { key: "net_paid", label: "Paid", right: true, render: (q) => (q.net_paid == null ? "" : money(q.net_paid)) }, { key: "outstanding", label: "Balance", right: true, render: (q) => (q.status === "accepted" ? money(q.outstanding) : "") },
             { key: "signed", label: "Signed copy", render: (q) => <SignedCell q={q} busy={uploading === q.id} onFile={(f) => sign(q.id, f)} /> },
             { key: "letter", label: "Agreement", render: (q) => (q.letter ? (q.letter.has_file ? file("letter", q.letter.id, q.letter.number) : q.letter.number) : "") }]} />

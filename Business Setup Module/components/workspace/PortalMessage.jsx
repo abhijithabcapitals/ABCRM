@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button, ErrorNote, useAction, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
+import { loadHubSettings } from "@template-hub/services/hubApi";
 import { SIGN_IN_URL } from "@client-login/supabase/_shared/credentialText.ts";
 import { loginName } from "../../services/businessSetupApi";
 import { messageState, quoteMessage } from "../../logic/quoteMessage";
@@ -14,12 +15,13 @@ export default function PortalMessage({ q, clientId }) {
   // loginName needs only the right to issue quotes; loginState (the Client Login tab) needs the portal right.
   const login = useLoad(() => loginName(clientId), [clientId]);
   const admin = useLoad(() => rpc("client_portal_is_admin"), []);
+  const settings = useLoad(loadHubSettings, []);
   const { error, setError, busy, act } = useAction();
   const [note, setNote] = useState(null);
   const a = login.data;
   const state = messageState({ loading: login.loading, error: login.error, login: a });
   if (state === "loading") return null;
-  const text = a ? quoteMessage({ contact: q.contact_name, number: q.document_number, url: SIGN_IN_URL, username: a.username }) : null;
+  const text = a ? quoteMessage({ contact: q.contact_name, number: q.document_number, url: SIGN_IN_URL, username: a.username, company: settings.data?.company?.short_name }) : null;
   const sendPassword = () => act(async () => {
     setNote(null);
     if (!validEmail(q.contact_email)) throw new Error("This quote has no valid contact email. Give the client the password yourself.");
