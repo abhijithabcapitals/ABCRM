@@ -66,10 +66,11 @@ def extract(path):
             continue
         line = value.replace("PartnerActive", "Partner")
         # These sit anywhere in the old files, whatever heading came before.
-        if re.match(r"^\*{0,3}\s*(please note\s*:?\s*-?\s*)?process will start", line, re.I):
-            parts["payment"].append(re.sub(r"^\*{0,3}\s*(please note\s*:?\s*-?\s*)?", "", line).rstrip(")").capitalize())
+        if re.match(r"^\W*(please note\s*:?\s*-?\s*)?process will start", line, re.I):
+            text = re.sub(r"^\W*(please note\s*:?\s*-?\s*)?", "", line, flags=re.I).rstrip(")")
+            parts["payment"].append(text[0].upper() + text[1:])
             continue
-        if re.match(r"^please note", line, re.I):
+        if re.match(r"^\W*please note", line, re.I):
             parts["notes"].append(line)
             continue
         if "{{" in line or BANK.search(line) or STOP.search(line):
