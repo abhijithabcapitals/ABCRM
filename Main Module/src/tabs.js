@@ -1,6 +1,6 @@
 // The pages an admin can grant a member. Settings and CEO Agent stay admin-only.
 export const GRANTABLE_TABS = [
-  { key: "mytasks", label: "Hot Alerts" },
+  { key: "mytasks", label: "Notification Centre" },
   { key: "dashboard", label: "Dashboard" },
   { key: "business-development", label: "Business Development" },
   { key: "business-setup", label: "Business Setup" },

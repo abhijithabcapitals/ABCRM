@@ -46,6 +46,7 @@ export default function Sidebar({
   profile,
   onLogout,
   onOpenTask,
+  onOpenAlert,
   taskCounts = {},
   onRefreshTaskCounts,
   accessRules = {},
@@ -843,14 +844,14 @@ export default function Sidebar({
             Internal workspace
           </div>
         </div>
-        <Notifications profile={profile} onOpenTask={onOpenTask} />
+        <Notifications profile={profile} onOpenTask={onOpenTask} onOpenAlert={onOpenAlert} />
       </div>
 
       {/* Nav */}
       <div style={{ padding: "8px 0 4px" }}>
         <div className="sidebar-section">Main</div>
         {orderTabs([
-          { key: "mytasks", Icon: IconMyTasks, label: "Hot Alerts" },
+          { key: "mytasks", Icon: IconMyTasks, label: "Notification Centre" },
           { key: "dashboard", Icon: IconDashboard, label: "Dashboard" },
           { key: "team-messenger", Icon: IconChat, label: "Messenger" },
           { key: "business-development", Icon: IconBoard, label: "Business Development" },

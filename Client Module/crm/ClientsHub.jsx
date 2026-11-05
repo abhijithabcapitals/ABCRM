@@ -1,6 +1,6 @@
 // The CRM's Clients page: all converted clients across business lines, the Client Master,
 // documents sent through the portal (Client Inputs) and, for admins only, the Client Portal.
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
@@ -13,7 +13,7 @@ const LocalClientModule = lazy(() => import("@app/components/Clients"));
 
 const LINES = ["Business Banking", "Business Setup", "Accounting"];
 
-export default function ClientsHub({ profile }) {
+export default function ClientsHub({ profile, openClientId }) {
   const [view, setView] = useState("all");
   const isAdmin = profile?.role === "admin";
   const tabs = [["all", "All Clients"], ["master", "Client Master"], ["inputs", "Client Inputs"], ...(isAdmin ? [["local", "Local Client Module"], ["portal", "Client Portal"]] : [])];
@@ -24,7 +24,7 @@ export default function ClientsHub({ profile }) {
           {tabs.map(([k, label]) => <button type="button" key={k} data-label={label} aria-current={view === k ? "page" : undefined} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
         </nav>
       </div>
-      {view === "all" && <AllClients isAdmin={isAdmin} />}
+      {view === "all" && <AllClients isAdmin={isAdmin} openClientId={openClientId} />}
       {view === "master" && <ClientMaster />}
       {view === "inputs" && <ClientInputs />}
       {view === "local" && isAdmin && <Suspense fallback={<Spinner />}><LocalClientModule profile={profile} /></Suspense>}
@@ -33,11 +33,17 @@ export default function ClientsHub({ profile }) {
   );
 }
 
-function AllClients({ isAdmin }) {
+function AllClients({ isAdmin, openClientId }) {
   const list = useLoad(() => rpc("client_base_list"), []);
   const [line, setLine] = useState("");
   const [open, setOpen] = useState(null);
   const rows = list.data || [];
+  // Opened from a notification: show that client's detail once the list has loaded. Not in the list: do nothing.
+  useEffect(() => {
+    if (!openClientId || !list.data) return;
+    const hit = list.data.find((c) => c.client_master_id === openClientId || c.id === openClientId);
+    if (hit) setOpen(hit);
+  }, [openClientId, list.data]);
   const shown = rows.filter((c) => !line || (c.lines || []).includes(line));
   const count = (l) => rows.filter((c) => (c.lines || []).includes(l)).length;
   return (
