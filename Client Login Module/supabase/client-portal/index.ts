@@ -144,13 +144,13 @@ Deno.serve(async (req) => {
           const mail = await loginMail(true);
           if (!mail?.password) throw new InputError("The password of this login is not stored, so it cannot be sent again. Ask an administrator to reset it.");
           const to = String(mail.email || info.email || "").trim();
-          if (!EMAIL.test(to)) throw new InputError("This client has no email address on the quote or the case. Add one first.");
+          if (!EMAIL.test(to)) throw new InputError("Add the client's email in Client Master first.");
           const result = await emailCredentials(admin, actor, to, { audience: "client", reset: false, name: mail.display_name, username: mail.username, password: mail.password });
           return json({ ok: true, emailed: result.emailed, username: mail.username });
         }
         if (info.has_login) return await notice();
         const email = String(info.email || "").trim();
-        if (!EMAIL.test(email)) throw new InputError("This client has no email address on the quote or the case. Add one first.");
+        if (!EMAIL.test(email)) throw new InputError("Add the client's email in Client Master first.");
         const { data: client } = await admin.from("client_master").select("legal_name").eq("client_id", info.client_id).maybeSingle();
         const password = generatePassword();
         let granted: { created: boolean; username: string; display_name: string; email: string } | null = null;

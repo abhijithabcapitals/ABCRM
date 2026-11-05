@@ -1059,6 +1059,14 @@ end $function$
 ;
 
 drop function if exists public.business_setup_quote_accept_body(uuid, boolean);
+-- 016 redefined business_setup_portal_account (an active login first); 010's definition returns.
+create or replace function public.business_setup_portal_account(p_client text) returns uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select a.id from client_portal_accounts a
+   where a.client_master_id = p_client
+      or a.banking_client_id in (select b.id from banking_clients b where b.client_master_id = p_client)
+   limit 1
+$$;
 -- These two were used by the 015 versions replaced above.
 drop function if exists public.business_setup_case_locked(uuid);
 drop function if exists public.business_setup_case_net_paid(uuid);

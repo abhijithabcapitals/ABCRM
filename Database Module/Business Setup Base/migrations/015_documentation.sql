@@ -845,14 +845,17 @@ declare
   v_mode text := coalesce(p ->> 'vat_mode', 'inclusive'); v_number text; r hub_documents; it jsonb; q hub_documents; o hub_documents; v_id uuid := gen_random_uuid(); v_root uuid;
   v_client text := nullif(trim(p ->> 'client_id'), ''); v_revises uuid := nullif(p ->> 'revises_id', '')::uuid; v_template text := nullif(trim(p ->> 'template_key'), '');
   v_case uuid := nullif(p ->> 'case_id', '')::uuid; v_case_client text;
-  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_sid uuid; v_was_accepted boolean := false;
+  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_sid uuid; v_was_accepted boolean := false; v_old_letter uuid;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   -- An engagement letter exists only as the next step of a generated quote, and takes everything from it.
   if v_type = 'letter' then
     select * into q from hub_documents where id = (p ->> 'parent_id')::uuid and doc_type = 'quote' for update;
     if q.id is null then raise exception 'Generate the quote first: an engagement letter comes from a quote'; end if;
-    if exists (select 1 from hub_documents where parent_id = q.id and doc_type = 'letter') then raise exception 'Quote % already has its engagement letter', q.document_number; end if;
+    -- A letter the client rejected can be issued again. The old one is let go of its quote (Template Hub keeps one letter per quote) and marked superseded;
+    -- the new letter points back at it through revises_id.
+    select id into v_old_letter from hub_documents where parent_id = q.id and doc_type = 'letter' and status = 'rejected' for update;
+    if exists (select 1 from hub_documents where parent_id = q.id and doc_type = 'letter' and status <> 'rejected') then raise exception 'Quote % already has its engagement letter', q.document_number; end if;
     if q.department = 'Business Setup' and q.status <> 'accepted' then raise exception 'Confirm the signed quote first'; end if;
     p := jsonb_build_object('doc_type', 'letter', 'parent_id', q.id, 'department', q.department, 'client_name', q.client_name, 'contact_name', q.contact_name, 'contact_email', q.contact_email, 'contact_phone', q.contact_phone, 'client_address', q.client_address, 'license_number', q.license_number, 'vat_trn', q.vat_trn, 'services', to_jsonb(q.services), 'lines', q.lines, 'vat_mode', q.vat_mode, 'vat_rate', q.vat_rate);
     v_mode := q.vat_mode; v_rate := q.vat_rate; v_client := q.client_id; v_revises := null; v_case := q.case_id;
@@ -918,11 +921,14 @@ begin
     select * into o from hub_documents where id = v_revises and doc_type = 'quote' for update;
     if o.id is null then raise exception 'The quote to revise was not found'; end if;
     if o.department is distinct from p ->> 'department' then raise exception 'A revision must be for the same department as the quote it replaces'; end if;
-    -- A Business Setup quote of a case that was accepted can be revised too, while the case is at Client Onboarding and no service on it has started.
+    -- A Business Setup quote of a case that was accepted can be revised too, while the case is at Client Onboarding and no service on it has begun.
     -- Its acceptance does not carry over: the new revision is a new document with no acceptance row, and the services not yet started are cancelled below.
     -- A quote outside every case keeps the old rule (only an issued quote can be revised).
     if o.status = 'accepted' and o.department = 'Business Setup' and o.case_id is not null then
-      if exists (select 1 from business_setup_services s where s.quote_id = o.id and (s.status <> 'Not started' or s.started_at is not null)) then
+      -- The services are locked first, so a start that is happening now is seen. A service counts as started when it is In progress or later, or has a start
+      -- time; one that staff cancelled before it began does not.
+      perform 1 from business_setup_services where quote_id = o.id for update;
+      if exists (select 1 from business_setup_services s where s.quote_id = o.id and (s.status not in ('Not started', 'Cancelled') or s.started_at is not null)) then
         raise exception 'This quote cannot be revised because a service on it has started';
       end if;
       if (select stage from business_setup_cases where id = o.case_id) <> 'Onboarding' then
@@ -948,15 +954,23 @@ begin
     raise exception 'This case is % and takes no new documents', lower((select stage from business_setup_cases where id = v_case));
   end if;
   if v_type = 'quote' then v_root := coalesce(o.root_quote_id, o.id, v_id); end if;
+  if v_old_letter is not null then
+    update hub_documents set parent_id = null, status = 'superseded', status_at = now(), status_by = auth.uid(), status_reason = 'Replaced by a new letter' where id = v_old_letter;
+  end if;
   if v_type in ('quote','letter') then v_number := hub_next_number(p ->> 'department', v_type);
   elsif (p ->> 'parent_id') is not null then select document_number into v_number from hub_documents where id = (p ->> 'parent_id')::uuid;
   end if;
   insert into hub_documents (id, root_quote_id, parent_id, doc_type, department, document_number, document_serial, client_name, contact_name, contact_email, contact_phone, client_address, license_number, vat_trn, services, lines, vat_mode, vat_rate, vat_amount, total_amount, valid_until, notes, mail_subject, mail_body, client_id, revises_id, template_key, case_id)
   values (v_id, v_root, (p ->> 'parent_id')::uuid, v_type, p ->> 'department', v_number, case when v_type in ('quote','letter') then hub_serial_of(p ->> 'department', v_type, v_number) end, trim(p ->> 'client_name'), p ->> 'contact_name', p ->> 'contact_email', p ->> 'contact_phone', p ->> 'client_address', p ->> 'license_number', p ->> 'vat_trn',
-          array(select jsonb_array_elements_text(coalesce(p -> 'services', '[]'::jsonb))), case when v_bs_quote then v_lines else p -> 'lines' end, v_mode, v_rate, v_vat, v_total, (p ->> 'valid_until')::date, p ->> 'notes', p ->> 'mail_subject', p ->> 'mail_body', v_client, v_revises, v_template, v_case)
+          array(select jsonb_array_elements_text(coalesce(p -> 'services', '[]'::jsonb))), case when v_bs_quote then v_lines else p -> 'lines' end, v_mode, v_rate, v_vat, v_total, (p ->> 'valid_until')::date, p ->> 'notes', p ->> 'mail_subject', p ->> 'mail_body', v_client, coalesce(v_revises, v_old_letter), v_template, v_case)
   returning * into r;
   if v_revises is not null then
     update hub_documents set status = 'superseded', status_at = now(), status_by = auth.uid(), status_reason = 'Revised by ' || r.document_number where id = v_revises;
+    -- The new revision starts without a waiver: an invoice override given on the old quote does not carry over.
+    if v_case is not null then
+      update business_setup_cases set invoice_override_reason = null where id = v_case and invoice_override_reason is not null;
+      if found then perform business_setup_audit('business_setup_cases', v_case::text, 'case_invoice_override_cleared', null, jsonb_build_object('revised_by', r.document_number)); end if;
+    end if;
     -- The services of an accepted quote that was revised: none has started, so they are cancelled, and the new revision creates its own when it is accepted.
     if v_was_accepted then
       for v_sid in update business_setup_services set status = 'Cancelled' where quote_id = v_revises and status = 'Not started' returning id loop

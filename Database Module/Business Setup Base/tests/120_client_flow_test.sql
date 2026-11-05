@@ -317,6 +317,7 @@ create function pg_temp.svc_count(p_quote text, p_status text default null) retu
   select count(*) from public.business_setup_services where quote_id = pg_temp.fx(p_quote)::uuid and (p_status is null or status = p_status) $$;
 select pg_temp.mkclient('CL973001');
 select pg_temp.mkclient('CL973002');
+update public.client_master set data = jsonb_build_object('General Email', 'cm973@x.ae') where client_id = 'CL973002';
 insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL973001', 'Done'), ('CL973002', 'Done') on conflict (client_id) do update set kyc_state = 'Done';
 insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash, email) values ('CL973001', 'A', 'portal.a973', 'x', 'a@x.ae'), ('CL973002', 'B', 'portal.b973', 'x', 'b@x.ae');
 insert into f120 select 't3_acc_a', id::text from public.client_portal_accounts where username = 'portal.a973';
@@ -506,8 +507,8 @@ select public.bs_expect_error(format($$select public.business_setup_issue_login_
 select public.bs_as(null);
 select pg_temp.mkdq('t3_qn', 'CL973002', 't3_n');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.bs_check('login_ok: the keys are client_id, email and has_login, and the quote contact''s address is used', (select array_agg(k order by k) = array['client_id', 'email', 'has_login'] from jsonb_object_keys(public.business_setup_issue_login_ok(pg_temp.cid('t3_n'))) k)
-  and public.business_setup_issue_login_ok(pg_temp.cid('t3_n')) ->> 'email' = 'c@x.ae' and public.business_setup_issue_login_ok(pg_temp.cid('t3_n')) ->> 'client_id' = 'CL973002');
+select public.bs_check('login_ok: the keys are client_id, email and has_login, and the Client Master address is used, not the quote contact''s', (select array_agg(k order by k) = array['client_id', 'email', 'has_login'] from jsonb_object_keys(public.business_setup_issue_login_ok(pg_temp.cid('t3_n'))) k)
+  and public.business_setup_issue_login_ok(pg_temp.cid('t3_n')) ->> 'email' = 'cm973@x.ae' and public.business_setup_issue_login_ok(pg_temp.cid('t3_n')) ->> 'client_id' = 'CL973002');
 select public.bs_check('login_ok: an active login is reported', (public.business_setup_issue_login_ok(pg_temp.cid('t3_n')) ->> 'has_login')::boolean);
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.bs_expect_error(format($$select public.business_setup_issue_login_ok('%s')$$, pg_temp.fx('t3_n')), 'permission');
@@ -515,6 +516,7 @@ select public.bs_as(null);
 select public.t_anon_refused('login_perm: anon is refused', format($$select public.business_setup_issue_login_ok('%s')$$, pg_temp.fx('t3_n')));
 -- A client with no login: issue it, then issue again.
 select pg_temp.mkclient('CL973006');
+update public.client_master set data = jsonb_build_object('General Email', 'cm973@x.ae') where client_id = 'CL973006';
 select pg_temp.mkcase('t3_i', 'CL973006', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
 select pg_temp.mkdq('t3_qi', 'CL973006', 't3_i');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
@@ -533,16 +535,138 @@ select public.bs_check('login_once: the password is in no audit row', not exists
   and not exists (select 1 from public.admin_audit where detail::text like '%Zx7mKq2WpR9tVn%') and public.bs_audit_count('login_issue', (select id::text from public.client_portal_accounts where client_master_id = 'CL973006'), '{"username":"login.i973"}') = 1);
 select public.bs_expect_error($$select public.business_setup_login_grant('CL973006', 'ab', 'Zx7mKq2WpR9tVn', 'i@x.ae', null)$$, 'Username needs');
 select public.bs_expect_error($$select public.business_setup_login_grant('CL973006', 'taken.name', 'short', 'i@x.ae', null)$$, 'at least 10');
--- A revoked login is restored with a new password when staff issue again.
+-- A revoked login is not restored by issuing: the grant refuses it and nothing changes.
 update public.client_portal_accounts set status = 'revoked' where client_master_id = 'CL973006';
-select public.business_setup_login_grant('CL973006', 'login.i973', 'Nw8pLm3XcV5qTz', 'i@x.ae', null) as g3 \gset
-select public.bs_check('login_once: a revoked login is restored (still one account) with the new password', (:'g3'::jsonb ->> 'created')::boolean and (select count(*) = 1 and bool_and(status = 'active' and password_hash <> :'h1') from public.client_portal_accounts where client_master_id = 'CL973006')
-  and exists (select 1 from vault.decrypted_secrets where name = 'client_portal_pw:' || (select id from public.client_portal_accounts where client_master_id = 'CL973006') and decrypted_secret = 'Nw8pLm3XcV5qTz'));
+select public.bs_expect_error($$select public.business_setup_login_grant('CL973006', 'login.i973', 'Nw8pLm3XcV5qTz', 'i@x.ae', null)$$, 'was revoked');
+select public.bs_check('login_once: a revoked login stays as it was (hash, status), still one account', (select count(*) = 1 and bool_and(status = 'revoked' and password_hash = :'h1') from public.client_portal_accounts where client_master_id = 'CL973006'));
+update public.client_portal_accounts set status = 'active' where client_master_id = 'CL973006';
 -- login_mail: the username and name alone, or with the stored password for Resend.
 select public.bs_check('login_mail: without the password it has none', not (public.business_setup_login_mail('CL973006', false, null) ? 'password') and public.business_setup_login_mail('CL973006', false, null) ->> 'username' = 'login.i973');
-select public.bs_check('login_mail: with the password it returns the stored one', public.business_setup_login_mail('CL973006', true, null) ->> 'password' = 'Nw8pLm3XcV5qTz');
-select public.bs_check('login_mail: the read is logged without the password', exists (select 1 from public.admin_audit where action = 'client_portal_password_emailed' and target = 'login.i973' and detail::text !~ 'Nw8pLm3XcV5qTz'));
+select public.bs_check('login_mail: with the password it returns the stored one', public.business_setup_login_mail('CL973006', true, null) ->> 'password' = 'Zx7mKq2WpR9tVn');
+select public.bs_check('login_mail: the read is logged without the password', exists (select 1 from public.admin_audit where action = 'client_portal_password_emailed' and target = 'login.i973' and detail::text !~ 'Zx7mKq2WpR9tVn'));
 select public.bs_check('login_mail: a client with no login gives nothing', public.business_setup_login_mail('CL973099', true, null) is null);
+
+
+-- ═════════════════════════════════════════════════════════════════════
+-- Task 3, fix round 1
+-- ═════════════════════════════════════════════════════════════════════
+insert into public.profiles (id, full_name, role) values ('00000000-0000-0000-0000-00000000000f', 'Sales Two', 'member') on conflict do nothing;
+insert into public.business_setup_staff (user_id, role) values ('00000000-0000-0000-0000-00000000000f', 'SALES_EXECUTIVE') on conflict do nothing;
+
+-- ── critical 1: a revoked login is not restored by issuing ──
+select pg_temp.mkclient('CL973010');
+update public.client_master set data = jsonb_build_object('General Email', 'cm973@x.ae') where client_id = 'CL973010';
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash, email, status) values ('CL973010', 'R', 'portal.r973', 'x', 'r@x.ae', 'revoked');
+select pg_temp.mkcase('t3f_rv', 'CL973010', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3f_qrv', 'CL973010', 't3f_rv');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_issue_login_ok('%s')$$, pg_temp.fx('t3f_rv')), 'was revoked. Ask an administrator to restore it');
+select public.bs_as(null);
+select public.bs_expect_error($$select public.business_setup_login_grant('CL973010', 'portal.r973', 'Ab3dEf7hJk9mNp', 'evil@x.ae', null)$$, 'was revoked');
+select public.bs_check('revoked: the account keeps its username, hash, email and status', (select username = 'portal.r973' and password_hash = 'x' and email = 'r@x.ae' and status = 'revoked' from public.client_portal_accounts where client_master_id = 'CL973010'));
+
+-- ── important 1: reach, and the address comes from Client Master only ──
+select pg_temp.mkclient('CL973011');
+update public.client_master set data = jsonb_build_object('General Email', 'cm973@x.ae') where client_id = 'CL973011';
+select pg_temp.mkcase('t3f_ow', 'CL973011', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3f_qow', 'CL973011', 't3f_ow');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('reach: the owner passes, and the address is the Client Master one, not the quote''s contact_email (c@x.ae)', public.business_setup_issue_login_ok(pg_temp.cid('t3f_ow')) ->> 'email' = 'cm973@x.ae');
+select public.bs_as('00000000-0000-0000-0000-00000000000f');
+select public.bs_expect_error(format($$select public.business_setup_issue_login_ok('%s')$$, pg_temp.fx('t3f_ow')), 'Only the owner');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_check('reach: a manager (setup.cases.approve) passes', public.business_setup_issue_login_ok(pg_temp.cid('t3f_ow')) ->> 'client_id' = 'CL973011');
+select public.bs_as(null);
+-- No email in Client Master: refused, even though the quote has a contact_email.
+select pg_temp.mkclient('CL973012');
+update public.client_master set data = '{}' where client_id = 'CL973012';
+select pg_temp.mkcase('t3f_ne', 'CL973012', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3f_qne', 'CL973012', 't3f_ne');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_issue_login_ok('%s')$$, pg_temp.fx('t3f_ne')), 'Add the client''s email in Client Master first.');
+select public.bs_as(null);
+
+-- ── minor 1: a Banking-linked client's new login is linked to its Banking record; minor 9: admin_audit ──
+insert into public.banking_clients (display_name, client_master_id, link_status) values ('Banked 973', 'CL973012', 'Linked');
+update public.client_master set data = jsonb_build_object('General Email', 'cm973@x.ae') where client_id = 'CL973012';
+select public.business_setup_login_grant('CL973012', 'banked.973', 'Qw4rTy8uIo2pAs', 'cm973@x.ae', '00000000-0000-0000-0000-00000000000c') as gb \gset
+select public.bs_check('banking_link: the new login also carries the Banking client id', (select banking_client_id = (select id from public.banking_clients where client_master_id = 'CL973012') and client_master_id = 'CL973012' from public.client_portal_accounts where username = 'banked.973'));
+select public.bs_check('admin_audit: client_portal_create is written without the password', exists (select 1 from public.admin_audit where action = 'client_portal_create' and target = 'banked.973' and detail::text !~ 'Qw4rTy8uIo2pAs'));
+
+-- ── minor 10: an active account wins over a revoked one for the same client ──
+select pg_temp.mkclient('CL973013');
+insert into public.banking_clients (display_name, client_master_id, link_status) values ('Banked 973b', 'CL973013', 'Linked');
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash, status) values ('CL973013', 'X', 'portal.x973', 'x', 'revoked');
+insert into public.client_portal_accounts (banking_client_id, display_name, username, password_hash) select id, 'Y', 'portal.y973b', 'x' from public.banking_clients where client_master_id = 'CL973013';
+select public.bs_check('portal_account: the active account wins', (select username = 'portal.y973b' from public.client_portal_accounts where id = public.business_setup_portal_account('CL973013')));
+
+-- ── minor 2: a payment on the old quote counts on the revised quote, and outstanding never goes below zero ──
+select pg_temp.mkcase('t3f_p', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3f_qp', 'CL973001', 't3f_p');
+select pg_temp.decide('t3_acc_a', 't3f_qp', 'Accepted');
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type, case_id) values ('CL973001', pg_temp.fx('t3f_qp')::uuid, current_date, 400, 'Payment', pg_temp.cid('t3f_p'));
+select pg_temp.mkdq('t3f_qp2', 'CL973001', 't3f_p', null, pg_temp.fx('t3f_qp'));
+select public.bs_check('revise_payment: a payment on the old quote counts on the revised one', public.business_setup_net_paid(pg_temp.fx('t3f_qp2')::uuid) = 400);
+insert into public.business_setup_payments (client_id, quote_id, paid_on, amount, type, case_id) values ('CL973001', pg_temp.fx('t3f_qp2')::uuid, current_date, 5000, 'Payment', pg_temp.cid('t3f_p'));
+select public.bs_check('portal_outstanding: an overpaid quote shows zero outstanding, not a negative', (select (e ->> 'outstanding')::numeric = 0 from jsonb_array_elements(public.business_setup_portal_view(pg_temp.fx('t3_acc_a')::uuid) -> 'quotes') e where e ->> 'id' = pg_temp.fx('t3f_qp2')));
+
+-- ── minor 3: the services are locked before the started check ──
+select public.bs_check('revise_lock: hub_document_create locks the quote''s services before it looks at whether one started',
+  position('from business_setup_services' in pg_get_functiondef('public.hub_document_create(jsonb)'::regprocedure)) > 0
+  and regexp_replace(substr(pg_get_functiondef('public.hub_document_create(jsonb)'::regprocedure), 1, position('has started' in pg_get_functiondef('public.hub_document_create(jsonb)'::regprocedure))), '\s+', ' ', 'g') ~ 'from business_setup_services[^;]* for update;');
+
+-- ── minor 4: an invoice meets the item only on the live quote; a revision clears the override ──
+select pg_temp.mkcase('t3f_i', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3f_qi', 'CL973001', 't3f_i');
+select pg_temp.decide('t3_acc_a', 't3f_qi', 'Accepted');
+insert into public.business_setup_invoices (client_id, quote_id, case_id, invoice_number, source) values ('CL973001', pg_temp.fx('t3f_qi')::uuid, pg_temp.cid('t3f_i'), 'T3F-INV', 'Manual');
+update public.business_setup_cases set invoice_override_reason = 'waived' where id = pg_temp.cid('t3f_i');
+select public.bs_check('invoice_revise: before revising, the invoice item is met', (pg_temp.docs('t3f_i') ->> 'invoice')::boolean);
+select pg_temp.mkdq('t3f_qi2', 'CL973001', 't3f_i', null, pg_temp.fx('t3f_qi'));
+select public.bs_check('invoice_revise: the old quote''s invoice no longer meets the item, and the override is cleared', not (pg_temp.docs('t3f_i') ->> 'invoice')::boolean
+  and (select invoice_override_reason is null from public.business_setup_cases where id = pg_temp.cid('t3f_i')));
+select pg_temp.decide('t3_acc_a', 't3f_qi2', 'Accepted');
+insert into public.business_setup_invoices (client_id, quote_id, case_id, invoice_number, source) values ('CL973001', pg_temp.fx('t3f_qi2')::uuid, pg_temp.cid('t3f_i'), 'T3F-INV2', 'Manual');
+select public.bs_check('invoice_revise: an invoice on the live quote meets it again', (pg_temp.docs('t3f_i') ->> 'invoice')::boolean);
+
+-- ── minor 6: a rejected letter can be issued again ──
+select pg_temp.mkcase('t3f_l', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3f_ql', 'CL973001', 't3f_l');
+select pg_temp.decide('t3_acc_a', 't3f_ql', 'Accepted');
+select pg_temp.mkletter('t3f_l1', 't3f_ql');
+select pg_temp.decide('t3_acc_a', 't3f_l1', 'Rejected', 'Wrong scope');
+select public.bs_check('letter_reject: a rejected letter does not count as the letter', not (pg_temp.docs('t3f_l') ->> 'letter')::boolean and not (pg_temp.docs('t3f_l') ->> 'letter_accepted')::boolean);
+select pg_temp.mkletter('t3f_l2', 't3f_ql');
+select public.bs_check('letter_reject: a new letter is issued, the old one is superseded, and the portal view still builds', (pg_temp.docs('t3f_l') ->> 'letter')::boolean
+  and (select status = 'superseded' from public.hub_documents where id = pg_temp.fx('t3f_l1')::uuid)
+  and (public.business_setup_portal_view(pg_temp.fx('t3_acc_a')::uuid) -> 'quotes') @> jsonb_build_array(jsonb_build_object('id', pg_temp.fx('t3f_ql'), 'letter', jsonb_build_object('id', pg_temp.fx('t3f_l2'), 'can_decide', true))));
+select pg_temp.decide('t3_acc_a', 't3f_l2', 'Accepted');
+select public.bs_check('letter_reject: the new letter is decided as its own revision', (select revision = 1 from public.business_setup_acceptances where document_id = pg_temp.fx('t3f_l2')::uuid) and (pg_temp.docs('t3f_l') ->> 'letter_accepted')::boolean);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select pg_temp.mkletter('t3f_l3', 't3f_ql')$$), 'already has its engagement letter');
+select public.bs_as(null);
+
+-- ── minor 7: a cancelled service does not block a revision ──
+select pg_temp.mkcase('t3f_c', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3f_qc', 'CL973001', 't3f_c');
+select pg_temp.decide('t3_acc_a', 't3f_qc', 'Accepted');
+update public.business_setup_services set status = 'Cancelled' where id = (select id from public.business_setup_services where quote_id = pg_temp.fx('t3f_qc')::uuid order by name limit 1);
+select pg_temp.mkdq('t3f_qc2', 'CL973001', 't3f_c', null, pg_temp.fx('t3f_qc'));
+select public.bs_check('revise_cancelled: a staff-cancelled service does not block the revision', (select status = 'superseded' from public.hub_documents where id = pg_temp.fx('t3f_qc')::uuid) and pg_temp.svc_count('t3f_qc', 'Cancelled') = 2);
+
+-- ── minor 8: a letter copy is not confirmed on a closed case ──
+select pg_temp.mkcase('t3f_x', 'CL973001', 'Onboarding', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t3f_qx', 'CL973001', 't3f_x');
+select pg_temp.decide('t3_acc_a', 't3f_qx', 'Accepted');
+select pg_temp.mkletter('t3f_lx', 't3f_qx');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+insert into f120 values ('t3f_sx', public.business_setup_signed_add(pg_temp.fx('t3f_lx')::uuid, 'staff/CL973001/letter-x.pdf')::text);
+select public.bs_as(null);
+update public.business_setup_cases set stage = 'Cancelled' where id = pg_temp.cid('t3f_x');
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_signed_decide('%s', true, null)$$, pg_temp.fx('t3f_sx')), 'closed');
+select public.bs_as(null);
+select public.bs_check('letter_closed: no acceptance was written', pg_temp.acc_rows('t3f_lx') = 0);
 
 
 do $$

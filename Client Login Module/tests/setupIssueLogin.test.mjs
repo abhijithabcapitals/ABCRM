@@ -69,6 +69,14 @@ test("the password is generated on the server, saved through the service-role gr
   for (const m of b.matchAll(/json\(\{ ok: true([^}]*)\}\)/g)) assert.match(m[1], /^, emailed: [^,]+, username: [^,]+$/);
 });
 
+test("the login mail goes to the client's address on the login or in Client Master, never to a contact typed on a quote", () => {
+  const b = code(staffBranch());
+  assert.doesNotMatch(b, /contact_email|body\.(email|to)/);
+  assert.match(b, /Client Master/);
+  // The address of the first password is info.email, which the database takes from Client Master only.
+  assert.match(b, /String\(info\.email/);
+});
+
 test("a failed email keeps the login; a returning client gets the notice only; resend never changes the login", () => {
   const b = code(staffBranch());
   assert.match(b, /emailCredentials\(admin/);

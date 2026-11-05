@@ -43,7 +43,7 @@ alter table public.business_setup_cases alter column stage set default 'Lead';
 --   quote_accepted     the case has an accepted quote (a quote becomes accepted only on an Accepted acceptance row or a Confirmed signed copy, see quote_accept_body)
 --   letter             a letter exists on the accepted quote
 --   letter_accepted    that letter has an Accepted acceptance row
---   invoice            an invoice is recorded for the case (or a quote of it), or the Invoice override was given
+--   invoice            an invoice is recorded on the case's live quote, or the Invoice override was given (a revision clears the override)
 --   balance            the accepted quote's total (else the newest live quote's) less the case's net payments. Display only: never blocks a move
 create or replace function public.business_setup_case_docs(p_case uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
@@ -53,7 +53,8 @@ begin
   select status into v_form from business_setup_onboarding_forms where case_id = p_case order by created_at desc limit 1;
   v_fields := case when v_form is not null then v_form = 'Validated'
                    else coalesce(c.client_id is not null and exists (select 1 from business_setup_kyc_profiles k where k.client_id = c.client_id and k.kyc_state = 'Done'), false) end;
-  v_letter := exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and lq.status = 'accepted');
+  -- A letter the client rejected, or that a new one replaced, is not the letter.
+  v_letter := exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and l.status not in ('rejected', 'superseded') and lq.status = 'accepted');
   select total_amount into v_total from hub_documents where case_id = p_case and doc_type = 'quote' and status not in ('superseded', 'rejected')
    order by (status = 'accepted') desc, created_at desc limit 1;
   return jsonb_build_object(
@@ -64,9 +65,10 @@ begin
     'quote_accepted', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted'),
     'letter', v_letter,
     'letter_accepted', exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id join business_setup_acceptances a on a.document_id = l.id
-                                where l.case_id = p_case and l.doc_type = 'letter' and lq.status = 'accepted' and a.kind = 'Letter' and a.decision = 'Accepted'),
-    'invoice', coalesce(c.invoice_override_reason is not null, false) or exists (select 1 from business_setup_invoices i where i.case_id = p_case
-                 or i.quote_id in (select id from hub_documents where case_id = p_case and doc_type = 'quote')),
+                                where l.case_id = p_case and l.doc_type = 'letter' and l.status not in ('rejected', 'superseded') and lq.status = 'accepted' and a.kind = 'Letter' and a.decision = 'Accepted'),
+    -- Only an invoice on the live quote (issued or accepted, not replaced or rejected) meets the item, so a revision needs its own invoice or a new waiver.
+    'invoice', coalesce(c.invoice_override_reason is not null, false) or exists (select 1 from business_setup_invoices i
+                 where i.quote_id in (select id from hub_documents where case_id = p_case and doc_type = 'quote' and status in ('issued', 'accepted'))),
     'balance', coalesce(v_total, 0) - business_setup_case_net_paid(p_case));
 end $$;
 revoke all on function public.business_setup_case_docs(uuid) from public, anon, authenticated;
@@ -379,7 +381,7 @@ begin
     'forms_waiting', business_setup_dash_forms(),
     'open_quotes', (select count(*) from hub_documents where department = 'Business Setup' and doc_type = 'quote' and status = 'issued'),
     'accepted_without_letter', (select count(*) from hub_documents q where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'
-                                   and not exists (select 1 from hub_documents l where l.parent_id = q.id and l.doc_type = 'letter')),
+                                   and not exists (select 1 from hub_documents l where l.parent_id = q.id and l.doc_type = 'letter' and l.status not in ('rejected', 'superseded'))),
     'outstanding', v_recv,
     'active_services', (select count(*) from business_setup_services where status not in ('Completed', 'Cancelled') and not historical),
     'expiries', jsonb_build_object('upcoming', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Upcoming'),
@@ -401,6 +403,19 @@ begin
                            and not exists (select 1 from hub_documents q where q.case_id = c.id and q.doc_type = 'quote' and q.status not in ('superseded', 'rejected')))
   ) || business_setup_dash_handover();
 end $$;
+
+-- ── The client's login for a client (redefines 010's, same signature) ──
+-- An active account wins over a revoked one, then the lowest id, so the answer never depends on row order. A client can have two accounts when one hangs off the
+-- client record and one off the Banking record.
+create or replace function public.business_setup_portal_account(p_client text) returns uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select a.id from client_portal_accounts a
+   where a.client_master_id = p_client
+      or a.banking_client_id in (select b.id from banking_clients b where b.client_master_id = p_client)
+   order by (a.status = 'active') desc, a.id
+   limit 1
+$$;
+revoke all on function public.business_setup_portal_account(text) from public, anon, authenticated;
 
 -- ── Acceptance records ───────────────────────────────────────────────
 -- One row per decision on a quote or an engagement letter, never changed or deleted. A revised quote is a new document, so it has no row until the client
@@ -444,12 +459,19 @@ create trigger business_setup_acceptances_immutable before update or delete on p
 -- A document's place in its quote chain: how many quotes it replaced. A letter takes the place of its quote. Internal.
 create or replace function public.business_setup_doc_revision(p_doc uuid) returns int
 language sql stable security definer set search_path = public, pg_temp as $$
-  with recursive up as (
-    select d.id, d.revises_id, 0 as n from hub_documents d
-     where d.id = (select case when doc_type = 'letter' then parent_id else id end from hub_documents where id = p_doc)
+  with recursive d as (select * from hub_documents where id = p_doc),
+  up as (
+    select h.id, h.revises_id, 0 as n from hub_documents h where h.id = (select case when doc_type = 'letter' then parent_id else id end from d)
     union all
-    select d.id, d.revises_id, up.n + 1 from up join hub_documents d on d.id = up.revises_id)
-  select coalesce(max(n), 0) from up
+    select h.id, h.revises_id, up.n + 1 from up join hub_documents h on h.id = up.revises_id),
+  -- A letter issued again after a rejection points at the one it replaced (revises_id): one more revision for each.
+  lt as (
+    select h.id, h.revises_id, 0 as n from d join hub_documents h on h.id = d.revises_id where d.doc_type = 'letter'
+    union all
+    select h.id, h.revises_id, lt.n + 1 from lt join hub_documents h on h.id = lt.revises_id)
+  select coalesce((select max(n) from up), 0)
+       + (select case when d.doc_type = 'letter' and d.revises_id is not null then 1 else 0 end from d)
+       + coalesce((select max(n) from lt), 0)
 $$;
 revoke all on function public.business_setup_doc_revision(uuid) from public, anon, authenticated;
 
@@ -593,6 +615,9 @@ begin
   if p_confirm then
     update business_setup_signed_quotes set status = 'Confirmed', note = v_note, decided_at = now(), decided_by = auth.uid() where id = s.id;
     if s.kind = 'Letter' then
+      if q.case_id is not null and (select stage from business_setup_cases where id = q.case_id) in ('Lost', 'Completed', 'Cancelled') then
+        raise exception 'This case is closed and its letter cannot be accepted';
+      end if;
       if not exists (select 1 from hub_documents where id = q.parent_id and status = 'accepted') then raise exception 'The quote of this letter is no longer accepted'; end if;
       if exists (select 1 from business_setup_acceptances where document_id = q.id and decision = 'Accepted') then raise exception 'This letter is already accepted'; end if;
     else

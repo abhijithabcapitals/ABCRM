@@ -21,7 +21,7 @@ begin
                     'completed_at', s.completed_at, 'expiry_date', s.expiry_date) order by s.created_at desc), '[]'::jsonb)
                    from business_setup_services s where s.client_id = v_client and not s.historical),
     'quotes', (select coalesce(jsonb_agg(jsonb_build_object('id', q.id, 'number', q.document_number, 'date', q.created_at::date, 'status', q.status, 'total', q.total_amount,
-                  'net_paid', case when q.status in ('issued', 'accepted') then business_setup_net_paid(q.id) end, 'outstanding', case when q.status in ('issued', 'accepted') then q.total_amount - business_setup_net_paid(q.id) end, 'has_file', q.storage_path is not null,
+                  'net_paid', case when q.status in ('issued', 'accepted') then business_setup_net_paid(q.id) end, 'outstanding', case when q.status in ('issued', 'accepted') then greatest(q.total_amount - business_setup_net_paid(q.id), 0) end, 'has_file', q.storage_path is not null,
                   'closed', exists (select 1 from business_setup_cases c where c.id = q.case_id and c.stage in ('Lost', 'Completed', 'Cancelled')),
                   'signed', (select jsonb_build_object('status', s.status, 'date', s.created_at::date, 'note', case when s.status = 'Refused' then s.note end)
                                from business_setup_signed_quotes s where s.quote_id = q.id order by s.created_at desc limit 1),
@@ -36,7 +36,7 @@ begin
                                                      from business_setup_acceptances a where a.document_id = l.id order by a.created_at desc limit 1),
                                       'can_decide', q.status = 'accepted' and not exists (select 1 from business_setup_acceptances a where a.document_id = l.id)
                                                     and not exists (select 1 from business_setup_cases c where c.id = l.case_id and c.stage in ('Lost', 'Completed', 'Cancelled')))
-                               from hub_documents l where l.parent_id = q.id and l.doc_type = 'letter')) order by q.created_at desc), '[]'::jsonb)
+                               from hub_documents l where l.parent_id = q.id and l.doc_type = 'letter' and l.status <> 'superseded' order by l.created_at desc limit 1)) order by q.created_at desc), '[]'::jsonb)
                  from hub_documents q
                 where q.client_id = v_client and q.doc_type = 'quote' and q.department = 'Business Setup' and q.status in ('issued', 'accepted', 'rejected')),
     'payments', (select coalesce(jsonb_agg(jsonb_build_object('id', y.id, 'date', y.paid_on, 'amount', y.amount, 'type', y.type, 'reference', y.reference,
@@ -93,10 +93,13 @@ begin
   else
     select * into q from hub_documents where id = d.parent_id;
     if q.id is null or q.status <> 'accepted' then raise exception 'Please accept the quote before the letter.'; end if;
+    if d.status <> 'issued' then raise exception 'This letter is no longer open for a decision.'; end if;
   end if;
   insert into business_setup_acceptances (document_id, kind, revision, decision, note, source, account_id, username, created_by)
   values (d.id, v_kind, business_setup_doc_revision(d.id), p_decision, v_note, 'Portal', a.id, a.username, null) returning id into v_id;
   if v_kind = 'Quote' and p_decision = 'Accepted' then perform business_setup_quote_accept_body(d.id, false); end if;
+  -- A rejected letter is out of the way: staff can issue a new one (hub_document_create), which supersedes it.
+  if v_kind = 'Letter' and p_decision = 'Rejected' then update hub_documents set status = 'rejected', status_at = now(), status_reason = 'Rejected by the client' where id = d.id; end if;
   perform business_setup_audit('business_setup_acceptances', v_id::text, 'portal_decide', null,
           jsonb_build_object('document_id', d.id, 'kind', v_kind, 'decision', p_decision, 'username', a.username));
 end $$;
@@ -106,30 +109,38 @@ grant execute on function public.business_setup_portal_decide(uuid, uuid, text, 
 -- ── The login issued with a quote ────────────────────────────────────
 -- Staff with setup.leads.manage issue the client's login when the case's quote is issued. The checks are here; the client-portal function generates the
 -- password on the server, saves it through business_setup_login_grant and emails it, so no member of staff sees it. Returns the client, the address
--- to write to (the quote's contact, then the case, then the client record) and whether an active login already exists.
+-- to write to (Client Master's, else the one the existing login was made with) and whether an active login already exists. A revoked login is refused.
 create or replace function public.business_setup_issue_login_ok(p_case uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
-declare c business_setup_cases; q hub_documents; v_email text;
+declare c business_setup_cases; q hub_documents; a client_portal_accounts; v_cm text; v_email text;
 begin
   perform business_setup_require('setup.leads.manage');
   select * into c from business_setup_cases where id = p_case;
   if c.id is null then raise exception 'Case not found'; end if;
   if c.stage in ('Completed', 'Cancelled', 'Lost') then raise exception 'This case is closed'; end if;
+  -- As the other case moves: the owner, or a holder of setup.cases.approve.
+  if c.owner_id is distinct from auth.uid() and not business_setup_can('setup.cases.approve') then
+    raise exception 'Only the owner (%) or a manager can issue the login for this case', coalesce(business_setup_person_name(c.owner_id), 'nobody yet');
+  end if;
   if c.client_id is null then raise exception 'Link the client to this case first'; end if;
   select * into q from hub_documents where case_id = p_case and doc_type = 'quote' and status in ('issued', 'accepted')
    order by (status = 'accepted') desc, created_at desc limit 1;
   if q.id is null then raise exception 'Issue the quote first: the login goes out with it'; end if;
-  v_email := coalesce(nullif(btrim(coalesce(q.contact_email, '')), ''), nullif(btrim(coalesce(c.email, '')), ''),
-                      (select nullif(btrim(coalesce(m.data ->> 'General Email', '')), '') from client_master m where m.client_id = c.client_id));
-  return jsonb_build_object('client_id', c.client_id, 'email', v_email,
-    'has_login', exists (select 1 from client_portal_accounts a where a.id = business_setup_portal_account(c.client_id) and a.status = 'active'));
+  select * into a from client_portal_accounts where id = business_setup_portal_account(c.client_id);
+  -- Revoking and restoring belong to setup.portal.manage and admins, not to whoever issues a quote.
+  if a.id is not null and a.status = 'revoked' then raise exception 'This client''s login was revoked. Ask an administrator to restore it.'; end if;
+  -- The address is the client's own in Client Master (never a contact typed on a quote). A login that exists keeps the address it was made with.
+  v_cm := (select nullif(btrim(coalesce(m.data ->> 'General Email', '')), '') from client_master m where m.client_id = c.client_id);
+  v_email := coalesce(v_cm, nullif(btrim(coalesce(a.email, '')), ''));
+  if v_email is null then raise exception 'Add the client''s email in Client Master first.'; end if;
+  return jsonb_build_object('client_id', c.client_id, 'email', v_email, 'has_login', a.id is not null and a.status = 'active');
 end $$;
 revoke all on function public.business_setup_issue_login_ok(uuid) from public, anon;
 grant execute on function public.business_setup_issue_login_ok(uuid) to authenticated;
 
 -- Saves the login for a client, with the readable copy of its password in the vault as client_portal_admin_grant does (Client Login Base 004). That function
 -- is for admins and is left as it is; this one is for the client-portal function after business_setup_issue_login_ok has passed, so it is service role only.
--- An active login is returned as it is, with created false: nothing changes, so issuing twice never changes the password. A revoked login is restored.
+-- An active login is returned as it is, with created false: nothing changes, so issuing twice never changes the password. A revoked login is refused, not restored.
 create or replace function public.business_setup_login_grant(p_client text, p_username text, p_password text, p_email text, p_actor uuid) returns jsonb
 language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
@@ -144,22 +155,18 @@ begin
   v_id := business_setup_portal_account(p_client);
   if v_id is not null then
     select * into a from client_portal_accounts where id = v_id for update;
-    if a.status = 'active' then
-      return jsonb_build_object('created', false, 'id', a.id, 'username', a.username, 'display_name', a.display_name, 'email', coalesce(nullif(btrim(coalesce(a.email, '')), ''), v_email));
-    end if;
+    -- Revoking and restoring belong to setup.portal.manage and admins: issuing never undoes a revoke.
+    if a.status <> 'active' then raise exception 'This client''s login was revoked. Ask an administrator to restore it.'; end if;
+    return jsonb_build_object('created', false, 'id', a.id, 'username', a.username, 'display_name', a.display_name, 'email', coalesce(nullif(btrim(coalesce(a.email, '')), ''), v_email));
   end if;
-  if exists (select 1 from client_portal_accounts where username = v_user and id is distinct from v_id) then raise exception 'That username is taken. Choose another.'; end if;
-  if v_id is null then
-    insert into client_portal_accounts (client_master_id, display_name, username, password_hash, email, created_by)
-    values (p_client, v_name, v_user, crypt(p_password, gen_salt('bf', 10)), v_email, p_actor) returning id into v_id;
-  else
-    update client_portal_accounts set username = v_user, password_hash = crypt(p_password, gen_salt('bf', 10)), email = v_email, status = 'active',
-           failed_attempts = 0, locked_until = null, revoked_at = null, revoked_by = null where id = v_id;
-    delete from client_portal_sessions where account_id = v_id;
-  end if;
+  if exists (select 1 from client_portal_accounts where username = v_user) then raise exception 'That username is taken. Choose another.'; end if;
+  -- The Banking record of the client, where the existing link rule (banking_clients.client_master_id) finds one, so Banking sees the same login.
+  insert into client_portal_accounts (client_master_id, banking_client_id, display_name, username, password_hash, email, created_by)
+  values (p_client, (select b.id from banking_clients b where b.client_master_id = p_client), v_name, v_user, crypt(p_password, gen_salt('bf', 10)), v_email, p_actor) returning id into v_id;
   select id into v_secret from vault.secrets where name = 'client_portal_pw:' || v_id;
   if v_secret is null then perform vault.create_secret(p_password, 'client_portal_pw:' || v_id, 'Client portal password');
   else perform vault.update_secret(v_secret, p_password); end if;
+  insert into admin_audit (actor, action, target, detail) values (p_actor, 'client_portal_create', v_user, jsonb_build_object('client', v_name));
   insert into business_setup_audit_log (actor, table_name, row_id, action, old_data, new_data)
   values (p_actor, 'client_portal_accounts', v_id::text, 'login_issue', null, jsonb_build_object('client_id', p_client, 'username', v_user));
   return jsonb_build_object('created', true, 'id', v_id, 'username', v_user, 'display_name', v_name, 'email', v_email);
