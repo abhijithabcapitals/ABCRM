@@ -3,10 +3,10 @@ import { templateBuffer } from "@banking/services/masterTemplates";
 
 export { openInFolder } from "@banking/services/bankingApi";
 
-const BUCKET = "hub-documents";
-const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
+export const BUCKET = "hub-documents";
+export const CLIENT_MODULE_URL = (import.meta.env.VITE_CLIENT_MODULE_URL || "http://127.0.0.1:8792").replace(/\/$/, "");
 
-const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
+export const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
 export const loadCatalogue = async () => {
   const categories = check(await supabase.from("service_categories").select("*, service_items(id, name, sort_order, is_active)").eq("is_active", true).order("sort_order"));
