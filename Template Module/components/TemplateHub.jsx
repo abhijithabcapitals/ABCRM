@@ -1,19 +1,16 @@
-import { Suspense, lazy, useEffect, useState } from "react";
-import { isHubAdmin } from "../services/hubApi";
+import { Suspense, lazy, useState } from "react";
 import "@banking/components/banking.css";
 import CompanyLibrary from "./CompanyLibrary";
 import ServiceDesk from "./ServiceDesk";
 import HubNumbering from "./HubNumbering";
 import VoucherRegister from "./VoucherRegister";
 
-// Each brings in the Word and Excel tools, so they load only when opened.
-const QuotationsPage = lazy(() => import("./QuotationsPage"));
+// Brings in the Word tools, so it loads only when opened.
 const CompanyTemplatesPage = lazy(() => import("./CompanyTemplatesPage"));
 
 const TABS = [
   { key: "services", label: "Service Documents" },
   { key: "library", label: "Company Library" },
-  { key: "quotations", label: "Freezone Quotations" },
   { key: "company-templates", label: "Company Templates" },
   { key: "vouchers", label: "Voucher Register" },
   { key: "settings", label: "⚙ Settings" },
@@ -21,9 +18,6 @@ const TABS = [
 
 export default function TemplateHub({ profile, canArdentax = false }) {
   const [tab, setTab] = useState("services");
-  // CRM admins and managers. The database checks this again on every change.
-  const [hubAdmin, setHubAdmin] = useState(false);
-  useEffect(() => { isHubAdmin().then(setHubAdmin).catch(() => setHubAdmin(false)); }, []);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "calc(100vh - var(--brand-footer-h))", overflow: "hidden", background: "#f7f8fa" }}>
       <div style={{ padding: "22px 40px 0", background: "#fff", borderBottom: "1px solid #ebebeb" }}>
@@ -62,9 +56,9 @@ export default function TemplateHub({ profile, canArdentax = false }) {
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><HubNumbering /></div>
         ) : tab === "services" ? (
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><ServiceDesk profile={profile} /></div>
-        ) : tab === "quotations" || tab === "company-templates" ? (
+        ) : tab === "company-templates" ? (
           <Suspense fallback={<div style={{ color: "#9ca3af", fontSize: 13 }}>Loading…</div>}>
-            {tab === "quotations" ? <QuotationsPage profile={profile} hubAdmin={hubAdmin} /> : <CompanyTemplatesPage canArdentax={canArdentax} />}
+            <CompanyTemplatesPage canArdentax={canArdentax} profile={profile} />
           </Suspense>
         ) : (
           <CompanyLibrary profile={profile} />

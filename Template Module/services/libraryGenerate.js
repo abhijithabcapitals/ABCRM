@@ -4,6 +4,7 @@
 // document and its Ref, and Retry rebuilds from what was stored.
 import { checkRequired } from "../logic/libraryFields.js";
 import { libraryContext, toLines } from "../logic/libraryContext.js";
+import { letterContext } from "../logic/libraryLetter.js";
 import { clientLinkProblem } from "../logic/libraryOcr.js";
 import { fileNameFor } from "../logic/serviceDocs.js";
 
@@ -63,4 +64,57 @@ export async function retryLibraryDocument(doc, deps) {
     return { doc, error: e.message };
   }
   return makeFile(doc, buffer, values, rows, usdRate, deps);
+}
+
+// ── AB Capital engagement letters from Company Templates ─────────────
+// deps: { loadSettings(), create(p), render(data), save(doc, blob, fileName) }. Same order as above: a letter that cannot render uses no number.
+async function makeLetterFile(doc, settings, date, deps) {
+  try {
+    const blob = await deps.render(letterContext(doc, settings.company, settings.engagement_terms, date));
+    const name = fileNameFor(doc.document_number, doc.client_name);
+    await deps.save(doc, blob, name);
+    return { doc, file: { blob, name } };
+  } catch (e) {
+    return { doc, error: e.message };
+  }
+}
+
+export async function generateLetter({ fields, values, rows, clientId, parentId, linkedName }, deps) {
+  const problem = checkRequired(fields, values, rows, "AB Capital") || clientLinkProblem(linkedName, values.client_name);
+  if (problem) return { error: problem };
+  const kept = Object.fromEntries(fields.map((f) => f.name).filter((n) => n in values).map((n) => [n, values[n]]));
+  let settings;
+  let doc;
+  try {
+    const lines = toLines(rows);
+    const total = lines.reduce((sum, l) => sum + l.amount, 0);
+    settings = await deps.loadSettings();
+    await deps.render(letterContext({ ...kept, services: lines.map((l) => l.description), lines, total_amount: total, vat_mode: "none", vat_rate: 0 }, settings.company, settings.engagement_terms, kept.date));
+    doc = await deps.create({
+      parent_id: parentId || null,
+      client_id: clientId || null,
+      client_name: kept.client_name,
+      contact_name: kept.contact_name || null,
+      contact_email: kept.contact_email || null,
+      contact_phone: kept.contact_phone || null,
+      client_address: kept.client_address || null,
+      license_number: kept.license_number || null,
+      vat_trn: kept.vat_trn || null,
+      field_values: kept,
+      lines,
+    });
+  } catch (e) {
+    return { error: e.message };
+  }
+  return makeLetterFile(doc, settings, kept.date, deps);
+}
+
+export async function retryLetter(doc, deps) {
+  let settings;
+  try {
+    settings = await deps.loadSettings();
+  } catch (e) {
+    return { doc, error: e.message };
+  }
+  return makeLetterFile(doc, settings, doc.field_values?.date, deps);
 }

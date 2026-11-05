@@ -1,23 +1,34 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import defaultManifest from "../Template Docs/manifest.json";
 import { COMPANIES, TEMPLATE_TYPES, templatesFor } from "../logic/companyTemplates";
 
 // Brings in the Word and PDF tools, so it loads only when opened.
 const ArdentTaxTab = lazy(() => import("../ardentax/components/ArdentTaxTab"));
+const AbCapitalGenerator = lazy(() => import("./AbCapitalGenerator"));
 
 // The columns of a company that open a generator, by template type.
-const GENERATORS = { ardentax: { quote: "quote", el: "letter" } };
+const GENERATORS = { ardentax: { quote: "quote", el: "letter" }, ab_capital: { quote: "quote", el: "letter" } };
 
 // Company template library: pick a company, see its Quote / EL / Email /
-// Social templates side by side. Ardentax's Quote and Engagement Letter open
-// its generator; other columns are structure only for now.
+// Social templates side by side. The Quote and Engagement Letter of Ardentax and
+// AB Capital open their generators; other columns are structure only for now.
 // ArdentaxPane: the development page passes one with the fake backend.
-export default function CompanyTemplatesPage({ manifest = defaultManifest, canArdentax = false, ArdentaxPane = ArdentTaxTab }) {
+export default function CompanyTemplatesPage({ manifest = defaultManifest, canArdentax = false, ArdentaxPane = ArdentTaxTab, profile }) {
   const [companyKey, setCompanyKey] = useState(COMPANIES[0].key);
   const [openType, setOpenType] = useState(null);
   const company = COMPANIES.find((c) => c.key === companyKey) || COMPANIES[0];
   const generators = GENERATORS[company.key] || {};
   const opened = TEMPLATE_TYPES.find((t) => t.key === openType && generators[t.key]);
+  const isAb = company.key === "ab_capital";
+  // Asked only when AB Capital is chosen. The database checks this again when a document is made.
+  const [abAllowed, setAbAllowed] = useState(false);
+  useEffect(() => {
+    if (!isAb) return undefined;
+    let live = true;
+    import("../services/hubApi").then((m) => m.libraryAccess()).then((a) => { if (live) setAbAllowed(!!a?.ab); }).catch(() => { if (live) setAbAllowed(false); });
+    return () => { live = false; };
+  }, [isAb]);
+  const allowed = isAb ? abAllowed : canArdentax;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "calc(100vh - var(--brand-footer-h))", overflow: "hidden", background: "#f7f8fa" }}>
@@ -65,7 +76,7 @@ export default function CompanyTemplatesPage({ manifest = defaultManifest, canAr
           </button>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a1a", margin: "0 0 14px" }}>{opened.label}</h2>
           <Suspense fallback={<div style={{ color: "#9ca3af", fontSize: 13 }}>Loading…</div>}>
-            <ArdentaxPane key={opened.key} docType={generators[opened.key]} />
+            {isAb ? <AbCapitalGenerator key={opened.key} docType={generators[opened.key]} profile={profile} /> : <ArdentaxPane key={opened.key} docType={generators[opened.key]} />}
           </Suspense>
         </div>
       ) : (
@@ -90,12 +101,12 @@ export default function CompanyTemplatesPage({ manifest = defaultManifest, canAr
               </div>
               <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
                 {generators[type.key] ? (
-                  canArdentax ? (
+                  allowed ? (
                     <button type="button" onClick={() => setOpenType(type.key)} style={{ alignSelf: "flex-start", padding: "8px 12px", border: "1px solid var(--accent)", borderRadius: 7, background: "#fff", color: "var(--accent)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                       Open {type.label}
                     </button>
                   ) : (
-                    <div style={{ fontSize: 13, color: "#9ca3af" }}>Needs the ArdentTax (ASP) access from an admin.</div>
+                    <div style={{ fontSize: 13, color: "#9ca3af" }}>{isAb ? "Needs the Business Setup quotes right from an admin." : "Needs the ArdentTax (ASP) access from an admin."}</div>
                   )
                 ) : items.length === 0 ? (
                   <div style={{ fontSize: 13, color: "#9ca3af" }}>No templates yet.</div>
