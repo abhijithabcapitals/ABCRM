@@ -66,7 +66,7 @@ def bullet(t, lead=None):
 
 
 def lead_bullets(items):
-    return "".join(bullet(rest, lead=lead + ":") if rest else bullet(lead) for lead, rest in items)
+    return "".join(bullet(" " + rest, lead=lead + ":") if rest else bullet(lead) for lead, rest in items)
 
 
 def tag_para(t, **kw):

@@ -83,6 +83,8 @@ test("agreement draft", async () => {
   assert.doesNotMatch(xml, /<w:drawing/);
   assert.equal(Object.keys(z.files).filter((n) => n.startsWith("word/media/")).some((n) => /signature/i.test(n)), false);
   assert.match(text(xml), /Test Signatory/);
+  assert.match(text(xml), /Data Entry: Accurate/);
+  assert.doesNotMatch(text(xml), /:[A-Z]/);
 });
 
 test("agreement signed", async () => {
