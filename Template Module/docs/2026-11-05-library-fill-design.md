@@ -22,7 +22,8 @@ Staff fill a Company Library template inside the CRM (Template Hub > Company Lib
 - IFZA, Rakez, SHAMS, Mainland and Liquidation have `{{tags}}`: date, one business field, and an `{{#items}}` fee loop. None has a Ref or client details.
 - Rakez, SHAMS and Mainland use `{{ business_name }}` under a "Business Activity" or "License Activity" label, while IFZA uses `{{ business_activity }}`.
 - Ardentax Master uses `[bracket]` placeholders, including its own `[DOC-YYYY-###]`, and already has a client table.
-- `quotation_templates` has 0 rows, so no fee data exists anywhere.
+- `quotation_templates` has 0 rows. `business_setup_fee_items` has 24 service prices, none tied to a template, so saved rows per template are still new data.
+- Business Setup > New Service already issues zone quotes from files with these same names (`business_setup_quote_templates`), loaded from master templates uploaded in Settings. None are uploaded and no zone quote has been issued. That flow reads single-brace tags, so it does not use the `Template Docs` copies.
 - `hub_documents.doc_type` allows quote, letter and mail. `hub_number_counters.kind` allows quote, letter and receipt.
 - Live Business Setup quotes have reached `BSQ004`. `hub_next_number` checks `hub_documents` so a number cannot repeat.
 - The `voucher_hub` trigger copies quote and letter rows into the Voucher Register.
@@ -54,7 +55,7 @@ The form is built from the tags found in the template, so a new `.docx` with `{{
 | `business_activity` | Business activity | Yes where the tag exists | `business_activity` |
 | `business_name` | Business name | Yes where the tag exists | `trade_name` or `legal_name` |
 
-**Client address** is also required on the form for AB Capital quotes. `hub_document_create` refuses an engagement letter when the quote has no address, so without it the next step would fail. It is stored on the record and not printed in the client block.
+**Client address** is optional on the form. The live `hub_document_create` does not require it for Business Setup. It is stored on the record and not printed in the client block.
 
 Ardentax Master adds trade name, signatory, licence, TRN, address, city and the free-text sections as fields. Of these, only the client name is required, since the Master covers many kinds of document.
 
@@ -105,7 +106,8 @@ New migration `Database Module/Template Hub Base/migrations/004_library_fill.sql
 
 **`hub_library_create(p jsonb)`**
 - Security definer, requires sign-in.
-- AB Capital: `hub_next_number('Business Setup', 'quote')`, `doc_type = 'quote'`, department `Business Setup`.
+- AB Capital: calls the existing `hub_document_create` with `doc_type = 'quote'`, department `Business Setup`, `vat_mode = 'none'`, then sets `library_template` and `field_values`. So it keeps that function's checks, including `setup.quotes.manage`: only holders of that right (Admin, Manager, Sales Executive) can generate AB Capital documents.
+- A client picked from Client Master sets `client_id`. As with every Business Setup quote, the document then shows in that client's Business Setup workspace and client login. Starting blank leaves `client_id` empty.
 - Ardentax: requires `ardentax_can()`, `hub_next_number('Ardentax Documents', 'document')`, `doc_type = 'library'`.
 - The company is decided by the server from the template key, not trusted from the browser.
 - The server recalculates `total_amount` from the rows.
@@ -150,7 +152,7 @@ PDF output, sending mail, Arabic text, editing issued documents, and Traction an
 
 - Unit: tag detection across all six files, field definitions, OCR mapping that never overwrites, fee and USD totals.
 - Database, using the pattern in `Database Module/ArdentTax Base/tests`: BSQ continues after Service Documents, ADTD starts at 001 and stays separate from ADTQ, concurrent calls give distinct numbers, a non-ArdentTax user cannot create or read `library` rows or their files, non-managers cannot save fee rows.
-- Engagement letter: a library quote can take the existing letter step. `hub_document_create` was replaced in `Business Setup Base` migrations 013 and 014, so this is checked against the live definition.
+- Engagement letter: an accepted library quote can take the existing letter step. The live function refuses a letter until the quote is marked accepted, which applies here as it does to any Business Setup quote.
 - Browser: full flow on a local build with a scanned ID, then open the Word file and confirm Ref, client block, fee rows and totals.
 - Word validity: each of the six filled files opens in Word without a repair prompt.
 
