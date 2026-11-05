@@ -30,6 +30,11 @@ test("printRows: bold parent with subtotal, sub rows, plain row, zero prints 0",
   assert.equal(printRows(opt({ services: [svc("Big", "1234567")] }), RATE)[0].aed, "1,234,567");
 });
 
+test("printRows: odd flag alternates over printed rows, sub rows included", () => {
+  const rows = printRows(opt({ services: [...two().services, svc("Free", "0")] }), RATE);
+  assert.deepEqual(rows.map((r) => r.odd), [false, true, false, true, false]);
+});
+
 test("optionTotal usd is from the AED total, not rounded rows", () => {
   const o = two();
   const ctx = proposalContext({ document_number: "N1", created_at: "2026-11-01T10:00:00Z", field_values: { proposal: prop([o]) } }, {}, {});

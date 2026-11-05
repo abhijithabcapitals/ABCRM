@@ -122,7 +122,7 @@ def service_table(with_remarks):
     names = ["Particulars", "AED", "USD", "Remarks"] if with_remarks else ["Particulars", "AED", "USD"]
     n = len(widths)
 
-    def tail(open_t, close_t, bold, sub):
+    def tail(open_t, close_t, bold, sub, fill=None):
         # One service row. open_t starts the first cell, close_t ends the last cell.
         indent = "{#sub}  {/sub}"
         cells = []
@@ -130,14 +130,15 @@ def service_table(with_remarks):
         for i, (w, f) in enumerate(zip(widths, fields)):
             text = (open_t if i == 0 else "") + (indent if i == 0 else "") + f + (close_t if i == n - 1 else "")
             jc = None if (i == 0 or (with_remarks and i == 3)) else "center"
-            cells.append(cell(w, cp(text, bold=bold, jc=jc), fill=(PALE if bold else None)))
+            cells.append(cell(w, cp(text, bold=bold, jc=jc), fill=(PALE if bold else fill)))
         return row(cells)
 
     rows = [
         title_bar(widths, "{title}"),
         head_row(widths, names),
         tail("{#rows}{#bold}", "{/bold}", True, False),
-        tail("{^bold}", "{/bold}{/rows}", False, False),
+        tail("{^bold}{#odd}", "{/odd}", False, False, fill=PALE),
+        tail("{^odd}", "{/odd}{/bold}{/rows}", False, False),
     ]
     total = [cell(widths[0], cp("Total", bold=True), fill=PALE), cell(widths[1], cp("{total_aed}", bold=True, jc="center"), fill=PALE),
              cell(widths[2], cp("{total_usd}", bold=True, jc="center"), fill=PALE)]

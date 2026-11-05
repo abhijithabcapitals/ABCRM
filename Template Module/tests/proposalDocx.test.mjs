@@ -175,3 +175,27 @@ test("mixed options use their own table", async () => {
   const xml = await read(await renderProposal(template, ctx([option(), option({ services: [{ name: "Licence", remarks: "R1", amount: 1, subs: [] }] })]), {}, deps));
   assert.equal(xml.match(/<w:gridCol /g).length, 3 + 4 + 3);
 });
+
+// Pale fill of the printed row that holds `label`.
+const paleRow = (xml, label) => {
+  const tr = xml.split("</w:tr>").find((r) => text(r).includes(label));
+  assert.ok(tr, label);
+  return /w:fill="F2DCDB"/.test(tr);
+};
+const plain = (name, amount, remarks = "") => ({ name, remarks, amount, subs: [] });
+
+test("plain rows alternate pale red across printed rows (3 and 4 columns)", async () => {
+  for (const remarks of ["", "Sample remark"]) {
+    const services = ["Alpha", "Bravo", "Charlie", "Delta"].map((n) => plain(n, 10, remarks));
+    const xml = await read(await renderProposal(template, ctx([option({ services })]), {}, deps));
+    assert.deepEqual(["Alpha", "Bravo", "Charlie", "Delta"].map((n) => paleRow(xml, n)), [false, true, false, true], remarks);
+  }
+});
+
+test("bold rows stay pale and the alternation counts sub rows", async () => {
+  const services = [plain("Alpha", 10), { name: "Bundle", remarks: "", amount: "", subs: [{ name: "SubOne", amount: 1 }, { name: "SubTwo", amount: 2 }] }, plain("Omega", 5)];
+  const xml = await read(await renderProposal(template, ctx([option({ services })]), {}, deps));
+  // printed order: Alpha(0) Bundle(1, bold) SubOne(2) SubTwo(3) Omega(4)
+  assert.deepEqual(["Alpha", "Bundle", "SubOne", "SubTwo", "Omega"].map((n) => paleRow(xml, n)), [false, true, false, true, false]);
+  assert.doesNotMatch(xml, /[{}]/);
+});

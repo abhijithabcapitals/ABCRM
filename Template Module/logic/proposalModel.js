@@ -107,7 +107,7 @@ export const needsSharedWarning = (index, sharedDirty) => index === 0 && !!share
 // Table rows of one option as printed: a service with sub services is a bold row with its subtotal, its subs indented below.
 export function printRows(option, rate) {
   const rows = [];
-  const row = (label, aed, remarks, bold, sub) => rows.push({ label, aed: plain(aed), usd: usdText(aed, rate), remarks: remarks || "", bold, sub });
+  const row = (label, aed, remarks, bold, sub) => rows.push({ label, aed: plain(aed), usd: usdText(aed, rate), remarks: remarks || "", bold, sub, odd: rows.length % 2 === 1 });
   for (const s of option.services || []) {
     row(s.name, serviceAmount(s), str(s.remarks), !!s.subs?.length, false);
     for (const b of s.subs || []) row(b.name, parseAmount(b.amount) || 0, "", false, true);
