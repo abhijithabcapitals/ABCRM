@@ -13,7 +13,7 @@ export function getPortalToken() {
 async function post(body, bearer = ANON) {
   const res = await fetch(FN, { method: "POST", headers: { "Content-Type": "application/json", apikey: ANON, Authorization: `Bearer ${bearer}` }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || "Something went wrong. Please try again."), { signedOut: !!data.signed_out });
+  if (!res.ok) throw Object.assign(new Error(data.error || "Something went wrong. Please try again."), { termsRequired: !!data.terms_required, signedOut: !!data.signed_out });
   return data;
 }
 
@@ -35,12 +35,16 @@ async function call(action, body = {}) {
     return await post({ action, token: getPortalToken(), ...body });
   } catch (e) {
     if (e.signedOut) signOutLocally();
+    // New Terms were published while this page was open: reload, and the gate asks for agreement.
+    if (e.termsRequired) window.location.reload();
     throw e;
   }
 }
 
 export const portalApi = {
   load: () => call("me"),
+  terms: () => call("terms_get"),
+  acceptTerms: (terms_id) => call("terms_accept", { terms_id }),
   docUrl: async (id) => (await call("doc_url", { id })).url,
   submitChange: (field, value) => call("submit_change", { field, value }),
   galleryUrl: async (source, id) => (await call("gallery_url", { source, id })).url,

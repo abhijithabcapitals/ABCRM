@@ -28,7 +28,7 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
   "$DB/Voucher Base/migrations"/001_*.sql "$DB/Voucher Base/migrations"/002_*.sql "$DB/Client Base/migrations"/002_*.sql
   "$DB/HR Base/migrations"/001_*.sql "$DB/AI Base/migrations"/001_*.sql "$DB/Admin Base/migrations"/001_*.sql
   "$DB/Client Base/migrations"/003_*.sql "$DB/Admin Base/migrations"/003_*.sql "$DB/Client Login Base/migrations"/001_*.sql "$DB/Client Login Base/migrations"/002_*.sql
-  "$DB/Client Login Base/migrations"/003_*.sql "$DB/Client Login Base/migrations"/004_*.sql)   # 003 and 004: the login email and the vault copy of its password (business_setup_login_grant)
+  "$DB/Client Login Base/migrations"/003_*.sql "$DB/Client Login Base/migrations"/004_*.sql "$DB/Client Login Base/migrations"/005_*.sql)   # 003 and 004: the login email and the vault copy of its password (business_setup_login_grant)
 # This module's migrations in number order. 001-012 are the first release (MINE_OLD); 013 onward are the case restructure (MINE_NEW),
 # which rollback/013_019_rollback.sql undoes on its own. The git-ignored fee seed (private/007) runs after 005,
 # and only once business_setup_fee_items exists.

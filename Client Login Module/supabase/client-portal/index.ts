@@ -7,6 +7,7 @@
 //
 // Client actions (POST JSON { action, token, ... }):
 //   login { username, password }, logout, me
+//   terms_get, terms_accept { terms_id }: until this login agrees to the published Terms, every other client action answers 403 { terms_required: true }
 //   upload_start { file_name, size, doc_type, note? } -> { id, upload_url }
 //   upload_start { for_form: true, ... } files the upload under this login's own Business Setup form
 //   upload_start { for_claim: true, file_name, size } -> { id, upload_url }   a proof of payment: PDF, JPG or PNG up to 10 MB, kept as this login's own upload
@@ -54,6 +55,7 @@ const MAX_CLAIM_PROOF_BYTES = 10 * 1024 * 1024;
 const CLAIM_PROOF_EXT = ["pdf", "jpg", "jpeg", "png"];
 const MAX_UPLOADS_PER_DAY = 100;
 const EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+const TERMS_OPEN_ACTIONS = ["logout", "terms_get", "terms_accept"];
 const DOC_TYPES = ["Trade Licence", "MOA / AOA", "Passport / ID", "Bank Statement", "Invoice", "VAT Document", "Corporate Tax Document", "Other"];
 const FORM_DOC_TYPES = ["Passport", "Emirates visa", "Emirates ID", "Ejari", "Bank statement", "Utility bill", "Old visa", "Old Emirates ID", "Other"];
 const SETUP_FILE_KINDS = ["quote", "letter", "receipt", "output", "invoice"];
@@ -208,6 +210,13 @@ Deno.serve(async (req) => {
     const { data: accountId } = await admin.rpc("client_portal_session", { p_token: token });
     if (!accountId) return json({ error: "Please sign in again.", signed_out: true }, 401);
 
+    // Until this login has agreed to the published Terms, only reading them, agreeing and signing out are open.
+    if (!TERMS_OPEN_ACTIONS.includes(action)) {
+      const { data: terms, error: termsError } = await admin.rpc("client_portal_terms_state", { p_account: accountId });
+      if (termsError) throw new Error(termsError.message);
+      if (terms?.required) return json({ error: "Please read and agree to the Terms and Conditions first.", terms_required: true }, 403);
+    }
+
     const ownDoc = async () => {
       const { data } = await admin.from("client_portal_documents").select("*").eq("id", String(body.id || "")).eq("account_id", accountId).maybeSingle();
       if (!data) throw new InputError("Document not found.");
@@ -215,6 +224,21 @@ Deno.serve(async (req) => {
     };
 
     switch (action) {
+      case "terms_get": {
+        const { data, error } = await admin.rpc("client_portal_terms_state", { p_account: accountId });
+        if (error) throw new Error(error.message);
+        return json(data);
+      }
+      case "terms_accept": {
+        const termsId = String(body.terms_id || "");
+        if (!UUID.test(termsId)) throw new InputError("These terms have been replaced. Please read the current version.");
+        const { error } = await admin.rpc("client_portal_terms_accept", { p_account: accountId, p_terms: termsId });
+        if (error) {
+          if (error.code === "P0001") throw new InputError(error.message);
+          throw new Error(error.message);
+        }
+        return json({ ok: true });
+      }
       case "me": {
         const { data, error } = await admin.rpc("client_portal_me", { p_account: accountId });
         if (error) throw new Error(error.message);
