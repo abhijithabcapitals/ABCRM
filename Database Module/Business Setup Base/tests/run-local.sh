@@ -9,7 +9,7 @@ DB="$HERE/../.."
 PRIVATE_ROOT="${PRIVATE_ROOT:-/d/Abhijith Projects/CRM/Database Module}"
 BIN="${PG_BIN:-/c/Program Files/PostgreSQL/18/bin}"
 DATA="$(mktemp -d)/pg"
-PORT=55434
+PORT="${PG_PORT:-55434}"
 "$BIN/initdb.exe" -D "$DATA" -U postgres -A trust -E UTF8 --no-locale >/dev/null || exit 1
 "$BIN/pg_ctl.exe" -D "$DATA" -o "-p $PORT" -w -l "$DATA/log" start >/dev/null || exit 1
 trap '"$BIN/pg_ctl.exe" -D "$DATA" -m immediate stop >/dev/null; rm -rf "$DATA"' EXIT
