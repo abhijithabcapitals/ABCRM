@@ -74,3 +74,12 @@ test("checkRequired rejects a bad email", () => {
   assert.match(checkRequired(fs, { client_name: "X", contact_email: "nope" }, [], "Ardentax"), /email/i);
   assert.equal(checkRequired(fs, { client_name: "X", contact_email: "a@b.co" }, [], "Ardentax"), null);
 });
+test("Ardentax Master tags get proper labels and only client_name is required", () => {
+  const fs = fieldsFor({ fields: ["client_name", "vat_trn", "scope", "prepared_date"] }, "Ardentax");
+  assert.deepEqual(fs.map((f) => [f.name, f.label, f.required, f.type, f.full]), [
+    ["client_name", "Client name", true, "text", false],
+    ["vat_trn", "TRN", false, "text", false],
+    ["scope", "Scope or deliverables", false, "text", true],
+    ["prepared_date", "Prepared on", false, "date", false],
+  ]);
+});
