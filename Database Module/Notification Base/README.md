@@ -9,6 +9,7 @@ Database layer of the Notification and Alert Centre. Spec: `Hot Alerts Module/do
 | `002_alert_scan.sql` | `alert_step_for`, seeded rules, `alert_candidate`, one `alert_rule_*` function per rule, `alert_scan()` (advisory lock, per-rule error isolation, system close) and the `alert-scan` cron job at 02:00 |
 | `003_alert_actions.sql` | Browser actions (`alert_assign`, `alert_set_status`, `alert_resolve`, `alert_escalate`, `alert_mark_read`), `alert_escalate_due()` (Live scan only), client owner functions, and admin-only `alert_rule_save`, `alert_set_mode`, `alert_scan_now` |
 | `004_alert_reads.sql` | Browser reads behind the page, each checking the caller: `alert_list`, `alert_tiles`, `alert_detail`, `alert_management_summary`, `alert_coverage`, `alert_my_access`, `alert_rule_list`, `alert_manager_list` |
+| `005_centre_tab_for_all.sql` | `my_tabs()` also returns `mytasks` for every signed-in user, so everyone has the Notification Centre tab. Unticking it in Settings has no effect. Rollback: `rollback/005_rollback.sql` |
 
 Every migration is re-runnable. Rollback for 001 to 004 is `rollback/001_004_rollback.sql` (safe twice; deletes `alert_centre` bell rows only).
 

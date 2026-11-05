@@ -18,6 +18,19 @@ grant execute on function public.admin_is() to authenticated;
 
 create table public.banking_user_roles (user_id uuid primary key, role text not null);
 create table public.hr_employees (id uuid primary key default gen_random_uuid(), profile_id uuid, status text not null, designation text);
+create table public.member_tab_access (profile_id uuid not null, tab_key text not null, primary key (profile_id, tab_key));
+create function public.hub_is_admin() returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select admin_is()
+    or exists (select 1 from banking_user_roles where user_id = auth.uid() and role = 'MANAGER')
+    or exists (select 1 from hr_employees where profile_id = auth.uid() and status = 'Active' and designation ilike 'manager') $$;
+-- As on live before migration 005.
+create function public.my_tabs() returns text[] language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(array_agg(distinct t), '{}') from (
+    select tab_key as t from member_tab_access where profile_id = auth.uid()
+    union all
+    select unnest(array['quotations', 'ardentax']) where hub_is_admin()) x $$;
+revoke all on function public.my_tabs() from public, anon;
+grant execute on function public.my_tabs() to authenticated;
 create table public.tasks (id uuid primary key default gen_random_uuid(), title text not null, status text, assignee_id uuid, due_date date, deleted_at timestamptz);
 create table public.notifications (
   id uuid primary key default gen_random_uuid(),

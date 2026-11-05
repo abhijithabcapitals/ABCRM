@@ -76,6 +76,11 @@ case "$OUT" in "ok "*) ;; *) exit 1 ;; esac
 "${PSQL[@]}" -c "insert into public.notifications (user_id, type, title) select id, 'other', 'keep me' from public.profiles limit 1" || exit 1
 BEFORE="$("${PSQL[@]}" -t -A -c "select count(*) from public.notifications where type = 'alert_centre'")"
 [ "$BEFORE" -gt 0 ] || { echo "FAILED no alert_centre bell rows to roll back"; exit 1; }
+# 005 puts my_tabs back first: 001 to 004 do not own that function.
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/005_rollback.sql" || { echo "FAILED rollback 005"; exit 1; }; done
+OUT="$("${PSQL[@]}" -t -A -c "select case when pg_get_functiondef('public.my_tabs'::regproc) not like '%mytasks%' then 'ok rollback 005 restores my_tabs' else 'FAILED rollback 005 left mytasks' end")"
+echo "$OUT"
+case "$OUT" in "ok "*) ;; *) exit 1 ;; esac
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/001_004_rollback.sql" || { echo "FAILED rollback pass $i"; exit 1; }; done
 OUT="$("${PSQL[@]}" -t -A -c "select case
   when (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and (c.relname like 'alert\_%' or c.relname = 'alerts' or c.relname = 'client_owners')) > 0 then 'FAILED rollback left relations'
