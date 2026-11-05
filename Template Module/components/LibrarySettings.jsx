@@ -1,8 +1,9 @@
 // Settings: Company Library Word templates, their files and saved fee rows.
 import { useRef, useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FilePick, FormModal, Modal, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { Badge, Button, DataTable, ErrorNote, FilePick, FormGrid, FormModal, Modal, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { libraryFileUrl, listLibraryTemplates, saveLibraryTemplate, uploadLibraryFile } from "../services/hubApi";
-import { COMPANIES, readTags } from "../logic/libraryFields";
+import { readTags } from "../logic/libraryFields";
+import { SECTIONS, cleanSections } from "../logic/libraryLetter";
 import { renderDocx } from "../logic/renderDocx";
 
 const isDocx = (f) => /\.docx$/i.test(f?.name || "");
@@ -21,6 +22,36 @@ async function checkFile(file) {
 
 function saveParams(t, over = {}) {
   return { template_key: t.template_key, company: t.company, folder: t.folder, name: t.name, fee_rows: t.fee_rows || [], usd_rate: t.usd_rate ?? null, active: t.active, ...over };
+}
+
+// The saved wording of one AB Capital work type. It starts each new document and never changes documents already made.
+function WordingModal({ template, onClose, onSaved }) {
+  const [quote, setQuote] = useState(template.sections?.quote || {});
+  const [letter, setLetter] = useState(template.sections?.letter || {});
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const save = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      await saveLibraryTemplate(saveParams(template, { sections: { quote: cleanSections(quote), letter: cleanSections(letter) } }));
+      await onSaved();
+      onClose();
+    } catch (err) { setError(err.message); setBusy(false); }
+  };
+  return (
+    <Modal title={`Wording: ${template.name}`} onClose={onClose} wide>
+      <form onSubmit={save}>
+        <p className="bk-note">An empty box uses the default from the saved terms. Bank details are added from Settings, so leave them out here.</p>
+        <ErrorNote message={error} />
+        <h3>Quotation</h3>
+        <FormGrid fields={SECTIONS.quote} values={quote} setValues={setQuote} />
+        <h3>Engagement letter</h3>
+        <FormGrid fields={SECTIONS.letter} values={letter} setValues={setLetter} />
+        <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy}>Save</Button></div>
+      </form>
+    </Modal>
+  );
 }
 
 function FeeRowsModal({ template, onClose, onSaved }) {
@@ -79,6 +110,9 @@ export default function LibrarySettings({ manage }) {
   const [notice, setNotice] = useState(null);
   const [adding, setAdding] = useState(null);   // { file, tags } once a file is chosen for a new template
   const [fees, setFees] = useState(null);
+  const [wording, setWording] = useState(null);
+  const [addingWork, setAddingWork] = useState(false);
+  const isAb = (t) => t.company === "AB Capital";
   const addFile = useRef(null);
 
   const act = async (id, fn) => {
@@ -103,9 +137,17 @@ export default function LibrarySettings({ manage }) {
     setError(null);
     try { const tags = await checkFile(f); tagNote(tags, f.name); setAdding({ file: f }); } catch (e) { setError(e.message); }
   };
+  const addWorkType = async (v) => {
+    const name = (v.name || "").trim();
+    if (!name) throw new Error("A work type needs a name.");
+    if (name.includes("/")) throw new Error("The name must not contain /.");
+    const key = keyOf("AB Capital", "Work types", name);
+    if ((list.data || []).some((t) => t.template_key === key)) throw new Error("That work type already exists.");
+    await saveLibraryTemplate({ template_key: key, company: "AB Capital", folder: "Work types", name, fee_rows: [], usd_rate: null, active: true });
+    await list.reload();
+  };
   const addTemplate = async (v) => {
-    const company = v.company, folder = (v.folder || "").trim(), name = (v.name || "").trim();
-    if (!COMPANIES.includes(company)) throw new Error("Choose a company.");
+    const company = "Ardentax", folder = (v.folder || "").trim(), name = (v.name || "").trim();
     if (!folder || !name) throw new Error("A template needs a folder and a name.");
     if (folder.includes("/") || name.includes("/")) throw new Error("The folder and name must not contain /.");
     const key = keyOf(company, folder, name);
@@ -121,13 +163,14 @@ export default function LibrarySettings({ manage }) {
     { label: "Company", key: "company" },
     { label: "Folder", key: "folder" },
     { label: "Name", render: (t) => <>{t.name} {!t.active && <Badge>Retired</Badge>}</> },
-    { label: "File", render: (t) => (t.file ? t.file.file_name : <span className="bk-muted">No file yet</span>) },
+    { label: "File", render: (t) => (isAb(t) ? <span className="bk-muted">Built-in design</span> : t.file ? t.file.file_name : <span className="bk-muted">No file yet</span>) },
     { label: "Uploaded", render: (t) => (t.file ? fmtDate(t.file.uploaded_at) : "–") },
     { label: "Fee rows", render: (t) => `${(t.fee_rows || []).length}${t.usd_rate ? ` · USD ${t.usd_rate}` : ""}` },
     { label: "", render: (t) => (
       <span className="bk-actions">
         {t.file && <Button busy={busy === `d-${t.template_key}`} onClick={() => download(t)}>Download</Button>}
-        {manage && <FilePick label={t.file ? "Replace file" : "Add file"} accept=".docx" busy={busy === `r-${t.template_key}`} onFile={(f) => replace(t, f)} />}
+        {manage && !isAb(t) && <FilePick label={t.file ? "Replace file" : "Add file"} accept=".docx" busy={busy === `r-${t.template_key}`} onFile={(f) => replace(t, f)} />}
+        {manage && isAb(t) && <Button onClick={() => setWording(t)}>Wording</Button>}
         {manage && <Button onClick={() => setFees(t)}>Fee rows</Button>}
         {manage && <Button busy={busy === `a-${t.template_key}`} onClick={() => retire(t, !t.active)}>{t.active ? "Retire" : "Restore"}</Button>}
       </span>
@@ -135,16 +178,15 @@ export default function LibrarySettings({ manage }) {
   ];
 
   return (
-    <Panel title="Library templates" sub="The Word files staff fill from the Company Library. Each file keeps its {{tags}}; the fee rows set here start every new document." actions={manage && <FilePick label="Add template" accept=".docx" onFile={pickNew} />}>
+    <Panel title="Library templates" sub="AB Capital work types set the wording and fees that start each quote and engagement letter. Ardentax Word files are filled from the Company Library." actions={manage && <span className="bk-actions"><Button onClick={() => setAddingWork(true)}>Add AB Capital work type</Button><FilePick label="Add Ardentax template" accept=".docx" onFile={pickNew} /></span>}>
       <ErrorNote message={error || list.error} onClose={() => setError(null)} />
       {notice && <div className="bk-alert bk-alert-warn">{notice}</div>}
       {list.loading && !list.data ? <Spinner /> : <DataTable columns={columns} rows={list.data || []} pageSize={50} search="Search templates" empty="No library templates yet." />}
       {adding && (
         <FormModal
-          title="Add library template"
+          title="Add Ardentax template"
           note={`File: ${adding.file.name}. The template is saved first and the file uploaded after it.`}
           fields={[
-            { name: "company", label: "Company", type: "select", options: COMPANIES, required: true },
             { name: "folder", label: "Folder", type: "text", required: true },
             { name: "name", label: "Name", type: "text", required: true },
           ]}
@@ -153,6 +195,8 @@ export default function LibrarySettings({ manage }) {
           submitLabel="Add template"
         />
       )}
+      {addingWork && <FormModal title="Add AB Capital work type" fields={[{ name: "name", label: "Name", type: "text", required: true }]} onSubmit={addWorkType} onClose={() => setAddingWork(false)} submitLabel="Add work type" />}
+      {wording && <WordingModal template={wording} onClose={() => setWording(null)} onSaved={list.reload} />}
       {fees && <FeeRowsModal template={fees} onClose={() => setFees(null)} onSaved={list.reload} />}
     </Panel>
   );

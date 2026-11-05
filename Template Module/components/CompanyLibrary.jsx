@@ -11,7 +11,7 @@ import LibraryRegister, { companyOf } from "./LibraryRegister";
 export const groupTemplates = (templates) => {
   const out = {};
   for (const t of templates) {
-    if (!t.active) continue;
+    if (!t.active || t.company === "AB Capital") continue; // AB Capital work types have no file
     ((out[t.company] ||= {})[t.folder] ||= []).push(t);
   }
   return out;
@@ -58,7 +58,7 @@ export default function CompanyLibrary({ profile }) {
         </select>
       </label>
       {!companies.length && <div style={{ color: "#999", fontSize: 13 }}>No company templates yet. They are uploaded in Settings.</div>}
-      {company === "AB Capital" && <p className="bk-note">AB Capital quotes and engagement letters are generated in Company Templates.</p>}
+      <p className="bk-note">AB Capital quotes and engagement letters are generated in Company Templates.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
         {Object.keys(folders).sort().map((folder) => (
           <section key={folder} style={{ border: "1px solid #ebebeb", borderRadius: 10, background: "#fff", padding: 14 }}>

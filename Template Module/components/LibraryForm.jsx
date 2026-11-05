@@ -1,5 +1,6 @@
 // The fill form: client details from Client Master or OCR, then typed, then fees, then Generate.
-// template and fileId fill a Word template. letter fills an AB Capital engagement letter, where start.parentId names its quote.
+// template and fileId fill a Word template. kind ("quote" or "letter") fills an AB Capital built-in design, where template is the
+// optional work type and start.parentId names a letter's quote.
 // ID documents are read in this browser and are not kept; only values left in the form are stored.
 import { useEffect, useRef, useState } from "react";
 import { saveAs } from "file-saver";
@@ -7,11 +8,11 @@ import { Button, ErrorNote, FilePick, FormGrid, Spinner } from "@banking/compone
 import { readDocuments } from "@banking/services/bankingApi";
 import { buildAutofill } from "@banking/logic/kycAutofill";
 import { formFields, readTags } from "../logic/libraryFields";
-import { LETTER_TEMPLATE, letterFields } from "../logic/libraryLetter";
+import { LETTER_TEMPLATE, QUOTE_TEMPLATE, SECTIONS, letterFields } from "../logic/libraryLetter";
 import { fromClientMaster, mergeAutofill } from "../logic/libraryOcr";
 import { renderDocx } from "../logic/renderDocx";
 import { createLibraryDocument, createLibraryLetter, libraryFileBuffer, loadHubSettings, renderTemplate, saveFile, searchClients } from "../services/hubApi";
-import { generateLetter, generateLibraryDocument } from "../services/libraryGenerate";
+import { generateDesign, generateLibraryDocument } from "../services/libraryGenerate";
 
 const dubaiToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date());
 const emptyRow = () => ({ label: "", amount: "", remarks: "", rate: "" });
@@ -31,15 +32,16 @@ export const libraryDeps = (company) => ({
   save: (doc, blob, name) => saveFile(doc, pcKind(company), blob, name),
 });
 
-export const letterDeps = () => ({
+export const designDeps = (kind) => ({
   loadSettings: loadHubSettings,
-  create: createLibraryLetter,
-  render: (data) => renderTemplate(LETTER_TEMPLATE, data),
-  save: (doc, blob, name) => saveFile(doc, "setup_letter", blob, name),
+  create: kind === "letter" ? createLibraryLetter : createLibraryDocument,
+  render: (data) => renderTemplate(kind === "letter" ? LETTER_TEMPLATE : QUOTE_TEMPLATE, data),
+  save: (doc, blob, name) => saveFile(doc, kind === "letter" ? "setup_letter" : "setup_quote", blob, name),
 });
 
-export default function LibraryForm({ template, fileId, letter = false, start, onClose, onDone, onFailed }) {
-  const [fields, setFields] = useState(() => (letter ? letterFields() : null));
+export default function LibraryForm({ template, fileId, kind, start, onClose, onDone, onFailed }) {
+  const [fields, setFields] = useState(() => (kind ? letterFields() : null));
+  const [sections, setSections] = useState(() => start?.sections || template?.sections?.[kind] || {});
   const [values, setValues] = useState(() => ({ date: dubaiToday(), ...(start?.values || {}) }));
   const [rows, setRows] = useState(() => {
     const saved = start?.rows || template?.fee_rows || [];
@@ -59,10 +61,10 @@ export default function LibraryForm({ template, fileId, letter = false, start, o
   const [busy, setBusy] = useState(null);
   const latest = useRef(values);
   latest.current = values;
-  const company = letter ? "AB Capital" : template.company;
+  const company = kind ? "AB Capital" : template.company;
 
   useEffect(() => {
-    if (letter) return undefined;
+    if (kind) return undefined;
     let live = true;
     (async () => {
       try {
@@ -74,7 +76,7 @@ export default function LibraryForm({ template, fileId, letter = false, start, o
       }
     })();
     return () => { live = false; };
-  }, [fileId, company, letter]);
+  }, [fileId, company, kind]);
 
   const shown = fields || [];
 
@@ -117,8 +119,8 @@ export default function LibraryForm({ template, fileId, letter = false, start, o
     setBusy("generate");
     setError(null);
     setAttempt((n) => n + 1);
-    const out = letter
-      ? await generateLetter({ fields: shown, values, rows, clientId, parentId: start?.parentId, linkedName }, letterDeps())
+    const out = kind
+      ? await generateDesign({ kind, template, fields: shown, values, sections, rows, clientId, parentId: start?.parentId, linkedName }, designDeps(kind))
       : await generateLibraryDocument({ template, fileId, fields: shown, values, rows, usdRate: template.usd_rate, clientId, linkedName }, libraryDeps(company));
     setBusy(null);
     if (!out.doc) return setError(out.error);
@@ -151,7 +153,7 @@ export default function LibraryForm({ template, fileId, letter = false, start, o
             : <p className="bk-note">No client found.</p>)}
           {clientId && (
             <div className="bk-row">
-              <span className="bk-note">Linked to client {clientId}{company === "AB Capital" && !letter ? ". This document will show in their Business Setup workspace and client login." : "."}</span>
+              <span className="bk-note">Linked to client {clientId}{company === "AB Capital" && kind !== "letter" ? ". This document will show in their Business Setup workspace and client login." : "."}</span>
               {!start?.parentId && <Button onClick={() => { setClientId(null); setLinkedName(""); }}>Unlink</Button>}
             </div>
           )}
@@ -164,6 +166,13 @@ export default function LibraryForm({ template, fileId, letter = false, start, o
             </div>
           ))}
           <FormGrid fields={shown} values={values} setValues={setValues} />
+          {kind && (
+            <>
+              <h3>Wording</h3>
+              <p className="bk-note">Changes here apply to this document only. Leave a box empty to use the saved default.</p>
+              <FormGrid fields={SECTIONS[kind]} values={sections} setValues={setSections} />
+            </>
+          )}
           <h3>Fees</h3>
           <p className="bk-note">Changes here apply to this document only.</p>
           {rows.map((r, i) => (
@@ -176,7 +185,7 @@ export default function LibraryForm({ template, fileId, letter = false, start, o
           ))}
           <Button onClick={() => setRows((rs) => [...rs, emptyRow()])}>Add fee row</Button>
           <div className="bk-modal-actions">
-            <Button onClick={onClose}>{letter || !template ? "Clear" : "Cancel"}</Button>
+            <Button onClick={onClose}>{kind ? "Clear" : "Cancel"}</Button>
             <Button variant="primary" busy={busy === "generate"} onClick={generate}>Generate</Button>
           </div>
         </>

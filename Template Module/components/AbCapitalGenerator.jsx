@@ -1,5 +1,5 @@
 // AB Capital quote or engagement letter, in Company Templates. docType: "quote" or "letter".
-// A quote starts from a template. A letter starts from a client or an existing quote.
+// A quote starts from a work type, which pre-fills its wording and fees. A letter starts from a client or an existing quote, with an optional work type.
 import { useMemo, useState } from "react";
 import "@banking/components/banking.css";
 import { ErrorNote, Panel, Spinner, useLoad } from "@banking/components/shared";
@@ -16,7 +16,7 @@ export default function AbCapitalGenerator({ docType, profile }) {
   const templates = useLoad(listLibraryTemplates, []);
   const documents = useLoad(listLibraryDocuments, []);
   const quotes = useLoad(() => (isLetter ? listLetterableQuotes() : Promise.resolve([])), [isLetter]);
-  const usable = useMemo(() => (templates.data || []).filter((t) => t.company === "AB Capital" && t.active && t.file), [templates.data]);
+  const usable = useMemo(() => (templates.data || []).filter((t) => t.company === "AB Capital" && t.active), [templates.data]);
   const [picked, setPicked] = useState("");
   const [from, setFrom] = useState("client");
   const [quoteId, setQuoteId] = useState("");
@@ -30,16 +30,17 @@ export default function AbCapitalGenerator({ docType, profile }) {
   const pickQuote = (id) => {
     setQuoteId(id);
     const q = (quotes.data || []).find((x) => x.id === id);
+    if (q) setPicked(usable.some((t) => t.template_key === q.library_template) ? q.library_template : "");
     setStart(q ? quoteToForm(q) : null);
     setFormKey((n) => n + 1);
   };
   const done = async () => { await documents.reload(); if (isLetter) await quotes.reload(); };
   const canNew = (d) => (isLetter ? true : usable.some((t) => t.template_key === d.library_template));
   const onNew = (d) => {
-    const { date: _date, usd_rate: _rate, ...values } = d.field_values || {};
-    if (!isLetter) setPicked(d.library_template);
+    const { date: _date, usd_rate: _rate, sections, ...values } = d.field_values || {};
+    setPicked(usable.some((t) => t.template_key === d.library_template) ? d.library_template : "");
     if (isLetter) { setFrom("client"); setQuoteId(""); }
-    setStart({ values, clientId: d.client_id, rows: rowsOf(d) });
+    setStart({ values, clientId: d.client_id, rows: rowsOf(d), sections: sections || {} });
     setFormKey((n) => n + 1);
   };
   const list = (documents.data || []).filter((d) => companyOf(d.library_template) === "AB Capital" && d.doc_type === docType);
@@ -67,24 +68,22 @@ export default function AbCapitalGenerator({ docType, profile }) {
               </label>
             )}
           </div>
-        ) : (
-          <div className="bk-row">
-            <label>Template{" "}
-              <select style={selectStyle} value={picked} onChange={(e) => { setPicked(e.target.value); clear(); }}>
-                <option value="">Choose a template</option>
-                {usable.map((t) => <option key={t.template_key} value={t.template_key}>{t.name}</option>)}
-              </select>
-            </label>
-          </div>
-        )}
-        {!isLetter && !usable.length && <p className="bk-note">No AB Capital templates yet. They are uploaded in Template Hub &gt; Settings &gt; Library Templates.</p>}
+        ) : null}
+        <div className="bk-row">
+          <label>Work type{" "}
+            <select style={selectStyle} value={picked} onChange={(e) => { setPicked(e.target.value); setStart(null); setQuoteId(""); setFormKey((n) => n + 1); }}>
+              <option value="">{isLetter ? "None: use the saved default wording" : "Choose a work type"}</option>
+              {usable.map((t) => <option key={t.template_key} value={t.template_key}>{t.name}</option>)}
+            </select>
+          </label>
+        </div>
+        {!isLetter && !usable.length && <p className="bk-note">No work types yet. They are added in Template Hub &gt; Settings &gt; Library Templates.</p>}
         {isLetter && from === "quote" && !(quotes.data || []).length && <p className="bk-note">No quote is available. A quote already with a letter, or in a Business Setup case, is not listed.</p>}
         {ready && (
           <LibraryForm
             key={`${picked}-${formKey}`}
-            letter={isLetter}
-            template={isLetter ? undefined : template}
-            fileId={isLetter ? undefined : template.file.id}
+            kind={docType}
+            template={template}
             start={start}
             onClose={clear}
             onDone={done}

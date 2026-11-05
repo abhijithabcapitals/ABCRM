@@ -7,8 +7,8 @@ import { Button, DataTable, fmtDate, useLoad } from "@banking/components/shared"
 import { profiles } from "@banking/services/bankingApi";
 import { fileNameFor } from "../logic/serviceDocs";
 import { openStored, storedBlob } from "../services/hubApi";
-import { retryLetter, retryLibraryDocument } from "../services/libraryGenerate";
-import { letterDeps, libraryDeps } from "./LibraryForm";
+import { retryDesign, retryLibraryDocument } from "../services/libraryGenerate";
+import { designDeps, libraryDeps } from "./LibraryForm";
 
 export const companyOf = (key) => String(key || "").split("/")[0];
 const nameOf = (key) => { const parts = String(key || "").split("/"); return parts.slice(2).join("/") || parts[parts.length - 1]; };
@@ -24,7 +24,7 @@ export default function LibraryRegister({ documents, rows, profile, canNew, onNe
   const retry = async (doc) => {
     onError(null);
     setRetrying(doc.id);
-    const out = doc.doc_type === "letter" ? await retryLetter(doc, letterDeps()) : await retryLibraryDocument(doc, libraryDeps(companyOf(doc.library_template)));
+    const out = doc.library_file_id ? await retryLibraryDocument(doc, libraryDeps(companyOf(doc.library_template))) : await retryDesign(doc, designDeps(doc.doc_type === "letter" ? "letter" : "quote"));
     setRetrying(null);
     if (out.error) onError(`${doc.document_number}: the file was not saved: ${out.error}`);
     else saveAs(out.file.blob, out.file.name);
