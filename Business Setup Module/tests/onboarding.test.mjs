@@ -155,3 +155,11 @@ test("referral link: the public page comes first, holds no staff code, and has o
   assert.match(read("../../Main Module/src/components/Profile.jsx"), /<IntakeLinks \/>/);
   for (const f of ["../components/AllLeads.jsx", "../components/ClientOnboarding.jsx", "../../Client Module/crm/ClientsHub.jsx"]) assert.doesNotMatch(read(f), /IntakeLinks/, f);
 });
+
+test("the Profile page lets staff reset their own password, only after giving the current one", () => {
+  const read = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  assert.match(read("../../Main Module/src/components/Profile.jsx"), /<ProfilePassword \/>/);
+  const p = read("../../Main Module/src/components/ProfilePassword.jsx");
+  assert.ok(p.indexOf("signInWithPassword") > 0 && p.indexOf("signInWithPassword") < p.indexOf("updateUser"));
+  assert.doesNotMatch(p, /console\./);
+});

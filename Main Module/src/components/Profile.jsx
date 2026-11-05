@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { AgentNameField } from "@router-agent";
 import PublishNews from "./PublishNews";
 import IntakeLinks from "@business-setup/components/IntakeLinks";
+import ProfilePassword from "./ProfilePassword";
 
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const EMPTY = { id: null, name: "", body_text: "", logo_url: "", is_default: false, sender_mailbox_address: "" };
@@ -107,6 +108,10 @@ export default function Profile({ profile }) {
         <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 16 }}>
           <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Referral link</h2>
           <IntakeLinks />
+        </section>
+        <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 16 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Reset password</h2>
+          <ProfilePassword />
         </section>
         <AgentNameField supabase={supabase} />
         <PublishNews profile={profile} />
