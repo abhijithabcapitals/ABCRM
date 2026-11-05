@@ -1821,8 +1821,15 @@ body {
   background: #f6fafa;
 }
 
-/* The tab a dragged tab will take the place of (see jsx/DragTabs.js). */
-.crm-tab-over { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 7px; }
+/* Tabs that can be dragged into a new order (see jsx/DragTabs.js). The cursor needs !important because
+   some bars set cursor inline. The grip floats over the tab, so showing it does not move the label. */
+.crm-tab-drag { position: relative; cursor: grab !important; }
+.crm-tab-drag:active { cursor: grabbing !important; }
+.crm-tab-drag:hover::before { content: ""; position: absolute; left: 2px; top: 50%; width: 6px; height: 12px; transform: translateY(-50%); opacity: .55; pointer-events: none; background: radial-gradient(circle, currentColor 1px, transparent 1.2px) 0 0 / 3px 4px; }
+.crm-tab-dragging { opacity: .45; }
+/* Where the dragged tab will land. Amber stays visible on the teal of the selected tab. */
+.crm-tab-over-before { box-shadow: inset 3px 0 0 #f59e0b; }
+.crm-tab-over-after { box-shadow: inset -3px 0 0 #f59e0b; }
 
 /* The company headline (components/NewsTicker.jsx). Full-height views also make room for it. */
 :root:has(.crm-news) { --brand-footer-h: 60px; }

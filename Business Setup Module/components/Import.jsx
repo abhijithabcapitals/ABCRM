@@ -32,7 +32,7 @@ export default function Import() {
         <Panel title="Kept values" sub="The CRM already held a different value, so it was kept."><DataTable rows={r.differences} empty="No differences." columns={[{ key: "name", label: "Name" }, { key: "client_id", label: "Client ID" }, { key: "reason", label: "Fields" }]} /></Panel>
         <Panel title="Old quotations" sub="Listed only: their prices were blank in the export."><DataTable rows={r.quotations} empty="None." columns={[{ key: "name", label: "Name" }, { key: "zone", label: "Zone" }, { key: "date", label: "Date" }]} /></Panel>
       </>}
-      {decide && <FormModal title={`Link ${decide.name}`} fields={[{ name: "client", label: "Client ID (CL000001)", required: true }]} onClose={() => setDecide(null)} onSubmit={async (v) => { await importDecide(decide.id, v.client, "matched"); await report.reload(); }} />}
+      {decide && <FormModal title={`Link ${decide.name}`} fields={[{ name: "client", label: "Client", type: "clientCode", required: true }]} onClose={() => setDecide(null)} onSubmit={async (v) => { await importDecide(decide.id, v.client, "matched"); await report.reload(); }} />}
     </div>
   );
 }

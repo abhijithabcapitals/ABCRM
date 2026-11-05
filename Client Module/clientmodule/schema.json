@@ -122,7 +122,7 @@
       "id": "services", "title": "Services Required",
       "intro": "Which services will the firm provide?",
       "fields": [
-        { "col": "Services Provided", "type": "multi", "req": true, "opts": ["Bookkeeping", "Accounting", "VAT Registration", "VAT Return Filing", "Corporate Tax Registration", "Corporate Tax Return", "Corporate Tax Advisory", "Tax Planning", "Financial Statements", "Audit", "Review", "Internal Audit", "Payroll", "WPS", "Management Accounts", "Budgeting", "Cash Flow Reporting", "ESR/Related Compliance", "UBO Compliance", "AML/KYC Compliance", "Accounting Software Setup", "ERP Support", "Company Formation", "Company Closure/Liquidation", "VAT Deregistration", "Tax Deregistration", "Other Advisory"] }
+        { "col": "Services Provided", "type": "multi", "req": true, "opts": ["Bookkeeping", "Accounting", "VAT Registration", "VAT Return Filing", "Corporate Tax Registration", "Corporate Tax Return", "Corporate Tax Advisory", "Tax Planning", "Financial Statements", "Audit", "Review", "Internal Audit", "Payroll", "WPS", "Management Accounts", "Budgeting", "Cash Flow Reporting", "ESR/Related Compliance", "UBO Compliance", "AML/KYC Compliance", "Accounting Software Setup", "ERP Support", "Company Formation", "Visa Registration", "Company Closure/Liquidation", "VAT Deregistration", "Tax Deregistration", "Other Advisory"] }
       ]
     },
     {

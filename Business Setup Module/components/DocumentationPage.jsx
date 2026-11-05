@@ -84,7 +84,7 @@ export function CaseDocs({ c, moved = false, onBack, onChanged }) {
       {dialog === "lost" && <LostDialog c={c} onClose={() => setDialog(null)} onDone={onBack} />}
       {dialog === "link" && <FormModal title={`Link a client to ${c.case_number}`} submitLabel="Link client" onClose={() => setDialog(null)}
         note="Leave the client ID empty to create the client from the lead details. The case's quote and letter then use that client."
-        fields={[{ name: "client", label: "Existing client ID (CL000001)" }]} onSubmit={async (v) => { await caseLinkClient(c.id, (v.client || "").trim() || null); await onBack(); }} />}
+        fields={[{ name: "client", label: "Existing client", type: "clientCode" }]} onSubmit={async (v) => { await caseLinkClient(c.id, (v.client || "").trim() || null); await onBack(); }} />}
     </div>
   );
 }

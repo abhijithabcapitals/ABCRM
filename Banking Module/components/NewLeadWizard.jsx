@@ -11,7 +11,7 @@ import { KYC_REQUIRED_FIELDS, KYC_SECTIONS } from "./KycForm";
 import { PRIORITIES } from "../logic/constants";
 import { ClientLists, useClientLookup } from "./ClientLookup";
 import { flagMissing } from "./Attention";
-import { applyClient } from "../logic/clientLookup";
+import { applyClient, pickClient } from "../logic/clientLookup";
 
 const LEAD_FIELDS = (sources, people) => [
   { name: "company_name", clientKey: "name", label: "Client / company name", required: true },
@@ -235,7 +235,7 @@ function Wizard({ resume, onCancel }) {
           </div>
           {Object.keys(auto.conflicts).length > 0 && <Panel title="Documents disagree: please check"><ul className="bk-issues">{Object.entries(auto.conflicts).map(([k, v]) => <li key={k}>{k}: {v.join(" / ")}</li>)}</ul></Panel>}
           <Panel title="Lead">
-            <div className="bk-grid"><ClientLists clients={clients} keys={Object.values(leadMap)} />{leadFields.filter((f) => !onlyMissing || !lead[f.name] || !f.required || edited[f.name]).map((f) => <Tagged key={f.name} field={f} value={lead[f.name]} onChange={(v) => { setEdited((e) => ({ ...e, [f.name]: true })); setLead((l) => (leadMap[f.name] ? applyClient(l, leadMap, f.name, v, clients) : { ...l, [f.name]: v })); }} />)}</div>
+            <div className="bk-grid"><ClientLists clients={clients} keys={Object.values(leadMap)} />{leadFields.filter((f) => !onlyMissing || !lead[f.name] || !f.required || edited[f.name]).map((f) => <Tagged key={f.name} field={f.clientKey === "name" ? { ...f, clients } : f} value={lead[f.name]} onChange={(v, picked) => { setEdited((e) => ({ ...e, [f.name]: true })); setLead((l) => (picked ? pickClient(l, leadMap, f.name, picked, clients) : leadMap[f.name] ? applyClient(l, leadMap, f.name, v, clients) : { ...l, [f.name]: v })); }} />)}</div>
           </Panel>
           {canKyc ? KYC_SECTIONS.map(([title, fields]) => {
             const list = onlyMissing ? fields.filter((f) => kyc[f.name] === undefined || kyc[f.name] === null || kyc[f.name] === "" || edited[f.name]) : fields;

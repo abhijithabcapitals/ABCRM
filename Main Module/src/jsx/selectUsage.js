@@ -1,16 +1,17 @@
 // Remembers, per user and per field in this browser, which dropdown choices are used, and ranks them.
 const KEEP = 30;
-let user = "anon";
-let cache = null;
+// Kept on globalThis because the dev server loads this file twice: once for the app and once inside
+// its pre-bundled copy of the JSX runtime. Without this, dev mode never knows who is signed in.
+const state = (globalThis.__crmSelectUsage ||= { user: "anon", cache: null });
 
-export const setUsageUser = (id) => { if ((id || "anon") !== user) { user = id || "anon"; cache = null; } };
-export const usageUser = () => (user === "anon" ? null : user);
-const storageKey = () => `crm.selectUsage.${user}`;
+export const setUsageUser = (id) => { if ((id || "anon") !== state.user) { state.user = id || "anon"; state.cache = null; } };
+export const usageUser = () => (state.user === "anon" ? null : state.user);
+const storageKey = () => `crm.selectUsage.${state.user}`;
 
 function load() {
-  if (cache) return cache;
-  try { cache = JSON.parse(localStorage.getItem(storageKey())) || {}; } catch { cache = {}; }
-  return cache;
+  if (state.cache) return state.cache;
+  try { state.cache = JSON.parse(localStorage.getItem(storageKey())) || {}; } catch { state.cache = {}; }
+  return state.cache;
 }
 
 export function recordUse(field, value, now = Date.now()) {
@@ -33,4 +34,4 @@ export function topValues(usage, available, recent = 3, frequent = 3) {
 }
 
 export const usageFor = (field) => load()[field];
-export const resetUsageCache = () => { cache = null; };
+export const resetUsageCache = () => { state.cache = null; };

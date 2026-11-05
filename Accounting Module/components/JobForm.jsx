@@ -52,7 +52,7 @@ export default function JobForm({ job, onSaved, onClose }) {
         <ErrorNote message={error || catalogue.error || people.error} />
         <ClientLists clients={clients} keys={["name"]} />
         <div className="bk-grid">
-          <Field field={{ name: "client_name", label: "Client", type: "text", required: true, clientKey: "name", help: "Pick a known client or type a new name." }} value={v.client_name} onChange={(x) => set({ client_name: x })} />
+          <Field field={{ name: "client_name", label: "Client", type: "text", required: true, clientKey: "name", clients, help: "Pick a known client or type a new name." }} value={v.client_name} onChange={(x) => set({ client_name: x })} />
           <div className="bk-field">
             <label htmlFor="f-service_name">Service<em> *</em></label>
             <select id="f-service_name" required value={v.service_name} onChange={(e) => set({ service_name: e.target.value })}>

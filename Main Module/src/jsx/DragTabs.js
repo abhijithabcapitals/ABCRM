@@ -5,12 +5,21 @@ import { jsx } from "react/jsx-runtime";
 import { moveTab, orderTabs, readTabOrder, saveTabOrder } from "../tabs.js";
 import { usageUser } from "./selectUsage.js";
 
-const BAR = /(?:^|\s)(?:tabs|bk-nav|bk-tabs|bd-nav|bd-detail-tabs|bd-leadgen-tabs|ea-tabs|ceo-switch|hr-switch|crm-tabs)(?:\s|$)/;
+const BAR = /(?:^|\s)(?:tabs|bk-nav|bk-tabs|bd-nav|bd-detail-tabs|bd-leadgen-tabs|ea-tabs|ceo-switch|hr-switch|crm-tabs|msgr-tabs)(?:\s|$)/;
 // Onboarding stages run in a fixed sequence, so their order means something.
 const FIXED = /(?:^|\s)bk-cm-stages(?:\s|$)/;
 
-export const isTabBar = (type, props) =>
-  (type === "nav" || type === "div") && typeof props?.className === "string" && BAR.test(props.className) && !FIXED.test(props.className);
+export function isTabBar(type, props) {
+  if (type !== "nav" && type !== "div") return false;
+  const name = typeof props?.className === "string" ? props.className : "";
+  return (props?.role === "tablist" || BAR.test(name)) && !FIXED.test(name);
+}
+
+// Which side of the tab under the pointer the dragged tab will land on (moveTab decides the same way).
+export function dropSide(keys, from, to) {
+  if (!from || from === to) return null;
+  return keys.indexOf(from) < keys.indexOf(to) ? "after" : "before";
+}
 
 // The same bar keeps its order when a person gains or loses a tab, so a named bar uses only its name
 // and its first tab. A bar with no name is known by all its tabs.
@@ -32,9 +41,10 @@ export function DragTabs({ as, children, ...rest }) {
   const ordered = orderTabs(items, saved);
   const keys = ordered.map((c) => c.key);
   const finish = () => { setDrag(null); setOver(null); };
+  const side = over ? dropSide(keys, drag, over) : null;
   const tabs = ordered.map((tab) => cloneElement(tab, {
     draggable: true,
-    className: [tab.props.className, over === tab.key ? "crm-tab-over" : ""].filter(Boolean).join(" ") || undefined,
+    className: [tab.props.className, "crm-tab-drag", drag === tab.key && "crm-tab-dragging", side && over === tab.key && `crm-tab-over-${side}`].filter(Boolean).join(" "),
     onDragStart: (e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", tab.key); setDrag(tab.key); },
     onDragOver: (e) => { if (!drag) return; e.preventDefault(); e.stopPropagation(); if (over !== tab.key) setOver(tab.key); },
     onDrop: (e) => {

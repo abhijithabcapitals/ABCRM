@@ -110,6 +110,13 @@ update public.business_setup_fee_items set default_amount = 0 where default_amou
 alter table public.business_setup_fee_items alter column default_amount set not null;
 alter table public.business_setup_fee_items drop column if exists vat_rate;
 
+-- ── 021_visa_registration.sql ────────────────────────────────────────
+drop function if exists public.business_setup_visa_sheet_apply(jsonb);
+
+-- ── 020_client_main_fields.sql ───────────────────────────────────────
+drop function if exists public.business_setup_client_main_save(text, jsonb);
+drop function if exists public.business_setup_client_main_fields();
+
 -- ── 014_leads_ownership.sql ──────────────────────────────────────────
 drop policy if exists business_setup_staff_upload on storage.objects;
 drop function if exists public.business_setup_staff_upload_ok(text, text);

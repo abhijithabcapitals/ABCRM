@@ -9,7 +9,7 @@ DB="$HERE/../.."
 PRIVATE_ROOT="${PRIVATE_ROOT:-/d/Abhijith Projects/CRM/Database Module}"
 BIN="${PG_BIN:-/c/Program Files/PostgreSQL/18/bin}"
 DATA="$(mktemp -d)/pg"
-PORT=55434
+PORT="${PG_PORT:-55434}"
 "$BIN/initdb.exe" -D "$DATA" -U postgres -A trust -E UTF8 --no-locale >/dev/null || exit 1
 "$BIN/pg_ctl.exe" -D "$DATA" -o "-p $PORT" -w -l "$DATA/log" start >/dev/null || exit 1
 trap '"$BIN/pg_ctl.exe" -D "$DATA" -m immediate stop >/dev/null; rm -rf "$DATA"' EXIT
@@ -34,7 +34,8 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
 # and only once business_setup_fee_items exists.
 MINE_OLD=(); MINE_NEW=()
 for n in 01 02 03 04 05 06 07 08 09 10 11 12; do MINE_OLD+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
-for n in 13 14 15 16 18; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
+# Run order 13 14 20 21 15 16 18. 19 (intake), 22 (checkpoints) and 23 (bd_transfer) do not exist yet and follow in that order; the glob is empty until then.
+for n in 13 14 20 21 15 16 18 19 22 23; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 MINE=("${MINE_OLD[@]}" "${MINE_NEW[@]}")
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 
@@ -94,6 +95,9 @@ for pass in 1 2; do
   done
   # Admin Base 010 adds the unique index on this module's invoices table.
   run_sql "$DB/Admin Base/migrations/010_zoho_invoices.sql"
+  # Client Base 004 and 006 read this module and Accounting, so they run after them.
+  "${PSQL[@]}" -c "create table if not exists public.accounting_jobs (id uuid primary key default gen_random_uuid(), client_id text)" >/dev/null || exit 1
+  run_sql "$DB/Client Base/migrations/004_accounting_line.sql"; run_sql "$DB/Client Base/migrations/006_client_lines.sql"
   echo "migrations pass $pass ok"
 done
 
