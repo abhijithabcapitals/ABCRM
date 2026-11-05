@@ -846,7 +846,7 @@ declare
   v_mode text := coalesce(p ->> 'vat_mode', 'inclusive'); v_number text; r hub_documents; it jsonb; q hub_documents; o hub_documents; v_id uuid := gen_random_uuid(); v_root uuid;
   v_client text := nullif(trim(p ->> 'client_id'), ''); v_revises uuid := nullif(p ->> 'revises_id', '')::uuid; v_template text := nullif(trim(p ->> 'template_key'), '');
   v_case uuid := nullif(p ->> 'case_id', '')::uuid; v_case_client text;
-  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_sid uuid; v_was_accepted boolean := false; v_old_letter uuid;
+  v_bs_quote boolean := false; v_bs_letter boolean := false; v_lines jsonb := '[]'::jsonb; v_lr numeric; v_fid text; v_sid uuid; v_was_accepted boolean := false; v_old_letter uuid; v_line_vat boolean := false;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   -- An engagement letter exists only as the next step of a generated quote, and takes everything from it.
@@ -863,6 +863,8 @@ begin
     v_bs_letter := q.department = 'Business Setup';
   end if;
   v_bs_quote := v_type = 'quote' and p ->> 'department' = 'Business Setup';
+  -- A quote that asks for no VAT keeps it: Company Templates (hub_library_create, Template Hub 005) prints no VAT row. Every other Business Setup quote has line VAT.
+  v_line_vat := v_bs_quote and p ->> 'vat_mode' is distinct from 'none';
   -- Business Setup documents reach a client's login, so issuing one needs the department's right. A letter takes its department from its quote above.
   if p ->> 'department' = 'Business Setup' then perform business_setup_require('setup.quotes.manage'); end if;
   -- A Business Setup letter waits for the accepted quote only (checked above, before the right); a payment is not needed.
@@ -893,7 +895,7 @@ begin
   for it in select * from jsonb_array_elements(p -> 'lines') loop
     if coalesce((it ->> 'amount')::numeric, -1) < 0 then raise exception 'Enter a fee for %', it ->> 'description'; end if;
     v_net := v_net + (it ->> 'amount')::numeric;
-    if v_bs_quote then
+    if v_line_vat then
       -- The rate comes from the fee item on the server (5 when there is none); whatever the browser sent is replaced.
       v_fid := nullif(btrim(coalesce(it ->> 'fee_item_id', '')), '');
       if v_fid is null then v_lr := 5;
@@ -908,7 +910,11 @@ begin
     end if;
     v_lines := v_lines || jsonb_build_array(it);
   end loop;
-  if v_bs_quote then v_mode := 'exclusive'; v_rate := 5; v_total := v_net + v_vat;
+  -- A quote on a case must hold a service: its case closes when its services do, so a quote of cost lines only could never finish.
+  if v_bs_quote and v_case is not null and not exists (select 1 from jsonb_array_elements(v_lines) l left join business_setup_fee_items f on f.id = nullif(btrim(coalesce(l ->> 'fee_item_id', '')), '')::uuid where coalesce(f.is_service, true)) then
+    raise exception 'Add at least one service to this quote. Cost lines alone create no work to complete.';
+  end if;
+  if v_line_vat then v_mode := 'exclusive'; v_rate := 5; v_total := v_net + v_vat;
   elsif v_bs_letter then v_vat := q.vat_amount; v_total := q.total_amount;   -- a letter inherits its quote's stored amounts
   elsif v_mode = 'exclusive' then v_vat := round(v_net * v_rate / 100, 2); v_total := v_net + v_vat;
   elsif v_mode = 'inclusive' then v_vat := round(v_net * v_rate / (100 + v_rate), 2); v_total := v_net;

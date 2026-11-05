@@ -57,6 +57,25 @@ drop function if exists public.business_setup_login_mail(text, boolean, uuid);
 drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
 drop function if exists public.business_setup_case_handover_trg();
 drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
+-- business_setup_send_to_accounts goes back to 011's (016 asked for setup.cases.approve).
+create or replace function public.business_setup_send_to_accounts(p_quote uuid, p_remarks text default null) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare q hub_documents; v_state jsonb; v_remarks text := nullif(btrim(coalesce(p_remarks, '')), '');
+begin
+  perform business_setup_require('setup.services.manage');
+  select * into q from hub_documents where id = p_quote and doc_type = 'quote' and department = 'Business Setup' for update;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  v_state := business_setup_handover_read(p_quote);
+  if v_state ->> 'state' in ('With Accounts', 'Closed') then raise exception 'This quote is already %', lower(v_state ->> 'state'); end if;
+  if jsonb_array_length(v_state -> 'blockers') > 0 then
+    raise exception 'This quote is not completed: %', (select string_agg(b, ', ') from jsonb_array_elements_text(v_state -> 'blockers') b);
+  end if;
+  insert into business_setup_handovers (quote_id, status, sent_at, sent_by, remarks) values (p_quote, 'With Accounts', now(), auth.uid(), v_remarks)
+  on conflict (quote_id) do update set status = 'With Accounts', sent_at = now(), sent_by = auth.uid(), reviewed_at = null, reviewed_by = null, remarks = v_remarks;
+  update business_setup_services set locked = true where quote_id = p_quote;
+  insert into business_setup_accounts_reviews (quote_id, action, remarks) values (p_quote, 'Sent', v_remarks);
+  perform business_setup_audit('business_setup_handovers', p_quote::text, 'send_to_accounts', null, jsonb_build_object('client_id', q.client_id, 'number', q.document_number));
+end $$;
 -- business_setup_form_list(text) goes back to 009's (016 added case_id to each row).
 create or replace function public.business_setup_form_list(p_status text default null) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$

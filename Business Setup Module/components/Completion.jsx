@@ -23,7 +23,7 @@ export default function Completion() {
           { key: "x", label: "", render: (c) => (
             <span className="bk-actions bk-wrap">
               {c.client_id && <Button onClick={() => goTo("clients", { client: c.client_id })}>Open client</Button>}
-              {c.stage === "Completion" && can("setup.services.manage") && <Button variant="primary" onClick={() => setSending(c)}>Send to Accounts</Button>}
+              {c.stage === "Completion" && can("setup.cases.approve") && <Button variant="primary" onClick={() => setSending(c)}>Send to Accounts</Button>}
             </span>
           ) },
         ]} />

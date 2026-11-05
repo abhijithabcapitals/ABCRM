@@ -98,6 +98,9 @@ for pass in 1 2; do
   # Client Base 004 and 006 read this module and Accounting, so they run after them.
   "${PSQL[@]}" -c "create table if not exists public.accounting_jobs (id uuid primary key default gen_random_uuid(), client_id text)" >/dev/null || exit 1
   run_sql "$DB/Client Base/migrations/004_accounting_line.sql"; run_sql "$DB/Client Base/migrations/006_client_lines.sql"
+  # Template Hub 003-007 and ArdentTax 001 are live too: Company Templates quotes reach hub_document_create through hub_library_create.
+  run_sql "$HERE/002_template_hub_stub.sql"
+  for f in "$DB/Template Hub Base/migrations"/003_*.sql "$DB/Template Hub Base/migrations"/004_*.sql "$DB/ArdentTax Base/migrations"/001_*.sql "$DB/Template Hub Base/migrations"/005_*.sql "$DB/Template Hub Base/migrations"/006_*.sql "$DB/Template Hub Base/migrations"/007_*.sql; do run_sql "$f"; done
   echo "migrations pass $pass ok"
 done
 

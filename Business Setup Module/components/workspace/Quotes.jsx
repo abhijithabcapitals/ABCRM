@@ -102,7 +102,7 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
           {h.ready ? <>
             {Number(h.outstanding) > 0 && <p className="bk-note">AED {money(h.outstanding)} is still outstanding on this quote.</p>}
             {Number(h.net_paid) > 0 && w.services.filter((s) => s.quote_id === q.id).every((s) => s.status === "Cancelled") && <p className="bk-note">Every line is cancelled and AED {money(h.net_paid)} is still held.</p>}
-            {can("setup.services.manage") && <Button variant="primary" onClick={() => setDialog("send")}>Send to Accounts</Button>}
+            {can("setup.cases.approve") && <Button variant="primary" onClick={() => setDialog("send")}>Send to Accounts</Button>}
           </> : <p className="bk-note">To send to Accounts: {h.blockers.join(", ")}.</p>}
         </div>
       )}

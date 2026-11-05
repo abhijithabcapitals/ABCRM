@@ -25,7 +25,7 @@ insert into f50 values ('svc_c1', pg_temp.s('q_cancelled', 'c one', 'Cancelled')
 select pg_temp.pay('q_done', 900);
 select pg_temp.pay('q_cancelled', 500);
 
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
 -- ── When it can go ──
 select public.bs_expect_error(format($$select business_setup_send_to_accounts('%s')$$, pg_temp.fx('q_open')), 'not completed');
 select public.bs_check('state names what blocks it', (public.business_setup_handover_state(pg_temp.fx('q_open')::uuid) ->> 'ready')::boolean = false
@@ -43,7 +43,7 @@ select public.bs_expect_error($$select business_setup_accounts_queue()$$, 'permi
 select public.bs_expect_error(format($$select business_setup_accounts_review('%s','validate')$$, pg_temp.fx('q_done')), 'permission');
 
 -- ── Sending locks it ──
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.business_setup_send_to_accounts(pg_temp.fx('q_done')::uuid, 'Ready to invoice');
 select public.bs_check('state says with Accounts', public.business_setup_handover_state(pg_temp.fx('q_done')::uuid) ->> 'state' = 'With Accounts' and not (public.business_setup_handover_state(pg_temp.fx('q_done')::uuid) ->> 'ready')::boolean);
 select public.bs_check('the services are locked', (select locked from public.business_setup_services where id = pg_temp.fx('svc_locked')::uuid));
@@ -65,14 +65,14 @@ select public.bs_check('revert carries remarks', public.business_setup_handover_
 select public.bs_check('dashboard counts the revert', (public.business_setup_dashboard() ->> 'reverted_by_accounts')::int >= 1);
 select public.bs_expect_error(format($$select business_setup_accounts_review('%s','validate')$$, pg_temp.fx('q_done')), 'not waiting');
 select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.fx('q_done'), 'amount', 100)) as ignored \gset
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.business_setup_send_to_accounts(pg_temp.fx('q_done')::uuid);
 
 -- ── Validate closes ──
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.business_setup_accounts_review(pg_temp.fx('q_done')::uuid, 'validate');
 select public.bs_check('validated is closed and stays locked', public.business_setup_handover_state(pg_temp.fx('q_done')::uuid) ->> 'state' = 'Closed' and (select locked from public.business_setup_services where id = pg_temp.fx('svc_locked')::uuid));
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.bs_expect_error(format($$select business_setup_send_to_accounts('%s')$$, pg_temp.fx('q_done')), 'already');
 select public.bs_expect_error(format($$select business_setup_service_update('%s','In progress')$$, pg_temp.fx('svc_locked')), 'Accounts');
 select public.bs_as(null);

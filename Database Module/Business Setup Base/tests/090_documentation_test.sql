@@ -54,8 +54,8 @@ select public.bs_check('the server stamps each line with its rate',
 select pg_temp.mk('round', 'Business Setup', '[{"description":"R","amount":33.33}]');
 select public.bs_check('vat_rounding: 33.33 at 5 gives line vat 1.67',
   (select vat_amount = 1.67 and total_amount = 35.00 from public.hub_documents where id = pg_temp.fx('round')::uuid));
-select pg_temp.mk('typed', 'Business Setup', '[{"description":"T","amount":100}]', '{"vat_mode":"none"}');
-select public.bs_check('a typed service with no fee item uses 5, and the mode comes out exclusive whatever is sent',
+select pg_temp.mk('typed', 'Business Setup', '[{"description":"T","amount":100}]', '{"vat_mode":"inclusive"}');
+select public.bs_check('a typed service with no fee item uses 5, and the mode comes out exclusive whatever else is sent (only no VAT is kept, for Company Templates)',
   (select vat_amount = 5 and total_amount = 105 and vat_mode = 'exclusive' from public.hub_documents where id = pg_temp.fx('typed')::uuid));
 select pg_temp.mk('ignored', 'Business Setup', jsonb_build_array(jsonb_build_object('description', 'S', 'amount', 1000, 'vat_rate', 0, 'fee_item_id', pg_temp.fx('feenull'))), '{"vat_rate":0}');
 select public.bs_check('vat_browser_ignored: a rate of 0 sent on a 5% item still charges 5%',
@@ -339,7 +339,7 @@ select pg_temp.mkcq('qK', 'cK', 1000);
 select pg_temp.signaccept('qK', 'staff/CL990092/signed-k.pdf');
 select public.bs_as(null);
 update public.business_setup_services set status = 'Completed' where quote_id = pg_temp.fx('qK')::uuid;
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.business_setup_send_to_accounts(pg_temp.fx('qK')::uuid, 'Ready');
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.bs_expect_error(format($$select business_setup_payment_reverse('%s', 'x')$$, (select id from public.business_setup_payments where case_id = pg_temp.fx('cK')::uuid and type = 'Payment' limit 1)), 'Accounts');
