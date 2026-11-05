@@ -1,0 +1,49 @@
+// Small decisions the Accounting screens make, kept pure so they are tested.
+import { isAccountingAgreement } from "./accountingQuote.js";
+
+// A textarea holds one line per item.
+export const toLines = (text) => String(text ?? "").split("\n");
+export const fromLines = (list) => (Array.isArray(list) ? list.join("\n") : "");
+export const cleanLines = (list) => (Array.isArray(list) ? list.map((s) => String(s).trim()).filter(Boolean) : []);
+
+// New array with row i moved by dir (-1 up, +1 down). Unchanged at the ends.
+export function moveRow(list, i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return list;
+  const next = [...list];
+  [next[i], next[j]] = [next[j], next[i]];
+  return next;
+}
+
+// Which actions a document row offers. hasAgreement: an agreement already exists under this quote. busy turns every button off.
+export function docActions(doc, { canApprove = false, hasAgreement = false, busy = false } = {}) {
+  const agreement = isAccountingAgreement(doc);
+  const files = !!doc.storage_path;
+  const accepted = Number.isInteger(doc.field_values?.quote?.accepted_option);
+  return {
+    busy,
+    view: files,
+    word: !!doc.word_path,
+    retry: !files && !doc.approved_at,
+    saveNow: files && !doc.onedrive_path,
+    accept: !agreement && files && !hasAgreement,
+    makeAgreement: !agreement && files && accepted && !hasAgreement,
+    edit: agreement,
+    approve: agreement && files && !doc.approved_at && !!canApprove,
+    awaitingApproval: agreement && !doc.approved_at,
+    send: files && (!agreement || !!doc.approved_at),
+    resend: !!doc.mail_sent_at,
+    recordSigned: agreement && !!doc.approved_at,
+  };
+}
+
+// The word shown in the Status column.
+export function docStatus(doc) {
+  if (isAccountingAgreement(doc)) {
+    if (doc.signed_at) return { label: "Signed", tone: "good" };
+    if (doc.approved_at) return { label: "Approved", tone: "good" };
+    return { label: "Awaiting approval", tone: "warn" };
+  }
+  if (Number.isInteger(doc.field_values?.quote?.accepted_option)) return { label: "Accepted", tone: "good" };
+  return { label: "Issued", tone: "plain" };
+}
