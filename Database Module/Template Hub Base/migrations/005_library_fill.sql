@@ -1,11 +1,11 @@
 -- =====================================================================
--- Template Hub Base - Company Library templates and generated documents    004
+-- Template Hub Base - Company Library templates and generated documents    005
 -- =====================================================================
 -- Staff fill a Word template from the Company Library and get a numbered document.
 --   AB Capital documents stay doc_type 'quote' in Business Setup (BSQ numbers, Voucher Register, engagement letter step).
 --   Ardentax documents are doc_type 'library' in the department 'Ardentax Documents' (ADTD numbers, own counter).
 -- hub_numbering_status and hub_numbering_save are the live text from Template Hub 004_hub_admin with 'document' added; hub_doc_read hides
--- library rows from people without the ArdentTax tab. Run after Business Setup 001-014, ArdentTax 001 and Template Hub 003.
+-- library rows from people without the ArdentTax tab. Run after Business Setup 001-014, ArdentTax 001 and Template Hub 004.
 -- Re-runnable. Undo with rollback/005_rollback.sql.
 -- =====================================================================
 
@@ -64,7 +64,7 @@ drop policy if exists hub_doc_read on public.hub_documents;
 create policy hub_doc_read on public.hub_documents for select to authenticated using (doc_type <> 'library' or public.ardentax_can());
 
 -- ── Numbering: 'document' behaves like 'receipt' ─────────────────────
--- Text of Business Setup 004, except: the kinds read are those the department's setting has (so a department with only
+-- Text of Template Hub 004, except: the kinds read are those the department's setting has (so a department with only
 -- 'document' works), and 'document' is one of them.
 create or replace function public.hub_numbering_status() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
