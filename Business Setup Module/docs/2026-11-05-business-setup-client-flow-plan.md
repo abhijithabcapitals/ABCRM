@@ -14,7 +14,7 @@
 
 - Worktree `D:\Abhijith Projects\CRM-bs-restructure`, branch `business-setup-restructure`.
 - Migrations are in `Database Module/Business Setup Base/migrations`, re-runnable and tested by running twice. Live has `001` to `014`, and those are not edited. `015` and `018` are not live, so they are edited in place until Task 9 applies them.
-- Migration run order: `015`, `016_client_flow`, `018_portal` (phase A), `019_intake` (phase B), `020_checkpoints` (phase C), `021_bd_transfer` (phase D). `run-local.sh` lists them in that order. There is no `017`.
+- Migration run order: `015`, `016_client_flow`, `018_portal` (phase A), `019_intake` (phase B), `022_checkpoints` (phase C), `023_bd_transfer` (phase D). `020` and `021` are already live from another release (client main fields, visa registration), so this plan skips them. `run-local.sh` applies 13 14 20 21 15 16 18 then 19 22 23. There is no `017`.
 - Tables stay read-only through the API. Writes go through `security definer` RPCs starting with `business_setup_require(...)`, each with explicit `revoke` and `grant` lines.
 - Portal and intake functions take no `auth.uid()`, resolve the client on the server, and are callable by the service role only.
 - Blocked actions raise one plain sentence naming what is missing.
@@ -359,11 +359,11 @@ root_route: ?intake= renders IntakeForm with no staff login
 ### Task 14: Checklists data
 
 **Files:**
-- Create: `migrations/020_checkpoints.sql`, `Database Module/Business Setup Base/scripts/build_checkpoints.py`, `tests/140_checkpoints_test.sql`
-- Modify: `rollback/013_019_rollback.sql`, `tests/run-local.sh`. `018` is live after Task 9, so portal view changes go in `020`
+- Create: `migrations/022_checkpoints.sql`, `Database Module/Business Setup Base/scripts/build_checkpoints.py`, `tests/140_checkpoints_test.sql`
+- Modify: `rollback/013_019_rollback.sql`, `tests/run-local.sh`. `018` is live after Task 9, so portal view changes go in `022`
 
 **Interfaces:**
-- Produces: `build_checkpoints.py` turns the checklist file into the seed section of `020`. `(if ` and `(where ` give Optional.
+- Produces: `build_checkpoints.py` turns the checklist file into the seed section of `022`. `(if ` and `(where ` give Optional.
 - Produces: three tables per spec section 8. 45 fee items with `is_service` true, null amount, VAT 5, linked set.
 - Produces: `business_setup_checkpoint_set(p_id uuid, p_state text, p_reason text default null) returns void`, `p_state` in `Open, Done, Not applicable`.
 - Produces: `business_setup_service_confirm(p_id uuid, p_output_details text default null, p_override_reason text default null) returns void`, wrapping `business_setup_service_complete`.
@@ -387,7 +387,7 @@ portal_no_reasons: labels and progress only
 ```
 
 - [ ] **Step 2:** Run SQL tests. Expected: FAIL.
-- [ ] **Step 3:** Implement. Run the script, and commit its output in `020`.
+- [ ] **Step 3:** Implement. Run the script, and commit its output in `022`.
 - [ ] **Step 4:** Run all test commands. Expected: PASS.
 - [ ] **Step 5: Commit.** `Add 45 service checklists`
 
@@ -395,7 +395,7 @@ portal_no_reasons: labels and progress only
 
 **Files:**
 - Create: `components/Pipeline.jsx`, `components/Completion.jsx`, `logic/progress.js`
-- Modify: `migrations/020_checkpoints.sql`, `tests/140_checkpoints_test.sql`, `components/FeeMaster.jsx`, `components/BusinessSetup.jsx`, `Accounting Module/components/SetupValidation.jsx`, `Client Login Module/portal/ClientPortal.jsx`, `tests/logic.test.mjs`
+- Modify: `migrations/022_checkpoints.sql`, `tests/140_checkpoints_test.sql`, `components/FeeMaster.jsx`, `components/BusinessSetup.jsx`, `Accounting Module/components/SetupValidation.jsx`, `Client Login Module/portal/ClientPortal.jsx`, `tests/logic.test.mjs`
 - Remove once replaced: `components/Cases.jsx`
 
 **Interfaces:**
@@ -423,7 +423,7 @@ progress_values: {Done, Done, Open, N/A} gives 67; all N/A gives 0
 ### Task 16: Phase C release (user approval needed)
 
 - [ ] **Step 1:** Ask the user to approve, and to give at least one `ACCOUNTS` role holder so validation can be walked.
-- [ ] **Step 2:** On approval: back up, apply `020`, deploy `client-portal`, merge, push, deploy both Cloudflare targets.
+- [ ] **Step 2:** On approval: back up, apply `022`, deploy `client-portal`, merge, push, deploy both Cloudflare targets.
 - [ ] **Step 3:** Walk: TEST client service list, tick, Not applicable, Confirm, Completion, send, validate. Report what was not walked.
 
 ---
@@ -433,7 +433,7 @@ progress_values: {Done, Done, Open, N/A} gives 67; all N/A gives 0
 ### Task 17: Business Development pick-up and transfer
 
 **Files:**
-- Create: `migrations/021_bd_transfer.sql`, `tests/150_bd_transfer_test.sql`
+- Create: `migrations/023_bd_transfer.sql`, `tests/150_bd_transfer_test.sql`
 - Modify: `rollback/013_019_rollback.sql`, `tests/run-local.sh`, `components/AllLeads.jsx`, Business Development lead screen
 
 **Interfaces:**
@@ -461,6 +461,6 @@ bd_payment: refused without bd_can_edit_lead; uses one voucher numbering
 
 ### Task 18: Phase D release and close-out (user approval needed)
 
-- [ ] **Step 1:** Ask the user to approve. On approval: back up, apply `021`, merge, push, deploy both Cloudflare targets, walk one BD lead through Won.
+- [ ] **Step 1:** Ask the user to approve. On approval: back up, apply `023`, merge, push, deploy both Cloudflare targets, walk one BD lead through Won.
 - [ ] **Step 2:** Update `Business Setup Module/README.md` and `Database Module/Business Setup Base/README.md` with the flow, tabs and open items in spec section 18.
 - [ ] **Step 3: Commit.** `Document the Business Setup client flow`

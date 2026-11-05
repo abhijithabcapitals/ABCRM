@@ -260,8 +260,8 @@ Work continues on branch `business-setup-restructure`, after merging `origin/mai
 | `016_client_flow.sql` | New stages and mapping, acceptances, payment claims, start gate change |
 | `018_portal.sql` | Portal view, decide and claim. Removes client signed upload |
 | `019_intake.sql` | Links, nullable form columns, form files, intake functions |
-| `020_checkpoints.sql` | Three tables, 45 services and lists, completion functions |
-| `021_bd_transfer.sql` | Business Development pick-up and handover |
+| `022_checkpoints.sql` | Three tables, 45 services and lists, completion functions |
+| `023_bd_transfer.sql` | Business Development pick-up and handover |
 
 Edge Functions: new `setup-intake`, changed `client-portal`, and changed `zoho-books` (`document_publish`).
 

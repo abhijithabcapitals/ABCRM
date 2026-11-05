@@ -1,6 +1,6 @@
 # Business Setup services and checklists
 
-Source: the user's list, 2026-11-05. This file is the source for the seed in `020_checkpoints.sql`.
+Source: the user's list, 2026-11-05. This file is the source for the seed in `022_checkpoints.sql`.
 
 Department for all: Business Setup. Default rule: an item containing "(if ...)" or "(where ...)" starts as Optional, and every other item starts as Mandatory. Staff can mark any item Not applicable with a reason. See section 8 of `2026-11-05-business-setup-client-flow-design.md`.
 
