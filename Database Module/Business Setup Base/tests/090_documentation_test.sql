@@ -38,7 +38,7 @@ select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error($$select public.business_setup_fee_item_save('{"grp":"T90","name":"Five","vat_rate":0}')$$, 'permission');
 select public.bs_as(null);
 select public.bs_check('no_task7_items: Company registration, Company renewal and Visa are not seeded', (select count(*) = 0 from public.business_setup_fee_items
-  where grp = 'Company' and name in ('Company registration', 'Company renewal', 'Visa') and default_amount is null));
+  where grp = 'Company' and name in ('Company registration', 'Company renewal', 'Visa')));
 
 -- ── Business Setup quotes: VAT line by line ──
 select public.bs_as('00000000-0000-0000-0000-00000000000c');

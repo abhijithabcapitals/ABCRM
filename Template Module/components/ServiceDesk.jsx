@@ -9,7 +9,7 @@ import { ClientLists, listIdFor, useClientLookup } from "@banking/components/Cli
 import { applyClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
 import { withLineVat } from "@business-setup/logic/quoteData";
-import { addLine, checkReady, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
+import { addLine, checkReady, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
 
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
 const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
@@ -19,7 +19,7 @@ const inDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return
 // initial: form values to start from, plus service (the first line's service). onDocument(doc): called once a quote or letter is filed.
 export default function ServiceDesk({ department, profile, initial, onDocument }) {
   const catalogue = useLoad(loadCatalogue, []);
-  const fees = useLoad(() => listFees().catch(() => []), []);
+  const fees = useLoad(() => listFees(), []);
   const settings = useLoad(loadHubSettings, []);
   const clients = useClientLookup();
   const [dept, setDept] = useState(department || DEPARTMENTS[0]);
@@ -52,8 +52,11 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const chooseDept = (d) => { setDept(d); setLines([]); setService(""); setFee(""); setMail(null); };
   const add = () => {
     const svc = categories.flatMap((c) => c.service_items).find((s) => s.name === service);
-    const item = dept === "Business Setup" && svc ? (fees.data || []).find((f) => f.service_item_id === svc.id) : null;
-    const r = addLine(lines, service, fee, item);
+    // A Business Setup line needs its fee item's VAT rate, so adding waits for the fee list.
+    if (dept === "Business Setup" && !fees.data) { setError(fees.error || "The fee list is still loading."); return; }
+    const m = dept === "Business Setup" && svc ? feeItemFor(fees.data, svc.id) : { item: null };
+    if (m.error) { setError(m.error); return; }
+    const r = addLine(lines, service, fee, m.item);
     if (r.error) { setError(r.error); flagMissing([/fee/.test(r.error) ? "d-fee" : "d-service"]); return; }
     setError(null); setLines(r.lines); setService(""); setFee("");
   };
@@ -127,7 +130,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   if (catalogue.loading && !catalogue.data) return <Spinner />;
   return (
     <div>
-      <ErrorNote message={catalogue.error || settings.error || error} onClose={error ? () => setError(null) : undefined} />
+      <ErrorNote message={catalogue.error || settings.error || (dept === "Business Setup" && fees.error ? `The fee list could not be loaded, so VAT rates are unknown: ${fees.error}` : null) || error} onClose={error ? () => setError(null) : undefined} />
       {note && <div className={`bk-alert ${note.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{note.text}</div>}
       {!department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>}
       <Panel title="1. Client details" sub="Choose any detail of an existing client to fill in the rest, or type them for a new one.">
@@ -150,7 +153,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
             </select>
           </div>
           <div className="bk-field"><label htmlFor="d-fee">Fee offered (AED)</label><input id="d-fee" type="number" min="0" step="any" value={fee} onChange={(e) => setFee(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} /></div>
-          <Button variant="primary" onClick={add}>+ Add service</Button>
+          <Button variant="primary" disabled={dept === "Business Setup" && !fees.data} onClick={add}>+ Add service</Button>
         </div>
         {lines.length > 0 && (
           <div className="bk-table-wrap bk-mt">

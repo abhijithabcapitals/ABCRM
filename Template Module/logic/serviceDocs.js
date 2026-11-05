@@ -14,6 +14,14 @@ export function checkReady(form, lines) {
   return null;
 }
 
+// The fee item linked to a catalogue service: { item } (null when none is linked: the line then takes the server's 5%), or { error } when
+// more than one fee item is linked to the service, which the desk cannot choose between.
+export function feeItemFor(feeItems, serviceItemId) {
+  const hits = (feeItems || []).filter((f) => f.service_item_id && f.service_item_id === serviceItemId);
+  if (hits.length > 1) return { error: "More than one fee item is linked to this service: ask a manager to fix the Services & Fees list." };
+  return { item: hits[0] || null };
+}
+
 // A service goes on the list only once, and only with a fee.
 // item: the catalogue fee item of the service, if any. A Business Setup line carries its fee item and that item's VAT rate, so the desk totals match the server's.
 export function addLine(lines, name, fee, item = null) {

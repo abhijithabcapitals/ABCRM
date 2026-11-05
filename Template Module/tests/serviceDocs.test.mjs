@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { DEPARTMENTS, NUMBERING_DEPARTMENTS, addLine, checkReady, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, listWords, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs.js";
+import { DEPARTMENTS, NUMBERING_DEPARTMENTS, addLine, checkReady, feeItemFor, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, listWords, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const render = (file, data) => {
@@ -118,4 +118,17 @@ test("the Word quote prints a line's scope beside it only when given", () => {
   assert.match(withScope, /Visa/); assert.match(withScope, /Two investor visas/);
   const none = render("Service_Quotation_Template.docx", { ...base, lines: [{ no: 1, description: "Visa", amount: "100" }] });
   assert.match(none, /Visa/); assert.doesNotMatch(none, /Visa\s*:/);
+});
+
+test("feeItemFor: no link, one match, two matches", () => {
+  const fees = [{ id: "a", service_item_id: "s1", vat_rate: 0 }, { id: "b", service_item_id: "s2", vat_rate: 5 }, { id: "c", service_item_id: "s2", vat_rate: 0 }, { id: "d", service_item_id: null, vat_rate: 5 }];
+  assert.deepEqual(feeItemFor(fees, "s9"), { item: null });
+  assert.deepEqual(feeItemFor(fees, null), { item: null });
+  assert.equal(feeItemFor(fees, "s1").item.id, "a");
+  assert.match(feeItemFor(fees, "s2").error, /More than one/);
+  assert.deepEqual(feeItemFor(undefined, "s1"), { item: null });
+});
+test("the desk reports a failed fee list and disables Add until fees load", () => {
+  const desk = readFileSync(fileURLToPath(new URL("../components/ServiceDesk.jsx", import.meta.url)), "utf8");
+  assert.doesNotMatch(desk, /listFees\(\)\.catch/); assert.match(desk, /fee list could not be loaded/); assert.match(desk, /disabled=\{dept === "Business Setup" && !fees\.data\}/);
 });
