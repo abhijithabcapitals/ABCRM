@@ -13,7 +13,7 @@ const LocalClientModule = lazy(() => import("@app/components/Clients"));
 
 const LINES = ["Business Banking", "Business Setup", "Accounting"];
 
-export default function ClientsHub({ profile, openClientId }) {
+export default function ClientsHub({ profile, openClientId, onClientShown }) {
   const [view, setView] = useState("all");
   const isAdmin = profile?.role === "admin";
   const tabs = [["all", "All Clients"], ["master", "Client Master"], ["inputs", "Client Inputs"], ...(isAdmin ? [["local", "Local Client Module"], ["portal", "Client Portal"]] : [])];
@@ -24,7 +24,7 @@ export default function ClientsHub({ profile, openClientId }) {
           {tabs.map(([k, label]) => <button type="button" key={k} data-label={label} aria-current={view === k ? "page" : undefined} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
         </nav>
       </div>
-      {view === "all" && <AllClients isAdmin={isAdmin} openClientId={openClientId} />}
+      {view === "all" && <AllClients isAdmin={isAdmin} openClientId={openClientId} onClientShown={onClientShown} />}
       {view === "master" && <ClientMaster />}
       {view === "inputs" && <ClientInputs />}
       {view === "local" && isAdmin && <Suspense fallback={<Spinner />}><LocalClientModule profile={profile} /></Suspense>}
@@ -33,7 +33,7 @@ export default function ClientsHub({ profile, openClientId }) {
   );
 }
 
-function AllClients({ isAdmin, openClientId }) {
+function AllClients({ isAdmin, openClientId, onClientShown }) {
   const list = useLoad(() => rpc("client_base_list"), []);
   const [line, setLine] = useState("");
   const [open, setOpen] = useState(null);
@@ -43,6 +43,7 @@ function AllClients({ isAdmin, openClientId }) {
     if (!openClientId || !list.data) return;
     const hit = list.data.find((c) => c.client_master_id === openClientId || c.id === openClientId);
     if (hit) setOpen(hit);
+    onClientShown?.();
   }, [openClientId, list.data]);
   const shown = rows.filter((c) => !line || (c.lines || []).includes(line));
   const count = (l) => rows.filter((c) => (c.lines || []).includes(l)).length;

@@ -72,3 +72,13 @@ export function tabsFor(access) {
   if (access?.is_admin) tabs.push("Management", "Settings");
   return tabs;
 }
+
+// The red band over Management: a failed last scan, or no good scan in 26 hours. Null when healthy or unknown.
+export function scanBand(coverage) {
+  if (!coverage) return null;
+  if (String(coverage.last_scan_status || "").toLowerCase() === "failed") {
+    return `The last scan failed${coverage.last_scan_error ? `: ${coverage.last_scan_error}` : "."} Counts below may be out of date.`;
+  }
+  if (coverage.stale) return "No successful scan in the last 26 hours. Counts below may be out of date.";
+  return null;
+}

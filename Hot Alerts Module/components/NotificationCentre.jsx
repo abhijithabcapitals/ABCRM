@@ -3,7 +3,7 @@ import HotAlerts from "./HotAlerts";
 import AlertList from "./AlertList";
 import AlertDrawer from "./AlertDrawer";
 import Tiles from "./Tiles";
-import { FILTERS, dubaiToday, emptyText, isNotSwitchedOn, tabsFor } from "../logic/alertLogic";
+import { FILTERS, dubaiToday, emptyText, isNotSwitchedOn, scanBand, tabsFor } from "../logic/alertLogic";
 import {
   alertMyAccess, alertList, alertTiles, alertManagementSummary, alertCoverage, alertSetMode, alertScanNow,
 } from "../services/alertsApi";
@@ -95,11 +95,7 @@ function ManagementView({ supabase, today, onOpen, refreshKey }) {
   return (
     <div>
       {error && <Note tone="bad">{error}</Note>}
-      {coverage && (coverage.last_scan_status === "failed" || coverage.stale) && (
-        <Note tone="bad">
-          {coverage.last_scan_status === "failed" ? `The last scan failed${coverage.last_scan_error ? `: ${coverage.last_scan_error}` : "."}` : "No successful scan in the last 26 hours."} Counts below may be out of date.
-        </Note>
-      )}
+      {scanBand(coverage) && <Note tone="bad">{scanBand(coverage)}</Note>}
       {summary && (
         <Tiles items={[
           { label: "Critical Alerts", value: summary.critical, tone: "red" },

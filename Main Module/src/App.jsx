@@ -549,7 +549,7 @@ export default function App() {
         )}
         {view === "mytasks" && <MyTasks profile={profile} openAlertId={openAlertId} onAlertShown={() => setOpenAlertId(null)} onOpenClient={(id) => { setOpenClientId(id); setView("clients"); }} />}
         {view === "quotations" && <TemplateHub profile={profile} canArdentax={profile?.role === "admin" || (tabs || []).includes("ardentax")} />}
-        {view === "clients" && <ClientsHub profile={profile} openClientId={openClientId} />}
+        {view === "clients" && <ClientsHub profile={profile} openClientId={openClientId} onClientShown={() => setOpenClientId(null)} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "business-banking" && <BusinessBanking profile={profile} />}
         {view === "hr" && <HR profile={profile} onOpenTask={handleOpenTaskFromNotification} />}

@@ -46,3 +46,11 @@ test("empty text with a filter", () => {
   assert.equal(emptyText({ mode: "Live", is_admin: false }, "Urgent"), "Nothing matches this filter");
   assert.equal(emptyText({ mode: "Live", is_admin: false }, "All"), "Nothing assigned to you");
 });
+
+import { scanBand } from "../logic/alertLogic.js";
+test("scanBand: Failed shows the band with the error", () => {
+  assert.match(scanBand({ last_scan_status: "Failed", last_scan_error: "boom", stale: false }), /last scan failed: boom/);
+});
+test("scanBand: Ok is healthy", () => assert.equal(scanBand({ last_scan_status: "Ok", stale: false }), null));
+test("scanBand: stale shows the band", () => assert.match(scanBand({ last_scan_status: "Ok", stale: true }), /26 hours/));
+test("scanBand: null coverage", () => assert.equal(scanBand(null), null));
