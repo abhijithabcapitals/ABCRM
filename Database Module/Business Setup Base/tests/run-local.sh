@@ -75,9 +75,9 @@ for pass in 1 2; do
   done
   # Admin Base 010 adds the unique index on this module's invoices table.
   run_sql "$DB/Admin Base/migrations/010_zoho_invoices.sql"
-  # Client Base 004 and 005 read this module and Accounting, so they run after them.
+  # Client Base 004 and 006 read this module and Accounting, so they run after them.
   "${PSQL[@]}" -c "create table if not exists public.accounting_jobs (id uuid primary key default gen_random_uuid(), client_id text)" >/dev/null || exit 1
-  run_sql "$DB/Client Base/migrations/004_accounting_line.sql"; run_sql "$DB/Client Base/migrations/005_business_setup_line.sql"
+  run_sql "$DB/Client Base/migrations/004_accounting_line.sql"; run_sql "$DB/Client Base/migrations/006_client_lines.sql"
   echo "migrations pass $pass ok"
 done
 
