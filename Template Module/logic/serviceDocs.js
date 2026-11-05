@@ -15,12 +15,13 @@ export function checkReady(form, lines) {
 }
 
 // A service goes on the list only once, and only with a fee.
-export function addLine(lines, name, fee) {
+// item: the catalogue fee item of the service, if any. A Business Setup line carries its fee item and that item's VAT rate, so the desk totals match the server's.
+export function addLine(lines, name, fee, item = null) {
   if (!name) return { error: "Choose a service." };
   const amount = Number(fee);
   if (fee === "" || fee === null || !Number.isFinite(amount) || amount < 0) return { error: "Enter the fee offered." };
   if (lines.some((l) => l.description === name)) return { error: "That service is already added." };
-  return { lines: [...lines, { description: name, amount }] };
+  return { lines: [...lines, { description: name, amount, ...(item?.id ? { fee_item_id: item.id, vat_rate: Number(item.vat_rate) } : {}) }] };
 }
 
 export const DEPARTMENTS = ["Business Setup", "Accounting", "Tax Compliance", "Business Banking"];

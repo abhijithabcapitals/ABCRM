@@ -595,6 +595,19 @@ select pg_temp.mk('costq', 'Business Setup', jsonb_build_array(
 select public.bs_accept(pg_temp.fx('costq')::uuid) as ignored \gset
 select public.bs_check('cost_line_no_service: only the service line creates a service', (select count(*) = 1 and bool_and(name = 'Real service') from public.business_setup_services where quote_id = pg_temp.fx('costq')::uuid));
 select public.bs_check('cost_line_no_service: the cost line stays on the quote', (select jsonb_array_length(lines) = 2 from public.hub_documents where id = pg_temp.fx('costq')::uuid));
+-- fee_item_save: is_service needs setup.fees.manage, saves, and is left alone when the key is absent.
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_fee_item_save('{"id":"%s","grp":"T90","name":"GovtCost","is_service":true}')$$, pg_temp.fx('feecost')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_expect_error(format($$select public.business_setup_fee_item_save('{"id":"%s","grp":"T90","name":"GovtCost","is_service":"maybe"}')$$, pg_temp.fx('feecost')), 'service');
+select public.business_setup_fee_item_save(jsonb_build_object('id', pg_temp.fx('feecost'), 'grp', 'T90', 'name', 'GovtCost', 'is_service', true)) as ignored \gset
+select public.bs_check('is_service: the fee manager can set it to a service', (select is_service from public.business_setup_fee_items where id = pg_temp.fx('feecost')::uuid));
+select public.business_setup_fee_item_save(jsonb_build_object('id', pg_temp.fx('feecost'), 'grp', 'T90', 'name', 'GovtCost', 'is_service', false)) as ignored \gset
+select public.business_setup_fee_item_save(jsonb_build_object('id', pg_temp.fx('feecost'), 'grp', 'T90', 'name', 'GovtCost', 'default_amount', 310)) as ignored \gset
+select public.bs_check('is_service: false is kept, and a save without the key leaves it alone', (select not is_service and default_amount = 310 from public.business_setup_fee_items where id = pg_temp.fx('feecost')::uuid));
+select public.business_setup_fee_item_save('{"grp":"T90","name":"NewCost","default_amount":5,"is_service":false}') as ignored \gset
+select public.bs_check('is_service: a new item can be saved as a cost', (select not is_service from public.business_setup_fee_items where grp = 'T90' and name = 'NewCost'));
+select public.bs_as(null);
 -- A re-run flips nothing: an item that is a service after the column existed keeps its value.
 select public.bs_as(null);
 update public.business_setup_fee_items set is_service = true where id = pg_temp.fx('feecost')::uuid;

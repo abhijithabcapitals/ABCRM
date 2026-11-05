@@ -93,6 +93,12 @@ test("Business Setup on the desk has no VAT choice and exclusive totals; other d
   assert.equal(deskVatMode("Business Setup", "inclusive"), "exclusive"); assert.equal(deskVatMode("Accounting", "inclusive"), "inclusive"); assert.equal(deskVatMode("Tax Compliance", "none"), "none");
   const totals = deskTotals("Business Setup", [{ amount: 0.1 }, { amount: 0.1 }], "inclusive");
   assert.deepEqual(totals, { net: 0.2, vat: 0.02, total: 0.22 });   // per line, as the server rounds
+  // A 0% fee item keeps its rate on the desk line, so the totals match the stored ones.
+  const zero = addLine([], "Govt", "100", { id: "f0", vat_rate: 0 }).lines;
+  assert.deepEqual(zero, [{ description: "Govt", amount: 100, fee_item_id: "f0", vat_rate: 0 }]);
+  assert.deepEqual(deskTotals("Business Setup", zero, "inclusive"), { net: 100, vat: 0, total: 100 });
+  assert.deepEqual(deskTotals("Business Setup", addLine(zero, "Svc", "100", { id: "f5", vat_rate: 5 }).lines, "inclusive"), { net: 200, vat: 5, total: 205 });
+  assert.deepEqual(addLine([], "S", "10").lines, [{ description: "S", amount: 10 }]);
   assert.deepEqual(deskTotals("Accounting", [{ amount: 105 }], "inclusive"), serviceTotals([{ amount: 105 }], "inclusive", 5));
   const desk = readFileSync(fileURLToPath(new URL("../components/ServiceDesk.jsx", import.meta.url)), "utf8");
   assert.match(desk, /!fixedVat\(dept\) && <div className="bk-field"><label htmlFor="d-vat">/);

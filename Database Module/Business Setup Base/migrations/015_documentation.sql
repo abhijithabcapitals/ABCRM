@@ -31,10 +31,15 @@ end $$;
 create or replace function public.business_setup_fee_item_save(p jsonb) returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
-  v_id uuid; v_amount numeric; v_rate numeric;
+  v_id uuid; v_amount numeric; v_rate numeric; v_svc boolean;
 begin
   perform business_setup_require('setup.fees.manage');
   p := coalesce(p, '{}'::jsonb);
+  -- is_service: true for a service, false for a cost billed to the client. Left as it is when the key is absent.
+  if p ? 'is_service' then
+    begin v_svc := (p ->> 'is_service')::boolean; exception when others then v_svc := null; end;
+    if v_svc is null then raise exception 'Say whether the fee item is a service: yes or no'; end if;
+  end if;
   v_amount := nullif(btrim(coalesce(p ->> 'default_amount', '')), '')::numeric;
   if v_amount < 0 then raise exception 'The fee amount cannot be negative'; end if;
   v_rate := nullif(btrim(coalesce(p ->> 'vat_rate', '')), '')::numeric;
@@ -49,17 +54,18 @@ begin
         vat_rate = case when p ? 'vat_rate' then v_rate else vat_rate end,
         service_item_id = case when p ? 'service_item_id' then nullif(p ->> 'service_item_id', '')::uuid else service_item_id end,
         active = case when p ? 'active' then coalesce((p ->> 'active')::boolean, active) else active end,
-        sort_order = case when p ? 'sort_order' then coalesce((p ->> 'sort_order')::int, sort_order) else sort_order end
+        sort_order = case when p ? 'sort_order' then coalesce((p ->> 'sort_order')::int, sort_order) else sort_order end,
+        is_service = coalesce(v_svc, is_service)
       where id = v_id;
     if not found then raise exception 'Fee item not found'; end if;
   else
-    insert into business_setup_fee_items (grp, name, default_amount, vat_rate, service_item_id, active, sort_order)
+    insert into business_setup_fee_items (grp, name, default_amount, vat_rate, service_item_id, active, sort_order, is_service)
     values (btrim(p ->> 'grp'), btrim(p ->> 'name'), v_amount, coalesce(v_rate, 5), nullif(p ->> 'service_item_id', '')::uuid,
-            coalesce((p ->> 'active')::boolean, true), coalesce((p ->> 'sort_order')::int, 0))
+            coalesce((p ->> 'active')::boolean, true), coalesce((p ->> 'sort_order')::int, 0), coalesce(v_svc, true))
     on conflict (grp, name) do update set default_amount = case when p ? 'default_amount' then excluded.default_amount else business_setup_fee_items.default_amount end,
         vat_rate = case when p ? 'vat_rate' then excluded.vat_rate else business_setup_fee_items.vat_rate end,
         service_item_id = coalesce(excluded.service_item_id, business_setup_fee_items.service_item_id),
-        active = excluded.active, sort_order = excluded.sort_order
+        active = excluded.active, sort_order = excluded.sort_order, is_service = case when p ? 'is_service' then excluded.is_service else business_setup_fee_items.is_service end
     returning id into v_id;
   end if;
   perform business_setup_audit('business_setup_fee_items', v_id::text, 'fee_item_save', null, jsonb_build_object('grp', p ->> 'grp', 'name', p ->> 'name'));
@@ -471,6 +477,10 @@ begin
   end if;
   v_net := business_setup_case_net_paid(p_case);
   if v_net > 0 then raise exception 'This case has a net payment of %: refund it before marking the case lost', v_net; end if;
+  -- Lost rejects every issued quote, so it cannot pass a quote that Accounts holds.
+  if exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'issued' and business_setup_quote_locked(id)) then
+    raise exception 'A quote of this case is locked because Accounts holds it: the case cannot be marked lost';
+  end if;
   update business_setup_cases set lost_reason = v_reason where id = p_case;
   perform business_setup_case_set_stage(p_case, 'Lost', v_reason);
   for q in select * from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'issued' loop
@@ -584,7 +594,7 @@ end $$;
 create or replace function public.business_setup_payment_reverse(p_id uuid, p_reason text) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
-  o business_setup_payments; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_rev uuid;
+  o business_setup_payments; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_rev uuid; v_net numeric;
 begin
   perform business_setup_require('setup.payments.manage');
   select * into o from business_setup_payments where id = p_id;
@@ -605,9 +615,14 @@ begin
     if business_setup_case_locked(o.case_id) then raise exception 'This quote is locked because Accounts holds it: no payment can be reversed'; end if;
   end if;
   if exists (select 1 from business_setup_payments where reverses_id = o.id) then raise exception 'This payment already has a reversal'; end if;
-  -- The locks above hold the balance still. A reversal may not take the case's or the quote's net paid below zero.
-  if (o.case_id is not null and o.amount > business_setup_case_net_paid(o.case_id)) or (o.quote_id is not null and o.amount > business_setup_net_paid(o.quote_id)) then
-    raise exception 'Reverse the refund first.';
+  -- The locks above hold the balance still. A reversal may not take net paid below zero, counted in the payment's own bucket: the case when it has
+  -- one (every quote and advance of the case share it), else its quote.
+  v_net := case when o.case_id is not null then business_setup_case_net_paid(o.case_id) else business_setup_net_paid(o.quote_id) end;
+  if o.amount > v_net then
+    if exists (select 1 from business_setup_payments where type = 'Refund' and (case when o.case_id is not null then case_id = o.case_id else quote_id = o.quote_id end)) then
+      raise exception 'This payment cannot be reversed: part of the money was refunded, so only % is left to reverse', to_char(greatest(v_net, 0), 'FM999,999,999,990.00');
+    end if;
+    raise exception 'This payment cannot be reversed: it would take the net paid below zero (only % is left)', to_char(greatest(v_net, 0), 'FM999,999,999,990.00');
   end if;
 
   insert into business_setup_payments (client_id, quote_id, case_id, paid_on, amount, method, reference, type, reverses_id, note)

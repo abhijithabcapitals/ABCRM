@@ -17,6 +17,9 @@ begin
   insert into f110 values (p_key, (public.hub_document_create(jsonb_build_object('doc_type', 'quote', 'department', 'Business Setup', 'client_name', 'Fix LLC', 'contact_name', 'C', 'contact_email', 'c@x.ae',
     'contact_phone', '1', 'client_address', 'Dubai', 'client_id', p_client, 'case_id', pg_temp.fx(p_case), 'lines', jsonb_build_array(jsonb_build_object('description', 'S', 'amount', p_amount))))).id::text);
 end $$;
+create function pg_temp.mk2(p_key text, p_of text) returns void language plpgsql as $$
+begin insert into f110 values (p_key, (public.hub_document_create(jsonb_build_object('doc_type', 'quote', 'department', 'Business Setup', 'client_name', 'Fix LLC', 'contact_name', 'C', 'contact_email', 'c@x.ae',
+  'contact_phone', '1', 'client_address', 'Dubai', 'client_id', 'CL900111', 'revises_id', pg_temp.fx(p_of), 'lines', '[{"description":"S","amount":1000}]'::jsonb))).id::text); end $$;
 create function pg_temp.signaccept(p_quote text, p_path text) returns void language plpgsql as $$
 begin perform public.business_setup_signed_decide(public.business_setup_signed_add(pg_temp.fx(p_quote)::uuid, p_path), true, 'Looks right'); end $$;
 create function pg_temp.vq(p_acc text, p_quote text) returns jsonb language sql security definer as $$
@@ -95,7 +98,7 @@ select public.bs_as('00000000-0000-0000-0000-00000000000e');
 insert into f110 values ('p100', public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cRev'), 'amount', 100)) ->> 'payment_id');
 insert into f110 values ('p50', public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cRev'), 'amount', 50)) ->> 'payment_id');
 select public.business_setup_refund_add(jsonb_build_object('case_id', pg_temp.fx('cRev'), 'amount', 60, 'reason', 'Returned')) as ignored \gset
-select public.bs_expect_error(format($$select public.business_setup_payment_reverse('%s', 'Mistake')$$, pg_temp.fx('p100')), 'Reverse the refund first.');
+select public.bs_expect_error(format($$select public.business_setup_payment_reverse('%s', 'Mistake')$$, pg_temp.fx('p100')), 'part of the money was refunded');
 select public.business_setup_payment_reverse(pg_temp.fx('p50')::uuid, 'Mistake') as ignored \gset
 select public.bs_as(null);
 select public.bs_check('reverse: a reversal that leaves net paid at or above zero still works', public.business_setup_case_net_paid(pg_temp.fx('cRev')::uuid) = 40);
@@ -107,7 +110,7 @@ select pg_temp.signaccept('qNo', 'staff/CL900111/no.pdf');
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 insert into f110 values ('pNo', public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.fx('qNo'), 'amount', 100)) ->> 'payment_id');
 select public.business_setup_refund_add(jsonb_build_object('quote_id', pg_temp.fx('qNo'), 'amount', 30, 'reason', 'Returned')) as ignored \gset
-select public.bs_expect_error(format($$select public.business_setup_payment_reverse('%s', 'Mistake')$$, pg_temp.fx('pNo')), 'Reverse the refund first.');
+select public.bs_expect_error(format($$select public.business_setup_payment_reverse('%s', 'Mistake')$$, pg_temp.fx('pNo')), 'part of the money was refunded');
 select public.bs_as(null);
 
 -- ── Step 3: Finance's door only creates from the case ──
@@ -121,6 +124,36 @@ select public.bs_check('finance door: both refusals left the case with no client
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.bs_check('finance door: an empty client ID still creates from the case', public.business_setup_case_link_client_for_payment(pg_temp.fx('cDoor')::uuid, '  ', false) is not null);
 select public.bs_check('finance: holds access to the Leads tab and the payment right, not lead actions', public.business_setup_can('setup.access') and public.business_setup_can('setup.payments.manage') and not public.business_setup_can('setup.leads.manage'));
+select public.bs_as(null);
+
+-- ── Reversal in the payment's own bucket, with two quotes (a revision) in one case ──
+select public.bs_as(null);
+select pg_temp.mkcase('cTwo', 'CL900111');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select pg_temp.mkq('qTwo1', 'CL900111', 'cTwo', 1000);
+select pg_temp.mk2('qTwo2', 'qTwo1');
+select pg_temp.signaccept('qTwo2', 'staff/CL900111/two2.pdf');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+insert into f110 values ('advTwo', public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cTwo'), 'amount', 100)) ->> 'payment_id');
+insert into f110 values ('payTwo', public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('cTwo'), 'amount', 50)) ->> 'payment_id');
+select public.business_setup_refund_add(jsonb_build_object('case_id', pg_temp.fx('cTwo'), 'amount', 30, 'reason', 'Returned')) as ignored \gset
+select public.business_setup_payment_reverse(pg_temp.fx('advTwo')::uuid, 'Mistake') as ignored \gset
+select public.bs_as(null);
+select public.bs_check('reverse: with a refund on the case a reversal that keeps net paid at or above zero works', public.business_setup_case_net_paid(pg_temp.fx('cTwo')::uuid) = 20);
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select public.business_setup_payment_reverse('%s', 'Mistake')$$, pg_temp.fx('payTwo')), 'part of the money was refunded, so only 20.00 is left');
+
+-- ── Lost cannot pass a quote that Accounts holds ──
+select public.bs_as(null);
+insert into public.client_master (client_id, legal_name, data) values ('CL900113', 'Lock LLC', '{}') on conflict do nothing;
+select pg_temp.mkcase('cLk', 'CL900113');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select pg_temp.mkq('qLk', 'CL900113', 'cLk', 500);
+select public.bs_as(null);
+insert into public.business_setup_services (client_id, quote_id, name, locked) values ('CL900113', pg_temp.fx('qLk')::uuid, 'Held', true);
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_case_lost('%s', 'Gone')$$, pg_temp.fx('cLk')), 'locked because Accounts holds it');
+select public.bs_check('lost_locked: the case and its quote are unchanged', pg_temp.stg('cLk') <> 'Lost' and pg_temp.qst('qLk') = 'issued');
 select public.bs_as(null);
 
 do $$

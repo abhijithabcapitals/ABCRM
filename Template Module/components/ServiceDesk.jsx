@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { listFees } from "@business-setup/services/businessSetupApi";
 import { createDocument, listDocuments, loadCatalogue, loadHubSettings, openInFolder, openStored, renderTemplate, saveFile, updateMail } from "../services/hubApi";
 import { ClientLists, listIdFor, useClientLookup } from "@banking/components/ClientLookup";
 import { applyClient } from "@banking/logic/clientLookup";
@@ -18,6 +19,7 @@ const inDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return
 // initial: form values to start from, plus service (the first line's service). onDocument(doc): called once a quote or letter is filed.
 export default function ServiceDesk({ department, profile, initial, onDocument }) {
   const catalogue = useLoad(loadCatalogue, []);
+  const fees = useLoad(() => listFees().catch(() => []), []);
   const settings = useLoad(loadHubSettings, []);
   const clients = useClientLookup();
   const [dept, setDept] = useState(department || DEPARTMENTS[0]);
@@ -49,7 +51,9 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const set = (k) => (e) => { const v = e.target.value; setForm((f) => (CLIENT_MAP[k] ? applyClient(f, CLIENT_MAP, k, v, clients) : { ...f, [k]: v })); };
   const chooseDept = (d) => { setDept(d); setLines([]); setService(""); setFee(""); setMail(null); };
   const add = () => {
-    const r = addLine(lines, service, fee);
+    const svc = categories.flatMap((c) => c.service_items).find((s) => s.name === service);
+    const item = dept === "Business Setup" && svc ? (fees.data || []).find((f) => f.service_item_id === svc.id) : null;
+    const r = addLine(lines, service, fee, item);
     if (r.error) { setError(r.error); flagMissing([/fee/.test(r.error) ? "d-fee" : "d-service"]); return; }
     setError(null); setLines(r.lines); setService(""); setFee("");
   };
