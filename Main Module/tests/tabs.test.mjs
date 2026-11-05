@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { barId, isTabBar } from "../src/jsx/DragTabs.js";
+import { barId, dropSide, isTabBar } from "../src/jsx/DragTabs.js";
 import { GRANTABLE_TABS, initialView, moveTab, orderTabs, readTabOrder, resolveView, startView, toggleAllTabs } from "../src/tabs.js";
 
 const every = GRANTABLE_TABS.map((t) => t.key);
@@ -33,6 +33,30 @@ test("tab bars are found by their class; onboarding stages stay fixed", () => {
   assert.equal(isTabBar("div", { className: "bk-tabset" }), false);
   assert.equal(isTabBar("div", { className: "tabs" }), true);
   assert.equal(isTabBar("div", {}), false);
+});
+test("any tablist and the Messenger tabs are bars too; a fixed sequence stays fixed", () => {
+  assert.equal(isTabBar("div", { role: "tablist" }), true);
+  assert.equal(isTabBar("div", { className: "msgr-tabs" }), true);
+  assert.equal(isTabBar("div", { role: "tablist", className: "bk-tabs bk-cm-stages" }), false);
+  assert.equal(isTabBar("button", { role: "tablist" }), false);
+  assert.equal(isTabBar("div", { className: "bk-segments" }), false);
+});
+test("the drop marker shows the side the dragged tab will land on", () => {
+  const keys = ["a", "b", "c"];
+  assert.equal(dropSide(keys, "a", "c"), "after");
+  assert.equal(dropSide(keys, "c", "a"), "before");
+  assert.equal(dropSide(keys, "b", "b"), null);
+  assert.equal(dropSide(keys, null, "b"), null);
+  assert.deepEqual(moveTab(keys, "a", "c"), ["b", "c", "a"]);
+  assert.deepEqual(moveTab(keys, "c", "a"), ["c", "a", "b"]);
+});
+test("two loaded copies of the usage module share one signed-in user", async () => {
+  const one = await import("../src/jsx/selectUsage.js?copy=1");
+  const two = await import("../src/jsx/selectUsage.js?copy=2");
+  one.setUsageUser("person-1");
+  assert.equal(two.usageUser(), "person-1");
+  one.setUsageUser(null);
+  assert.equal(two.usageUser(), null);
 });
 test("a named bar keeps its identity when a tab is added; an unnamed one is known by its tabs", () => {
   assert.equal(barId("HR", ["a", "b"]), barId("HR", ["a", "b", "c"]));

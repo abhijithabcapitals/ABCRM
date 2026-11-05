@@ -17,6 +17,8 @@ export const removeStaff = (userId) => run(table("business_setup_staff").update(
 export const dashboard = () => rpc("business_setup_dashboard");
 export const expiries = (days = 90) => rpc("business_setup_expiries", { p_days: days });
 export const clientList = () => rpc("business_setup_client_list");
+export const clientMainFields = () => rpc("business_setup_client_main_fields");
+export const clientMainSave = (client, p) => rpc("business_setup_client_main_save", { p_client: client, p });
 export const workspace = (client) => rpc("business_setup_workspace", { p_client: client });
 export const listTasks = () => run(table("business_setup_tasks").select("*").eq("status", "Open").order("due_date", { nullsFirst: false }));
 export const saveTask = (p) => rpc("business_setup_task_save", { p });

@@ -4,6 +4,10 @@
 -- WARNING: cases and everything stored only on them are lost. Quotes, letters, payments and forms keep their rows.
 begin;
 
+-- ── 020_client_main_fields.sql ───────────────────────────────────────
+drop function if exists public.business_setup_client_main_save(text, jsonb);
+drop function if exists public.business_setup_client_main_fields();
+
 -- ── 014_leads_ownership.sql ──────────────────────────────────────────
 drop policy if exists business_setup_staff_upload on storage.objects;
 drop function if exists public.business_setup_staff_upload_ok(text, text);
