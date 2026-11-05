@@ -48,7 +48,7 @@ select t.ok('public cannot run alert_step_for', (select count(*) = 0 from pg_pro
   and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
 
 -- ═══ Rules and the daily scan (Task 3) ═══════════════════════════════
--- Triage, not Live: Live would call alert_escalate_due(), which Task 4 defines.
+-- Triage here keeps these scans free of escalation; 030 covers the Live scan and alert_escalate_due().
 update alert_settings set value = '"Triage"' where key = 'alert_mode';
 update alert_rules set enabled = false where code = 'r';   -- test rule left by 010; it has no rule function
 select (now() at time zone 'Asia/Dubai')::date as today \gset
@@ -218,9 +218,8 @@ select t.ok('authenticated and anon cannot run alert_scan', not has_function_pri
 select t.ok('public cannot run alert_scan', (select count(*) = 0 from pg_proc p where p.oid = 'alert_scan()'::regprocedure
   and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
 select t.ok('rule functions and the date helper are not browser-callable', (select count(*) = 8 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
-  from pg_proc p where pronamespace = 'public'::regnamespace and (proname like 'alert\_rule\_%' or proname = 'alert_safe_date')));
+  from pg_proc p where pronamespace = 'public'::regnamespace and ((proname like 'alert\_rule\_%' and proname <> 'alert_rule_save') or proname = 'alert_safe_date')));
 select t.ok('alert_scan is scheduled daily at 02:00', (select count(*) = 1 and bool_and(schedule = '0 2 * * *' and command = 'select public.alert_scan()') from cron.job where jobname = 'alert-scan'));
-select t.ok('alert_escalate_due is not defined here', to_regprocedure('alert_escalate_due()') is null);
 
 -- run-local.sh expects the tests to leave the mode on Live.
 update alert_settings set value = '"Live"' where key = 'alert_mode';

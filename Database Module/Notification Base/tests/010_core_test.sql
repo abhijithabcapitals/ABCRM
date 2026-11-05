@@ -157,10 +157,17 @@ select t.ok('admin still sees all in Preview', (select count(*) = :total_alerts 
 reset role;
 update alert_settings set value = '"Live"' where key = 'alert_mode';
 
--- Grants: authenticated may run only the three policy helpers; anon none; anon cannot read alerts
-select t.ok('authenticated runs only the three policy helpers',
-  (select count(*) = 3 and array_agg(proname::text order by proname) = array['alert_can_see', 'alert_is_admin', 'alert_is_manager']
+-- Grants: authenticated may run only the three policy helpers and the browser actions of 003; anon none; anon cannot read alerts
+select t.ok('authenticated runs only the policy helpers and the browser actions',
+  (select count(*) = 11 and array_agg(proname::text order by proname) = array['alert_assign', 'alert_can_see', 'alert_escalate', 'alert_is_admin', 'alert_is_manager',
+     'alert_mark_read', 'alert_resolve', 'alert_rule_save', 'alert_scan_now', 'alert_set_mode', 'alert_set_status']
    from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%' and has_function_privilege('authenticated', p.oid, 'execute')));
+select t.ok('authenticated runs exactly the three client owner functions outside the alert_ names',
+  (select count(*) = 3 and array_agg(proname::text order by proname) = array['client_owner_list', 'client_owner_proposals', 'client_owners_set']
+   from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'client\_owner%' and has_function_privilege('authenticated', p.oid, 'execute')));
+select t.ok('anon and public run no client owner function', (select count(*) = 3 and bool_and(not has_function_privilege('anon', p.oid, 'execute')
+  and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE'))
+  from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'client\_owner%'));
 select t.ok('there are alert functions to check', (select count(*) >= 9 from pg_proc where pronamespace = 'public'::regnamespace and proname like 'alert\_%'));
 select t.ok('anon runs no alert function', (select count(*) = 0 from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%' and has_function_privilege('anon', p.oid, 'execute')));
 select t.ok('public runs no alert function', (select count(*) = 0 from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%'

@@ -6,6 +6,23 @@ do $$ begin
   end if;
 end $$;
 
+-- 003: browser actions, escalation, owner functions, settings (no tables of their own)
+drop function if exists public.alert_scan_now();
+drop function if exists public.alert_set_mode(text);
+drop function if exists public.alert_rule_save(text, boolean, jsonb);
+drop function if exists public.client_owners_set(text, text[], uuid);
+drop function if exists public.client_owner_proposals(text);
+drop function if exists public.client_owner_list();
+drop function if exists public.alert_escalate_due();
+drop function if exists public.alert_mark_read(uuid);
+drop function if exists public.alert_escalate(uuid, text);
+drop function if exists public.alert_resolve(uuid, text, boolean);
+drop function if exists public.alert_set_status(uuid, text);
+drop function if exists public.alert_assign(uuid, uuid);
+drop function if exists public.alert_set_assignee(uuid, uuid);
+drop function if exists public.alert_notify_managers(uuid, boolean);
+drop function if exists public.alert_can_act(uuid, boolean);
+
 -- 002: unschedule the scan (safe when pg_cron or the job is absent), then scan, rule functions, helper, type, step function
 do $$ begin
   if to_regclass('cron.job') is not null then

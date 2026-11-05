@@ -8,7 +8,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="${PG_BIN:-/c/Program Files/PostgreSQL/18/bin}"
 DATA="$(mktemp -d)/pg"
-PORT=55447
+PORT="${PG_PORT:-55447}"
 "$BIN/initdb.exe" -D "$DATA" -U postgres -A trust -E UTF8 --no-locale >/dev/null || exit 1
 "$BIN/pg_ctl.exe" -D "$DATA" -o "-p $PORT" -w -l "$DATA/log" start >/dev/null || exit 1
 trap '"$BIN/pg_ctl.exe" -D "$DATA" -m immediate stop >/dev/null; rm -rf "$DATA"' EXIT
@@ -64,7 +64,7 @@ if [ "$SKIP_RESULT" = "Skipped" ] && [ "$LOGS_AFTER" -eq $((LOGS_BEFORE + 1)) ] 
 else
   echo "FAILED held lock: result=$SKIP_RESULT skipped_logs $LOGS_BEFORE->$LOGS_AFTER alerts $ALERTS_BEFORE->$ALERTS_AFTER"; exit 1
 fi
-# Triage here: Live would call alert_escalate_due(), which Task 4 defines.
+# Triage here, so this scan does not escalate; 030 covers the Live scan.
 "${PSQL[@]}" -c "update public.alert_settings set value = '\"Triage\"' where key = 'alert_mode'" || exit 1
 SCAN_RESULT="$("${PSQL[@]}" -t -A -c "select alert_scan()->>'status'")"
 ALERTS_RERUN="$("${PSQL[@]}" -t -A -c "select count(*) from public.alerts")"
@@ -79,7 +79,7 @@ BEFORE="$("${PSQL[@]}" -t -A -c "select count(*) from public.notifications where
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/001_004_rollback.sql" || { echo "FAILED rollback pass $i"; exit 1; }; done
 OUT="$("${PSQL[@]}" -t -A -c "select case
   when (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and (c.relname like 'alert\_%' or c.relname = 'alerts' or c.relname = 'client_owners')) > 0 then 'FAILED rollback left relations'
-  when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'alert\_%') > 0 then 'FAILED rollback left functions'
+  when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'alert\_%' or p.proname like 'client\_owner%')) > 0 then 'FAILED rollback left functions'
   when (select count(*) from cron.job where jobname = 'alert-scan') > 0 then 'FAILED rollback left the alert-scan job'
   when exists (select 1 from pg_type where typname = 'alert_candidate') then 'FAILED rollback left alert_candidate'
   when (select count(*) from public.notifications where type = 'alert_centre') > 0 then 'FAILED rollback left alert_centre bell rows'
