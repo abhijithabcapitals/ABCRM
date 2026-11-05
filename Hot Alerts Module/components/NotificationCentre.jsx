@@ -7,6 +7,7 @@ import ManagementView from "./ManagementView";
 import CentreSettings from "./CentreSettings";
 import MyPreferences from "./MyPreferences";
 import AlertCalendar from "./AlertCalendar";
+import RegulatoryUpdates from "./RegulatoryUpdates";
 import ComplianceRegister from "./ComplianceRegister";
 import { Note, btn } from "./ui";
 import { dubaiToday, emptyText, isNotSwitchedOn, tabsFor } from "../logic/alertLogic";
@@ -91,6 +92,8 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
       {access && tab === "Compliance Register" && <ComplianceRegister supabase={supabase} today={today} fmtDate={fmtDate} />}
       {access && tab === "Management" && <ManagementView supabase={supabase} access={access} today={today} onOpen={open} refreshKey={refreshKey} />}
       {access && tab === "Calendar" && <AlertCalendar supabase={supabase} CalendarPanel={CalendarPanel} onOpen={open} access={access} />}
+
+      {access && tab === "Regulatory Updates" && <RegulatoryUpdates supabase={supabase} />}
 
       {access && tab === "Settings" && (
         <>

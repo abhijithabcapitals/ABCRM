@@ -227,3 +227,16 @@ test("calendar rows become all-day events with the priority as kind", async () =
   assert.deepEqual(alertsToEvents(null), []);
   assert.ok(tabsFor({}).includes("Calendar"));
 });
+
+test("regulatory steps and applicability", async () => {
+  const { nextRegStep, applicabilityFromForm, applicabilityToForm, tabsFor } = await import("../logic/alertLogic.js");
+  assert.equal(nextRegStep("Draft").action, "review");
+  assert.equal(nextRegStep("List proposed").action, "verify");
+  assert.equal(nextRegStep("Tasks created"), null);
+  assert.deepEqual(applicabilityFromForm({ all: true, jurisdictions: "DMCC" }), { all_clients: true });
+  assert.deepEqual(applicabilityFromForm({ jurisdictions: " DMCC, SHAMS ,", visa: "no" }), { jurisdictions: ["DMCC", "SHAMS"], has_visa: false });
+  assert.deepEqual(applicabilityFromForm({}), {});
+  assert.deepEqual(applicabilityToForm({ jurisdictions: ["A", "B"], has_visa: true }), { all: false, jurisdictions: "A, B", visa: "yes" });
+  assert.deepEqual(applicabilityToForm(null), { all: false, jurisdictions: "", visa: "" });
+  assert.ok(tabsFor({}).includes("Regulatory Updates"));
+});

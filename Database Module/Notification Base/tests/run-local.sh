@@ -77,6 +77,7 @@ case "$OUT" in "ok "*) ;; *) exit 1 ;; esac
 BEFORE="$("${PSQL[@]}" -t -A -c "select count(*) from public.notifications where type = 'alert_centre'")"
 [ "$BEFORE" -gt 0 ] || { echo "FAILED no alert_centre bell rows to roll back"; exit 1; }
 # 006 to 009 first (newest migration first): they restore 004's read functions and drop what Phase 2 added. Twice, to prove it is safe.
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/010_rollback.sql" || { echo "FAILED rollback 010"; exit 1; }; done
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/006_009_rollback.sql" || { echo "FAILED rollback 006_009 pass $i"; exit 1; }; done
 OUT="$("${PSQL[@]}" -t -A -c "select case
   when to_regclass('public.client_compliance_items') is not null then 'FAILED rollback 006_009 left the register table'

@@ -56,7 +56,8 @@ export default function CentreSettings({ supabase, access, onChanged }) {
   async function loadAll() {
     try {
       const [r, m, c] = await Promise.all([alertRuleList(supabase), alertManagerList(supabase), alertCoverage(supabase)]);
-      setRules(r || []); setManagers(m); setScan(c);
+      setRules((r || []).filter((x) => !x.code.startsWith("regulatory_")));  // Raised by the regulatory workflow, not by the scan.
+      setManagers(m); setScan(c);
     } catch (e) {
       setError(e.message);
     }

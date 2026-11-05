@@ -48,3 +48,13 @@ export const clientComplianceImport = (s, rows) => call(s, "client_compliance_im
 export const alertPreferencesGet = (s) => call(s, "alert_preferences_get", {});
 export const alertPreferencesSave = (s, category, channel, enabled) => call(s, "alert_preferences_save", { p_category: category, p_channel: channel, p_enabled: enabled });
 export const alertCalendar = (s, from, to) => call(s, "alert_calendar", { p_from: from, p_to: to });
+
+// Regulatory Updates Centre (010).
+export const regulatoryList = (s, status = null, limit = 50, offset = 0) => call(s, "regulatory_list", { p_status: status, p_limit: limit, p_offset: offset });
+export const regulatoryDetail = (s, id) => call(s, "regulatory_detail", { p_id: id });
+export const regulatorySave = (s, p) => call(s, "regulatory_update_save", { p });
+export const regulatoryStartReview = (s, id) => call(s, "regulatory_start_review", { p_id: id });
+export const regulatoryProposeList = (s, id) => call(s, "regulatory_propose_list", { p_id: id });
+export const regulatoryDecideClient = (s, id, client, decision) => call(s, "regulatory_decide_client", { p_id: id, p_client: client, p_decision: decision });
+export const regulatoryVerify = (s, id) => call(s, "regulatory_verify", { p_id: id });
+export const regulatoryCreateTasks = (s, id) => call(s, "regulatory_create_tasks", { p_id: id });
