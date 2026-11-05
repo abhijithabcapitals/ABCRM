@@ -11,11 +11,14 @@
 //   upload_start { for_form: true, ... } files the upload under this login's own Business Setup form
 //   upload_start { for_claim: true, file_name, size } -> { id, upload_url }   a proof of payment: PDF, JPG or PNG up to 10 MB, kept as this login's own upload
 //   upload_done { id }, doc_url { id }
-//   setup_view, form_get, form_save { answers }, form_submit, setup_file { kind, id }
+//   setup_view -> the client's own Business Setup records: form, services, quotes, letters, payments, invoices, claims, documents. Each quote and letter carries
+//     its decision, and whether it can still be decided; each invoice says whether a payment claim can be made. Never a staff name, a staff note, a reason or an
+//     override: the only staff words a client reads are the note on a refused signed copy and the note on a refused payment claim.
+//   form_get, form_save { answers }, form_submit, setup_file { kind, id }
 //   setup_decide { document_id, decision, note? }   Accepted or Rejected on the client's own quote or letter; the account comes from the session
 //   setup_payment_claim { invoice_id, amount, paid_on, reference?, proof_id? } -> { id }   "I have paid" on the client's own invoice; the account comes from the
 //     session, never the body. proof_id is the id of a finished upload_start { for_claim: true } upload of this login. The claim changes no balance: staff confirm
-//     it (a payment and a receipt) or refuse it with a note, and the client sees the status in setup_view.
+//     it (a payment and a receipt) or refuse it with a note, and the client sees the claim's status (and the refusal note, only when Refused) in setup_view.
 //   submit_change { field, value } -> { id }       asks staff to change one company detail
 //   gallery_url { source, id } -> { url }          source is kyc or generated; link lasts 120 seconds
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
@@ -330,6 +333,8 @@ Deno.serve(async (req) => {
         if (!UUID.test(invoiceId)) throw new InputError("Invoice not found.");
         let proofPath: string | null = null;
         if (body.proof_id) {
+          // A malformed id is the client's mistake, answered in one sentence (the database would otherwise raise a 500).
+          if (!UUID.test(String(body.proof_id))) throw new InputError("The proof of payment did not finish uploading. Please upload it again.");
           // The proof must be an upload of this very login that finished (ownDoc reads body.id, so the lookup is made here).
           const { data: proof } = await admin.from("client_portal_documents").select("storage_path, upload_complete")
             .eq("id", String(body.proof_id)).eq("account_id", accountId).eq("doc_type", "Payment proof").maybeSingle();

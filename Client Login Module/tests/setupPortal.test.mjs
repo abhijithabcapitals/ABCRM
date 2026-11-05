@@ -85,6 +85,7 @@ test("a client with no Business Setup work sees only today's portal", () => {
   assert.deepEqual(portalSections({ form: null, services: [], quotes: [], payments: [], invoices: [], documents: [] }), []);
   assert.deepEqual(portalSections(null), []);
   assert.deepEqual(portalSections({ form: {}, services: [{}], quotes: [], payments: [{}], invoices: [], documents: [] }), ["form", "services", "payments"]);
+  assert.deepEqual(portalSections({ form: null, services: [], quotes: [{}], letters: [{}], payments: [], invoices: [{}], documents: [] }), ["quotes", "letters", "invoices"]);
 });
 
 test("the portal imports nothing from staff modules beyond the form definition and shared components", () => {

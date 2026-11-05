@@ -47,6 +47,19 @@ export const portalApi = {
   setupView: () => call("setup_view"),
   formSave: (answers) => call("form_save", { answers }),
   formSubmit: () => call("form_submit"),
+  setupDecide: (document_id, decision, note) => call("setup_decide", { document_id, decision, note }),
+  // "I have paid". The optional proof goes up first as this login's own upload, then the claim names it.
+  setupClaim: async ({ invoice_id, amount, paid_on, reference }, file) => {
+    let proof_id;
+    if (file) {
+      const { id, upload_url, mime } = await call("upload_start", { file_name: file.name, size: file.size, for_claim: true });
+      const put = await fetch(upload_url, { method: "PUT", headers: { "Content-Type": mime }, body: file });
+      if (!put.ok) throw new Error(`${file.name} could not be uploaded. Please try again.`);
+      await call("upload_done", { id });
+      proof_id = id;
+    }
+    return call("setup_payment_claim", { invoice_id, amount, paid_on, reference, proof_id });
+  },
   setupFile: async (kind, id) => (await call("setup_file", { kind, id })).url,
   formUpload: async (file, doc_type) => {
     const { id, upload_url, mime } = await call("upload_start", { file_name: file.name, size: file.size, doc_type, for_form: true });

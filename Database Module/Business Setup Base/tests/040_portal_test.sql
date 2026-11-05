@@ -5,6 +5,8 @@
 -- 010 grants every function to signed-in users for its own calls: run these migrations again to restore their real grants.
 \ir ../migrations/009_onboarding.sql
 \ir ../migrations/010_portal.sql
+-- The portal view is 018 (it needs 013 to 016, which run-local.sh has applied). Only 018 runs again: the earlier files restore grants that tests 050 to 090 rely on.
+\ir ../migrations/018_portal.sql
 create temp table f40 (k text primary key, v text);
 create function pg_temp.fx(p_k text) returns text language sql as $$ select v from f40 where k = p_k $$;
 create function pg_temp.q(p_client text, p_num text, p_status text, p_path text default null) returns uuid language sql as $$
@@ -103,6 +105,63 @@ select public.bs_check('balance per quote', (select (e ->> 'net_paid')::numeric 
 select public.bs_check('a quote says if it has a file', (select (e ->> 'has_file')::boolean = false from jsonb_array_elements(pg_temp.v() -> 'quotes') e where e ->> 'number' = 'BSQ-NOFILE'));
 select public.bs_check('the view includes the form', pg_temp.v() -> 'form' ->> 'status' = 'Draft');
 select public.bs_check('details come from Client Master', pg_temp.v() -> 'details' ->> 'company_email' = 'master@a.test');
+
+-- ── Decisions, letters and payment claims (restructure Task 8) ──
+insert into public.business_setup_cases (client_id, stage, lead_name) values ('CL900080', 'Pipeline', 'task8 case');
+insert into f40 select 'case_a', id::text from public.business_setup_cases where lead_name = 'task8 case';
+insert into f40 values ('quote_dec', pg_temp.q('CL900080', 'BSQ-DEC', 'issued')::text);
+update public.hub_documents set case_id = pg_temp.fx('case_a')::uuid where id in (pg_temp.fx('quote_dec')::uuid, pg_temp.fx('quote_a')::uuid);
+create function pg_temp.vq(p_num text) returns jsonb language sql as $$ select e from jsonb_array_elements(pg_temp.v() -> 'quotes') e where e ->> 'number' = p_num $$;
+-- view_decisions
+select public.bs_check('view_decisions: an undecided quote has no decision and can be decided', pg_temp.vq('BSQ-DEC') -> 'decision' = 'null'::jsonb and (pg_temp.vq('BSQ-DEC') ->> 'can_decide')::boolean);
+select public.business_setup_portal_decide(pg_temp.fx('acc_a')::uuid, pg_temp.fx('quote_dec')::uuid, 'Rejected', 'Price too high for us');
+select public.bs_check('view_decisions: a quote shows its decision and revision', pg_temp.vq('BSQ-DEC') -> 'decision' ->> 'decision' = 'Rejected'
+  and (pg_temp.vq('BSQ-DEC') -> 'decision' ->> 'revision')::int = public.business_setup_doc_revision(pg_temp.fx('quote_dec')::uuid)
+  and pg_temp.vq('BSQ-DEC') -> 'decision' ->> 'note' = 'Price too high for us' and not (pg_temp.vq('BSQ-DEC') ->> 'can_decide')::boolean);
+-- A staff-confirmed signed copy of the accepted quote: the decision shows as Staff and carries no note.
+insert into public.business_setup_signed_quotes (quote_id, kind, source, status, storage_path, note) select pg_temp.fx('quote_a')::uuid, 'Quote', 'Staff', 'Confirmed', 'signed/a.pdf', 'staff confirm text' where not exists (select 1 from public.business_setup_signed_quotes where quote_id = pg_temp.fx('quote_a')::uuid and status = 'Confirmed');
+insert into public.business_setup_acceptances (document_id, kind, revision, decision, note, source, signed_quote_id)
+  select pg_temp.fx('quote_a')::uuid, 'Quote', 0, 'Accepted', 'staff acceptance text', 'Staff', id from public.business_setup_signed_quotes where quote_id = pg_temp.fx('quote_a')::uuid and status = 'Confirmed' limit 1;
+select public.bs_check('view_decisions: a staff decision shows its source, its revision and no note', pg_temp.vq('BSQ-A') -> 'decision' ->> 'source' = 'Staff' and pg_temp.vq('BSQ-A') -> 'decision' ->> 'decision' = 'Accepted'
+  and pg_temp.vq('BSQ-A') -> 'decision' ->> 'revision' = '0' and pg_temp.vq('BSQ-A') -> 'decision' -> 'note' = 'null'::jsonb);
+select public.bs_check('view_decisions: the letters key lists the client''s own letters with their quote and decision state', jsonb_array_length(pg_temp.v() -> 'letters') = 1
+  and pg_temp.v() -> 'letters' -> 0 ->> 'number' = 'BSE-A' and pg_temp.v() -> 'letters' -> 0 ->> 'quote_number' = 'BSQ-A' and pg_temp.v() -> 'letters' -> 0 ? 'decision' and pg_temp.v() -> 'letters' -> 0 ? 'can_decide'
+  and pg_temp.v()::text !~ 'BSE-B');
+-- view_only_published: an invoice is in the view once it is recorded or published, which is when its row exists.
+select public.bs_check('view_only_published: no invoice row, no invoice', pg_temp.v() -> 'invoices' = '[]'::jsonb);
+insert into public.business_setup_invoices (client_id, quote_id, case_id, invoice_number, issued_on, amount, source, file_path) values
+  ('CL900080', pg_temp.fx('quote_a')::uuid, pg_temp.fx('case_a')::uuid, 'INV-T8', current_date, 600, 'manual', 'inv/t8.pdf'),
+  ('CL900081', pg_temp.fx('quote_b')::uuid, null, 'INV-T8B', current_date, 100, 'manual', 'inv/t8b.pdf');
+insert into f40 select 'inv_t8', id::text from public.business_setup_invoices where invoice_number = 'INV-T8';
+select public.bs_check('view_only_published: a recorded invoice appears, with whether a claim can be made', (select (e ->> 'can_claim')::boolean and not (e ->> 'claim_pending')::boolean from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-T8')
+  and jsonb_array_length(pg_temp.v() -> 'invoices') = 1);
+-- view_claims
+select public.bs_check('view_claims: no claims yet', pg_temp.v() -> 'claims' = '[]'::jsonb);
+select public.business_setup_portal_claim_add(pg_temp.fx('acc_a')::uuid, jsonb_build_object('invoice_id', pg_temp.fx('inv_t8'), 'amount', 300, 'paid_on', ((now() at time zone 'Asia/Dubai')::date - 1)::text, 'reference', 'TT-T8'));
+select public.bs_check('view_claims: the client sees own pending claim, and the invoice says a claim is waiting', pg_temp.v() -> 'claims' -> 0 ->> 'status' = 'Pending' and pg_temp.v() -> 'claims' -> 0 ->> 'invoice_number' = 'INV-T8'
+  and (pg_temp.v() -> 'claims' -> 0 ->> 'amount')::numeric = 300 and pg_temp.v() -> 'claims' -> 0 ->> 'reference' = 'TT-T8' and pg_temp.v() -> 'claims' -> 0 -> 'note' = 'null'::jsonb
+  and (select (e ->> 'claim_pending')::boolean and not (e ->> 'can_claim')::boolean from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-T8'));
+select public.bs_check('view_claims: another client sees none of it', public.business_setup_portal_view(pg_temp.fx('acc_none')::uuid) -> 'claims' = '[]'::jsonb and public.business_setup_portal_view(pg_temp.fx('acc_banking')::uuid) -> 'claims' = '[]'::jsonb);
+-- A staff note on a claim that is not Refused is internal; a Refused claim's note is the client's to read.
+update public.business_setup_payment_claims set note = 'staff internal claim text' where reference = 'TT-T8';
+select public.bs_check('view_claims: a note on a claim that is not Refused stays hidden', pg_temp.v() -> 'claims' -> 0 -> 'note' = 'null'::jsonb and pg_temp.v()::text !~ 'staff internal claim text');
+update public.business_setup_payment_claims set status = 'Refused', decided_at = now(), note = 'The reference does not match our bank' where reference = 'TT-T8';
+select public.bs_check('view_claims: a Refused claim shows its note, and a new claim can be made', pg_temp.v() -> 'claims' -> 0 ->> 'status' = 'Refused' and pg_temp.v() -> 'claims' -> 0 ->> 'note' = 'The reference does not match our bank'
+  and (select (e ->> 'can_claim')::boolean from jsonb_array_elements(pg_temp.v() -> 'invoices') e where e ->> 'number' = 'INV-T8'));
+-- view_forbidden
+update public.business_setup_cases set invoice_override_reason = 'zoho down so skipping the invoice' where id = pg_temp.fx('case_a')::uuid;
+select public.bs_check('view_forbidden: no staff name, id of staff, note, reason or override text in the view', pg_temp.v()::text !~* 'staff acceptance text|staff confirm text|staff internal claim text|zoho down|override|decided_by|created_by|proof_path|account_id|payment_id'
+  and not exists (select 1 from jsonb_array_elements(pg_temp.v() -> 'claims') c, jsonb_object_keys(c) k where k in ('decided_by', 'decided_at', 'proof_path', 'account_id', 'payment_id', 'case_id')));
+update public.business_setup_cases set invoice_override_reason = null where id = pg_temp.fx('case_a')::uuid;
+-- Clean up: decisions, claims and the signed copy are append-only, so this runs with triggers off (test only). Later files count claims and invoices.
+set session_replication_role = replica;
+delete from public.business_setup_payment_claims where reference = 'TT-T8';
+delete from public.business_setup_acceptances where document_id in (pg_temp.fx('quote_dec')::uuid, pg_temp.fx('quote_a')::uuid);
+delete from public.business_setup_signed_quotes where storage_path = 'signed/a.pdf';
+delete from public.business_setup_invoices where invoice_number in ('INV-T8', 'INV-T8B');
+update public.hub_documents set case_id = null where case_id = pg_temp.fx('case_a')::uuid;
+delete from public.business_setup_cases where id = pg_temp.fx('case_a')::uuid;
+set session_replication_role = origin;
 
 -- ── Older and unlinked accounts ──
 select public.bs_check('banking-linked account resolves', public.business_setup_portal_client(pg_temp.fx('acc_banking')::uuid) = 'CL900082');

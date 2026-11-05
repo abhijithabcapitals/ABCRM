@@ -6,6 +6,9 @@
 -- last two). The client cannot upload a signed copy, but decides in the portal (business_setup_portal_decide); staff issue the login with the quote
 -- (business_setup_issue_login_ok, business_setup_login_grant, business_setup_login_mail). Clients are not Supabase Auth users: the view takes p_account and is
 -- callable by the service role only.
+-- The view also carries the revision of each decision, a letters list, the client's payment claims (business_setup_portal_claims, below) and, on each invoice,
+-- whether a claim can be made or one is waiting. No staff name, staff note, reason or override text; a note shows only on a refused signed copy, a refused claim
+-- and the client's own rejection.
 -- Run after 015. Re-runnable. Undo with rollback/015_018_rollback.sql (phase 2 only, with 015) or rollback/013_019_rollback.sql (every case migration).
 -- =====================================================================
 
@@ -26,13 +29,13 @@ begin
                   'signed', (select jsonb_build_object('status', s.status, 'date', s.created_at::date, 'note', case when s.status = 'Refused' then s.note end)
                                from business_setup_signed_quotes s where s.quote_id = q.id order by s.created_at desc limit 1),
                   'expired', q.status = 'issued' and q.valid_until is not null and q.valid_until < (now() at time zone 'Asia/Dubai')::date,
-                  'decision', (select jsonb_build_object('decision', a.decision, 'date', a.created_at::date, 'source', a.source, 'note', case when a.source = 'Portal' and a.decision = 'Rejected' then a.note end)
+                  'decision', (select jsonb_build_object('decision', a.decision, 'revision', a.revision, 'date', a.created_at::date, 'source', a.source, 'note', case when a.source = 'Portal' and a.decision = 'Rejected' then a.note end)
                                  from business_setup_acceptances a where a.document_id = q.id order by a.created_at desc limit 1),
                   'can_decide', q.status = 'issued' and not (q.valid_until is not null and q.valid_until < (now() at time zone 'Asia/Dubai')::date)
                                 and not exists (select 1 from business_setup_acceptances a where a.document_id = q.id)
                                 and not exists (select 1 from business_setup_cases c where c.id = q.case_id and c.stage in ('Lost', 'Completed', 'Cancelled')),
                   'letter', (select jsonb_build_object('id', l.id, 'number', l.document_number, 'date', l.created_at::date, 'signed_at', l.signed_at, 'has_file', l.storage_path is not null,
-                                      'decision', (select jsonb_build_object('decision', a.decision, 'date', a.created_at::date, 'source', a.source, 'note', case when a.source = 'Portal' and a.decision = 'Rejected' then a.note end)
+                                      'decision', (select jsonb_build_object('decision', a.decision, 'revision', a.revision, 'date', a.created_at::date, 'source', a.source, 'note', case when a.source = 'Portal' and a.decision = 'Rejected' then a.note end)
                                                      from business_setup_acceptances a where a.document_id = l.id order by a.created_at desc limit 1),
                                       'can_decide', q.status = 'accepted' and not exists (select 1 from business_setup_acceptances a where a.document_id = l.id)
                                                     and not exists (select 1 from business_setup_cases c where c.id = l.case_id and c.stage in ('Lost', 'Completed', 'Cancelled')))
@@ -42,8 +45,22 @@ begin
     'payments', (select coalesce(jsonb_agg(jsonb_build_object('id', y.id, 'date', y.paid_on, 'amount', y.amount, 'type', y.type, 'reference', y.reference,
                     'receipt_id', r.id, 'receipt_number', r.receipt_number, 'has_file', r.storage_path is not null) order by y.paid_on desc, y.created_at desc), '[]'::jsonb)
                    from business_setup_payments y left join business_setup_receipts r on r.payment_id = y.id where y.client_id = v_client),
-    'invoices', (select coalesce(jsonb_agg(jsonb_build_object('id', i.id, 'number', i.invoice_number, 'date', i.issued_on, 'amount', i.amount, 'has_file', i.file_path is not null) order by i.issued_on desc), '[]'::jsonb)
+    'invoices', (select coalesce(jsonb_agg(jsonb_build_object('id', i.id, 'number', i.invoice_number, 'date', i.issued_on, 'amount', i.amount, 'has_file', i.file_path is not null,
+                    'claim_pending', exists (select 1 from business_setup_payment_claims c where c.invoice_id = i.id and c.status = 'Pending'),
+                    -- The rule of business_setup_portal_claim_add, so the screen shows a state instead of a button that fails: the invoice belongs to a case that is not Lost, and no claim waits.
+                    'can_claim', coalesce((select cs.stage <> 'Lost' from business_setup_cases cs where cs.id = coalesce(i.case_id, (select q.case_id from hub_documents q where q.id = i.quote_id))), false)
+                                 and not exists (select 1 from business_setup_payment_claims c where c.invoice_id = i.id and c.status = 'Pending')) order by i.issued_on desc), '[]'::jsonb)
                    from business_setup_invoices i where i.client_id = v_client),
+    'claims', business_setup_portal_claims(p_account),
+    'letters', (select coalesce(jsonb_agg(jsonb_build_object('id', l.id, 'number', l.document_number, 'date', l.created_at::date, 'has_file', l.storage_path is not null,
+                    'quote_id', q.id, 'quote_number', q.document_number,
+                    'decision', (select jsonb_build_object('decision', a.decision, 'revision', a.revision, 'date', a.created_at::date, 'source', a.source, 'note', case when a.source = 'Portal' and a.decision = 'Rejected' then a.note end)
+                                   from business_setup_acceptances a where a.document_id = l.id order by a.created_at desc limit 1),
+                    'can_decide', q.status = 'accepted' and l.status = 'issued' and not exists (select 1 from business_setup_acceptances a where a.document_id = l.id)
+                                  and not exists (select 1 from business_setup_cases c where c.id = l.case_id and c.stage in ('Lost', 'Completed', 'Cancelled'))) order by l.created_at desc), '[]'::jsonb)
+                  from hub_documents l join hub_documents q on q.id = l.parent_id
+                 where q.client_id = v_client and q.doc_type = 'quote' and q.department = 'Business Setup' and q.status in ('issued', 'accepted', 'rejected')
+                   and l.doc_type = 'letter' and l.status <> 'superseded'),
     'documents', (select coalesce(jsonb_agg(jsonb_build_object('id', d.id, 'kind', d.kind, 'file_name', d.file_name, 'date', d.created_at::date) order by d.created_at desc), '[]'::jsonb)
                     from business_setup_documents d where d.client_id = v_client and d.is_output and d.client_visible));
 end $$;
