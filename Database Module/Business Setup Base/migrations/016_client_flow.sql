@@ -863,3 +863,111 @@ begin
     execute format('grant execute on function public.%s to authenticated', f);
   end loop;
 end $$;
+
+
+-- ── Zoho invoices published to the client login (client flow Task 5) ──
+-- One invoice number once per quote. The rule lived only in business_setup_invoice_record (015); now that the zoho-books function also writes
+-- invoices, the table holds it. The index is partial (a row without a number, or without a quote, is never compared) and matches the function's
+-- rule: the number is trimmed and compared without regard to case.
+-- If the live table already holds the same number twice on one quote the index cannot be built. This block says so in a plain sentence and builds
+-- nothing, so no row is touched or guessed. Fix those rows by hand, then run this file again. The same check, as a read-only query that lists them:
+-- scripts/check_invoice_duplicates.sql (run it before the release).
+do $$
+declare n int;
+begin
+  if to_regclass('public.business_setup_invoices_quote_number_uq') is null then
+    select count(*) into n from (select 1 from public.business_setup_invoices where quote_id is not null and invoice_number is not null
+                                  group by quote_id, lower(btrim(invoice_number)) having count(*) > 1) d;
+    if n > 0 then
+      raise exception '% quote(s) hold the same invoice number more than once in business_setup_invoices. Remove or renumber the duplicate rows, then run this file again. List them with scripts/check_invoice_duplicates.sql.', n;
+    end if;
+  end if;
+end $$;
+create unique index if not exists business_setup_invoices_quote_number_uq
+  on public.business_setup_invoices (quote_id, lower(btrim(invoice_number))) where invoice_number is not null;
+
+-- Stores the invoice that the zoho-books function has read from Zoho and filed under <client>/invoice/. Only the service role can call it, and the function
+-- checks the staff member's right first (business_setup_can setup.quotes.manage, through the user's own session), so there is no business_setup_require here.
+-- Keys: quote_id, invoice_number, invoice_date (optional, default today), amount, file_path, zoho_id, published_by (optional, the staff member's id).
+-- A repeat with the same zoho_id returns the same row. A row made without a file by the Zoho read-back gets this file and nothing else changes.
+-- The row is inserted with source 'zoho', so business_setup_case_invoice runs business_setup_case_sync, as for a hand-recorded invoice.
+create or replace function public.business_setup_invoice_publish(p jsonb) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; c business_setup_cases; i business_setup_invoices; v_today date := (now() at time zone 'Asia/Dubai')::date;
+  v_quote uuid; v_case uuid; v_client text; v_number text; v_on date; v_amount numeric; v_path text; v_prefix text; v_zoho text; v_by uuid; v_id uuid;
+begin
+  p := coalesce(p, '{}'::jsonb);
+  begin
+    v_quote := nullif(p ->> 'quote_id', '')::uuid; v_by := nullif(p ->> 'published_by', '')::uuid;
+  exception when invalid_text_representation then
+    raise exception 'The quote is not valid';
+  end;
+  if v_quote is null then raise exception 'Choose the quote this invoice is for'; end if;
+  v_zoho := nullif(btrim(coalesce(p ->> 'zoho_id', '')), '');
+  if v_zoho is null then raise exception 'The Zoho invoice is missing'; end if;
+  v_number := nullif(btrim(coalesce(p ->> 'invoice_number', '')), '');
+  if v_number is null then raise exception 'Enter the invoice number'; end if;
+  if length(v_number) > 60 then raise exception 'The invoice number is too long'; end if;
+  begin
+    v_amount := nullif(btrim(coalesce(p ->> 'amount', '')), '')::numeric;
+  exception when others then
+    v_amount := null;
+  end;
+  if v_amount is null or v_amount < 0 or v_amount >= 10000000000000000 then
+    raise exception 'Enter an amount of zero or more';
+  end if;
+  v_amount := round(v_amount, 2);
+  begin
+    v_on := coalesce(nullif(p ->> 'invoice_date', '')::date, v_today);
+  exception when others then
+    raise exception 'Enter a valid invoice date';
+  end;
+  v_path := nullif(btrim(coalesce(p ->> 'file_path', '')), '');
+  if v_path is null then raise exception 'The invoice file is missing'; end if;
+
+  select * into q from hub_documents where id = v_quote for update;
+  if q.id is null then raise exception 'Quote not found'; end if;
+  if q.doc_type <> 'quote' or q.department <> 'Business Setup' or q.status <> 'accepted' then
+    raise exception 'An invoice can be published only for an accepted Business Setup quote';
+  end if;
+  v_case := q.case_id; v_client := q.client_id;
+  if v_case is not null then
+    select * into c from business_setup_cases where id = v_case for update;
+    if c.stage = 'Lost' then raise exception 'This case is lost and takes no invoice'; end if;
+    if c.client_id is not null and v_client is not null and c.client_id <> v_client then raise exception 'The client of this quote does not match the client of the case'; end if;
+    v_client := coalesce(v_client, c.client_id);
+  end if;
+  if v_client is null then raise exception 'Link this quote to a client before publishing an invoice'; end if;
+  if business_setup_quote_locked(q.id) then
+    raise exception 'This quote is with Accounts. It can be changed only if Accounts reverts it.';
+  end if;
+  v_prefix := v_client || '/invoice/';
+  if not coalesce(left(v_path, length(v_prefix)) = v_prefix, false) or '..' = any (string_to_array(v_path, '/')) or '' = any (string_to_array(v_path, '/'))
+     or cardinality(string_to_array(v_path, '/')) <> 3 then
+    raise exception 'The file path must be under % and cannot contain .. or empty parts', v_prefix;
+  end if;
+
+  select * into i from business_setup_invoices where zoho_id = v_zoho for update;
+  if i.id is not null then
+    if i.quote_id is distinct from q.id then raise exception 'This Zoho invoice is already published for another quote'; end if;
+    if i.file_path is null then
+      update business_setup_invoices set file_path = v_path, case_id = coalesce(case_id, v_case), created_by = coalesce(created_by, v_by) where id = i.id;
+      perform business_setup_audit('business_setup_invoices', i.id::text, 'invoice_publish', null,
+              jsonb_build_object('client_id', v_client, 'quote_id', q.id, 'case_id', v_case, 'invoice_number', i.invoice_number, 'zoho_id', v_zoho, 'published_by', v_by, 'has_file', true, 'completed', true));
+    end if;
+    return i.id;
+  end if;
+  if exists (select 1 from business_setup_invoices where quote_id = q.id and lower(btrim(invoice_number)) = lower(v_number)) then
+    raise exception 'Invoice % is already recorded on this quote', v_number;
+  end if;
+
+  insert into business_setup_invoices (client_id, quote_id, case_id, invoice_number, issued_on, amount, file_path, source, zoho_id, created_by)
+  values (v_client, q.id, v_case, v_number, v_on, v_amount, v_path, 'zoho', v_zoho, v_by)
+  returning id into v_id;
+  perform business_setup_audit('business_setup_invoices', v_id::text, 'invoice_publish', null,
+          jsonb_build_object('client_id', v_client, 'quote_id', q.id, 'case_id', v_case, 'invoice_number', v_number, 'amount', v_amount, 'zoho_id', v_zoho, 'published_by', v_by, 'has_file', true));
+  return v_id;
+end $$;
+revoke all on function public.business_setup_invoice_publish(jsonb) from public, anon, authenticated;
+grant execute on function public.business_setup_invoice_publish(jsonb) to service_role;

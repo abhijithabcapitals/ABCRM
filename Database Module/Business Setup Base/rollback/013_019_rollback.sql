@@ -63,6 +63,8 @@ drop function if exists public.business_setup_invoice_upload_ok(text, text);
 drop trigger if exists business_setup_case_invoice on public.business_setup_invoices;
 drop function if exists public.business_setup_invoice_sync_trg();
 drop function if exists public.business_setup_invoice_record(jsonb);
+drop function if exists public.business_setup_invoice_publish(jsonb);
+drop index if exists public.business_setup_invoices_quote_number_uq;
 drop function if exists public.business_setup_case_invoice_override(uuid, text);
 drop index if exists public.business_setup_invoices_case_idx;
 alter table public.business_setup_invoices drop column if exists case_id cascade;

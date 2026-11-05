@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, ErrorNote } from "@banking/components/shared";
 import {
   KIND_LABEL, LINK_READ_FAILED, NO_ACCESS, NO_MASTER, NO_MATCH, NO_QUOTE, callZoho, canReissue, contactLine, contactLinkable, createRights, formatAmount, linkContact,
-  makeGuard, openPdf, panelMode, panelNotes, replaceQuestion, rowActions, rowNotes, safeZohoUrl,
+  PUBLISHED, PUBLISH_LABEL, canPublish, makeGuard, openPdf, panelMode, panelNotes, replaceQuestion, rowActions, rowNotes, safeZohoUrl,
 } from "../logic/zohoPanel";
 
 // The Zoho step on a quote: link the client's Zoho contact, make draft estimates and invoices, and read them back.
@@ -10,7 +10,7 @@ import {
 // Nothing is read from Zoho until staff press Show Zoho details.
 const Note = ({ tone, children }) => <div className={`bk-alert bk-alert-${tone}`} role="note">{children}</div>;
 
-export default function ZohoPanel({ supabase, department, sourceTable, sourceId, clientId, kinds = ["estimate", "invoice"], canCreate, noSourceNote, onChanged, noAccess, readyNote }) {
+export default function ZohoPanel({ supabase, department, sourceTable, sourceId, clientId, kinds = ["estimate", "invoice"], canCreate, noSourceNote, onChanged, noAccess, readyNote, publish }) {
   const rights = createRights(canCreate);
   const [opened, setOpened] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -24,6 +24,8 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
   const [query, setQuery] = useState("");
   const [found, setFound] = useState(null);
   const [replace, setReplace] = useState(null);
+  const [published, setPublished] = useState(false);
+  const [publishError, setPublishError] = useState(null);
   const busyNow = useRef(false);
   // scope changes when the panel goes away or its quote changes; loads counts reads of the state.
   const scope = useRef(makeGuard());
@@ -123,6 +125,19 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
     if (!res.ok && !res.stale) throw new Error(res.message);
   });
 
+  // Stores the sent invoice in the client's login. A refusal or failure is shown beside the invoice, never dropped.
+  const publishInvoice = () => run("publish", async (stale) => {
+    setPublishError(null);
+    try {
+      const out = await call({ action: "document_publish", source_table: sourceTable, source_id: sourceId, kind: "invoice" });
+      if (stale()) return;
+      setPublished(true);
+      if (typeof publish?.onPublished === "function") publish.onPublished(out?.invoice_id);
+    } catch (e) {
+      if (!stale()) { setPublished(false); setPublishError(e.message); }
+    }
+  });
+
   if (!sourceId) return <div className="bk-note">{noSourceNote || NO_QUOTE}</div>;
 
   if (!opened) {
@@ -202,9 +217,12 @@ export default function ZohoPanel({ supabase, department, sourceTable, sourceId,
               {mode === "gone" && <span className="bk-muted">No longer in Zoho</span>}
               {actions.create && <Button disabled={working} busy={busy === `create-${kind}`} onClick={() => create(kind)}>{actions.create}</Button>}
               {actions.viewPdf && <button type="button" className="bk-link" disabled={working} onClick={() => viewPdf(kind)}>{busy === `pdf-${kind}` ? "Opening…" : "View PDF"}</button>}
+              {canPublish({ publish, kind, mode }) && <Button disabled={working} busy={busy === "publish"} onClick={publishInvoice}>{PUBLISH_LABEL}</Button>}
               {actions.openZoho && <a className="bk-link" href={url} target="_blank" rel="noopener noreferrer">Open in Zoho</a>}
             </div>
             {rowNotes(row, mode).map((n) => <Note key={n.text} tone={n.tone}>{n.text}</Note>)}
+            {canPublish({ publish, kind, mode }) && publishError && <Note tone="error">{publishError}</Note>}
+            {canPublish({ publish, kind, mode }) && published && !publishError && <Note tone="ok">{PUBLISHED}</Note>}
           </div>
         );
       })}

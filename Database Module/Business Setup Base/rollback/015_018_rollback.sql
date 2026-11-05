@@ -49,6 +49,10 @@ drop function if exists public.business_setup_portal_signed_add(uuid, uuid, text
 drop function if exists public.business_setup_portal_login_name(text);
 
 -- ── 016_client_flow.sql ──────────────────────────────────────────────
+-- Zoho publish (client flow Task 5): the unique invoice number per quote goes (015's record function holds the same rule again), and so does the publish function.
+-- WARNING: an invoice already published keeps its row and its stored file; only the function that made it goes.
+drop function if exists public.business_setup_invoice_publish(jsonb);
+drop index if exists public.business_setup_invoices_quote_number_uq;
 drop trigger if exists business_setup_case_handover on public.business_setup_handovers;
 drop function if exists public.business_setup_case_handover_trg();
 drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
