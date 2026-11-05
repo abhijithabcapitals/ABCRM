@@ -139,7 +139,7 @@ def create_app(settings: Settings) -> FastAPI:
         if host not in LOCAL_HOSTS:  # blocks DNS-rebinding pages from reaching the API
             return JSONResponse({"error": "Local access only."}, status_code=403)
         # The CRM's Business Banking page reads documents and looks up clients here; only listed origins may.
-        shared = origin in settings.embed_origins and path.startswith(("/api/batches", "/api/clients", "/api/generated"))
+        shared = origin in settings.embed_origins and path.startswith(("/api/batches", "/api/clients", "/api/generated", "/api/proposal-folder"))
         if request.method == "OPTIONS" and shared:
             response = Response(status_code=204)
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE"
@@ -306,6 +306,46 @@ def create_app(settings: Settings) -> FastAPI:
             n += 1
         target.write_bytes(data)
         return {"path": str(target)}
+
+    # ---- an Accounting proposal (Word + PDF) into the client's synced OneDrive folder, never overwrites ----
+    @app.post("/api/proposal-folder")
+    def save_proposal(word: UploadFile = File(...), pdf: UploadFile = File(...), client: str = Form(...), client_id: str = Form(""), department: str = Form("Accounting")):
+        root = settings.proposal_root
+        if root is None:
+            return JSONResponse({"error": "The OneDrive folder is not set up on this PC."}, status_code=503)
+
+        def clean(s: str) -> str:
+            return re.sub(r'[<>:"/\\|?*\[\]\x00-\x1f]+', "-", s).strip(" .")
+        if department != "Accounting":
+            return JSONResponse({"error": "Only Accounting proposals are saved here."}, status_code=400)
+        wname, pname = clean(Path(word.filename or "").name), clean(Path(pdf.filename or "").name)
+        client_name, cid = clean(client), clean(client_id)
+        if not client_name or Path(wname).suffix.lower() != ".docx" or Path(pname).suffix.lower() != ".pdf":
+            return JSONResponse({"error": "That client or file type cannot be saved."}, status_code=400)
+        wdata, pdata = word.file.read(MAX_CLIENT_FILE + 1), pdf.file.read(MAX_CLIENT_FILE + 1)
+        if len(wdata) > MAX_CLIENT_FILE or len(pdata) > MAX_CLIENT_FILE:
+            return JSONResponse({"error": "Files must be under 25 MB."}, status_code=400)
+        base = root.resolve()
+        folder = (base / "Accounting" / (f"{client_name} - {cid}" if cid else client_name) / "Proposals").resolve()
+        if not folder.is_relative_to(base):
+            return JSONResponse({"error": "That client or file type cannot be saved."}, status_code=400)
+        folder.mkdir(parents=True, exist_ok=True)
+
+        def pick(n: int) -> tuple[Path, Path]:
+            w, p = Path(wname), Path(pname)
+            return (folder / (wname if n == 1 else f"{w.stem} ({n}){w.suffix}"), folder / (pname if n == 1 else f"{p.stem} ({n}){p.suffix}"))
+        n = 1
+        while any(t.exists() for t in pick(n)):
+            n += 1
+        wt, pt = pick(n)
+        try:
+            wt.write_bytes(wdata)
+            pt.write_bytes(pdata)
+        except OSError:
+            wt.unlink(missing_ok=True)
+            pt.unlink(missing_ok=True)
+            return JSONResponse({"error": "The files could not be saved to OneDrive."}, status_code=500)
+        return {"path": str(wt), "word": str(wt), "pdf": str(pt)}
 
     # Opens Explorer on a generated document. Only existing files inside the configured folders.
     @app.post("/api/generated-open")

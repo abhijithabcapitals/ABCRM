@@ -1,6 +1,7 @@
 {
   "storageRoot": "D:\\Abhijith Projects\\DataBase",
   "dataDir": "data",
+  "proposalRoot": "C:\\Users\\User\\OneDrive - AB Capital Services FZE\\CRM AB CAPITAL",
   "documentModule": "../DOC OCR Module",
   "virusScan": true,
   "host": "127.0.0.1",
