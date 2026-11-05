@@ -227,7 +227,7 @@ select t.ok('held lock: scan logs Skipped, adds nothing', ...);
     - Unassigned, no `Manager` recipient yet: add `alert_managers()`.
   - `client_owner_list() returns table(client_id text, legal_name text, client_status text, jurisdiction text, department text, owner_id uuid)`: tagged Manager or admin. Rows from `client_master` left join profile and owners.
   - `client_owner_proposals(p_department text) returns table(client_id text, owner_id uuid, basis text)`: reads only, saves nothing. For `Accounting`: most frequent `assignee_ids` per client, otherwise an exact `Accountant` text match to `profiles.full_name`.
-  - `client_owners_set(p_department text, p_clients text[], p_owner uuid) returns int`: tagged Manager or admin. Also assigns open unassigned alerts for those clients in that department.
+  - `client_owners_set(p_department text, p_clients text[], p_owner uuid) returns int`: tagged Manager or admin. Also moves open alerts for those clients in that department from the previous owner to the new owner, through `alert_set_assignee`, and assigns unassigned ones. Alerts with anyone else stay.
   - `alert_rule_save(p_code text, p_enabled boolean, p_steps jsonb) returns void`: admin only; refuses a step priority outside the four.
   - `alert_set_mode(p_mode text) returns void`: admin only; `Preview`, `Triage`, `Live`.
   - `alert_scan_now() returns jsonb`: admin only; calls `alert_scan`. This is the spec's "Run now", shown in the Centre's Settings tab. The Admin Base trigger catalogue is not edited, since that would mean copying its functions.
@@ -245,7 +245,8 @@ select t.ok('unassigned goes to manager', ...);
 select t.ok('backlog row never escalates', ...);
 select t.ok('nothing escalates in Preview or Triage scan', ...);
 select t.ok('no tagged manager falls back and records fell_back', ...);
-select t.ok('owners set assigns open unassigned alerts only', ...);
+select t.ok('owners set assigns open unassigned alerts, moves the previous owner''s, leaves anyone else''s', ...);
+select t.ok('backlog rows follow the new owner, stay backlog and ring no bell', ...);
 select t.ok('proposals save nothing', ...);
 select t.fails('untagged member cannot set owners', ..., 'You do not have');
 select t.ok('tagged manager can reassign an owner in any department', ...);
@@ -392,9 +393,9 @@ No live writes until the user approves each numbered step below.
 - [ ] **Step 3: Whole-branch review.** Run `superpowers:requesting-code-review` and fix findings.
 - [ ] **Step 4: Finish the README.** Run order, modes, rollback, and how to add a rule.
 - [ ] **Step 5: Ask the user to approve release steps one at a time:**
-  1. Back up, then apply `001` to `004` to `pnnakrhfzyxudjaghoxx`. Mode stays Preview. Run `alert_scan_now` once.
-  2. Merge to `main`, push, and deploy to `abcrm` and `crm-abcapital.pages.dev`. Verify with a real admin login, and a member login showing an empty list.
-  3. Seed through `client_owners_set`, matched by `profiles.id`: Aiswarya as owner of existing Business Setup clients not Liquidated, Cancelled or Rejected. Clients added later stay without an owner until someone assigns one. Check the Manager tag list on live still matches spec section 7.
+  1. Back up, then apply `001` to `004` to `pnnakrhfzyxudjaghoxx`. Mode stays Preview. Run `select public.alert_scan()` once. `alert_scan_now` needs a signed-in admin, so it cannot be used here.
+  2. Merge to `main`, push, and deploy to `abcrm` and `crm-abcapital.pages.dev`. Two browser checks are mandatory before step 3: a real admin login, and a member login showing an empty list that says the Centre is in preview. In the admin login, also walk the drawer actions, OwnerAssign and Settings on `CL000001`.
+  3. Seed through the deployed Owners screen (OwnerAssign, which calls `client_owners_set`), signed in as a manager or admin, because the function refuses a caller with no login. Matched by `profiles.id`: Aiswarya as owner of existing Business Setup clients not Liquidated, Cancelled or Rejected. Clients added later stay without an owner until someone assigns one. Check the Manager tag list on live still matches spec section 7.
   4. Switch to Triage. Managers work the backlog. Bell goes to assigned people for new crossings.
   5. Switch to Live once the backlog is settled. Escalation starts.
 
