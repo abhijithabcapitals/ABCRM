@@ -145,6 +145,8 @@ test("the Clients list and the Overview work out the KYC label with one rule", (
   assert.equal(kycLabel(null, ["email"]), "Not done");
   assert.equal(kycLabel("Done", ["email"]), "Done");
   assert.equal(kycLabel(null, undefined), "Not done");
+  assert.equal(kycLabel("Done", null), "Done"); // the list leaves kyc_missing null when a state is stored
+  assert.equal(kycLabel("Pending", null), "Pending");
   assert.equal(kycTone("Complete"), "good"); assert.equal(kycTone("Done"), "good"); assert.equal(kycTone("Not done"), "warn");
   const rd = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
   for (const f of ["../components/Clients.jsx", "../components/workspace/Overview.jsx"]) assert.match(rd(f), /kycLabel\(/, f);

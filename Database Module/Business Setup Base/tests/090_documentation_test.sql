@@ -486,7 +486,7 @@ select public.bs_expect_error(format($$select business_setup_invoice_record('%s'
 select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10.555)), 'amount');
 select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'invoice_date', (current_date + 3)::text)), 'future');
 select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iN'), 'invoice_number', 'INV-1', 'amount', 10)), 'Link a client');
-select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iL'), 'invoice_number', 'INV-1', 'amount', 10)), 'accepted');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iL'), 'invoice_number', 'INV-1', 'amount', 10)), 'accepted');   -- iL has no accepted quote at all
 -- the file path follows the exact-prefix rule: <client>/invoice/, never a LIKE match
 select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'file_path', 'CL990093/invoice/a.pdf')), 'CL990092/invoice/');
 select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-1', 'amount', 10, 'file_path', 'CL99009_/invoice/a.pdf')), 'CL990092/invoice/');
@@ -558,8 +558,37 @@ select public.bs_check('a Zoho-style row with no case still inserts and moves no
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.bs_check('dash_keys: every key the Dashboard Module reads is still there', public.business_setup_dashboard() ?& array['forms_waiting', 'open_quotes', 'accepted_without_letter', 'outstanding', 'active_services', 'expiries', 'ready_for_accounts', 'reverted_by_accounts', 'receivables']);
 -- the client list shows the same KYC facts as the workspace: its missing items come from the same function
-select public.bs_check('client list: each client carries the missing KYC items the workspace shows',
-  (select count(*) > 0 and bool_and((e -> 'kyc_missing') = (public.business_setup_kyc_status(e ->> 'client_id') -> 'missing')) from jsonb_array_elements(public.business_setup_client_list()) e));
+select public.bs_check('client list: a client with no stored state carries the missing KYC items the workspace shows',
+  (select count(*) > 0 and bool_and((e -> 'kyc_missing') = (public.business_setup_kyc_status(e ->> 'client_id') -> 'missing')) from jsonb_array_elements(public.business_setup_client_list()) e where e ->> 'kyc_state' is null));
+select public.bs_check('client list: a client with a stored state has kyc_missing null (the state is the label)',
+  (select count(*) > 0 and bool_and(e -> 'kyc_missing' = 'null'::jsonb) from jsonb_array_elements(public.business_setup_client_list()) e where e ->> 'kyc_state' is not null));
+
+-- fix round 1: explicit quotes that are not accepted, Completed and Cancelled cases, the newest quote, the finance upload policy
+select public.bs_as(null);
+update public.hub_documents set status = 'rejected' where id = pg_temp.fx('qC')::uuid;
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('qG2'), 'invoice_number', 'INV-I', 'amount', 5)), 'accepted');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('qG1'), 'invoice_number', 'INV-S', 'amount', 5)), 'accepted');
+select public.bs_expect_error(format($$select business_setup_invoice_record('%s')$$, jsonb_build_object('quote_id', pg_temp.fx('qC'), 'invoice_number', 'INV-R', 'amount', 5)), 'accepted');
+select public.bs_check('no invoice was kept for an issued, a superseded or a rejected quote', not exists (select 1 from public.business_setup_invoices where invoice_number in ('INV-I', 'INV-S', 'INV-R')));
+select public.bs_as(null);
+update public.business_setup_cases set stage = 'Completed' where id = pg_temp.fx('iB')::uuid;
+update public.business_setup_cases set stage = 'Cancelled' where id = pg_temp.fx('iA')::uuid;
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_invoice_record(jsonb_build_object('case_id', pg_temp.fx('iB'), 'invoice_number', 'INV-LATE-C', 'amount', 5)) as ignored \gset
+select public.business_setup_invoice_record(jsonb_build_object('case_id', pg_temp.fx('iA'), 'invoice_number', 'INV-LATE-X', 'amount', 5)) as ignored \gset
+select public.bs_check('a Completed and a Cancelled case may still be billed, and their stage is left alone', pg_temp.invn('iB') = 2 and pg_temp.invn('iA') = 3 and pg_temp.stg('iB') = 'Completed' and pg_temp.stg('iA') = 'Cancelled');
+-- (two accepted quotes in one case cannot exist: hub_documents_one_accepted_per_root; the newest-first order is only a guard)
+select public.bs_check('invoice upload: finance may put a file under <client>/invoice/', public.business_setup_invoice_upload_ok('business-setup-documents', 'CL990092/invoice/a.pdf'));
+select public.bs_check('invoice upload: other folders, depths, buckets and clients are refused',
+  not public.business_setup_invoice_upload_ok('business-setup-documents', 'CL990092/files/a.pdf') and not public.business_setup_invoice_upload_ok('business-setup-documents', 'CL990092/invoice/x/a.pdf')
+  and not public.business_setup_invoice_upload_ok('business-setup-documents', 'CL990092/invoice/') and not public.business_setup_invoice_upload_ok('business-setup-documents', 'CL990092/invoice/../a.pdf')
+  and not public.business_setup_invoice_upload_ok('business-setup-documents', 'CL99009_/invoice/a.pdf') and not public.business_setup_invoice_upload_ok('business-setup-documents', 'staff/invoice/a.pdf')
+  and not public.business_setup_invoice_upload_ok('client-portal', 'CL990092/invoice/a.pdf') and not public.business_setup_invoice_upload_ok('business-setup-documents', null));
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_check('invoice upload: a user without setup.payments.manage is refused', not public.business_setup_invoice_upload_ok('business-setup-documents', 'CL990092/invoice/a.pdf'));
+select public.bs_as(null);
+select public.bs_check('invoice upload: the policy is INSERT only on storage.objects', (select count(*) = 1 and bool_and(cmd = 'INSERT') from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'business_setup_invoice_upload'));
 select public.bs_as(null);
 
 -- ── Summary ──

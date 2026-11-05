@@ -326,7 +326,7 @@ begin
 
   -- A case invoices its accepted quote.
   if v_quote is null then
-    select id into v_quote from hub_documents where case_id = v_case and doc_type = 'quote' and department = 'Business Setup' and status = 'accepted' limit 1;
+    select id into v_quote from hub_documents where case_id = v_case and doc_type = 'quote' and department = 'Business Setup' and status = 'accepted' order by created_at desc limit 1;
   end if;
   if v_quote is not null then
     select * into q from hub_documents where id = v_quote for update;
@@ -334,6 +334,7 @@ begin
     if v_case is null then v_case := q.case_id;
     elsif q.case_id is distinct from v_case then raise exception 'This quote does not belong to that case'; end if;
   end if;
+  -- Only a Lost case refuses an invoice: a Completed or Cancelled one may still be billed late, as it may still take a payment.
   if v_case is not null then
     select * into c from business_setup_cases where id = v_case for update;
     if c.id is null then raise exception 'Case not found'; end if;
@@ -386,6 +387,23 @@ drop trigger if exists business_setup_case_invoice on public.business_setup_invo
 create trigger business_setup_case_invoice after insert on public.business_setup_invoices
   for each row execute function public.business_setup_invoice_sync_trg();
 
+-- Invoice files: finance holds setup.payments.manage but not the rights 008's policy asks for, so one INSERT-only policy lets them upload
+-- to business-setup-documents, and only to <client>/invoice/<file> for a client that exists (exact parts, never a pattern match).
+create or replace function public.business_setup_invoice_upload_ok(p_bucket text, p_path text) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(p_bucket = 'business-setup-documents' and p_path is not null
+                  and cardinality(string_to_array(p_path, '/')) = 3
+                  and split_part(p_path, '/', 2) = 'invoice'
+                  and not ('..' = any (string_to_array(p_path, '/'))) and not ('' = any (string_to_array(p_path, '/')))
+                  and exists (select 1 from client_master cm where cm.client_id = split_part(p_path, '/', 1))
+                  and public.business_setup_can('setup.payments.manage'), false)
+$$;
+revoke all on function public.business_setup_invoice_upload_ok(text, text) from public, anon;
+grant execute on function public.business_setup_invoice_upload_ok(text, text) to authenticated;
+drop policy if exists business_setup_invoice_upload on storage.objects;
+create policy business_setup_invoice_upload on storage.objects for insert to authenticated
+  with check (public.business_setup_invoice_upload_ok(bucket_id, name));
+
 -- Waives the Invoice item for a case, with a reason (the invoice is made outside the CRM). Moves the case on if it was the last item.
 create or replace function public.business_setup_case_invoice_override(p_case uuid, p_reason text) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -405,7 +423,8 @@ revoke all on function public.business_setup_case_invoice_override(uuid, text) f
 grant execute on function public.business_setup_case_invoice_override(uuid, text) to authenticated;
 
 -- ── Client list: KYC missing items ───────────────────────────────────
--- As in 008, plus kyc_missing: the items business_setup_kyc_status names, the same list the workspace Overview reads. The list and the
+-- As in 008, plus kyc_missing: the items business_setup_kyc_status names, the same list the workspace Overview reads. It is worked out only
+-- for a client with no stored state (null otherwise): a stored state is the label, so those clients cost nothing extra. The list and the
 -- Overview then work out the KYC label with one rule (logic/kyc.js, kycLabel) instead of the list testing the stored state alone.
 create or replace function public.business_setup_client_list() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
@@ -419,7 +438,7 @@ begin
     )
     select coalesce(jsonb_agg(jsonb_build_object(
              'client_id', m.client_id, 'legal_name', m.legal_name, 'client_status', k.client_status, 'kyc_state', k.kyc_state,
-             'kyc_missing', coalesce(business_setup_kyc_status(m.client_id) -> 'missing', '[]'::jsonb),
+             'kyc_missing', case when k.kyc_state is null then coalesce(business_setup_kyc_status(m.client_id) -> 'missing', '[]'::jsonb) end,
              'active_services', (select count(*) from business_setup_services s where s.client_id = m.client_id and s.status not in ('Completed', 'Cancelled') and not s.historical),
              'balance', (select coalesce(sum(q.total_amount - business_setup_net_paid(q.id)), 0) from hub_documents q
                           where q.client_id = m.client_id and q.doc_type = 'quote' and q.department = 'Business Setup' and q.status = 'accepted'),

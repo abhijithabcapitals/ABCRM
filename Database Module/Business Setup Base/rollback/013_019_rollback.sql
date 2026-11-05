@@ -16,6 +16,8 @@ drop function if exists public.business_setup_portal_login_name(text);
 -- ── 015_documentation.sql ────────────────────────────────────────────
 -- Invoices recorded by hand (Task 9): their functions and trigger go, and the invoice rows keep their other columns (case_id and created_by are dropped,
 -- so a hand-recorded invoice stays in the client's portal list but no longer belongs to a case). The client list goes back to 008's, without kyc_missing.
+drop policy if exists business_setup_invoice_upload on storage.objects;
+drop function if exists public.business_setup_invoice_upload_ok(text, text);
 drop trigger if exists business_setup_case_invoice on public.business_setup_invoices;
 drop function if exists public.business_setup_invoice_sync_trg();
 drop function if exists public.business_setup_invoice_record(jsonb);
