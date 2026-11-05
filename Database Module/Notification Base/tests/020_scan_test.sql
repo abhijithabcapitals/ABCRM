@@ -37,6 +37,7 @@ select t.ok('stored priorities are valid', (select bool_and(s->>'priority' in ('
 -- Reapply keeps edited steps
 update alert_rules set steps = '[{"days":5,"priority":"Normal"}]' where code = 'job_due';
 \ir ../migrations/002_alert_scan.sql
+\ir reapply_review_fixes.sql
 select t.ok('reapply keeps edited steps', (select steps = '[{"days":5,"priority":"Normal"}]'::jsonb from alert_rules where code = 'job_due'));
 update alert_rules set steps = :'task' where code = 'job_due';
 
@@ -216,6 +217,7 @@ select t.ok('broken rule logged, other rules still ran, scan Failed', (select st
 select t.ok('broken rule closes nothing', (select count(*) = :banking_open from alerts where rule_code = 'banking_task_due' and status = 'Open') and :banking_open = 5);
 select set_config('test.break_rule', '', false);
 \ir ../migrations/002_alert_scan.sql
+\ir reapply_review_fixes.sql
 select alert_scan() as scanned \gset
 select t.ok('after restoring the rule the scan is Ok again', (select status = 'Ok' and rule_counts->'banking_task_due'->>'error' is null from alert_scan_log order by id desc limit 1));
 

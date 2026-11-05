@@ -72,6 +72,91 @@ select t.ok('an admin still reads any client', client_work_list('W2') ? 'contact
 reset role;
 reset test.uid;
 
+-- ── Register rules' baseline, duplicates and locked fields (I1, I5) ──────────────────────
+select count(*) as bells0 from notifications where user_id = :'own' and type = 'alert_centre' \gset
+set role authenticated;
+set test.uid = :'adm';
+select client_compliance_import(jsonb_build_array(
+  jsonb_build_object('client_id', 'W3', 'item_type', 'Passport', 'person_name', 'Base One', 'expiry_date', (current_date + 25)::text),
+  jsonb_build_object('client_id', 'W3', 'item_type', 'Ejari', 'expiry_date', (current_date - 5)::text),
+  jsonb_build_object('client_id', 'W3', 'item_type', 'Work permit', 'person_name', 'Far One', 'expiry_date', (current_date + 400)::text))) as imp1 \gset
+reset role;
+select t.ok('import saved its rows flagged', (:'imp1'::jsonb->>'saved')::int = 3 and (select bool_and(baseline_pending) and count(*) = 3 from client_compliance_items where client_id = 'W3'));
+select public.alert_scan() as s1 \gset
+select t.ok('the scan after an import is clean', (:'s1'::jsonb)->>'status' = 'Ok');
+select t.ok('an imported row raises as backlog', (select count(*) = 2 and bool_and(backlog) from alerts where client_id = 'W3' and source_table = 'client_compliance_items'));
+select t.ok('an import in Triage writes no bell', (select count(*) = :bells0 from notifications where user_id = :'own' and type = 'alert_centre'));
+select t.ok('the scan clears the flags of the rows it saw', (select count(*) = 0 from client_compliance_items where client_id = 'W3' and baseline_pending));
+update alert_settings set value = '"Live"' where key = 'alert_mode';
+select public.alert_scan();
+select t.ok('imported rows do not escalate, even overdue in Live', (select count(*) = 2 and bool_and(escalation_level = 0 and backlog) from alerts where client_id = 'W3' and source_table = 'client_compliance_items'));
+select t.ok('nor do they bell in Live', (select count(*) = :bells0 from notifications where user_id = :'own' and type = 'alert_centre'));
+update alert_settings set value = '"Triage"' where key = 'alert_mode';
+update alerts set current_step = 60 where client_id = 'W3' and rule_code = 'compliance_passport';
+select public.alert_scan();
+select t.ok('a later step crossing clears backlog', (select not backlog from alerts where client_id = 'W3' and rule_code = 'compliance_passport'));
+select t.ok('and rings the bell', (select count(*) = :bells0 + 1 from notifications where user_id = :'own' and type = 'alert_centre'));
+update client_compliance_items set expiry_date = current_date + 25 where client_id = 'W3' and item_type = 'Work permit';
+select public.alert_scan();
+select t.ok('an imported row outside any step raises normally when it comes due', (select not backlog from alerts where client_id = 'W3' and rule_code = 'compliance_work_permit' and status = 'Open'));
+select t.ok('with its bell', (select count(*) = :bells0 + 2 from notifications where user_id = :'own' and type = 'alert_centre'));
+set role authenticated;
+set test.uid = :'adm';
+select client_compliance_save(jsonb_build_object('client_id', 'W3', 'item_type', 'Emirates ID', 'person_name', 'Saved One', 'expiry_date', (current_date + 25)::text)) as e1 \gset
+reset role;
+select t.ok('a row saved by hand carries no flag', (select not baseline_pending from client_compliance_items where id = :'e1'));
+select public.alert_scan();
+select t.ok('and raises with its bell', (select not backlog from alerts where source_id = :'e1') and (select count(*) = :bells0 + 3 from notifications where user_id = :'own' and type = 'alert_centre'));
+
+-- Duplicates.
+set role authenticated;
+set test.uid = :'adm';
+select t.fails('a second Active row for the same person and date is refused', format($q$select client_compliance_save(jsonb_build_object('client_id', 'W3', 'item_type', 'Emirates ID', 'person_name', ' saved one ', 'expiry_date', %L))$q$, (current_date + 25)::text), 'already on the register');
+select client_compliance_import(jsonb_build_array(
+  jsonb_build_object('client_id', 'W3', 'item_type', 'Passport', 'person_name', 'Base One', 'expiry_date', (current_date + 25)::text),
+  jsonb_build_object('client_id', 'W3', 'item_type', 'Ejari', 'expiry_date', (current_date - 5)::text))) as imp2 \gset
+select t.ok('importing the same file twice reports duplicates per row', (:'imp2'::jsonb->>'saved')::int = 0 and jsonb_array_length(:'imp2'::jsonb->'errors') = 2 and :'imp2'::jsonb->'errors'->1->>'row' = '2' and :'imp2'::jsonb->'errors'->0->>'error' like '%already on the register%');
+select t.ok('saving a row again is not a duplicate of itself', client_compliance_save(jsonb_build_object('id', :'e1', 'notes', 'Same row')) = :'e1');
+select t.ok('another person is not a duplicate', client_compliance_save(jsonb_build_object('client_id', 'W3', 'item_type', 'Emirates ID', 'person_name', 'Other One', 'expiry_date', (current_date + 25)::text)) is not null);
+select client_compliance_close(:'e1', 'Replaced');
+select t.ok('a closed row does not block a new one', client_compliance_save(jsonb_build_object('client_id', 'W3', 'item_type', 'Emirates ID', 'person_name', 'Saved One', 'expiry_date', (current_date + 25)::text)) is not null);
+
+reset role;
+reset test.uid;
+
+-- ── I1: a newly enabled rule ─────────────────────────────────────────────────────────────
+select public.alert_scan();   -- the rows saved by hand above raise their own bells first
+insert into client_contacts (client_id, channel, contacted_on) values ('W3', 'Call', :'today'::date - 200);
+select steps as nc_steps from alert_rules where code = 'client_not_contacted' \gset
+set role authenticated;
+set test.uid = :'adm';
+select alert_rule_save('client_not_contacted', true, :'nc_steps'::jsonb);
+reset role;
+reset test.uid;
+select t.ok('enabling a rule flags it', (select baseline_pending from alert_rules where code = 'client_not_contacted'));
+select count(*) as bells1 from notifications where user_id = :'own' and type = 'alert_centre' \gset
+select public.alert_scan();
+select t.ok('its first run raises as backlog', (select bool_and(backlog) and count(*) = 1 from alerts where rule_code = 'client_not_contacted' and client_id = 'W3' and status = 'Open'));
+select t.ok('with no bell', (select count(*) = :bells1 from notifications where user_id = :'own' and type = 'alert_centre'));
+select t.ok('the scan clears the rule flag', (select not baseline_pending from alert_rules where code = 'client_not_contacted'));
+update alerts set current_step = 99 where rule_code = 'client_not_contacted' and client_id = 'W3' and status = 'Open';
+select public.alert_scan();
+select t.ok('a later step crossing bells', (select count(*) = :bells1 + 1 from notifications where user_id = :'own' and type = 'alert_centre') and (select not backlog from alerts where rule_code = 'client_not_contacted' and client_id = 'W3' and status = 'Open'));
+set role authenticated;
+set test.uid = :'adm';
+select alert_rule_save('client_not_contacted', true, :'nc_steps'::jsonb);
+reset role;
+reset test.uid;
+select t.ok('saving a rule already on leaves it unflagged', (select not baseline_pending from alert_rules where code = 'client_not_contacted'));
+-- A rule that fails keeps its flag, so its first good run is still a baseline.
+update alert_rules set baseline_pending = true where code = 'client_not_contacted';
+alter function public.alert_rule_client_not_contacted() rename to alert_rule_client_not_contacted_away;
+select public.alert_scan();
+alter function public.alert_rule_client_not_contacted_away() rename to alert_rule_client_not_contacted;
+select t.ok('a rule that failed keeps its flag', (select baseline_pending from alert_rules where code = 'client_not_contacted'));
+update alert_rules set baseline_pending = false where code = 'client_not_contacted';
+update alert_rules set enabled = false where code = 'client_not_contacted';
+
 reset role;
 reset test.uid;
 update alert_settings set value = '"Live"' where key = 'alert_mode';

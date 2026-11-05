@@ -31,6 +31,7 @@ select t.ok('nine compliance rules seeded with the ruled steps', (select count(*
 select steps as pass_steps from alert_rules where code = 'compliance_passport' \gset
 update alert_rules set steps = '[{"days":5,"priority":"Normal"}]' where code = 'compliance_passport';
 \ir ../migrations/006_compliance_register.sql
+\ir reapply_review_fixes.sql
 select t.ok('reapply keeps edited compliance steps', (select steps = '[{"days":5,"priority":"Normal"}]'::jsonb from alert_rules where code = 'compliance_passport'));
 update alert_rules set steps = :'pass_steps' where code = 'compliance_passport';
 select t.ok('rules have no browser-callable wrappers', (select count(*) = 16 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
