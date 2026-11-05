@@ -2,6 +2,16 @@
 -- Runs before rollback/005_rollback.sql and rollback/001_004_rollback.sql: it restores the functions 004 owns and drops what Phase 2 added.
 -- Later tasks add their sections above the 006 section.
 
+-- ── 008: staff email ───────────────────────────────────────────────
+drop function if exists public.alert_email_record(jsonb);
+drop function if exists public.alert_email_build(text);
+drop table if exists public.alert_deliveries;
+do $$ begin
+  if to_regclass('public.alert_settings') is not null then
+    delete from public.alert_settings where key in ('email_enabled', 'email_sender');
+  end if;
+end $$;
+
 -- ── 007: preferences ───────────────────────────────────────────────
 -- 001's bell, restored first, as it reads the function dropped below.
 create or replace function public.alert_bell(p_id uuid, p_user uuid, p_reason text) returns void
