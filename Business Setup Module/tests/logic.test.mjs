@@ -84,7 +84,7 @@ test("the Zoho panel sits before the Banking handover button and blocks nothing"
   const sendLine = quotes.split(/\r?\n/).find((l) => l.includes("Send to Accounts</Button>"));
   assert.ok(sendLine, "Quotes.jsx lost the Send to Accounts button");
   assert.doesNotMatch(sendLine, /zoho|quoteId|ZohoPanel/i);
-  assert.match(sendLine, /^\s*\{can\("setup\.services\.manage"\) && <Button variant="primary" onClick=\{\(\) => setDialog\("send"\)\}>Send to Accounts<\/Button>\}\s*$/);
+  assert.match(sendLine, /^\s*\{can\("setup\.cases\.approve"\) && <Button variant="primary" onClick=\{\(\) => setDialog\("send"\)\}>Send to Accounts<\/Button>\}\s*$/);
   const completeLine = bank.split(/\r?\n/).find((l) => l.includes('id="bk-complete"'));
   assert.ok(completeLine, "BankProcess.jsx lost bk-complete");
   assert.doesNotMatch(completeLine, /zoho|quoteId|quoteNote/i);
