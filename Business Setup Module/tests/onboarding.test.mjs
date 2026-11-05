@@ -137,3 +137,19 @@ test("drag and drop sits at the top of the client's form and of Client Onboardin
   assert.match(bulk, /mergeOcr\(before, out\.read\)/);
   assert.doesNotMatch(bulk, /client-login\/admin|ClientPortalAdmin|supabase/);
 });
+
+test("referral link: the public page comes first, holds no staff code, and has only three public actions", () => {
+  const read = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  const root = read("../../Main Module/src/Root.jsx");
+  assert.ok(root.indexOf('get("intake")') < root.indexOf("getPortalToken())"));
+  const form = read("../components/IntakeForm.jsx");
+  assert.doesNotMatch(form, /businessSetupApi|bankingApi|@app\/supabase|client-login\/admin/);
+  const api = read("../services/intakeApi.js");
+  assert.doesNotMatch(api, /supabase\.|@app/);
+  const fn = read("../supabase/setup-intake/index.ts");
+  assert.deepEqual([...fn.matchAll(/action === "([a-z_]+)"/g)].map((m) => m[1]).sort(), ["open", "spam", "submit", "upload_start"]);
+  assert.doesNotMatch(fn, /createSignedUrl\(|\.download\(/);   // nothing is read back
+  assert.match(fn, /String\(body\.website \|\| ""\)\) return json\(\{ ok: true \}\)/);   // the trap stores nothing
+  assert.doesNotMatch(fn, /console\.[a-z]+\([^)]*(token|answers)/);
+  for (const f of ["../components/AllLeads.jsx", "../components/ClientOnboarding.jsx", "../../Client Module/crm/ClientsHub.jsx"]) assert.match(read(f), /<IntakeLinks \/>/, f);
+});

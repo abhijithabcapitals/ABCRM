@@ -8,6 +8,7 @@ import ClientMaster from "./ClientMaster";
 import ClientInputs from "./ClientInputs";
 import { findListedClient } from "./masterLogic";
 import ClientPortalAdmin, { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
+import IntakeLinks from "@business-setup/components/IntakeLinks";
 
 // The Client Module running on this PC, shown in a frame.
 const LocalClientModule = lazy(() => import("@app/components/Clients"));
@@ -36,6 +37,8 @@ export default function ClientsHub({ profile, openClientId, onClientShown }) {
 
 function AllClients({ isAdmin, openClientId, onClientShown }) {
   const list = useLoad(() => rpc("client_base_list"), []);
+  // Who referred each client. A failure here must not stop the list: the column just stays empty.
+  const referrers = useLoad(() => rpc("business_setup_referrers").catch(() => ({})), []);
   const [line, setLine] = useState("");
   const [open, setOpen] = useState(null);
   const [notListed, setNotListed] = useState(false);
@@ -60,7 +63,7 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
   const count = (l) => rows.filter((c) => (c.lines || []).includes(l)).length;
   return (
     <div className="bk-root">
-      <PageHead title="All Clients" sub="Every converted client across the business." />
+      <PageHead title="All Clients" sub="Every converted client across the business."><IntakeLinks /></PageHead>
       <div className="bk-tabs" role="tablist" aria-label="Business line">
         {[["", "All", rows.length], ...LINES.map((l) => [l, l, count(l)])].map(([k, label, n]) => <button type="button" role="tab" aria-selected={line === k} key={label} className={line === k ? "active" : ""} onClick={() => setLine(k)}>{label} <span className="bk-tab-count">{n}</span></button>)}
       </div>
@@ -76,6 +79,7 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
           { key: "phone", label: "Phone" },
           { key: "email", label: "Email" },
           { key: "client_master_id", label: "Client Master", render: (c) => c.client_master_id || <Badge tone="warn">Not linked</Badge> },
+          { key: "referred_by", label: "Referred by", render: (c) => (referrers.data?.[c.client_master_id] || []).join(", ") || "–" },
           { key: "client_since", label: "Client since", render: (c) => fmtDate(c.client_since) },
         ]} />
       )}

@@ -104,9 +104,9 @@ for pass in 1 2; do
   echo "migrations pass $pass ok"
 done
 
-# Test files in number order, 010 to 190: SQL files and shell scripts.
+# Test files in number order, 010 to 200: SQL files and shell scripts.
 RC=0
-for t in "$HERE"/[01][0-9]0_*; do
+for t in "$HERE"/[012][0-9]0_*; do
   case "$t" in
     *.sql) "${PSQL[@]}" -f "$t" >"$DATA/out" 2>&1 || { RC=1; echo "TESTS FAILED: $(basename "$t")"; }
            grep -vE '^\s*$|^(t|f)?$|NOTICE:  ok ' "$DATA/out" ;;
