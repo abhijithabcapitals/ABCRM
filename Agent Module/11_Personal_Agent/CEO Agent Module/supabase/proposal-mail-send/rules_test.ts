@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { attachmentsFor, refusal } from "./rules.ts";
+import { attachmentsFor, claimFilter, refusal } from "./rules.ts";
 
 const ID = "11111111-2222-3333-4444-555555555555";
 const good = {
@@ -33,4 +33,11 @@ Deno.test("refusals are named", () => {
 
 Deno.test("resend passes for an already sent proposal", () => {
   assertEquals(refusal({ ...good, mail_sent_at: "2026-11-05T08:00:00Z" }, { resend: true }), null);
+});
+
+Deno.test("claimFilter: 2 minute staleness, unsent unless resend", () => {
+  const now = new Date("2026-11-05T10:00:00.000Z");
+  assertEquals(claimFilter(now, {}), { staleBefore: "2026-11-05T09:58:00.000Z", requireUnsent: true });
+  assertEquals(claimFilter(now, { resend: false }).requireUnsent, true);
+  assertEquals(claimFilter(now, { resend: true }), { staleBefore: "2026-11-05T09:58:00.000Z", requireUnsent: false });
 });

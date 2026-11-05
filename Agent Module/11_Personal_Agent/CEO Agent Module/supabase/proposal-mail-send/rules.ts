@@ -30,3 +30,11 @@ export function refusal(doc: Doc, opts: { resend?: boolean }): string | null {
   if (doc.mail_sent_at && !opts.resend) return "This proposal was already mailed. Confirm to send it again.";
   return null;
 }
+
+// A claim older than this is treated as a crashed send and may be taken over.
+export const CLAIM_STALE_MS = 2 * 60 * 1000;
+
+// What the atomic claim must match: unclaimed or stale, and (unless resending) never sent.
+export function claimFilter(now: Date, opts: { resend?: boolean }) {
+  return { staleBefore: new Date(now.getTime() - CLAIM_STALE_MS).toISOString(), requireUnsent: !opts.resend };
+}

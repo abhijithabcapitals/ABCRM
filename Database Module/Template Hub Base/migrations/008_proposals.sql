@@ -12,6 +12,7 @@ alter table public.hub_documents add column if not exists onedrive_saved_at time
 alter table public.hub_documents add column if not exists mail_sent_at timestamptz;
 alter table public.hub_documents add column if not exists mail_sent_by uuid references public.profiles(id);
 alter table public.hub_documents add column if not exists mail_sent_to text;
+alter table public.hub_documents add column if not exists mail_sending_at timestamptz;
 
 create table if not exists public.hub_proposal_authorities (
   authority_key text primary key,

@@ -16,4 +16,4 @@ drop function if exists public.hub_proposal_texts(jsonb, text);
 drop table if exists public.hub_proposal_authorities;
 delete from public.hub_settings where key = 'proposal_defaults';
 alter table public.hub_documents drop column if exists word_path, drop column if exists onedrive_path, drop column if exists onedrive_saved_at,
-  drop column if exists mail_sent_at, drop column if exists mail_sent_by, drop column if exists mail_sent_to;
+  drop column if exists mail_sent_at, drop column if exists mail_sent_by, drop column if exists mail_sent_to, drop column if exists mail_sending_at;
