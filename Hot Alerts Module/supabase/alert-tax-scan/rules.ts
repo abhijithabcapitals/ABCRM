@@ -10,7 +10,7 @@ function dubaiDate(now: Date, addDays: number) {
 
 export function taxItemsToStore(items: TaxItem[], now: Date) {
   return items
-    .filter((i) => i.clientId && i.daysLeft != null && i.status !== "missing" && i.status !== "done" && i.status !== "review")
+    .filter((i) => (i.category === "VAT" || i.category === "Corporate Tax") && i.clientId && i.daysLeft != null && i.status !== "missing" && i.status !== "done" && i.status !== "review")
     .map((i) => ({
       item_key: [i.clientId, i.category, i.title, i.period || ""].join(":"),
       client_id: i.clientId,
