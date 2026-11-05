@@ -487,7 +487,7 @@ async function handle(req: Request) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("EMAIL_AGENT_TOKEN") || ""}` },
         body: JSON.stringify({
           task: "draft_reply",
-          company: "AB Capital",
+          company: "AB Capital Services FZE",
           instructions: typeof body.instructions === "string" ? body.instructions.slice(0, 2000) : "",
           lead: {
             name: prospect.name, email: prospect.email, job_title: prospect.job_title, company_name: prospect.company_name,

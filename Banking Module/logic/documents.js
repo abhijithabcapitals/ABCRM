@@ -7,8 +7,8 @@ const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDig
 const dmy = (d) => { if (!d) return ""; const [y, m, day] = String(d).slice(0, 10).split("-"); return `${day}/${m}/${y}`; };
 const logoUrl = () => new URL("../templates/ab-capital-logo.png", import.meta.url).href;
 
-const vatLine = (mode, rate) => (mode === "inclusive" ? "The fees are inclusive of applicable UAE VAT." : mode === "exclusive" ? `UAE VAT at ${rate}% is added to AB Capital's fees.` : "No VAT has been charged.");
-const FALLBACK_COMPANY = { name: "AB CAPITAL SERVICES (FZE)", short_name: "AB Capital Services FZE", website: "www.abcapital.ae", email: "info@abcapital.ae", mobile: "", bank: {} };
+const vatLine = (mode, rate) => (mode === "inclusive" ? "The fees are inclusive of applicable UAE VAT." : mode === "exclusive" ? `UAE VAT at ${rate}% is added to AB Capital Services FZE's fees.` : "No VAT has been charged.");
+const FALLBACK_COMPANY = { name: "AB CAPITAL SERVICES FZE", short_name: "AB Capital Services FZE", website: "www.abcapital.ae", email: "info@abcapital.ae", mobile: "", bank: {} };
 
 export function quoteMerge(q, client, c, company, preparedBy) {
   const co = company || FALLBACK_COMPANY;
@@ -20,7 +20,7 @@ export function quoteMerge(q, client, c, company, preparedBy) {
     company_name: co.name, company_short: co.short_name, company_website: co.website, company_email: co.email, company_mobile: co.mobile,
     quotation_number: `${q.quotation_number}${q.version > 1 ? ` v${q.version}` : ""}`, status: q.status, quotation_date: dmy(q.quotation_date), valid_until: dmy(q.valid_until), prepared_by: preparedBy,
     client_name: client.display_name, case_ref: c.case_ref, bank: q.banking_partners?.bank_name || "", scheme: q.banking_schemes?.scheme_name || "Not specified",
-    lines: charged.map((i, n) => ({ no: n + 1, category: i.item_type === "Bank Fee" ? `Bank fee, payable to the bank${i.collected_through_ab ? ", collected through AB Capital" : ""}` : i.item_type === "Service Fee" ? "AB Capital service fee" : "Supplementary service", description: i.description, amount: plain(i.amount), raw: i.amount })),
+    lines: charged.map((i, n) => ({ no: n + 1, category: i.item_type === "Bank Fee" ? `Bank fee, payable to the bank${i.collected_through_ab ? ", collected through AB Capital Services FZE" : ""}` : i.item_type === "Service Fee" ? "AB Capital Services FZE service fee" : "Supplementary service", description: i.description, amount: plain(i.amount), raw: i.amount })),
     has_discount: discounts.length > 0, discount: plain(q.discount_total), has_direct: direct.length > 0,
     direct_lines: direct.map((i) => ({ description: i.description, amount: plain(i.amount) })),
     vat_statement: vatLine(q.vat_mode, q.vat_rate), has_vat: q.vat_mode !== "none", vat: plain(q.vat_amount),
@@ -53,7 +53,7 @@ export function printQuote(m) {
   <table><tr><th>#</th><th>Category</th><th>Description</th><th class="r">AED</th></tr>${m.lines.map((l) => `<tr><td>${l.no}</td><td>${esc(l.category)}</td><td>${esc(l.description)}</td><td class="r">${l.amount}</td></tr>`).join("")}
   ${m.has_discount ? `<tr><td colspan="3">Discount</td><td class="r">-${m.discount}</td></tr>` : ""}${m.has_vat ? `<tr><td colspan="3">${esc(m.vat_statement)}</td><td class="r">${m.vat}</td></tr>` : ""}<tr class="tot"><td colspan="3">Total quotation amount</td><td class="r">AED ${m.total_plain}</td></tr></table>
   ${m.has_direct ? `<p class="small"><b>Payable by you directly to the bank, not included above:</b> ${m.direct_lines.map((d) => `${esc(d.description)} AED ${d.amount}`).join("; ")}</p>` : ""}
-  ${m.has_memo ? `<p class="small"><b>Held in your own bank account, not a fee to AB Capital:</b> initial deposit ${m.deposit}; minimum balance ${m.min_balance}.</p>` : ""}
+  ${m.has_memo ? `<p class="small"><b>Held in your own bank account, not a fee to AB Capital Services FZE:</b> initial deposit ${m.deposit}; minimum balance ${m.min_balance}.</p>` : ""}
   <h2>Payment terms</h2><p>${esc(m.payment_terms)}</p>${m.remarks ? `<h2>Remarks</h2><p>${esc(m.remarks)}</p>` : ""}
   ${payDetails(m.bank_details)}
   <p class="small">The decision to open an account rests solely with the bank. This quotation does not guarantee approval, timing or account terms. Bank fees and requirements are set by the bank and may change.</p>`);
@@ -88,7 +88,7 @@ export function printLetter(l) {
   <h2>B. SCOPE OF SERVICE</h2><p><b>${esc(m.scope_title)}</b></p>${list(m.scope)}
   <h2>C. OUR FEES</h2><p>${esc(m.fee_intro)}</p><table><tr><th>#</th><th>Scope of work</th><th class="r">Proposed fees (AED)</th></tr>${m.fees.map((f) => `<tr><td>${f.no}</td><td>${esc(f.description)}</td><td class="r">${f.amount}</td></tr>`).join("")}<tr class="tot"><td colspan="2">Total (quotation ${esc(m.quotation_number)})</td><td class="r">${m.total}</td></tr></table>
   <h2>D. PAYMENT TERMS</h2>${list(m.payment_terms)}
-  <h2>E. RESPONSIBILITIES OF AB CAPITAL</h2>${list(m.ab_responsibilities)}<h2>F. RESPONSIBILITIES OF THE CLIENT</h2>${list(m.client_responsibilities)}
+  <h2>E. RESPONSIBILITIES OF AB CAPITAL SERVICES FZE</h2>${list(m.ab_responsibilities)}<h2>F. RESPONSIBILITIES OF THE CLIENT</h2>${list(m.client_responsibilities)}
   <h2>G. LIMITATIONS AND DISCLAIMERS</h2><p>${esc(m.limitations)}</p><h2>H. REPS &amp; WARRANTIES</h2><p>${esc(m.reps)}</p>
   ${payDetails(m.bank_details)}
   <div class="sign"><div>Sincerely,<br/>Authorized Signatory<br/>${esc(m.company_short)}<br/>Date:</div><div>Accepted By<br/>${esc(m.client_name)}<br/>Client Signature<br/>Date:</div></div>`);

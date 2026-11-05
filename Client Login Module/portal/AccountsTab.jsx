@@ -34,7 +34,7 @@ function CasePanel({ c, outcome }) {
   const direct = Number(c.direct_to_bank);
   return (
     <Panel title={title}>
-      <KeyVals items={paidOnly ? [["Paid", fmtMoney(c.paid)]] : [["Payable to AB Capital", fmtMoney(c.payable)], ["Paid", fmtMoney(c.paid)], ["Balance", <Balance key="b" value={c.balance} />]]} />
+      <KeyVals items={paidOnly ? [["Paid", fmtMoney(c.paid)]] : [["Payable to AB Capital Services FZE", fmtMoney(c.payable)], ["Paid", fmtMoney(c.paid)], ["Balance", <Balance key="b" value={c.balance} />]]} />
       {!paidOnly && direct > 0 && <p className="bk-note bk-mt">You pay {fmtMoney(direct)} directly to the bank. It is not part of the balance above.</p>}
       <div className="bk-mt">
         <DataTable rows={c.lines || []} empty="No payments recorded yet." columns={[
@@ -55,7 +55,7 @@ export default function AccountsTab({ me }) {
   const outcomeOf = (ref) => (me.banking_services || []).find((s) => s.case_ref === ref)?.outcome;
   return (
     <>
-      <Panel title="Filing status" sub="VAT and Corporate Tax dates as held by AB Capital.">
+      <Panel title="Filing status" sub="VAT and Corporate Tax dates as held by AB Capital Services FZE.">
         <Filing record={me.has_master ? me.filing_record : null} />
       </Panel>
       {accounts.length ? accounts.map((c) => <CasePanel key={c.case_ref} c={c} outcome={outcomeOf(c.case_ref)} />) : <Panel title="Amounts and payments"><Empty>Nothing recorded yet.</Empty></Panel>}

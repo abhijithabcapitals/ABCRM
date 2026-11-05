@@ -100,8 +100,8 @@ Both tables have row level security. Only the Edge Function reads and writes the
 | Column | Notes |
 |---|---|
 | `id` | Primary key |
-| `department` | `Business Setup` or `Banking` |
-| `source_table`, `source_id` | `hub_documents` or `banking_quotations`, and the row |
+| `department` | `Business Setup`, `Banking` or `Accounting` |
+| `source_table`, `source_id` | `hub_documents`, `banking_quotations` or `accounting_jobs`, and the row |
 | `kind` | `estimate` or `invoice` |
 | `reference` | The CRM quote number, sent as `reference_number` |
 | `state` | `creating`, `created`, `failed`, `unknown`, or `gone` |
@@ -113,7 +113,7 @@ Both tables have row level security. Only the Edge Function reads and writes the
 
 A unique index on `(source_table, source_id, kind)` allows one Zoho draft per quote and kind. A revised quote is a new row in `hub_documents`, so it gets its own draft, and the panel warns that the earlier draft still exists in Zoho.
 
-`business_setup_invoices` already feeds Client Login. A row is added there only once Zoho reports an invoice as sent, unpaid, partially paid, overdue or paid. Any other status stays hidden, which keeps drafts away from clients. If an invoice is later voided or removed in Zoho, the row is removed. A Banking invoice gets a row with `quote_id` empty.
+`business_setup_invoices` already feeds Client Login. A row is added there only once Zoho reports an invoice as sent, unpaid, partially paid, overdue or paid. Any other status stays hidden, which keeps drafts away from clients. If an invoice is later voided or removed in Zoho, the row is removed. A Banking invoice gets a row with `quote_id` empty. A row is added only when Zoho's customer on the invoice matches the client's saved contact link; otherwise any row is removed and staff see why.
 
 If Zoho says a document no longer exists, its row becomes `gone` and staff can create a new draft.
 
@@ -150,7 +150,7 @@ A Banking client with no `client_master_id` cannot be linked. The panel says so.
 | `customer_id` | Link for `client_id` | Link for `banking_clients.client_master_id` |
 | `reference_number` | `document_number` | `quotation_number` |
 | `date` | Today, Asia/Dubai | Today, Asia/Dubai |
-| Line items | Each entry in `lines`: `service_name` or `description`, and `amount` | One line each for bank fee, service fee and supplementary totals, less `discount_total` |
+| Line items | Each entry in `lines`: `service_name` or `description`, and `amount` | One line each for collected bank fee (`bank_fee_total - direct_to_bank_total`, no VAT, as in the CRM's own calculation), service fee and supplementary totals, with `discount_total` taken off service first and then supplementary |
 | VAT | `vat_mode`, `vat_rate` | `vat_mode`, `vat_rate` |
 
 - **Totals must match.** The function compares Zoho's returned total to the CRM total. On a difference it marks the row and warns staff, since it cannot edit the draft.
@@ -167,6 +167,7 @@ A Banking client with no `client_master_id` cannot be linked. The panel says so.
 | Create an invoice, Business Setup | `setup.services.manage` |
 | Link a contact, create either, Banking | `cases.manage` |
 | See status, View PDF | Anyone who can open the quote: `setup.access` in Business Setup, `cases.view` in Banking |
+| Link a contact, create an invoice, see status, View PDF, Accounting | `accounts.review`, checked through `banking_can` |
 
 The function checks these on the server using the caller's login.
 
@@ -218,3 +219,24 @@ Going live needs separate approval at each step.
 ## 15. Not in this version
 
 Changing or deleting anything in Zoho, sending from the CRM, creating contacts or items, payment records and reconciliation, credit notes, stored PDF copies, PDFs in Client Login, background sync, webhooks, Zoho CRM, Mail or Sign, and importing past Zoho records.
+
+## 16. Where staff find it (added 2026-11-04)
+
+The user asked for Zoho invoices in the Documentation area of each module.
+
+| Module | Where | Notes |
+|---|---|---|
+| Business Setup | Documentation, inside each case, through its quotes | No new screen |
+| Business Banking | Documentation, a new **Zoho invoices** tab listing accepted quotations, each with the panel | Also stays in the account details step |
+| Accounting | The panel inside each job on the Accounting tab. Accounting has no Documentation tab | Invoice only. A job may link a quotation (the fee then comes from it), but a job is not a quote, so no estimate |
+
+**Accounting draft invoice.** Allowed for a Completed job with a fee above 0 and a linked client. One line: service name and period. Rate: the job's fee. VAT depends on where the fee comes from (user, 2026-11-05). A job linked to a quote has the quote's total as its fee, VAT already in it, so the invoice is tax-inclusive, its total equals the fee and the VAT is `round(fee * 5 / 105, 2)`. A job with no quote has a typed fee before VAT, so the invoice is exclusive and the total is the fee plus 5%. Reference: the job's own reference. Permission: `accounts.review`, for create, status and PDF.
+
+**Filling the job.** Once read-back sees the invoice as sent or later, the CRM records its number, date and total on the job, using the same fields and history as the typed entry. It never overwrites an invoice already recorded on the job: a different one gives a warning. A voided invoice is not cleared automatically; staff see a warning and clear it on the job. The typed entry stays for invoices made directly in Zoho. The same read-back warns, and changes nothing, in these cases: the invoice number was cleared on the job but is live in Zoho (`cleared`, so a staff clear is not undone); the number matches but the amount or date differs; the invoice is no longer sent (moved back to draft) while its number is on the job. A voided job invoice may be created again, taking over the same row, only once its number has been cleared from the job; the voided Zoho document is never adopted again.
+
+**Rulings on fees and VAT (user and controller, 2026-11-05).**
+1. Linking a quotation to a job always sets the job fee to the quotation's total, in the same database call, so a typed fee cannot be kept beside a quotation. The screen says the fee is changing from X to Y, and closing it links nothing. A hand edit of the fee after linking stays allowed and bills as the quote's VAT mode.
+2. The linked quotation's VAT mode decides the invoice. A quotation with VAT (inclusive or exclusive) already holds VAT in its total, so the invoice is inclusive, total equal to the fee, VAT `round(fee * 5 / 105, 2)`. A No VAT quotation gives mode `none`, no tax code and total equal to the fee. A quotation with another VAT rate, or one that cannot be read ("Could not read this job's quote."), is refused. A typed fee on a job with no quotation is before VAT and the invoice is exclusive, fee plus 5%.
+3. Until an invoice is recorded, the amount due of a typed-fee job is the fee plus 5%, so an advance of fee plus VAT can be recorded and paying it shows Settled. A quote-linked fee stays the fee. A recorded invoice amount still wins. This is in Accounting Base migration 005 and applies to the payment limit, the job list and Follow-ups alike.
+
+Client Login follows section 6, with `quote_id` empty.

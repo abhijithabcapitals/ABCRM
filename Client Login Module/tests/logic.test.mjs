@@ -205,7 +205,7 @@ test("readOnly gates edit and file opening", () => {
 
 test("portal carries the exact client-facing strings", () => {
   const s = allPortal();
-  for (const text of ["Payment history is not held in this system. Contact your account manager.", "Held by AB Capital", "Pending review", "Not recorded yet", "Not accepted:", "In credit"]) assert.ok(s.includes(text), text);
+  for (const text of ["Payment history is not held in this system. Contact your account manager.", "Held by AB Capital Services FZE", "Pending review", "Not recorded yet", "Not accepted:", "In credit"]) assert.ok(s.includes(text), text);
 });
 
 test("portal never shows tax basis text, links the website, or imports Client Module from portal", () => {

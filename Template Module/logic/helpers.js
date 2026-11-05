@@ -1,7 +1,7 @@
 // Pure helpers shared by the Template module (no React, no Supabase).
 
-// A stored file with no PC folder copy yet. Accounting receipts are kept in storage only, so they are never waiting for one.
-export const needsPcCopy = (r) => !!r.storage_path && !r.local_path && r.source !== "accounting";
+// A stored file with no PC folder copy yet. Accounting receipts and ArdentTax documents are kept in storage only, so they are never waiting for one.
+export const needsPcCopy = (r) => !!r.storage_path && !r.local_path && r.source !== "accounting" && r.source !== "ardentax";
 
 // Normalize a key on SAVE (collapses runs, trims ends).
 export const slugify = (s) =>

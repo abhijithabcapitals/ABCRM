@@ -4,6 +4,8 @@ import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Pane
 import { rpc } from "@banking/services/bankingApi";
 import { openDocument } from "@business-setup/services/businessSetupApi";
 import { aedMoney as money } from "@app/money";
+import { supabase } from "@app/supabase";
+import ZohoPanel from "@integrations/components/ZohoPanel";
 
 const TABS = [["With Accounts", "Awaiting Validation"], ["Closed", "Closed"]];
 
@@ -48,6 +50,9 @@ function Review({ row, onBack, onDone }) {
       <Panel title="Summary"><KeyVals items={[["Status", <Badge key="s">{row.status}</Badge>], ["Quote total", money(row.total)], ["Net paid", money(row.net_paid)], ["Outstanding", money(row.outstanding)], ["Remarks", row.remarks || "–"], ["Sent", fmtDate(row.sent_at)]]} /></Panel>
       <Panel title="Services"><DataTable rows={row.services} columns={[{ key: "name", label: "Service" }, { key: "action", label: "Action" }, { key: "status", label: "Status" }, { key: "completed_at", label: "Completed", render: (s) => fmtDate(s.completed_at) }]} /></Panel>
       <Panel title="Payments"><DataTable rows={row.payments} empty="No payments recorded." columns={[{ key: "date", label: "Date", render: (p) => fmtDate(p.date) }, { key: "type", label: "Type" }, { key: "amount", label: "AED", right: true, render: (p) => money(p.amount) }, { key: "method", label: "Method" }, { key: "reference", label: "Reference" }, { key: "receipt_number", label: "Receipt" }]} /></Panel>
+      <Panel title="Zoho">
+        <ZohoPanel key={`${row.quote_id}:${row.client_id}`} supabase={supabase} department="business_setup" sourceTable="hub_documents" sourceId={row.quote_id} clientId={row.client_id} kinds={["estimate", "invoice"]} canCreate={false} />
+      </Panel>
       <Panel title="Output files"><DataTable rows={row.outputs} empty="None." columns={[{ key: "file_name", label: "File", render: (d) => <button type="button" className="bk-link" onClick={() => openDocument(d.storage_path).catch((e) => setError(e.message))}>{d.file_name}</button> }]} /></Panel>
       {action && <FormModal title={action === "validate" ? "Validate and close" : "Revert to the team"} submitLabel={action === "validate" ? "Validate" : "Revert"} onClose={() => setAction(null)}
         fields={[{ name: "remarks", label: action === "validate" ? "Remarks" : "What must be fixed", type: "textarea", required: action === "revert", full: true }]}

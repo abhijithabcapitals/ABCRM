@@ -2,7 +2,7 @@ import { useState } from "react";
 import { checkBody, checkWebLink } from "../logic/chat.js";
 import { QUICK_REACTIONS, formatBytes, mentionParts, reactionList } from "../logic/parity.js";
 
-const TICKS = { sent: ["✓", "Sent"], read: ["✓✓", "Read"], sending: ["…", "Sending"] };
+const TICKS = { sent: ["✓", "Sent"], delivered: ["✓✓", "Delivered"], read: ["✓✓", "Read"], sending: ["…", "Sending"] };
 const TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", hour: "2-digit", minute: "2-digit", hour12: false });
 
 function Editor({ start, onSave, onCancel }) {

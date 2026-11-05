@@ -1,0 +1,462 @@
+[
+  {
+    "name": "standard with onboarding",
+    "details": {
+      "quoteType": "Standard",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {
+          "docs": 3600,
+          "year": 4199
+        },
+        "C": {}
+      },
+      "client": {},
+      "options": {},
+      "rows": {
+        "ONB": {
+          "inc": true,
+          "fee": 1500,
+          "type": "One-time"
+        },
+        "ANN": {
+          "inc": true,
+          "type": "Annual"
+        }
+      },
+      "custom": {
+        "items": []
+      }
+    },
+    "expect": {
+      "one_time": 1500,
+      "annual": 4199,
+      "year1": 5699
+    }
+  },
+  {
+    "name": "standard with a text fee and an excluded row",
+    "details": {
+      "quoteType": "Standard",
+      "selected": "Corporate",
+      "tiers": {
+        "E": {},
+        "S": {},
+        "C": {
+          "docs": 10000,
+          "year": 7500
+        }
+      },
+      "client": {},
+      "options": {},
+      "rows": {
+        "ONB": {
+          "inc": true,
+          "fee": "Free",
+          "type": "One-time"
+        },
+        "GAP": {
+          "inc": false,
+          "fee": 3000,
+          "type": "One-time"
+        },
+        "TRN": {
+          "inc": true,
+          "fee": 2400,
+          "type": "One-time"
+        },
+        "ANN": {
+          "inc": true,
+          "type": "Annual"
+        }
+      },
+      "custom": {
+        "items": []
+      }
+    },
+    "expect": {
+      "one_time": 2400,
+      "annual": 7500,
+      "year1": 9900
+    }
+  },
+  {
+    "name": "options leave both integrations out of the total",
+    "details": {
+      "quoteType": "Standard",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {
+          "docs": 1200,
+          "year": 2499
+        },
+        "C": {}
+      },
+      "client": {},
+      "options": {
+        "showOptions": true
+      },
+      "rows": {
+        "SUP": {
+          "inc": true,
+          "fee": 2000,
+          "type": "One-time"
+        },
+        "FULL": {
+          "inc": true,
+          "fee": 5000,
+          "type": "One-time"
+        },
+        "ANN": {
+          "inc": true,
+          "type": "Annual"
+        }
+      },
+      "custom": {
+        "items": []
+      }
+    },
+    "expect": {
+      "one_time": 0,
+      "annual": 2499,
+      "year1": 2499
+    }
+  },
+  {
+    "name": "custom items",
+    "details": {
+      "quoteType": "Custom",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {},
+        "C": {}
+      },
+      "client": {},
+      "options": {},
+      "rows": {},
+      "custom": {
+        "volume": 48000,
+        "items": [
+          {
+            "title": "Training and Demo",
+            "fee": "Free",
+            "type": "One-time"
+          },
+          {
+            "title": "E-Invoicing Gap Assessment",
+            "fee": 2000,
+            "type": "One-time"
+          },
+          {
+            "title": "Additional Invoices",
+            "fee": 0.25,
+            "type": "Per invoice"
+          },
+          {
+            "title": "Scope",
+            "fee": 12000,
+            "type": "Annual"
+          },
+          {
+            "title": "",
+            "fee": 999,
+            "type": "Annual"
+          }
+        ]
+      }
+    },
+    "expect": {
+      "one_time": 2000,
+      "annual": 12000,
+      "year1": 14000
+    }
+  },
+  {
+    "name": "fee with commas",
+    "details": {
+      "quoteType": "Standard",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {
+          "docs": 3600,
+          "year": 4199
+        },
+        "C": {}
+      },
+      "client": {},
+      "options": {},
+      "rows": {
+        "ONB": {
+          "inc": true,
+          "fee": "1,500",
+          "type": "One-time"
+        },
+        "ANN": {
+          "inc": true,
+          "type": "Annual"
+        }
+      },
+      "custom": {
+        "items": []
+      }
+    },
+    "expect": {
+      "one_time": 1500,
+      "annual": 4199,
+      "year1": 5699
+    }
+  },
+  {
+    "name": "custom fee with commas",
+    "details": {
+      "quoteType": "Custom",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {},
+        "C": {}
+      },
+      "client": {},
+      "options": {},
+      "rows": {},
+      "custom": {
+        "volume": 1000,
+        "items": [
+          {
+            "title": "Scope",
+            "fee": "2,000",
+            "type": "Annual"
+          }
+        ]
+      }
+    },
+    "expect": {
+      "one_time": 0,
+      "annual": 2000,
+      "year1": 2000
+    }
+  },
+  {
+    "name": "options with an included integration",
+    "details": {
+      "quoteType": "Standard",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {
+          "docs": 3600,
+          "year": 4199
+        },
+        "C": {}
+      },
+      "client": {},
+      "options": {
+        "showOptions": true
+      },
+      "rows": {
+        "ONB": {
+          "inc": true,
+          "fee": 1500,
+          "type": "One-time"
+        },
+        "SUP": {
+          "inc": true,
+          "fee": 1000,
+          "type": "Included"
+        },
+        "FULL": {
+          "inc": true,
+          "fee": 5000,
+          "type": "One-time"
+        },
+        "ANN": {
+          "inc": true,
+          "type": "Annual"
+        }
+      },
+      "custom": {
+        "items": []
+      }
+    },
+    "expect": {
+      "one_time": 1500,
+      "annual": 4199,
+      "year1": 5699
+    }
+  },
+  {
+    "name": "options with an annual integration",
+    "details": {
+      "quoteType": "Standard",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {
+          "docs": 3600,
+          "year": 4199
+        },
+        "C": {}
+      },
+      "client": {},
+      "options": {
+        "showOptions": true
+      },
+      "rows": {
+        "ONB": {
+          "inc": true,
+          "fee": 1500,
+          "type": "One-time"
+        },
+        "SUP": {
+          "inc": true,
+          "fee": 1000,
+          "type": "Annual"
+        },
+        "FULL": {
+          "inc": true,
+          "fee": 5000,
+          "type": "Per invoice"
+        },
+        "ANN": {
+          "inc": true,
+          "type": "Annual"
+        }
+      },
+      "custom": {
+        "items": []
+      }
+    },
+    "expect": {
+      "one_time": 1500,
+      "annual": 5199,
+      "year1": 6699
+    }
+  },
+  {
+    "name": "number spellings count as text on both sides",
+    "details": {
+      "quoteType": "Standard",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {
+          "docs": 3600,
+          "year": 4199
+        },
+        "C": {}
+      },
+      "client": {},
+      "options": {},
+      "rows": {
+        "ONB": {
+          "inc": true,
+          "fee": ".5",
+          "type": "One-time"
+        },
+        "GAP": {
+          "inc": true,
+          "fee": "5.",
+          "type": "One-time"
+        },
+        "TRN": {
+          "inc": true,
+          "fee": "+100",
+          "type": "One-time"
+        },
+        "X1": {
+          "inc": true,
+          "fee": "1e3",
+          "type": "One-time"
+        },
+        "X2": {
+          "inc": true,
+          "fee": "1500 ",
+          "type": "One-time"
+        },
+        "ANN": {
+          "inc": true,
+          "type": "Annual"
+        }
+      },
+      "custom": {
+        "items": []
+      }
+    },
+    "expect": {
+      "one_time": 1500,
+      "annual": 4199,
+      "year1": 5699
+    }
+  },
+  {
+    "name": "annual fee of only a non-breaking space uses the package price",
+    "details": {
+      "quoteType": "Standard",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {
+          "docs": 3600,
+          "year": 4199
+        },
+        "C": {}
+      },
+      "client": {},
+      "options": {},
+      "rows": {
+        "ANN": {
+          "inc": true,
+          "fee": " ",
+          "type": "Annual"
+        }
+      },
+      "custom": {
+        "items": []
+      }
+    },
+    "expect": {
+      "one_time": 0,
+      "annual": 4199,
+      "year1": 4199
+    }
+  },
+  {
+    "name": "custom title of only a non-breaking space is left out",
+    "details": {
+      "quoteType": "Custom",
+      "selected": "Established",
+      "tiers": {
+        "E": {},
+        "S": {},
+        "C": {}
+      },
+      "client": {},
+      "options": {},
+      "rows": {},
+      "custom": {
+        "volume": 1000,
+        "items": [
+          {
+            "title": " ",
+            "fee": 700,
+            "type": "Annual"
+          },
+          {
+            "title": "Scope",
+            "fee": 100,
+            "type": "Annual"
+          }
+        ]
+      }
+    },
+    "expect": {
+      "one_time": 0,
+      "annual": 100,
+      "year1": 100
+    }
+  }
+]

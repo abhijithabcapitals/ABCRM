@@ -94,6 +94,13 @@ export const isNoAccess = (error) => error?.code === "42501";
 const MINUTE = 60_000;
 const FRESH_MINUTES = 360;
 const REFRESH_WAIT_MINUTES = 5;
+// After Zoho limited requests the function makes the button wait longer. These texts must match errors.ts in zoho-finance.
+const RATE_LIMIT_WAIT_MINUTES = 15;
+export const RATE_LIMIT_MESSAGES = [
+  "Zoho is busy, try again shortly.",
+  "Zoho is limiting requests, so some figures are incomplete. Refresh again in a few minutes.",
+  "Zoho is limiting requests. Refresh again in a few minutes.",
+];
 const stamp = (v) => (v ? Date.parse(v) : NaN);
 
 // "empty" has no figures yet, "failed" is the last attempt failing (the old figures stay), "stale" is over 6 hours old.
@@ -107,11 +114,13 @@ export function snapshotState(row, now) {
 // "n/a" for an unknown ratio. Never zero.
 export const fmtRatio = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? "n/a" : Number(v).toFixed(2));
 
-// Whole minutes until the Refresh button works: the function allows it once both the figures and the last attempt are 5 minutes old.
+// Whole minutes until the Refresh button works: the function allows it once both the figures and the last attempt are 5 minutes old,
+// or 15 after a rate-limit message.
 export function refreshWaitMinutes(row, now) {
   const newest = Math.max(stamp(row?.as_of) || 0, stamp(row?.last_attempt_at) || 0);
   if (!newest) return 0;
-  return Math.max(0, Math.ceil((newest + REFRESH_WAIT_MINUTES * MINUTE - now) / MINUTE));
+  const minutes = RATE_LIMIT_MESSAGES.includes(row?.error) ? RATE_LIMIT_WAIT_MINUTES : REFRESH_WAIT_MINUTES;
+  return Math.max(0, Math.ceil((newest + minutes * MINUTE - now) / MINUTE));
 }
 
 // The table is not there yet (migration not applied): Postgres 42P01, or PostgREST's schema-cache miss.

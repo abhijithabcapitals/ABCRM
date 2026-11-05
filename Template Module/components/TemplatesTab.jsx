@@ -4,8 +4,8 @@ import { cleanFreezone } from "../logic/helpers";
 import TemplateEditor from "./TemplateEditor";
 
 // ─────────────────────────── Templates (admin) ───────────────────────────
-export default function TemplatesTab({ templates, profile, onChanged, downloadTemplateBuffer }) {
-  const isAdmin = profile?.role === "admin";
+export default function TemplatesTab({ templates, profile, hubAdmin = false, onChanged, downloadTemplateBuffer }) {
+  const isAdmin = profile?.role === "admin" || hubAdmin;
   const [editing, setEditing] = useState(null); // template object or {} for new
   const [downloadingId, setDownloadingId] = useState(null);
 
@@ -72,6 +72,7 @@ export default function TemplatesTab({ templates, profile, onChanged, downloadTe
         <TemplateEditor
           template={editing}
           profile={profile}
+          hubAdmin={hubAdmin}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); onChanged(); }}
         />

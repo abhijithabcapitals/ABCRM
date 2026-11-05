@@ -4,6 +4,7 @@ import "./index.css";
 import "./App.css";
 import chatApi from "@messenger/services/chatClient.js";
 import MessengerApp from "@messenger/components/MessengerApp.jsx";
+import MessengerDock from "@messenger/components/MessengerDock.jsx";
 import CallHost from "@messenger/components/CallHost.jsx";
 import callRoom from "@messenger/services/callRoom.js";
 import inboxApi from "@messenger/services/inboxClient.js";
@@ -159,16 +160,21 @@ chatApi.beat = async (s) => { if (s) MY_STATUS = s; };
 chatApi.presence = async () => [{ profile_id: "me", status: MY_STATUS, last_seen_at: at(0) }, { profile_id: "p1", status: "busy", last_seen_at: at(1) }];
 chatApi.sendFile = async () => { throw new Error("File sharing is not set up yet."); };
 chatApi.messages = async () => MESSAGES;
-chatApi.readState = async () => null;
+chatApi.receiptState = async () => window.__receipts || { read_at: null, delivered_at: null };
+chatApi.markDelivered = async () => {};
+chatApi.watchReceipts = (id, onChange) => { window.__emitReceipt = onChange; return () => {}; };
+chatApi.typingChannel = (id, onSignal) => { window.__emitTyping = onSignal; window.__typingSent = []; return { send: (p) => window.__typingSent.push(p), stop() {} }; };
 chatApi.markRead = async () => null;
 chatApi.members = async () => [{ profile_id: "me", full_name: me.full_name }, { profile_id: "p1", full_name: "Sample Colleague" }, { profile_id: "p2", full_name: "Sample Two" }];
 chatApi.staff = async () => [{ id: "p1", full_name: "Sample Colleague" }];
 
+const dock = new URLSearchParams(location.search).has("dock");
 createRoot(document.getElementById("root")).render(
   <div className="app-layout">
     <CallHost profile={me} />
     <div className="app-body">
-      <main className="app-main"><MessengerApp profile={me} /></main>
+      <main className="app-main">{dock ? <p style={{ padding: 24 }}>CRM page (preview, fake data)</p> : <MessengerApp profile={me} />}</main>
     </div>
+    {dock && <MessengerDock profile={me} onOpenPage={() => { window.__openedPage = true; }} />}
   </div>,
 );

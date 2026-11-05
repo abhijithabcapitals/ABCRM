@@ -33,6 +33,23 @@ tool inputs and results are never stored. A logging failure never changes the to
 
 Claude OAuth is not implemented.
 
+## Bruno route
+
+Bruno calls the Edge Function `supabase/crm-agent/` (`index.ts`, `logic.js`, `tools.js`) for agent `AGT-14-CRM`. A model on OpenRouter
+answers with three tools: `list_my_tables`, `describe_table` and `read_rows`. It uses the `OPENROUTER_API_KEY` secret, and the model
+comes from Settings > Agents. Every data call uses the person's own login, so row security applies, and `logic.js` adds a
+table-to-tab map, because the database does not check module tabs. A table not in the map is refused. When the data gives no
+answer, the reply is `NO_INFO`.
+
+`READ_ONLY` in `logic.js` is on, so it changes nothing. Setting it to false offers `change_rows` on the tables in `CHANGEABLE`, with
+no confirmation. Add a table there only after checking that its screens write to it directly.
+
+CRM data goes to the provider OpenRouter picks. The request refuses providers that keep or train on prompts. Logs and
+`crm_agent_tool_calls` hold codes, tables and actions only, never inputs or results.
+
+Tests: `node --test "Agent Module/14_CRM_Agent/tests/crmAgentRules.test.mjs" "Agent Module/14_CRM_Agent/tests/crmAgentTools.test.mjs"`.
+Deploy steps are in the Router Agent README.
+
 ## Claude plan usage
 
 Settings > Claude Subscription shows the plan and limit percentages. An hourly scheduled task in the Claude desktop app

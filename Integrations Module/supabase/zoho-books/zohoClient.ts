@@ -1,5 +1,5 @@
 // Restricted Zoho Books client. Only the method and path pairs below can leave the server.
-// Reads: organizations, contacts, items, taxes, estimates, invoices. Creates: estimates, invoices.
+// Reads: organizations, contacts, items, taxes, estimates, invoices (also as a PDF). Creates: estimates, invoices.
 
 export class NotAllowedError extends Error {
   constructor(method: string, path: string) {
@@ -26,6 +26,20 @@ export class ZohoAccessError extends Error {
     this.name = "ZohoAccessError";
   }
 }
+
+// The request ran out of time. A create that timed out may still have happened in Zoho.
+export class ZohoTimeoutError extends Error {
+  constructor() {
+    super("Zoho did not answer in time.");
+    this.name = "ZohoTimeoutError";
+  }
+}
+
+const REQUEST_TIMEOUT_MS = 20_000;
+// A PDF is larger than a JSON reply, so it gets longer.
+const PDF_TIMEOUT_MS = 30_000;
+const PDF_MAX_BYTES = 10 * 1024 * 1024;
+const PDF_PATH = /^\/(estimates|invoices)\/\d+$/;
 
 const GET_PATHS: RegExp[] = [
   /^\/organizations$/,
@@ -82,6 +96,16 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
   let token: { value: string; expires: number } | undefined;
   const secrets = () => [cfg.clientSecret, cfg.refreshToken, cfg.clientId, token?.value ?? ""];
 
+  async function send(url: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+    try {
+      return await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      const name = (e as Error)?.name;
+      if (name === "TimeoutError" || name === "AbortError") throw new ZohoTimeoutError();
+      throw e;
+    }
+  }
+
   async function readError(res: Response): Promise<ZohoHttpError> {
     let message = `Zoho returned HTTP ${res.status}`;
     let code: number | undefined;
@@ -104,7 +128,7 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
       client_secret: cfg.clientSecret,
     });
     // A redirect could carry the secrets to another host, so it is an error.
-    const res = await fetchFn(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body, redirect: "error" });
+    const res = await send(`${hosts.accounts}/oauth/v2/token`, { method: "POST", body, redirect: "error" });
     if (!res.ok) {
       const err = await readError(res);
       // A rate limit or outage is not a lost connection. Only a refusal means reconnect.
@@ -151,12 +175,58 @@ export function createZohoClient(cfg: ZohoConfig, fetchFn: typeof fetch = fetch)
       headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(body ?? {});
     }
-    const res = await fetchFn(url.toString(), init);
+    const res = await send(url.toString(), init);
     if (!res.ok) throw await readError(res);
-    return await res.json();
+    // A 2xx reply that is not JSON is not shown as raw text.
+    return await res.json().catch(() => {
+      throw new Error("Zoho sent a reply that could not be read.");
+    });
+  }
+
+  // The PDF of one estimate or invoice. Only a reply that is a PDF is returned.
+  async function getPdf(path: string): Promise<Uint8Array> {
+    if (!PDF_PATH.test(path)) throw new NotAllowedError("GET", path);
+    const q = { accept: "pdf" };
+    assertAllowed("GET", path, q);
+    const url = new URL(hosts.api + path);
+    url.searchParams.set("accept", q.accept);
+    url.searchParams.set("organization_id", cfg.orgId);
+    const headers: Record<string, string> = { Authorization: `Zoho-oauthtoken ${await accessToken()}` };
+    const res = await send(url.toString(), { method: "GET", headers, redirect: "error" }, PDF_TIMEOUT_MS);
+    if (!res.ok) throw await readError(res);
+    const tooLarge = () => new Error("The PDF from Zoho is too large to open here.");
+    if (Number(res.headers.get("Content-Length")) > PDF_MAX_BYTES) {
+      await res.body?.cancel();
+      throw tooLarge();
+    }
+    // Read in pieces so a file with no length header is still stopped at the limit.
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    const reader = res.body?.getReader();
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > PDF_MAX_BYTES) {
+        await reader.cancel();
+        throw tooLarge();
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let at = 0;
+    for (const c of chunks) {
+      bytes.set(c, at);
+      at += c.length;
+    }
+    const hasPdfMark = bytes.length >= 4 && String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) === "%PDF";
+    // Even a reply labelled as a PDF must be one: an empty body or a JSON error page is refused.
+    if (bytes.length === 0 || !hasPdfMark) throw new Error("Zoho did not send a PDF.");
+    return bytes;
   }
 
   return {
+    getPdf,
     get: (path: string, query: Record<string, string> = {}) => call("GET", path, query),
     post: (path: string, body: unknown, query: Record<string, string> = {}) =>
       call("POST", path, query, body),

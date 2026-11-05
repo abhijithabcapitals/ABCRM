@@ -2,7 +2,7 @@
 // each one has. `folder` values match the folders under "Template Docs/".
 
 export const COMPANIES = [
-  { key: "ab_capital", label: "Ab Capital", folder: "Ab Capital" },
+  { key: "ab_capital", label: "AB Capital Services FZE", folder: "Ab Capital" },
   { key: "traction", label: "Traction Consulting Services", folder: "Traction Consulting Services" },
   { key: "ardentax", label: "Ardentax", folder: "Ardentax" },
   { key: "catalyst", label: "Catalyst", folder: "Catalyst" },

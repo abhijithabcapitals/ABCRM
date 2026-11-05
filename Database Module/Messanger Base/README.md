@@ -39,3 +39,16 @@ The runner also runs `002` twice, `tests/020_connection_test.sql`, and `migratio
 
 Row security on all three tables: members read only their own chats, and there is no admin exception. The browser can read the tables and insert its own messages; nothing else is granted, so every change to chats and members goes through the functions. `messenger_messages` joins the `supabase_realtime` publication (rollback removes it first). Messages are plain text in the database, not end-to-end encrypted.
 `tests/030_chat_test.sql` runs after the migration twice; `migrations/rollback/003_rollback.sql` runs first in the rollback order.
+
+## Delivered and read ticks, and typing (`migrations/008_receipts_typing.sql`)
+
+| Object | Purpose |
+|---|---|
+| `messenger_members.last_delivered_at` | When this person's CRM last received the chat's messages. Reading a chat also sets it. |
+| `messenger_mark_delivered()` | Marks the caller's direct and group chats as received. Writes only where someone else has sent something newer. |
+| `messenger_receipt_state(p_conversation)` | The earliest read and delivered times among the other members, so a group's ticks need everyone. Members only. |
+| `messenger_signal_allowed(p_topic)` | True when the caller belongs to the chat in a `msgr:<chat id>` topic. Used by the two policies on `realtime.messages`. |
+
+Typing goes over private Realtime Broadcast and is never stored. The migration also adds `messenger_members` to the `supabase_realtime` publication, so ticks change live, and makes `audit_trail_capture` skip member updates that change only these two times, so ticks add nothing to the audit trail. That function is shared across the CRM: the only change from `004b` is that one condition.
+
+`messenger_read_state` stays, so screens already open keep working until they reload. `tests/080_receipts_test.sql` runs after the migration twice; `migrations/rollback/008_rollback.sql` undoes it.

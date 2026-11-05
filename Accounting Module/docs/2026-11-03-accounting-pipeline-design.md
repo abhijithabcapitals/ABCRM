@@ -71,7 +71,7 @@ This is worked out, never typed. The first row that fits applies.
 | Invoiced | Invoice recorded, nothing paid |
 | Not invoiced | Fee known, no invoice recorded, nothing paid |
 
-**Amount due** is the invoice amount once recorded, otherwise the fee. **Balance** is the amount due minus payments, counting reversals. All amounts are AED totals including any VAT. A fee taken from a quote is the quote's `total_amount`, and a typed fee is treated the same way.
+**Amount due** is the invoice amount once recorded, otherwise the fee, except that a typed fee gets 5% VAT added (below). **Balance** is the amount due minus payments, counting reversals. Where VAT stands in a fee depends on its source (user, 2026-11-05). Linking a quotation always sets the fee to the quotation's `total_amount`, which already holds its VAT (a No VAT quotation holds none). A typed fee, on a job with no quotation, is before VAT. The amount due before an invoice is recorded is the fee plus 5% for a typed fee and the fee for a quote-linked job; once an invoice is recorded its amount is the amount due. Typed invoice entry starts from the same figure.
 
 A job paid in full before invoicing shows Settled and still appears under To invoice, because that filter looks only at whether an invoice is recorded.
 
@@ -80,7 +80,7 @@ A job paid in full before invoicing shows Settled and still appears under To inv
 The job shows three checks when "new client" is ticked: quotation, engagement letter, receipt. Existing clients do not see them, though any job can use them.
 
 - **Quotation and letter:** reuse `ServiceDesk` and `hub_document_create`. `ServiceDesk` gains two optional props: details to fill the form with, and a callback that saves the new document's ID on the job. The current behaviour stays when they are absent. Its department is the job's department, so the existing numbering applies: `ACQ` and `ACE` for Accounting, `TCQ` and `TCE` for Tax Compliance.
-- **Fee:** generating a quote from a job sets the job's fee from the quote total if no fee is set. If a fee exists and differs, staff choose which to keep.
+- **Fee:** generating a quote from a job sets the job's fee from the quote total if no fee is set. If a fee exists and differs, staff are asked first, and linking the quote sets the fee to the quote total. Staff no longer choose which fee to keep.
 - **Receipt:** recording a payment on any job issues a receipt voucher. Numbers come from a new single series for all jobs, `ABC/{YYYY}/{MM}/ACR{SERIAL}`, added under `Accounting` in `hub_settings`.
 - **Agreement:** this means the engagement letter. Tracking of signed copies is left out.
 

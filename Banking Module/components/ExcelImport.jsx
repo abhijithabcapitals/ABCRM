@@ -30,7 +30,7 @@ export default function ExcelImport() {
       if (res.refused) { setError(res.refused); return; }
       if (!res.rows.length) { setError("The template has no leads in it."); return; }
       setPreview({ name: file.name, sha: await sha256(buf), ...res });
-    } catch { setError("This file could not be read. Use the AB Capital template."); }
+    } catch { setError("This file could not be read. Use the AB Capital Services FZE template."); }
   };
 
   const stage = async () => {
@@ -44,7 +44,7 @@ export default function ExcelImport() {
   if (openImport) return <ImportReview imp={openImport} onBack={() => { setOpenImport(null); history.reload(); }} />;
   return (
     <div>
-      <PageHead title="Excel Import" sub="Only the AB Capital template is accepted. Any other Excel is refused, so the data stays clean." />
+      <PageHead title="Excel Import" sub="Only the AB Capital Services FZE template is accepted. Any other Excel is refused, so the data stays clean." />
       <ErrorNote message={error || history.error} onClose={error ? () => setError(null) : undefined} />
       <div className="bk-entry">
         <a className="bk-entry-card" href={TEMPLATE_URL} download="Lead_Import_Template.xlsx"><strong>1. Download template</strong><span>The official Excel, with dropdowns and required columns.</span></a>

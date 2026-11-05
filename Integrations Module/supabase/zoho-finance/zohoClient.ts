@@ -15,6 +15,10 @@ export class ZohoTimeoutError extends Error {
   }
 }
 
+// Zoho's rate limit is HTTP 429, or code 44 or 45 in the body, which can arrive with another status or even a 200.
+export const isRateLimit = (e: unknown): boolean =>
+  e instanceof ZohoHttpError && (e.status === 429 || e.code === 44 || e.code === 45);
+
 export class ZohoHttpError extends Error {
   status: number;
   code?: number;
@@ -157,7 +161,11 @@ export function createFinanceClient(cfg: ZohoConfig, fetchFn: typeof fetch = fet
     const headers: Record<string, string> = { Authorization: `Zoho-oauthtoken ${await accessToken()}` };
     const res = await fetchWithTimeout(url.toString(), { method: "GET", headers, redirect: "error" });
     if (!res.ok) throw await readError(res);
-    return await res.json();
+    const body = await res.json();
+    if (body?.code === 44 || body?.code === 45) {
+      throw new ZohoHttpError(res.status, scrub(typeof body.message === "string" ? body.message : "Zoho rate limit.", secrets()), body.code);
+    }
+    return body;
   }
 
   return {

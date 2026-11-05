@@ -4,12 +4,14 @@ import { Badge, Button, ErrorNote, FilePick, FormModal, Panel, fmtDate, useActio
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { createDocument, openStored } from "@template-hub/services/hubApi";
 import { useSetup } from "../SetupContext";
+import ZohoPanel from "@integrations/components/ZohoPanel";
 import NewServiceFlow from "../NewServiceFlow";
 import PortalMessage from "./PortalMessage";
 import { addStaffSignedCopy, handoverState, listSigned, rejectQuote, sendToAccounts, signLetter, signedDecide, uploadFile } from "../../services/businessSetupApi";
 import { fileLetter, fileQuote } from "../../services/documents";
-import { quoteTone } from "../../logic/statuses";
+import { quoteTone, zohoProps } from "../../logic/statuses";
 import { money } from "@app/money";
+import { supabase } from "@app/supabase";
 
 
 export default function Quotes({ w, clientId, reload, caseId = null }) {
@@ -59,6 +61,11 @@ function Quote({ q, w, clientId, reload, can, onRevise }) {
         {quotes && letter && !letter.signed_at && <Button onClick={() => setDialog("sign")}>Record signing</Button>}
         {letter?.signed_at && <span className="bk-muted">Signed {fmtDate(letter.signed_at)}</span>}
       </div>
+      {["issued", "accepted"].includes(q.status) && (
+        <div className="bk-mt">
+          <ZohoPanel key={`${q.id}:${clientId}`} supabase={supabase} department="business_setup" sourceTable="hub_documents" sourceId={q.id} clientId={clientId} {...zohoProps(q.status, { quotes, held, ready: !!h?.ready, known: !!h, invoiceRight: can("setup.services.manage") })} />
+        </div>
+      )}
       {q.status === "accepted" && h && !held && (
         <div className="bk-mt">
           {h.ready ? <>

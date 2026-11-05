@@ -47,7 +47,7 @@ export default function SettingsSection({ name, onSignOut, isAdmin }) {
             <h3 className="abm-found">Windows</h3>
             <label className="abm-picker-row"><input type="checkbox" checked={!!autostart} disabled={autostart === null} onChange={(e) => flipStart(e.target.checked)} /><span>Start with Windows, in the tray</span></label>
             <p className="abm-hint">Closing the window keeps Messenger running in the tray. To stop it, right-click its tray icon and choose Quit.</p>
-            {version && <p className="abm-hint">AB Capital Messenger {version}</p>}
+            {version && <p className="abm-hint">AB Capital Services FZE Messenger {version}</p>}
             {onSignOut && (
               <>
                 <h3 className="abm-found">Account</h3>

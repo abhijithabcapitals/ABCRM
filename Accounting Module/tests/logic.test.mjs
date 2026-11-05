@@ -1,7 +1,7 @@
 // node --test "Accounting Module/tests/"   (no extra packages)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clientEmail, followUpFormError, lastContactByJob, mailtoLink, assigneeText, sameClientName, feeConflict, hasUnreversedPayment, paymentRowState, clientIdFromLookup, departmentOf, dubaiToday, findLookupRow, followUpMail, isStaleSave, needsRemarks, nextFollowUpDefault, parseFileNames, serviceGroups, splitJobs, statusCounts, toInvoiceCount } from "../logic/jobs.js";
+import { canCreateZohoInvoice, zohoReadyNote, clientEmail, followUpFormError, lastContactByJob, mailtoLink, assigneeText, sameClientName, feeConflict, feeLabel, feeWithVat, hasUnreversedPayment, paymentRowState, clientIdFromLookup, departmentOf, dubaiToday, findLookupRow, followUpMail, isStaleSave, needsRemarks, nextFollowUpDefault, parseFileNames, serviceGroups, splitJobs, statusCounts, toInvoiceCount } from "../logic/jobs.js";
 import { needsPcCopy } from "../../Template Module/logic/helpers.js";
 
 test("parseFileNames trims, drops blanks and repeats", () => {
@@ -147,4 +147,32 @@ test("needsPcCopy leaves accounting receipts out", () => {
   assert.equal(needsPcCopy({ source: "hub", storage_path: "a.docx", local_path: null }), true);
   assert.equal(needsPcCopy({ source: "hub", storage_path: "a.docx", local_path: "C:/a.docx" }), false);
   assert.equal(needsPcCopy({ source: "hub", storage_path: null, local_path: null }), false);
+});
+
+test("feeWithVat adds 5% to a typed fee and leaves a quote fee alone", () => {
+  assert.equal(feeWithVat({ fee_amount: "1000.00" }), 1050);
+  assert.equal(feeWithVat({ fee_amount: 123.45 }), 129.62);
+  assert.equal(feeWithVat({ fee_amount: 0.1 }), 0.11);
+  assert.equal(feeWithVat({ fee_amount: 0.09 }), 0.09);
+  assert.equal(feeWithVat({ fee_amount: 1050, quote_id: "q1" }), 1050);
+  assert.equal(feeWithVat({ fee_amount: 900, quote_id: "q1", quote_vat_mode: "none" }), 900);
+  assert.equal(feeWithVat({ fee_amount: null }), null);
+  assert.equal(feeWithVat({ fee_amount: "" }), null);
+});
+test("feeLabel names where the fee comes from", () => {
+  assert.equal(feeLabel({ quote_id: null }), "Fee (AED, before VAT)");
+  assert.equal(feeLabel({ quote_id: "q1" }), "Fee (AED, including VAT, from the quote)");
+  assert.equal(feeLabel({ quote_id: "q1", quote_vat_mode: "exclusive" }), "Fee (AED, including VAT, from the quote)");
+  assert.equal(feeLabel({ quote_id: "q1", quote_vat_mode: "none" }), "Fee (AED, no VAT, from the quote)");
+});
+
+test("canCreateZohoInvoice only for a Completed job", () => {
+  assert.equal(canCreateZohoInvoice({ work_status: "Completed" }), true);
+  for (const w of ["To Do", "In Progress", "Pending", "Client Cancelled"]) assert.equal(canCreateZohoInvoice({ work_status: w }), false);
+  assert.equal(canCreateZohoInvoice(null), false);
+});
+
+test("zohoReadyNote explains an unfinished job", () => {
+  assert.equal(zohoReadyNote({ work_status: "Pending" }), "The job must be completed first.");
+  assert.equal(zohoReadyNote({ work_status: "Completed" }), null);
 });

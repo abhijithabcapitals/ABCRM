@@ -71,7 +71,7 @@ export default function JobForm({ job, onSaved, onClose }) {
             </div>
           </div>
           <Field field={{ name: "is_new_client", label: "New client", type: "bool", checkLabel: "This is a new client" }} value={v.is_new_client} onChange={(x) => set({ is_new_client: x })} />
-          {!editing && <Field field={{ name: "fee_amount", label: "Fee (AED, including any VAT)", type: "number", help: "Leave empty if not agreed yet." }} value={v.fee_amount} onChange={(x) => set({ fee_amount: x })} />}
+          {!editing && <Field field={{ name: "fee_amount", label: "Fee (AED, before VAT)", type: "number", help: "Leave empty if not agreed yet." }} value={v.fee_amount} onChange={(x) => set({ fee_amount: x })} />}
         </div>
         <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy}>{editing ? "Save" : "Create job"}</Button></div>
       </form>

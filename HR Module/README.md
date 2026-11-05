@@ -18,7 +18,7 @@ Same pattern as the Banking Module. The Main Module imports this folder directly
 | Role | Decided by | Tabs | Data |
 |---|---|---|---|
 | Admin, HR | `profiles.role = 'admin'`, or the HR access list | All seven. Settings is for admin and HR | Everything. Only an admin edits the HR access list and links logins on the employee screen. An HR-list person whose linked employee is Left loses this, unless an admin by role |
-| Manager | `hr_employees.manager_id` points at them | Dashboard, Employees, Documents (own only), Leave, Attendance, Payroll (own pay only) | Direct reports' job details, leave and attendance. No salary data, and none of their personal details or documents. A Left manager is treated as an employee |
+| Manager | `hr_employees.manager_id` points at them | Dashboard, Employees, Documents (own only), Leave, Attendance, Payroll (own pay only) | Sees direct reports' job details, leave, requests and attendance. Only HR or an admin decides leave, requests and attendance changes (a manager can ask for a change to a report's day); expense claims go to a Finance Manager. No salary data, and none of their personal details or documents. A Left manager is treated as an employee |
 | Employee | Employee record linked to their login | Dashboard, Employees, Documents, Leave, Attendance, Payroll (own pay only) | Own record, documents, leave, attendance and approved payslips |
 | Unlinked member | No linked employee record | None; a message asks them to get linked | Nothing |
 

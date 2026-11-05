@@ -2,6 +2,8 @@
 
 Source of the CRM's **Template Hub** tab. `components/TemplateHub.jsx` is the live page, loaded through the `@template-hub` alias in `Main Module/vite.config.js`, and reuses the CRM's shared Supabase client and icons through `@app`. Its templates, generated files and CRM task behaviour stay connected to the existing Supabase schema. `components/ServiceDesk.jsx` generates a quotation and mail for any service, then, as the next step of that quote, its engagement letter and mail; Template Hub shows every department, and each department's tab shows only its own. `components/CompanyLibrary.jsx` lists the Word files under `Template Docs/`; a file added there appears at the next deploy.
 
+`ardentax/` is the ArdentTax (ASP) generator, opened from Company Templates > Ardentax > Quote or Engagement Letter, with its own README.
+
 The rest of this README describes the earlier split copy (`QuotationsPage` and its parts), kept for reuse in another CRM. The Template Hub tab does not use it.
 
 Freezone **quotation templates**: you upload a Word (.docx) template for each freezone, define its fields

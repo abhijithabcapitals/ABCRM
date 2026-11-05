@@ -21,7 +21,7 @@ export default function ClientPortal({ api = portalApi, readOnly }) {
   const props = { me: me.data, api, readOnly, reload: me.reload };
   return (
     <div className="bk-root">
-      <PageHead title={me.data?.display_name || "Client Portal"} sub={readOnly ? "Preview of what this client sees. Nothing can be changed here." : "Your record with AB Capital, and a safe place to send us documents."} />
+      <PageHead title={me.data?.display_name || "Client Portal"} sub={readOnly ? "Preview of what this client sees. Nothing can be changed here." : "Your record with AB Capital Services FZE, and a safe place to send us documents."} />
       {!readOnly && <div className="bk-actions bk-mb"><Button onClick={() => api.logout()}>Sign out</Button></div>}
       <ErrorNote message={me.error} />
       {!readOnly && <SetupView api={api} />}

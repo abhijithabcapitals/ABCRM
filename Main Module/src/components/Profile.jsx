@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../supabase";
+import { AgentNameField } from "@router-agent";
 import PublishNews from "./PublishNews";
 
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -102,6 +103,7 @@ export default function Profile({ profile }) {
       </div>
 
       <div className="content-area" style={{ maxWidth: 820 }}>
+        <AgentNameField supabase={supabase} />
         <PublishNews profile={profile} />
         <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
@@ -122,12 +124,12 @@ export default function Profile({ profile }) {
               <div className="form-group">
                 <label className="form-label" htmlFor="sig-name">Name</label>
                 <input id="sig-name" value={form.name} maxLength={80} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. AB Capital – Bharat" />
+                  placeholder="e.g. AB Capital Services FZE – Bharat" />
               </div>
               <div className="form-group">
                 <label className="form-label" htmlFor="sig-text">Signature text</label>
                 <textarea id="sig-text" value={form.body_text} maxLength={2000} rows={5} onChange={(e) => setForm({ ...form, body_text: e.target.value })}
-                  placeholder={"*Regards,*\n*Bharat Bajaj*\nAB Capital Services\n+971-585619500"} />
+                  placeholder={"*Regards,*\n*Bharat Bajaj*\nAB Capital Services FZE\n+971-585619500"} />
                 <small style={{ fontSize: 11.5, color: "#6b7280" }}>
                   Wrap a whole line in *asterisks* to make it bold in the sent email. Explee replies are plain text, so there the asterisks are simply removed.
                 </small>

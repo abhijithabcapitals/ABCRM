@@ -14,7 +14,7 @@ export async function sendCredentials(admin: any, to: string, mail: CredentialMa
   const pass = (typeof saved === "string" && saved) || Deno.env.get(PASSWORD_SECRET);
   if (!box?.smtp_host || !pass) throw new Error(`Sending is not set up for ${FROM}.`);
   const { subject, text } = credentialEmail(mail);
-  const { raw } = buildMessage({ from: FROM, fromName: "AB Capital", to: [to], cc: [], subject, text });
+  const { raw } = buildMessage({ from: FROM, fromName: "AB Capital Services FZE", to: [to], cc: [], subject, text });
   await new SmtpClient(box.smtp_host, box.smtp_port || 465, 20_000).send(box.login_user || FROM, pass, FROM, [to], raw);
 }
 

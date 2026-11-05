@@ -1,0 +1,50 @@
+.bruno-pet {
+  position: fixed; right: calc(20px + var(--msgr-dock-offset, 0px)); bottom: 20px; z-index: 900;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: none; border: 0; padding: 0; cursor: pointer; max-width: 96px;
+  transition: transform 0.15s ease;
+}
+.bruno-pet:hover { transform: translateY(-3px); }
+.bruno-pet:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; border-radius: 8px; }
+.bruno-pet-name {
+  font-size: 11px; font-weight: 600; color: #374151; background: #fff; border: 1px solid #e5e7eb;
+  border-radius: 10px; padding: 1px 8px; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bruno-panel {
+  position: fixed; right: calc(20px + var(--msgr-dock-offset, 0px)); bottom: 20px; z-index: 900;
+  width: 360px; height: min(520px, calc(100vh - 40px));
+  display: flex; flex-direction: column;
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); overflow: hidden;
+}
+.bruno-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; }
+.bruno-title { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bruno-link { background: none; border: 0; color: #6b7280; font-size: 12px; cursor: pointer; }
+.bruno-link:disabled { opacity: 0.5; cursor: default; }
+.bruno-icon { background: none; border: 0; font-size: 18px; line-height: 1; color: #374151; cursor: pointer; padding: 2px 6px; }
+.bruno-list { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: #f9fafb; }
+.bruno-msg { display: flex; flex-direction: column; max-width: 88%; }
+.bruno-user { align-self: flex-end; align-items: flex-end; }
+.bruno-assistant { align-self: flex-start; }
+.bruno-bubble { font-size: 13px; line-height: 1.45; padding: 7px 10px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bruno-user .bruno-bubble { background: #2563eb; color: #fff; }
+.bruno-assistant .bruno-bubble { background: #fff; color: #111827; border: 1px solid #e5e7eb; }
+.bruno-wait { color: #6b7280; }
+.bruno-from { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.bruno-error { font-size: 12px; color: #b91c1c; background: #fef2f2; padding: 6px 12px; }
+.bruno-form { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #e5e7eb; }
+.bruno-input { flex: 1; resize: none; font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 8px; }
+.bruno-send { align-self: flex-end; background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+.bruno-send:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 600px) {
+  .bruno-panel { left: 16px; right: calc(16px + var(--msgr-dock-offset, 0px)); bottom: 16px; width: auto; }
+  .bruno-pet { right: calc(16px + var(--msgr-dock-offset, 0px)); bottom: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bruno-pet { transition: none; }
+  .bruno-pet:hover { transform: none; }
+}
+/* The Messenger dock and rail take the right edge; --msgr-dock-offset is their width, so Bruno sits beside them.
+   The document reading widget uses the same corner and sits above everything while it shows. */
+body:has(.crm-reading) .bruno-pet { bottom: 130px; }
+body:has(.crm-reading) .bruno-panel { bottom: 130px; height: min(520px, calc(100vh - 150px)); }

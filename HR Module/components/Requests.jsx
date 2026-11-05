@@ -1,23 +1,33 @@
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FilePick, FormGrid, FormModal, Modal, PageHead, Panel, Spinner, cleanValues, fmtDate, useLoad } from "@banking/components/shared";
-import { leaveCancel, leaveDecide, leaveRequest, openDocument, requestCancel, requestCreate, requestDecide, requestOvertimeAmount, requestsList, run, table, uploadDocument } from "../services/hrApi";
+import { Badge, Button, DataTable, ErrorNote, FilePick, FormGrid, FormModal, Modal, PageHead, Panel, Spinner, cleanValues, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
+import { attendanceDecide, attendanceEdits, leaveCancel, leaveDecide, leaveRequest, loginProfiles, openDocument, requestCancel, requestCreate, requestDecide, requestOvertimeAmount, requestsList, run, table, uploadDocument } from "../services/hrApi";
 import { money } from "../logic/payroll";
 import { REQUEST_KINDS, STATUS_TONE, mergeRequests, requestChoices, requestFields, requestSummary } from "../logic/requests";
 
-// Everyone raises requests here and follows them. What each person may see and decide comes from the database; the buttons only follow it.
-export default function Requests({ role, employeeId }) {
+// Everyone raises requests here and follows them. HR also decides attendance changes here. What each person may see and decide comes from the database; the buttons only follow it.
+export default function Requests({ role, employeeId, profile, onDecided }) {
   const isHr = role === "hr";
+  const isAdmin = profile?.role === "admin"; // display only: the database enforces it
+  const edits = useLoad(async () => {
+    if (!isHr) return [];
+    const [pending, approved, rejected] = await Promise.all([attendanceEdits("pending"), attendanceEdits("approved"), attendanceEdits("rejected")]);
+    return [...pending, ...approved, ...rejected];
+  }, [isHr]);
+  const people = useLoad(async () => (isHr ? loginProfiles() : []), [isHr]);
   const others = useLoad(requestsList, []);
   const leaves = useLoad(async () => run(table("hr_leave_requests").select("*, hr_leave_types(name, paid), hr_employees(employee_code, full_name)").order("created_at", { ascending: false })), []);
   const types = useLoad(async () => run(table("hr_leave_types").select("id, name").order("name")), []);
   const [adding, setAdding] = useState(false);
   const [approving, setApproving] = useState(null);
   const [amountFor, setAmountFor] = useState(null);
+  const [rejectingEdit, setRejectingEdit] = useState(null);
   const [notice, setNotice] = useState(null);
   const [error, setError] = useState(null);
-  const canDecideLeave = (l) => l.employee_id !== employeeId && (isHr || role === "manager");
-  const rows = mergeRequests(others.data, leaves.data, canDecideLeave);
-  const reload = async () => { await Promise.all([others.reload(), leaves.reload()]); };
+  const canDecideLeave = (l) => l.employee_id !== employeeId && isHr;
+  const canDecideEdit = (e) => isAdmin || e.employee_id !== employeeId; // HR cannot decide their own day
+  const rows = mergeRequests(others.data, leaves.data, canDecideLeave, edits.data, canDecideEdit);
+  const reload = async () => { await Promise.all([others.reload(), leaves.reload(), edits.reload()]); await onDecided?.(); };
+  const nameOf = (id) => (people.data || []).find((p) => p.id === id)?.full_name || "–";
 
   // Decisions return { warning }: a locked month or a balance. Neither stops the action, so the person must see it.
   const act = async (fn) => {
@@ -25,10 +35,12 @@ export default function Requests({ role, employeeId }) {
     try { const r = await fn(); if (r?.warning) setNotice(`Saved, but: ${r.warning}`); await reload(); } catch (e) { setError(e.message); }
   };
   const approve = (r) => {
+    if (r.source === "attendance") { act(() => attendanceDecide(r.id, true, null)); return; }
     if (r.source === "request" && r.kind === "overtime" && isHr) { setApproving(r); return; }
     act(() => (r.source === "leave" ? leaveDecide(r.id, true, null) : requestDecide(r.id, true, null)));
   };
   const reject = (r) => {
+    if (r.source === "attendance") { setError(null); setNotice(null); setRejectingEdit(r); return; }
     const note = window.prompt("Reason for rejecting (optional)");
     if (note === null) return;
     act(() => (r.source === "leave" ? leaveDecide(r.id, false, note) : requestDecide(r.id, false, note)));
@@ -36,27 +48,27 @@ export default function Requests({ role, employeeId }) {
   const cancel = (r) => {
     if (window.confirm(`Cancel this ${r.status} request?`)) act(() => (r.source === "leave" ? leaveCancel(r.id) : requestCancel(r.id)));
   };
-  const canCancel = (r) => (isHr ? ["pending", "approved"].includes(r.status) && !r.paid_on : r.employee_id === employeeId && r.status === "pending");
+  const canCancel = (r) => r.source !== "attendance" && (isHr ? ["pending", "approved"].includes(r.status) && !r.paid_on : r.employee_id === employeeId && r.status === "pending");
   const view = async (path) => { setError(null); try { await openDocument(path); } catch (e) { setError(e.message); } };
   const files = (r) => r.storage_path && <Button onClick={() => view(r.storage_path)}>Document</Button>;
 
   const columns = (actions) => [
     ...(role !== "employee" ? [{ key: "full_name", label: "Employee", render: (r) => r.full_name || "–" }] : []),
     { key: "title", label: "Request" },
-    { key: "summary", label: "Details", render: (r) => <>{requestSummary(r, money)}{r.note && <small className="hr-people-times">{r.note}</small>}</> },
+    { key: "summary", label: "Details", render: (r) => <>{requestSummary(r, money)}{r.note && <small className="hr-people-times">{r.note}</small>}{r.requested_by && <small className="hr-people-times">Asked by {nameOf(r.requested_by)}</small>}</> },
     { key: "created_at", label: "Raised", render: (r) => fmtDate(r.created_at) },
-    { key: "status", label: "Status", render: (r) => <><Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>{r.paid_on && <> <Badge tone="good">Paid</Badge></>}{r.decision_note && <small className="hr-people-times">{r.decision_note}</small>}</> },
+    { key: "status", label: "Status", render: (r) => <><Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>{r.paid_on && <> <Badge tone="good">Paid</Badge></>}{r.decided_by && <small className="hr-people-times">By {nameOf(r.decided_by)}, {fmtDateTime(r.decided_at)}</small>}{r.decision_note && <small className="hr-people-times">{r.decision_note}</small>}</> },
     { key: "x", label: "", render: actions },
   ];
-  const loading = (others.loading && !others.data) || (leaves.loading && !leaves.data);
+  const loading = (others.loading && !others.data) || (leaves.loading && !leaves.data) || (edits.loading && !edits.data);
   const waiting = rows.filter((r) => r.can_decide);
 
   return (
     <div>
-      <PageHead title="Requests" sub="Leave, half days, work from home, late concessions, overtime and expenses.">
+      <PageHead title="Requests" sub={isHr ? "Leave, half days, work from home, late concessions, overtime, expenses and attendance changes. A day keeps its value until its change is approved." : "Leave, half days, work from home, late concessions, overtime and expenses."}>
         {employeeId && <Button variant="primary" onClick={() => setAdding(true)}>+ New request</Button>}
       </PageHead>
-      <ErrorNote message={error || others.error || leaves.error || types.error} onClose={() => setError(null)} />
+      <ErrorNote message={error || others.error || leaves.error || edits.error || people.error || types.error} onClose={() => setError(null)} />
       {notice && <div className="hr-warning" role="status">{notice}</div>}
       {loading ? <Spinner label="Loading requests" /> : (
         <>
@@ -70,6 +82,7 @@ export default function Requests({ role, employeeId }) {
               {files(r)}
               {isHr && r.kind === "overtime" && r.status === "approved" && <> <Button onClick={() => setAmountFor(r)}>{r.amount === null ? "Enter amount" : "Change amount"}</Button></>}
               {canCancel(r) && <> <Button onClick={() => cancel(r)}>Cancel</Button></>}
+              {r.source === "attendance" && r.status === "pending" && !r.can_decide && <span className="hr-days">Your own: another person decides</span>}
             </>)} />
           </Panel>
         </>
@@ -79,6 +92,9 @@ export default function Requests({ role, employeeId }) {
         note={`${requestSummary(approving, money)}. There is no automatic rate. The amount goes into that month's draft pay run. Leave it blank to enter it later.`}
         fields={[{ name: "amount", label: "Amount (AED)", type: "number" }]}
         onSubmit={async (v) => { const r = await requestDecide(approving.id, true, null, v.amount); if (r?.warning) setNotice(`Saved, but: ${r.warning}`); await reload(); }} />}
+      {rejectingEdit && <FormModal title={`Reject: ${rejectingEdit.full_name}, ${fmtDate(rejectingEdit.work_date)}`} submitLabel="Reject" initial={{ note: "" }} onClose={() => setRejectingEdit(null)}
+        fields={[{ name: "note", label: "Why", type: "textarea", required: true, full: true }]}
+        onSubmit={async (v) => { await attendanceDecide(rejectingEdit.id, false, v.note); await reload(); }} />}
       {amountFor && <FormModal title={`Overtime amount: ${amountFor.full_name}`} initial={{ amount: amountFor.amount }} onClose={() => setAmountFor(null)}
         fields={[{ name: "amount", label: "Amount (AED)", type: "number", required: true }]}
         onSubmit={async (v) => { const r = await requestOvertimeAmount(amountFor.id, v.amount); if (r?.warning) setNotice(`Saved, but: ${r.warning}`); await reload(); }} />}

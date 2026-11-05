@@ -139,6 +139,7 @@ grant execute on function storage.foldername(text) to authenticated;
 \ir ../migrations/010_hr_day_status.sql
 -- 016 replaces hr_attendance_request with a longer signature, so re-applying 010 would leave both.
 \ir ../migrations/016_hr_self_corrections.sql
+\ir ../migrations/018_hr_decisions_hr_only.sql
 
 select public.ok('bucket is private with a 25 MB limit', (select not public and file_size_limit = 26214400 from storage.buckets where id = 'hr-documents'));
 

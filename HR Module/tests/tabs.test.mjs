@@ -5,7 +5,7 @@ import { tabsFor, firstTab } from "../logic/tabs.js";
 const keys = (role, implemented) => tabsFor(role, implemented).map((t) => t.key);
 
 test("hr sees every tab", () => {
-  assert.deepEqual(keys("hr"), ["dashboard", "employees", "attendance", "salary", "leave", "requests", "payroll", "approvals", "settings"]);
+  assert.deepEqual(keys("hr"), ["dashboard", "employees", "attendance", "salary", "leave", "requests", "payroll", "settings"]);
 });
 test("manager sees Dashboard, Employees, Leave, Requests, Attendance, Payroll (own approved lines only)", () => {
   assert.deepEqual(keys("manager"), ["dashboard", "employees", "attendance", "leave", "requests", "payroll"]);

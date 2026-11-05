@@ -38,6 +38,8 @@ const dateOf = (v: unknown): string | null => {
 
 // A list whose end could not be seen. refresh.ts leaves that section unfinished, rather than failing the whole refresh.
 export class UnfinishedRead extends Error {}
+// Another read failed first, so this one was not started. It is never the error that gets reported.
+class StoppedRead extends UnfinishedRead {}
 
 // The keys an account transactions reply may hold its rows under. handlers.ts reads this same list, so the probe and
 // readLedger cannot disagree. UNVERIFIED: which of them Zoho uses. The probe reports it.
@@ -211,11 +213,16 @@ export async function readLedger(zoho: ZohoReader, accounts: SourceAccount[], fr
   let next = 0;
   let failed = false;
   let firstError: unknown;
+  // After the first error the other worker may finish its current account's call, but starts no further page.
+  const guarded: ZohoReader = {
+    orgId: zoho.orgId,
+    get: (path, query) => (failed ? Promise.reject(new StoppedRead()) : zoho.get(path, query)),
+  };
   const worker = async () => {
     while (!failed && next < todo.length) {
       const i = next++;
       try {
-        perAccount[i] = await readAccountLedger(zoho, todo[i], from, to);
+        perAccount[i] = await readAccountLedger(guarded, todo[i], from, to);
       } catch (e) {
         // Nothing new starts after the first error. The other worker finishes what it is reading.
         // An unfinished list is the least serious error, so a limit, time or Zoho error from the other worker wins.

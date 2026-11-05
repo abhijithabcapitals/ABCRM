@@ -29,8 +29,11 @@ export async function getJob(id) {
   ]);
   const job = jobs?.[0];
   if (!job) throw new Error("Job not found");
+  // The quote's VAT mode names the fee on screen. If it can't be read the label falls back to the VAT wording.
+  const quoteMode = job.quote_id ? await rpc("accounting_quote_vat_mode", { p_quote: job.quote_id }).catch(() => null) : null;
   return {
     ...job,
+    quote_vat_mode: quoteMode,
     batches: (batches || []).map(({ accounting_job_files, ...b }) => ({ ...b, files: accounting_job_files || [] })),
     payments: (payments || []).map(({ accounting_receipts, ...p }) => ({ ...p, receipt: Array.isArray(accounting_receipts) ? accounting_receipts[0] || null : accounting_receipts || null })),
     follow_ups: followUps || [],

@@ -1,6 +1,6 @@
 // The sentence shown after Microsoft sends the person back to the CRM, from the "ms" and "reason" in the address.
 const REASONS = {
-  wrong_tenant: "That Microsoft account belongs to a different company. Sign in with your AB Capital work account.",
+  wrong_tenant: "That Microsoft account belongs to a different company. Sign in with your AB Capital Services FZE work account.",
   expired: "The sign-in took too long, over 10 minutes. Start again.",
   code_used: "That sign-in was already used or has lapsed. Start again.",
   denied: "Microsoft sign-in was cancelled, so nothing was connected.",

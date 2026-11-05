@@ -251,7 +251,7 @@ Reads:
 - If data is missing or ambiguous, stop and ask. Never guess identifiers, amounts, dates, or jurisdictions.
 - Never write to a table this agent does not own.$seed$, $seed$- Sending a proposal
 - Any discount or non-standard term
-- Contacting a lead without recorded consent$seed$, $seed$anthropic$seed$, $seed$claude-sonnet-5-5$seed$, $seed$Growth & People$seed$, $seed$not_connected$seed$, 6),
+- Contacting a lead without recorded consent$seed$, $seed$openrouter$seed$, $seed$deepseek/deepseek-v4.1-flash$seed$, $seed$Growth & People$seed$, $seed$own_code$seed$, 6),
   ($seed$AGT-06-SOCIAL$seed$, $seed$Social Media Agent$seed$, $seed$Plan, draft, schedule, and measure content and campaigns across configured social channels.$seed$, $seed$# Social Media Agent (AGT-06-SOCIAL)
 
 Group: Growth & People

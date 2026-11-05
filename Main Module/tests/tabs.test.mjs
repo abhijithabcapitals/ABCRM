@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { barId, isTabBar } from "../src/jsx/DragTabs.js";
-import { GRANTABLE_TABS, moveTab, orderTabs, readTabOrder, toggleAllTabs } from "../src/tabs.js";
+import { GRANTABLE_TABS, initialView, moveTab, orderTabs, readTabOrder, resolveView, startView, toggleAllTabs } from "../src/tabs.js";
 
 const every = GRANTABLE_TABS.map((t) => t.key);
 
@@ -39,3 +39,20 @@ test("a named bar keeps its identity when a tab is added; an unnamed one is know
   assert.notEqual(barId("Status", ["a"]), barId("Status", ["z"]));
   assert.equal(barId(undefined, ["b", "a"]), "a,b");
 });
+
+test("ArdentTax (ASP) stays a grant an admin can give", () => assert.ok(GRANTABLE_TABS.some((t) => t.key === "ardentax")));
+test("the old ArdentTax page now opens Template Hub", () => {
+  assert.equal(resolveView("ardentax", true, []), "quotations");
+  assert.equal(resolveView("ardentax", false, ["ardentax", "quotations"]), "quotations");
+  assert.equal(initialView("", "ardentax").view, "quotations");
+  assert.equal(initialView("", "ardentax").write, true);
+});
+test("the ArdentTax grant alone opens no page", () => {
+  assert.equal(resolveView("ardentax", false, ["ardentax"]), "profile");
+  assert.equal(resolveView("ardentax", false, ["hr"]), "hr");
+});
+
+test("a saved Email Agent page is retired", () => assert.equal(startView("", "email-agent"), null));
+test("an Email Agent address is retired", () => assert.equal(startView("?view=email-agent", "hr"), null));
+test("other saved pages still open", () => assert.equal(startView("", "hr"), "hr"));
+test("the address still wins", () => assert.equal(startView("?view=messenger", "hr"), "messenger"));

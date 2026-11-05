@@ -16,6 +16,11 @@ const MODEL = "claude-opus-5-5";
 const MAX_TOOL_ROUNDS = 6;
 const MAX_HISTORY = 20;
 const MAX_MESSAGE_CHARS = 4000;
+// Used only when Bruno (router-agent) calls this function. US dollars per million tokens for MODEL.
+const INPUT_USD_PER_MTOK = 4;
+const OUTPUT_USD_PER_MTOK = 20;
+const NO_INFO = "NO_INFO";
+const ROUTER_RULE = "Answer only from what your tools and data return. If they do not give the answer, reply with exactly NO_INFO and nothing else.";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -25,7 +30,7 @@ const cors = {
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-const SYSTEM = `You are the Support Agent (AGT-08-SUPPORT) inside the AB Capital CRM, a UAE accounting and tax consultancy. You answer questions from staff in a chat box on the Hot Alerts page.
+const SYSTEM = `You are the Support Agent (AGT-08-SUPPORT) inside the AB Capital Services FZE CRM, a UAE accounting and tax consultancy. You answer questions from staff in a chat box on the Hot Alerts page.
 
 What you can do:
 - Answer questions about the user's own tasks and deadlines with list_my_tasks.
@@ -157,7 +162,7 @@ Deno.serve(async (req) => {
   const { data: profile } = await db.from("profiles").select("id, full_name").eq("id", auth.user.id).single();
   if (!profile) return json({ error: "No CRM profile found for this account." }, 403);
 
-  let body: { messages?: { role: string; content: string }[] };
+  let body: { messages?: { role: string; content: string }[]; router?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -172,7 +177,15 @@ Deno.serve(async (req) => {
 
   const client = new Anthropic({ apiKey });
   const messages: Anthropic.Beta.BetaMessageParam[] = [...history];
-  const system = `${SYSTEM}\n\nThe signed-in user is ${profile.full_name || "a CRM user"}.`;
+  const routerMode = body.router === true;
+  const system = `${SYSTEM}\n\nThe signed-in user is ${profile.full_name || "a CRM user"}.${routerMode ? `\n\n${ROUTER_RULE}` : ""}`;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  // Without router mode the reply is exactly what it has always been.
+  const done = (reply: string, noInfo = false) =>
+    json(routerMode
+      ? { reply: noInfo ? NO_INFO : reply, cost_usd: (inputTokens * INPUT_USD_PER_MTOK + outputTokens * OUTPUT_USD_PER_MTOK) / 1_000_000 }
+      : { reply });
 
   try {
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
@@ -188,8 +201,10 @@ Deno.serve(async (req) => {
         messages,
       } as Anthropic.Beta.MessageCreateParamsNonStreaming);
 
+      inputTokens += response.usage.input_tokens;
+      outputTokens += response.usage.output_tokens;
       if (response.stop_reason === "refusal") {
-        return json({ reply: "I can't help with that request. Please ask a manager." });
+        return done("I can't help with that request. Please ask a manager.", true);
       }
       if (response.stop_reason === "pause_turn") {
         messages.push({ role: "assistant", content: response.content });
@@ -203,7 +218,7 @@ Deno.serve(async (req) => {
           .join("\n")
           .trim();
         const cut = response.stop_reason === "max_tokens" ? "\n\n(Answer cut short. Ask me to continue.)" : "";
-        return json({ reply: (reply || "I don't have an answer for that.") + cut });
+        return done((reply || "I don't have an answer for that.") + cut, !reply);
       }
       messages.push({ role: "assistant", content: response.content });
       const results = await Promise.all(
@@ -217,7 +232,7 @@ Deno.serve(async (req) => {
       );
       messages.push({ role: "user", content: results });
     }
-    return json({ reply: "That took too many steps. Try a narrower question." });
+    return done("That took too many steps. Try a narrower question.", true);
   } catch (e) {
     if (e instanceof Anthropic.RateLimitError) return json({ error: "The Support Agent is busy. Try again in a minute." }, 429);
     if (e instanceof Anthropic.AuthenticationError) return json({ error: "The ANTHROPIC_API_KEY secret is not valid." }, 500);

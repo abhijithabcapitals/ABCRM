@@ -10,7 +10,7 @@ export type CredentialMail = {
 };
 
 export function credentialEmail({ audience, reset, name, username, password }: CredentialMail) {
-  const place = audience === "client" ? "AB Capital client portal" : "AB Capital Workspace";
+  const place = audience === "client" ? "AB Capital Services FZE client portal" : "AB Capital Services FZE Workspace";
   const clean = name.replace(/[\r\n]+/g, " ").trim();
   return {
     subject: `Your ${place} ${reset ? "password has been reset" : "login"}`,
@@ -24,12 +24,12 @@ export function credentialEmail({ audience, reset, name, username, password }: C
       `${audience === "client" ? "Password" : "Temporary password"}: ${password}`,
       "",
       audience === "client"
-        ? "Please keep these details safe and do not share this email. If you need a new password, contact AB Capital."
+        ? "Please keep these details safe and do not share this email. If you need a new password, contact AB Capital Services FZE."
         : "You will be asked to set your own password when you sign in. Please do not share this email.",
       "If you did not expect it, reply to tell us.",
       "",
       "*Regards,*",
-      "AB Capital",
+      "AB Capital Services FZE",
     ].join("\n"),
   };
 }

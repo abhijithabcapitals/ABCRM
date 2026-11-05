@@ -230,7 +230,7 @@ Deno.test("429 says Zoho is busy and leaves the row retryable");
 ### Task 9: Read-back and Client Login
 
 **Files:**
-- Create: `Database Module/Admin Base/migrations/006_zoho_invoices.sql`, `Database Module/Admin Base/migrations/rollback/005_rollback.sql`
+- Create: `Database Module/Admin Base/migrations/010_zoho_invoices.sql`, `Database Module/Admin Base/migrations/rollback/005_rollback.sql`
 - Modify: `Integrations Module/supabase/zoho-books/handlers.ts`, `handlers.test.ts`, `Database Module/Business Setup Base/tests/040_portal_test.sql`
 
 **Interfaces:**
@@ -268,10 +268,22 @@ Add to `040_portal_test.sql`: the portal view shows only that client's rows, and
 
 Needs the user at each step.
 
-- [ ] **Step 1: Ask the user to approve** applying `006_zoho_invoices.sql`, deploying the function, and releasing the panel. State each in full.
+- [ ] **Step 1: Ask the user to approve** applying `010_zoho_invoices.sql`, deploying the function, and releasing the panel. State each in full.
 - [ ] **Step 2: The user names one client.** Create one estimate and one invoice. Expected: both in Zoho as unsent drafts, totals equal, and no row in Client Login.
 - [ ] **Step 3: The user presses View PDF on both drafts,** signed out of Zoho. Expected: each opens in a new tab and matches Zoho.
 - [ ] **Step 4: The user sends the invoice in Zoho,** then presses Refresh. Expected: it appears in Client Login for that client only.
 - [ ] **Step 5: The user voids and removes the test documents.** Press Refresh. Expected: gone from Client Login, and the panel offers a new draft.
 - [ ] **Step 6: Press Send to Accounts on a case with Zoho errors or not connected.** Expected: still works. Skip if no safe case exists, and say so.
 - [ ] **Step 7: Update `Integrations Module/README.md`, commit** `Record Zoho live test`.
+
+### Task 11: Accounting draft invoices in the function
+
+**Files:** `Integrations Module/supabase/zoho-books/mapping.ts`, `handlers.ts`, their tests; a new Admin Base migration and rollback; `Database Module/Admin Base/tests`.
+
+Spec section 16. `accounting_jobs` becomes a third source with department `Accounting`: invoice only, Completed, fee above 0, linked client, exclusive 5% VAT. Permission `accounts.review` through `banking_can`. Read-back fills the job as section 16 says.
+
+### Task 12: Banking tab and Accounting panel
+
+**Files:** `Banking Module/components/Documentation.jsx`, `Accounting Module/components/JobWorkspace.jsx`, `Integrations Module/components/ZohoPanel.jsx`, `Integrations Module/logic/zohoPanel.js`, tests.
+
+Spec section 16. A **Zoho invoices** tab in Banking Documentation and the panel inside each Accounting job.

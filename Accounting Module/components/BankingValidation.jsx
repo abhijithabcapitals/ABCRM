@@ -4,6 +4,9 @@ import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, KeyVals, PageHead, Panel, Spinner, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
 import { openFile, rpc, run, table } from "@banking/services/bankingApi";
 import { money } from "@banking/logic/pricing";
+import { supabase } from "@app/supabase";
+import ZohoPanel from "@integrations/components/ZohoPanel";
+import { QUOTE_READ_FAILED } from "@integrations/logic/zohoPanel";
 
 const TABS = [["With Accounts", "Awaiting Validation"], ["Reverted", "Reverted"], ["Closed", "Closed"]];
 
@@ -38,13 +41,14 @@ export default function BankingValidation() {
 
 function Review({ row, onBack, onDone }) {
   const data = useLoad(async () => {
-    const [payments, generated, history, checklist] = await Promise.all([
+    const [payments, generated, history, checklist, quote] = await Promise.all([
       run(table("banking_payments").select("*, banking_receipts(receipt_number)").eq("case_id", row.id).order("payment_date")),
       run(table("banking_generated_documents").select("*").eq("case_id", row.id).order("created_at", { ascending: false })),
       run(table("accounting_case_reviews").select("*").eq("case_id", row.id).order("created_at", { ascending: false })),
       run(table("banking_case_checklists").select("status, is_mandatory").eq("case_id", row.id).eq("is_current", true)),
+      run(table("banking_quotations").select("id").eq("case_id", row.id).eq("status", "Accepted").maybeSingle()).catch(() => "error"),
     ]);
-    return { payments, generated, history, checklist };
+    return { payments, generated, history, checklist, quoteId: quote === "error" ? undefined : quote?.id, quoteNote: quote === "error" ? QUOTE_READ_FAILED : undefined };
   }, [row.id]);
   const [action, setAction] = useState(null);
   const [error, setError] = useState(null);
@@ -67,6 +71,9 @@ function Review({ row, onBack, onDone }) {
         <>
           <Panel title="Payments"><DataTable rows={data.data?.payments || []} empty="No payments recorded." columns={[{ key: "payment_ref", label: "Ref" }, { key: "payment_date", label: "Date", render: (p) => fmtDate(p.payment_date) }, { key: "txn_type", label: "Type" }, { key: "signed_amount", label: "Amount", right: true, render: (p) => money(p.signed_amount) }, { key: "payment_method", label: "Method" }, { key: "transaction_reference", label: "Reference" }, { key: "v", label: "Voucher", render: (p) => p.banking_receipts?.receipt_number }]} /></Panel>
           <Panel title="Generated documents"><DataTable rows={data.data?.generated || []} empty="None saved." columns={[{ key: "kind", label: "Type" }, { key: "document_number", label: "Number" }, { key: "created_at", label: "Generated", render: (d) => fmtDate(d.created_at) }, { key: "local_path", label: "Saved at" }, { key: "o", label: "", render: (d) => <button type="button" className="bk-link" onClick={() => openFile(d.storage_path).catch((e) => setError(e.message))}>Open</button> }]} /></Panel>
+          <Panel title="Zoho">
+            <ZohoPanel key={`${data.data?.quoteId}:${row.client_master_id}`} noSourceNote={data.data?.quoteNote} supabase={supabase} department="banking" sourceTable="banking_quotations" sourceId={data.data?.quoteId} clientId={row.client_master_id} kinds={["estimate", "invoice"]} canCreate={false} />
+          </Panel>
           <Panel title="Handover history"><DataTable rows={data.data?.history || []} columns={[{ key: "created_at", label: "When", render: (h) => fmtDateTime(h.created_at) }, { key: "action", label: "Action" }, { key: "remarks", label: "Remarks" }]} /></Panel>
         </>
       )}

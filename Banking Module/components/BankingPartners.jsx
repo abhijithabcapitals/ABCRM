@@ -6,7 +6,7 @@ import BankLogo, { BankName } from "./BankLogo";
 import { BankPricing, BankSchemes, DocumentChecklists } from "./Masters";
 import { VERIFICATION } from "../logic/constants";
 
-const NOT_POLICY = "Internal CRM data supplied by AB Capital. Not verified or current official bank policy unless marked Verified with a date and reviewer.";
+const NOT_POLICY = "Internal CRM data supplied by AB Capital Services FZE. Not verified or current official bank policy unless marked Verified with a date and reviewer.";
 const SECTIONS = [["details", "Details & RMs"], ["plans", "Plans"], ["pricing", "Pricing"], ["documents", "Document List"], ["notes", "Internal Notes"]];
 const yesNo = (v) => (v == null ? "Not recorded" : v ? "Yes" : "No");
 

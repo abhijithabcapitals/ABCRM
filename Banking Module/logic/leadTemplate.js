@@ -6,7 +6,7 @@ export const TEMPLATE_MARKER = "AB_CAPITAL_LEAD_TEMPLATE";
 export const TEMPLATE_VERSION = 1;
 export const TEMPLATE_COLUMNS = ["Company Name", "Contact Person", "Mobile", "WhatsApp", "Email", "Nationality", "License Number", "Bank", "Account Type", "Lead Date", "Lead Source", "Referred By", "Application Status", "Fee AED", "Home Ejari", "Relationship Manager", "Payment 1 Amount", "Payment 1 Date", "Payment 1 Method", "Payment 2 Amount", "Payment 2 Date", "Payment 2 Method", "Payment 3 Amount", "Payment 3 Date", "Payment 3 Method", "Remarks"];
 const REQUIRED = ["Company Name", "Bank", "Account Type", "Lead Date", "Lead Source", "Application Status"];
-const REFUSED = "This is not the AB Capital template. Download the template, copy your data into it, and upload that file.";
+const REFUSED = "This is not the AB Capital Services FZE template. Download the template, copy your data into it, and upload that file.";
 
 const text = (v) => (v === null || v === undefined ? "" : String(v).trim());
 

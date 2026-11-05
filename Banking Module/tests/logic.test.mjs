@@ -196,7 +196,7 @@ test("built template carries the marker and exact columns", () => {
   assert.equal(checkTemplate(XLSX.read(readFileSync(TEMPLATE), { cellNF: true }), XLSX), null);
 });
 test("any other Excel is refused", { skip: !existsSync(WORKBOOK) }, () => {
-  assert.match(readTemplate(XLSX.read(readFileSync(WORKBOOK)), XLSX, OPTS).refused, /not the AB Capital template/);
+  assert.match(readTemplate(XLSX.read(readFileSync(WORKBOOK)), XLSX, OPTS).refused, /not the AB Capital Services FZE template/);
 });
 test("changed columns are refused", () => {
   const wb = filled([]);
