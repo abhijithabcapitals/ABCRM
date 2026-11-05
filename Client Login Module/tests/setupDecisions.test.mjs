@@ -79,3 +79,10 @@ test("Send in the decision and claim screens is guarded by a ref, so a fast doub
     assert.ok(send.lastIndexOf("sending.current = false") > send.indexOf("catch"), f);
   }
 });
+
+test("Accept and I have paid open as a pop-up, because their buttons sit far down the page", () => {
+  for (const f of ["../portal/DecisionPanel.jsx", "../portal/ClaimForm.jsx"]) {
+    assert.match(read(f), /<Modal title=/, f);
+    assert.doesNotMatch(read(f), /<Panel/, f);
+  }
+});
