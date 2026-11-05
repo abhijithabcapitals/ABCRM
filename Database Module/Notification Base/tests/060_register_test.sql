@@ -1,6 +1,8 @@
 -- Compliance register and its expiry alerts (Phase 2, Task 1). Prints "ok ..." per check and stops at the first failure.
 -- Runs after 010 to 050. Figures from the functions are compared with counts taken straight from the tables as postgres, before "set role".
 \set ON_ERROR_STOP on
+-- The review rules of 012 are tested in 110. They stay off here, so this file covers the expiry rules alone.
+update alert_rules set enabled = false where code in ('compliance_ubo_verification', 'compliance_aml_risk_assessment', 'compliance_kyc_document', 'compliance_corporate_register_review', 'compliance_regulatory_filing', 'compliance_compliance_review', 'compliance_tax_residency_certificate');
 
 select (now() at time zone 'Asia/Dubai')::date as today \gset
 select '00000000-0000-0000-0000-0000000006a1'::uuid as adm, '00000000-0000-0000-0000-0000000006a2'::uuid as mem,
@@ -31,7 +33,7 @@ update alert_rules set steps = '[{"days":5,"priority":"Normal"}]' where code = '
 \ir ../migrations/006_compliance_register.sql
 select t.ok('reapply keeps edited compliance steps', (select steps = '[{"days":5,"priority":"Normal"}]'::jsonb from alert_rules where code = 'compliance_passport'));
 update alert_rules set steps = :'pass_steps' where code = 'compliance_passport';
-select t.ok('rules have no browser-callable wrappers', (select count(*) = 9 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
+select t.ok('rules have no browser-callable wrappers', (select count(*) = 16 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
   from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_rule\_compliance\_%'));
 select t.ok('the candidate function is not browser-callable', not has_function_privilege('authenticated', 'alert_compliance_candidates(text)', 'execute')
   and not has_function_privilege('anon', 'alert_compliance_candidates(text)', 'execute'));
@@ -228,7 +230,7 @@ select t.ok('passport 30 days out is High, owned, titled with type, person and c
 select t.ok('a closed entry raised nothing', (select count(*) = 0 from alerts where source_id = :'s3'));
 select t.ok('an entry of a closed client raised nothing', (select count(*) = 0 from alerts where source_id = :'s_rl'));
 select t.ok('a far-off entry raised nothing', (select count(*) = 0 from alerts where source_id = (select id::text from client_compliance_items where person_name = 'Far Away')));
-select t.ok('types with no rule raise nothing until Phase 5', (select count(*) = 0 from alerts where source_id in (:'s_ubo', (select id::text from client_compliance_items where item_type = 'AML risk assessment'))));
+select t.ok('types whose rule is off raise nothing', (select count(*) = 0 from alerts where source_id in (:'s_ubo', (select id::text from client_compliance_items where item_type = 'AML risk assessment'))));
 select t.ok('passport counts are exact: three checked, two dated, one raised', (select rule_counts->'compliance_passport' @> '{"checked": 3, "with_data": 2, "raised": 1, "error": null}'::jsonb
   from alert_scan_log order by id desc limit 1));
 select t.ok('every register alert came from the register, nothing else raised there', (select count(*) = 4 from alerts where rule_code like 'compliance\_%' and status = 'Open'));
@@ -301,3 +303,4 @@ select t.ok('Triage bells only Assigned recipients for register alerts', (select
 
 -- Leave the run as the other tests expect it
 update alert_settings set value = '"Live"' where key = 'alert_mode';
+update alert_rules set enabled = true where code in ('compliance_ubo_verification', 'compliance_aml_risk_assessment', 'compliance_kyc_document', 'compliance_corporate_register_review', 'compliance_regulatory_filing', 'compliance_compliance_review', 'compliance_tax_residency_certificate');

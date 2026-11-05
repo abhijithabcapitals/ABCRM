@@ -10,6 +10,14 @@ Database layer of the Notification and Alert Centre. Spec: `Hot Alerts Module/do
 | `003_alert_actions.sql` | Browser actions (`alert_assign`, `alert_set_status`, `alert_resolve`, `alert_escalate`, `alert_mark_read`), `alert_escalate_due()` (Live scan only), client owner functions, and admin-only `alert_rule_save`, `alert_set_mode`, `alert_scan_now` |
 | `004_alert_reads.sql` | Browser reads behind the page, each checking the caller: `alert_list`, `alert_tiles`, `alert_detail`, `alert_management_summary`, `alert_coverage`, `alert_my_access`, `alert_rule_list`, `alert_manager_list` |
 | `005_centre_tab_for_all.sql` | `my_tabs()` also returns `mytasks` for every signed-in user, so everyone has the Notification Centre tab. Unticking it in Settings has no effect. Rollback: `rollback/005_rollback.sql` |
+| `006_compliance_register.sql` | `client_compliance_items`, its screens' RPCs, expiry rules per item type |
+| `007_alert_preferences.sql` | Per-person category and channel choices; `alert_bell` honours them; Critical always bells |
+| `008_alert_email.sql` | `alert_deliveries`, `alert_email_build`, `alert_email_record`. Off until `email_enabled` is true. Edge Function `alert-digest` sends; no schedule is created here |
+| `009_alert_calendar.sql` | `alert_calendar` |
+| `010_regulatory.sql` | Regulatory Updates Centre, its enforced gate, `regulatory_update_intake` for the Tax Agent later |
+| `011_followups_payments.sql` | Contact log, document requests, follow-up and payment rules, items logged by hand |
+| `012_compliance_tax.sql` | Review-date rules, `alert_tax_items`, `tax_deadline`, off-by-default `ct_dereg_review`. Edge Function `alert-tax-scan` fills the items |
+| `013_relationship.sql` | `multiple_services`, plus off-by-default not contacted, inactive and anniversary rules |
 | `006_compliance_register.sql` | `client_compliance_items` (RLS, read through `client_compliance_can_read()`), browser functions `client_compliance_save`, `_close`, `_list`, `_import`, `_can_read`, `_can_write` (admin, tagged Manager or the Clients tab), nine `compliance_*` rules (Business Setup), `alert_compliance_candidates(type)` with one `alert_rule_compliance_*` wrapper per type, the renewals tile and management summary now count `compliance_%` rules, and `alert_my_access` returns `can_register`. Types with no rule (UBO, AML, KYC and so on) raise nothing until Phase 5 |
 
 Every migration is re-runnable. Rollback for 001 to 004 is `rollback/001_004_rollback.sql` (safe twice; deletes `alert_centre` bell rows only). Rollback for Phase 2 (006 onward) is `rollback/006_009_rollback.sql`: run it first, then 005, then 001 to 004. It restores 004's read functions and drops what Phase 2 added.

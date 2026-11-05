@@ -8,6 +8,7 @@ import CentreSettings from "./CentreSettings";
 import MyPreferences from "./MyPreferences";
 import AlertCalendar from "./AlertCalendar";
 import RegulatoryUpdates from "./RegulatoryUpdates";
+import LogItem from "./LogItem";
 import ComplianceRegister from "./ComplianceRegister";
 import { Note, btn } from "./ui";
 import { dubaiToday, emptyText, isNotSwitchedOn, tabsFor } from "../logic/alertLogic";
@@ -76,6 +77,7 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
         </div>
       )}
 
+      {access && tab === "My Notifications" && <LogItem supabase={supabase} onDone={() => bump()} />}
       {access && tab === "My Notifications" && (
         <ScopeView supabase={supabase} scope="My" today={today} onOpen={open} refreshKey={refreshKey}
           empty={(f) => emptyText(access, f)}

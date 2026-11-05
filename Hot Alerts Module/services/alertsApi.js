@@ -58,3 +58,9 @@ export const regulatoryProposeList = (s, id) => call(s, "regulatory_propose_list
 export const regulatoryDecideClient = (s, id, client, decision) => call(s, "regulatory_decide_client", { p_id: id, p_client: client, p_decision: decision });
 export const regulatoryVerify = (s, id) => call(s, "regulatory_verify", { p_id: id });
 export const regulatoryCreateTasks = (s, id) => call(s, "regulatory_create_tasks", { p_id: id });
+
+// Contact log, document requests and items logged by hand (011). These record what a person did: nothing is sent.
+export const clientContactLog = (s, p) => call(s, "client_contact_log", { p });
+export const clientDocumentRequest = (s, p) => call(s, "client_document_request", { p });
+export const alertManualTypes = (s) => call(s, "alert_manual_types", {});
+export const alertManualRaise = (s, type, client, detail, due) => call(s, "alert_manual_raise", { p_type: type, p_client: client, p_detail: detail || null, p_due: due || null });

@@ -279,8 +279,8 @@ select t.ok('postgres and service_role can run alert_scan', has_function_privile
 select t.ok('authenticated and anon cannot run alert_scan', not has_function_privilege('authenticated', 'alert_scan()', 'execute') and not has_function_privilege('anon', 'alert_scan()', 'execute'));
 select t.ok('public cannot run alert_scan', (select count(*) = 0 from pg_proc p where p.oid = 'alert_scan()'::regprocedure
   and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
--- 7 from 002 and 9 compliance wrappers from 006
-select t.ok('rule functions are not browser-callable', (select count(*) = 16 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
+-- 7 from 002, 9 from 006, 5 from 011, 9 from 012, 4 from 013
+select t.ok('rule functions are not browser-callable', (select count(*) = 34 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
   from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_rule\_%' and proname not in ('alert_rule_save', 'alert_rule_list')));
 select t.ok('alert_scan is scheduled daily at 02:00', (select count(*) = 1 and bool_and(schedule = '0 2 * * *' and command = 'select public.alert_scan()') from cron.job where jobname = 'alert-scan'));
 
