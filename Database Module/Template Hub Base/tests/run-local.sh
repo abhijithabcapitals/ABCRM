@@ -63,7 +63,7 @@ OLDQ_BEFORE="$("${PSQL[@]}" -At -c "select count(*) from hub_documents where dep
 "${PSQL[@]}" -c "set acct_proposal.rollback_force = 'yes'" -f "$HERE/../rollback/008_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL accounting proposals rollback: $(cat "$DATA/err")"; RC=1; }
 LEFT8="$("${PSQL[@]}" -At -c "select (to_regclass('public.hub_accounting_packages') is not null)::int + (select count(*) from pg_proc where proname like 'hub\_acct\_%')
   + (select count(*) from information_schema.columns where table_name = 'hub_documents' and column_name in ('word_path','onedrive_path','onedrive_saved_at','mail_sent_at','mail_sent_by','mail_sent_to','approved_by','approved_at','agreement_changed_at'))
-  + (select count(*) from hub_settings where key = 'accounting_proposal_defaults') + (select count(*) from pg_trigger where tgname = 'hub_acct_letter_guard')
+  + (select count(*) from hub_settings where key = 'accounting_proposal_defaults') + (select count(*) from pg_trigger where tgname in ('hub_acct_letter_guard', 'hub_acct_file_guard'))
   + (select count(*) from pg_policies where policyname like 'hub\_docs\_accounting\_signature%')")"
 if [ "$LEFT8" = "0" ]; then echo "ok   accounting proposals rollback leaves nothing behind"; else echo "FAIL accounting proposals rollback left $LEFT8 items"; RC=1; fi
 OLDQ_AFTER="$("${PSQL[@]}" -At -c "select count(*) from hub_documents where department = 'Accounting' and library_template is null")"

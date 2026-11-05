@@ -21,12 +21,15 @@ begin
   end if;
 end $do$;
 
+drop trigger if exists hub_acct_file_guard on public.hub_documents;
+drop function if exists public.hub_acct_file_guard();
 drop trigger if exists hub_acct_letter_guard on public.hub_documents;
 drop function if exists public.hub_acct_letter_guard();
 drop function if exists public.hub_acct_admin_save(jsonb);
 drop function if exists public.hub_acct_defaults_save(jsonb);
 drop function if exists public.hub_acct_package_save(jsonb);
 drop function if exists public.hub_acct_can_send(uuid);
+drop function if exists public.hub_acct_mail_update(uuid, text, text);
 drop function if exists public.hub_acct_signed(uuid, date, text);
 drop function if exists public.hub_acct_saved(uuid, text);
 drop function if exists public.hub_acct_attach(uuid, text, text);

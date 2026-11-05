@@ -268,13 +268,15 @@ begin
          services = array(select jsonb_array_elements_text(m -> 'services')), lines = m -> 'lines', total_amount = (m ->> 'total')::numeric,
          status = 'accepted', status_at = now(), status_by = auth.uid()
    where id = q.id returning * into r;
+  -- voucher_from_hub copies the amount only when the register row is made, so the accepted option's total is written here.
+  update voucher_register set amount = r.total_amount where source = 'hub' and voucher_type = 'Quotation' and source_id = r.id;
   return r;
 end $$;
 
 -- ── Agreement ────────────────────────────────────────────────────────────
 create or replace function public.hub_acct_agreement_create(p jsonb) returns public.hub_documents
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare q hub_documents; r hub_documents; a jsonb; v_number text; v_opt int;
+declare q hub_documents; r hub_documents; a jsonb; v_number text; v_opt int; v_rejected text;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   select * into q from hub_documents where id = nullif(p ->> 'quote_id', '')::uuid and library_template = 'AB Capital/Accounting Quote' for update;
@@ -283,6 +285,9 @@ begin
   if exists (select 1 from hub_documents where parent_id = q.id and doc_type = 'letter' and status <> 'rejected') then
     raise exception 'Quote % already has its agreement', q.document_number;
   end if;
+  -- Template Hub keeps one letter per quote (hub_one_letter_per_quote), rejected or not.
+  select document_number into v_rejected from hub_documents where parent_id = q.id and doc_type = 'letter' limit 1;
+  if found then raise exception 'Agreement % was rejected. Ask an admin to remove it before making a new one.', v_rejected; end if;
   v_opt := (q.field_values #>> '{quote,accepted_option}')::int;
   a := hub_acct_agreement_clean(p -> 'agreement', v_opt);
   v_number := hub_next_number('Accounting', 'letter');
@@ -303,6 +308,7 @@ begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   select * into d from hub_documents where id = p_id and library_template = 'AB Capital/Accounting Agreement' for update;
   if d.id is null then raise exception 'The Accounting agreement was not found'; end if;
+  if d.signed_at is not null then raise exception 'Agreement % is signed and cannot be edited', d.document_number; end if;
   a := hub_acct_agreement_clean(p_agreement, (d.field_values #>> '{agreement,accepted_option}')::int);
   v_hist := coalesce(d.field_values -> 'file_history', '[]'::jsonb);
   if d.storage_path is not null or d.word_path is not null then
@@ -342,9 +348,12 @@ begin
     v_hist := v_hist || jsonb_build_array(jsonb_build_object('storage_path', d.storage_path, 'word_path', d.word_path,
       'approved_by', null, 'approved_at', null, 'archived_at', now(), 'archived_by', u, 'reason', 'draft before approval'));
   end if;
+  -- hub_acct_file_guard lets this statement through; the flag lasts only for this step.
+  perform set_config('hub_acct.approving', 'on', true);
   update hub_documents set storage_path = btrim(p_pdf), word_path = btrim(p_word), approved_by = u, approved_at = now(),
          field_values = jsonb_set(coalesce(field_values, '{}'::jsonb), '{file_history}', v_hist)
    where id = d.id returning * into r;
+  perform set_config('hub_acct.approving', 'off', true);
   return r;
 end $$;
 
@@ -375,15 +384,29 @@ end $$;
 
 create or replace function public.hub_acct_signed(p_id uuid, p_date date, p_path text) returns public.hub_documents
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare r hub_documents;
+declare d hub_documents; r hub_documents;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   if p_date is null then raise exception 'Enter the date it was signed'; end if;
   if nullif(btrim(coalesce(p_path, '')), '') is null then raise exception 'Upload the signed copy'; end if;
-  update hub_documents set signed_at = p_date, signed_path = btrim(p_path)
-   where id = p_id and library_template in ('AB Capital/Accounting Quote', 'AB Capital/Accounting Agreement') returning * into r;
-  if r.id is null then raise exception 'The Accounting document was not found'; end if;
+  select * into d from hub_documents where id = p_id and library_template in ('AB Capital/Accounting Quote', 'AB Capital/Accounting Agreement') for update;
+  if d.id is null then raise exception 'The Accounting document was not found'; end if;
+  if d.library_template = 'AB Capital/Accounting Agreement' and d.approved_at is null then
+    raise exception 'Agreement % is not approved, so no signed copy can be recorded', d.document_number;
+  end if;
+  update hub_documents set signed_at = p_date, signed_path = btrim(p_path) where id = d.id returning * into r;
   return r;
+end $$;
+
+-- The mail draft of an Accounting quote or agreement. Any signed-in staff member may change it, not only its creator (hub_mail_update).
+create or replace function public.hub_acct_mail_update(p_id uuid, p_subject text, p_body text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if auth.uid() is null then raise exception 'Sign in first'; end if;
+  update hub_documents m set mail_subject = p_subject, mail_body = p_body
+   where m.id = p_id and m.doc_type = 'mail'
+     and exists (select 1 from hub_documents p where p.id = m.parent_id and p.library_template in ('AB Capital/Accounting Quote', 'AB Capital/Accounting Agreement'));
+  if not found then raise exception 'The mail draft of this Accounting document was not found'; end if;
 end $$;
 
 -- A quote can go once it has a PDF. An agreement needs the PDF and its approval.
@@ -482,15 +505,31 @@ revoke all on function public.hub_acct_letter_guard() from public, anon, authent
 drop trigger if exists hub_acct_letter_guard on public.hub_documents;
 create trigger hub_acct_letter_guard before insert on public.hub_documents for each row execute function public.hub_acct_letter_guard();
 
+-- ── Approved files stay put ──────────────────────────────────────────────
+-- hub_document_attach (Template Hub 001) lets a creator set storage_path on their own row. Once an Accounting document is approved its PDF and
+-- Word paths change only in the statement that clears the approval (an edit) or inside hub_acct_approve.
+create or replace function public.hub_acct_file_guard() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if old.library_template is null or old.library_template not in ('AB Capital/Accounting Quote', 'AB Capital/Accounting Agreement') then return new; end if;
+  if old.approved_at is null or new.approved_at is null then return new; end if;
+  if new.storage_path is not distinct from old.storage_path and new.word_path is not distinct from old.word_path then return new; end if;
+  if coalesce(current_setting('hub_acct.approving', true), '') = 'on' then return new; end if;
+  raise exception 'Approved files cannot be replaced. Edit the agreement first';
+end $$;
+revoke all on function public.hub_acct_file_guard() from public, anon, authenticated;
+drop trigger if exists hub_acct_file_guard on public.hub_documents;
+create trigger hub_acct_file_guard before update of storage_path, word_path on public.hub_documents for each row execute function public.hub_acct_file_guard();
+
 -- ── Grants ───────────────────────────────────────────────────────────────
 revoke all on function public.hub_acct_can_approve(), public.hub_acct_quote_create(jsonb), public.hub_acct_accept(uuid, int), public.hub_acct_agreement_create(jsonb),
   public.hub_acct_agreement_update(uuid, jsonb), public.hub_acct_approve(uuid, text, text, timestamptz), public.hub_acct_attach(uuid, text, text),
   public.hub_acct_saved(uuid, text), public.hub_acct_signed(uuid, date, text), public.hub_acct_can_send(uuid), public.hub_acct_package_save(jsonb),
-  public.hub_acct_defaults_save(jsonb), public.hub_acct_admin_save(jsonb) from public, anon;
+  public.hub_acct_defaults_save(jsonb), public.hub_acct_admin_save(jsonb), public.hub_acct_mail_update(uuid, text, text) from public, anon;
 grant execute on function public.hub_acct_can_approve(), public.hub_acct_quote_create(jsonb), public.hub_acct_accept(uuid, int), public.hub_acct_agreement_create(jsonb),
   public.hub_acct_agreement_update(uuid, jsonb), public.hub_acct_approve(uuid, text, text, timestamptz), public.hub_acct_attach(uuid, text, text),
   public.hub_acct_saved(uuid, text), public.hub_acct_signed(uuid, date, text), public.hub_acct_can_send(uuid), public.hub_acct_package_save(jsonb),
-  public.hub_acct_defaults_save(jsonb), public.hub_acct_admin_save(jsonb) to authenticated;
+  public.hub_acct_defaults_save(jsonb), public.hub_acct_admin_save(jsonb), public.hub_acct_mail_update(uuid, text, text) to authenticated;
 
 -- ── The signature image ──────────────────────────────────────────────────
 -- hub_docs_read lets any signed-in user read the whole hub-documents bucket. These restrictive policies keep the signature to approvers and
