@@ -6,6 +6,8 @@ insert into client_master (client_id, legal_name, data) values
 on conflict do nothing;
 insert into business_setup_kyc_profiles (client_id, client_status, jurisdiction, licence_extras) values ('P1', 'Active', 'DMCC', '{}'), ('P2', 'Active', 'DMCC', '{}'), ('P3', 'Liquidated', 'DMCC', '{"ct_reg":"Done"}') on conflict do nothing;
 update alert_settings set value = '"Triage"' where key = 'alert_mode';
+-- Since 015, client work needs the Clients access or an open alert on the client.
+insert into member_tab_access (profile_id, tab_key) values ('00000000-0000-0000-0000-0000000000c1', 'clients') on conflict do nothing;
 
 set role authenticated;
 set test.uid = '00000000-0000-0000-0000-0000000000c1';
