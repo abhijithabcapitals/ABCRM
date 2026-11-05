@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import ScopeView from "./ScopeView";
 import OwnerAssign from "./OwnerAssign";
 import { Note, btn } from "./ui";
-import { MANAGER_FILTERS, noteForCategories } from "../logic/alertLogic";
+import { DUE_DATE_CATEGORIES, MANAGER_FILTERS, noteForCategories } from "../logic/alertLogic";
 import { alertCoverage } from "../services/alertsApi";
 
 // Department tab: a department picker, six tiles, the list, and a link to owner assignment.
@@ -33,7 +33,7 @@ export default function DepartmentView({ supabase, access, people, today, onOpen
     return () => { live = false; };
   }, [supabase, access?.is_admin, refreshKey]);
 
-  const deadlines = noteForCategories(coverage, ["Deadlines"]);
+  const dueDates = noteForCategories(coverage, DUE_DATE_CATEGORIES);
   const renewals = noteForCategories(coverage, ["Licence", "Visa & Emirates ID"]);
 
   if (assigning && department) {
@@ -56,8 +56,8 @@ export default function DepartmentView({ supabase, access, people, today, onOpen
       <ScopeView supabase={supabase} scope="Department" department={department || null} today={today} onOpen={onOpen} refreshKey={refreshKey}
         filters={MANAGER_FILTERS} empty={(f) => (f === "All" ? "No open alerts" : "Nothing matches this filter")}
         tileItems={(t) => [
-          { label: "Overdue", value: t.overdue, tone: "red", note: deadlines },
-          { label: "Upcoming (7 days)", value: t.upcoming, note: deadlines },
+          { label: "Overdue", value: t.overdue, tone: "red", note: dueDates },
+          { label: "Upcoming (7 days)", value: t.upcoming, note: dueDates },
           { label: "Client documents", value: t.documents },
           { label: "Government", value: t.authority },
           { label: "Renewals", value: t.renewals, note: renewals },

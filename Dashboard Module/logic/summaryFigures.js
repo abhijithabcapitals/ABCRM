@@ -93,8 +93,8 @@ export function alertFigures(tiles) {
   return { overdue: num(t.overdue), upcoming: num(t.upcoming), documents: num(t.documents), authority: num(t.authority), renewals: num(t.renewals), unassigned: num(t.unassigned), mode: t.mode ?? null };
 }
 
-// In Preview only admins see alerts, so a member's six zeros would read as all clear.
-export const alertsInPreview = (figures, isAdmin) => figures?.mode === "Preview" && !isAdmin;
+// In Preview the card's six zeros would read as all clear: members see no alerts, and an admin has none assigned yet.
+export const alertsInPreview = (figures) => figures?.mode === "Preview";
 
 // Postgres "insufficient privilege".
 export const isNoAccess = (error) => error?.code === "42501";

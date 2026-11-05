@@ -129,6 +129,9 @@ export function basedOnNote(rule) {
 
 // Sums checked and with_data over the rules in the given categories and applies basedOnNote.
 // Null when no such rule has been scanned, so a tile with no matching rule shows no line.
+// The rules behind a tile that counts by due date (Overdue, Upcoming, Today's Work): deadlines, licences and visas alike.
+export const DUE_DATE_CATEGORIES = ["Deadlines", "Licence", "Visa & Emirates ID"];
+
 export function noteForCategories(coverage, categories) {
   const rules = (coverage?.rules || []).filter((r) => categories.includes(r.category) && r.checked != null);
   if (!rules.length) return null;

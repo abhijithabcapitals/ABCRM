@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import ScopeView from "./ScopeView";
 import Tiles from "./Tiles";
 import { Note, box } from "./ui";
-import { MANAGER_FILTERS, scanBand, noteForCategories, fmtScanTime } from "../logic/alertLogic";
+import { DUE_DATE_CATEGORIES, MANAGER_FILTERS, scanBand, noteForCategories, fmtScanTime } from "../logic/alertLogic";
 import { alertManagementSummary, alertCoverage } from "../services/alertsApi";
 
 const th = { textAlign: "left", fontSize: 11, color: "#888", fontWeight: 600, padding: "6px 10px", borderBottom: "1px solid #eee", whiteSpace: "nowrap" };
@@ -29,7 +29,7 @@ export default function ManagementView({ supabase, access, today, onOpen, refres
   }, [supabase, refreshKey]);
 
   const band = scanBand(coverage);
-  const deadlines = noteForCategories(coverage, ["Deadlines"]);
+  const dueDates = noteForCategories(coverage, DUE_DATE_CATEGORIES);
   const renewals = noteForCategories(coverage, ["Licence", "Visa & Emirates ID"]);
 
   return (
@@ -41,7 +41,7 @@ export default function ManagementView({ supabase, access, today, onOpen, refres
       {summary && (
         <Tiles items={[
           { label: "Critical Alerts", value: summary.critical, tone: "red" },
-          { label: "Today's Work", value: summary.today, note: deadlines },
+          { label: "Today's Work", value: summary.today, note: dueDates },
           { label: "Pending Client Actions", value: summary.client_pending },
           { label: "Government Pending", value: summary.government_pending },
           { label: "Upcoming Renewals", value: summary.renewals, note: renewals },

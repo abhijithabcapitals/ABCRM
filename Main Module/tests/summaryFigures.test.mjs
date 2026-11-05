@@ -195,10 +195,9 @@ test("isMissingFunction is true for a function not in the schema", () => {
 test("alertFigures carries the mode", () => {
   assert.equal(alertFigures({ mode: "Preview" }).mode, "Preview");
 });
-test("alertsInPreview is true only for a non-admin in Preview", () => {
-  assert.equal(alertsInPreview({ mode: "Preview" }, false), true);
-  assert.equal(alertsInPreview({ mode: "Preview" }, true), false);
-  assert.equal(alertsInPreview({ mode: "Triage" }, false), false);
-  assert.equal(alertsInPreview({ mode: "Live" }, false), false);
-  assert.equal(alertsInPreview({}, false), false);
+test("alertsInPreview is true for everyone in Preview, and only then", () => {
+  assert.equal(alertsInPreview({ mode: "Preview" }), true);
+  assert.equal(alertsInPreview({ mode: "Triage" }), false);
+  assert.equal(alertsInPreview({ mode: "Live" }), false);
+  assert.equal(alertsInPreview({}), false);
 });

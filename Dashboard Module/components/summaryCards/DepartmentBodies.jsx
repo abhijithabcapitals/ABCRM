@@ -132,9 +132,9 @@ export function NotificationsBody({ data }) {
   );
 }
 
-export function AlertsBody({ data, isAdmin }) {
+export function AlertsBody({ data }) {
   if (data.missing) return <Empty>Not set up yet</Empty>;
-  if (alertsInPreview(data, isAdmin)) return <Empty>In preview</Empty>;
+  if (alertsInPreview(data)) return <Empty>In preview</Empty>;
   return (
     <div className="sum-stats">
       <Stat label="Overdue" value={data.overdue} tone="danger" />

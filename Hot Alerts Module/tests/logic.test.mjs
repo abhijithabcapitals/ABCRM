@@ -59,7 +59,20 @@ test("basedOnNote: thin data, plenty of data, nothing checked", () => {
   assert.equal(basedOnNote({ checked: 0, with_data: 0 }), "No records checked");
 });
 
-import { noteForCategories, modeConfirmText } from "../logic/alertLogic.js";
+import { noteForCategories, modeConfirmText, DUE_DATE_CATEGORIES } from "../logic/alertLogic.js";
+test("a due-date tile note covers every rule the tile counts, not job deadlines alone", () => {
+  const cov = { rules: [
+    { rule: "job_due", category: "Deadlines", checked: 105, with_data: 2 },
+    { rule: "licence_expiry", category: "Licence", checked: 232, with_data: 216 },
+    { rule: "visa_expiry", category: "Visa & Emirates ID", checked: 136, with_data: 128 },
+  ] };
+  assert.equal(noteForCategories(cov, DUE_DATE_CATEGORIES), null);
+  const thin = { rules: [
+    { rule: "job_due", category: "Deadlines", checked: 105, with_data: 2 },
+    { rule: "licence_expiry", category: "Licence", checked: 10, with_data: 5 },
+  ] };
+  assert.equal(noteForCategories(thin, DUE_DATE_CATEGORIES), "Based on 7 of 115 records with a date");
+});
 test("noteForCategories sums the matching rules and skips unscanned ones", () => {
   const cov = { rules: [
     { category: "Licence", checked: 100, with_data: 4 }, { category: "Visa & Emirates ID", checked: 78, with_data: 2 },
