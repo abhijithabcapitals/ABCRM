@@ -1,1 +1,1 @@
-export { default } from "./components/HotAlerts";
+export { default } from "./components/NotificationCentre";

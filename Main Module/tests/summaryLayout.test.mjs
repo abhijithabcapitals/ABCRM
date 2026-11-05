@@ -17,13 +17,13 @@ const withStorage = (impl, fn) => {
 test("card titles match the spec", () => {
   assert.deepEqual(Object.fromEntries(SUMMARY_CARDS.map((c) => [c.id, c.title])), {
     bd: "Business Development", banking: "Business Banking", setup: "Business Setup", accounting: "Accounting",
-    hr: "HR", tax: "Tax Compliance", notifications: "Notifications", health: "Company Health",
+    hr: "HR", tax: "Tax Compliance", notifications: "Notifications", alerts: "Notification Centre", health: "Company Health",
     ar: "Accounts Receivable", ap: "Accounts Payable", ratios: "Financial Ratios", revenue: "Revenue", cost: "Cost", cash: "Cash",
   });
 });
-test("admin sees all 14 cards", () => {
-  assert.equal(SUMMARY_CARDS.length, 14);
-  assert.equal(visibleCards(SUMMARY_CARDS, { isAdmin: true, tabs: [] }).length, 14);
+test("admin sees all 15 cards", () => {
+  assert.equal(SUMMARY_CARDS.length, 15);
+  assert.equal(visibleCards(SUMMARY_CARDS, { isAdmin: true, tabs: [] }).length, 15);
 });
 test("staff see their tab cards plus notifications", () => {
   const ids = visibleCards(SUMMARY_CARDS, { isAdmin: false, tabs: ["hr"] }).map((c) => c.id);
@@ -176,4 +176,20 @@ test("clearLayout forgets the layout, and does not throw when storage throws", (
   assert.deepEqual(ls.data, {});
   const throwing = { removeItem() { throw new Error("blocked"); } };
   withStorage(throwing, () => assert.doesNotThrow(() => clearLayout("u")));
+});
+
+test("alerts card sits under the mytasks tab and shows only to members who have it", () => {
+  const c = SUMMARY_CARDS.find((x) => x.id === "alerts");
+  assert.equal(c.tab, "mytasks");
+  assert.equal(c.view, "mytasks");
+  assert.equal(c.group, "departments");
+  assert.ok(visibleCards(SUMMARY_CARDS, { isAdmin: false, tabs: ["mytasks"] }).some((x) => x.id === "alerts"));
+  assert.ok(!visibleCards(SUMMARY_CARDS, { isAdmin: false, tabs: ["hr"] }).some((x) => x.id === "alerts"));
+});
+test("saved layouts keep their order with alerts last", () => {
+  const saved = { order: { departments: ["tax", "hr", "bd"] }, collapsed: [] };
+  const ids = SUMMARY_CARDS.filter((c) => c.group === "departments");
+  const order = mergeLayout(saved, ids).order.departments;
+  assert.deepEqual(order.slice(0, 3), ["tax", "hr", "bd"]);
+  assert.equal(order.at(-1), "alerts");
 });

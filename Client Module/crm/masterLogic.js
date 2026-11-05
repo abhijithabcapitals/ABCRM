@@ -240,3 +240,8 @@ export function fillFromClient(values, c) {
   if (c.contact && unknown(out["Contact Details"])) out["Contact Details"] = listToCell([{ Name: c.contact, Email: c.email, Mobile: c.phone, Roles: "Primary" }], FIELDS["Contact Details"]);
   return out;
 }
+
+// A client opened from a notification, in the All Clients list. The link holds a Client Master id, or the list's own id.
+export function findListedClient(rows, id) {
+  return (rows || []).find((c) => c.client_master_id === id || c.id === id) || null;
+}

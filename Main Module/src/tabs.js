@@ -1,6 +1,6 @@
 // The pages an admin can grant a member. Settings and CEO Agent stay admin-only.
 export const GRANTABLE_TABS = [
-  { key: "mytasks", label: "Hot Alerts" },
+  { key: "mytasks", label: "Notification Centre" },
   { key: "dashboard", label: "Dashboard" },
   { key: "business-development", label: "Business Development" },
   { key: "business-setup", label: "Business Setup" },
@@ -36,6 +36,9 @@ export function resolveView(requested, isAdmin, tabs) {
   if (!ADMIN_ONLY.has(view) && (tabs || []).includes(tabOf(view))) return view;
   return (tabs || []).find((t) => t !== "spaces" && t !== "ardentax") || "profile";
 }
+
+// Only someone who can reach the Clients page is offered a shortcut to it.
+export const canOpenClients = (isAdmin, tabs) => Boolean(isAdmin) || (tabs || []).includes("clients");
 
 // The page asked for in the address (a link can open ?view=settings), else the saved one.
 // A retired page falls through to the default.

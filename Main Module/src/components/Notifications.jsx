@@ -14,7 +14,7 @@ function timeAgo(ts) {
   return `${d}d ago`;
 }
 
-export default function Notifications({ profile, onOpenTask }) {
+export default function Notifications({ profile, onOpenTask, onOpenAlert }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ left: 0, top: 0 });
@@ -74,7 +74,8 @@ export default function Notifications({ profile, onOpenTask }) {
 
   function clickItem(n) {
     if (!n.read) markRead(n.id);
-    if (n.task_id && onOpenTask) onOpenTask(n);
+    if (n.link_scope?.alert_id && onOpenAlert) onOpenAlert(n.link_scope.alert_id);
+    else if (n.task_id && onOpenTask) onOpenTask(n);
     setOpen(false);
   }
 

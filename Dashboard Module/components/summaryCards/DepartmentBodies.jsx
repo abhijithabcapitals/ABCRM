@@ -1,6 +1,7 @@
 // One body per department card. Each takes the figures its summaryApi fetcher returns.
 import { fmtDate } from "@app/dateFormat";
 import AnimatedNumber from "../AnimatedNumber";
+import { alertsInPreview } from "../../logic/summaryFigures.js";
 
 const money = (n) => `AED ${Number(n).toLocaleString("en-AE", { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
@@ -128,5 +129,20 @@ export function NotificationsBody({ data }) {
         ))}
       </ul>
     </>
+  );
+}
+
+export function AlertsBody({ data }) {
+  if (data.missing) return <Empty>Not set up yet</Empty>;
+  if (alertsInPreview(data)) return <Empty>In preview</Empty>;
+  return (
+    <div className="sum-stats">
+      <Stat label="Overdue" value={data.overdue} tone="danger" />
+      <Stat label="Upcoming" value={data.upcoming} tone="warn" />
+      <Stat label="Documents" value={data.documents} />
+      <Stat label="Authority" value={data.authority} />
+      <Stat label="Renewals" value={data.renewals} />
+      <Stat label="Unassigned" value={data.unassigned} tone="warn" />
+    </div>
   );
 }

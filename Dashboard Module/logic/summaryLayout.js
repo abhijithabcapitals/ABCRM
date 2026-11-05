@@ -12,6 +12,7 @@ export const SUMMARY_CARDS = [
   card("hr", "HR", "departments", "hr"),
   card("tax", "Tax Compliance", "departments", "tax"),
   card("notifications", "Notifications", "departments"),
+  card("alerts", "Notification Centre", "departments", "mytasks"),
   card("health", "Company Health", "zoho"),
   card("ar", "Accounts Receivable", "zoho"),
   card("ap", "Accounts Payable", "zoho"),

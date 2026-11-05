@@ -5,7 +5,7 @@ import Login from "./components/Login";
 import { BrandFooter } from "./components/Brand";
 import NewsTicker from "./components/NewsTicker";
 import { setUsageUser } from "./jsx/selectUsage";
-import { initialView, resolveView } from "./tabs";
+import { canOpenClients, initialView, resolveView } from "./tabs";
 import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
@@ -62,6 +62,8 @@ export default function App() {
   const [activeList, setActiveList] = useState(null);
   const [openArticleId, setOpenArticleId] = useState(null);
   const [openTaskId, setOpenTaskId] = useState(null);
+  const [openAlertId, setOpenAlertId] = useState(null);
+  const [openClientId, setOpenClientId] = useState(null);
   const [activeWhiteboard, setActiveWhiteboard] = useState(null);
   const [newDocFolderId, setNewDocFolderId] = useState(null);
   const [newDocSpaceId, setNewDocSpaceId] = useState(null);
@@ -479,6 +481,7 @@ export default function App() {
         onSpaceCreated={fetchSpaces}
         onLogout={handleLogout}
         onOpenTask={handleOpenTaskFromNotification}
+        onOpenAlert={(id) => { setOpenAlertId(id); setView("mytasks"); }}
         width={sidebarWidth}
       />
       {/* Resize handle */}
@@ -544,9 +547,9 @@ export default function App() {
             onBack={() => { setView("tasks"); setActiveWhiteboard(null); }}
           />
         )}
-        {view === "mytasks" && <MyTasks profile={profile} />}
+        {view === "mytasks" && <MyTasks profile={profile} openAlertId={openAlertId} onAlertShown={() => setOpenAlertId(null)} onOpenClient={canOpenClients(profile?.role === "admin", tabs) ? (id) => { setOpenClientId(id); setView("clients"); } : undefined} />}
         {view === "quotations" && <TemplateHub profile={profile} canArdentax={profile?.role === "admin" || (tabs || []).includes("ardentax")} />}
-        {view === "clients" && <ClientsHub profile={profile} />}
+        {view === "clients" && <ClientsHub profile={profile} openClientId={openClientId} onClientShown={() => setOpenClientId(null)} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}
         {view === "business-banking" && <BusinessBanking profile={profile} />}
         {view === "hr" && <HR profile={profile} onOpenTask={handleOpenTaskFromNotification} />}

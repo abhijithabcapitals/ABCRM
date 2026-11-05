@@ -3,11 +3,11 @@ import {
   SUMMARY_CARDS, visibleCards, readLayout, saveLayout, clearLayout, canSaveLayout, mergeLayout, moveCard, stepCard, toggleCollapsed, setGroupCollapsed, nextDragMove,
 } from "../logic/summaryLayout.js";
 import SummaryCard from "./SummaryCard";
-import { BdBody, BankingBody, SetupBody, AccountingBody, HrBody, TaxBody, NotificationsBody } from "./summaryCards/DepartmentBodies";
+import { BdBody, BankingBody, SetupBody, AccountingBody, HrBody, TaxBody, NotificationsBody, AlertsBody } from "./summaryCards/DepartmentBodies";
 import "./summary.css";
 
 const DEPARTMENT_BODIES = {
-  bd: BdBody, banking: BankingBody, setup: SetupBody, accounting: AccountingBody, hr: HrBody, tax: TaxBody, notifications: NotificationsBody,
+  bd: BdBody, banking: BankingBody, setup: SetupBody, accounting: AccountingBody, hr: HrBody, tax: TaxBody, notifications: NotificationsBody, alerts: AlertsBody,
 };
 const SLIDE_MS = 220;
 const DRAG_TYPE = "application/x-crm-summary-card";
@@ -189,7 +189,7 @@ export default function SummaryBoard({ profile, tabs, onNavigate, api, zoho }) {
                       load={group.id === "zoho" ? loadZoho : api?.[card.id]}
                       onOpen={card.view ? () => onNavigate?.(card.view) : undefined}
                     >
-                      {(data) => (Body ? <Body data={data} /> : null)}
+                      {(data) => (Body ? <Body data={data} isAdmin={profile?.role === "admin"} /> : null)}
                     </SummaryCard>
                   </div>
                 );

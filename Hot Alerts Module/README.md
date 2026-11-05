@@ -5,9 +5,16 @@ tasks assigned to the signed-in user, ordered by due date, with overdue ones fla
 
 | Path | Purpose |
 |---|---|
+| `components/NotificationCentre.jsx` | The page (sidebar label "Notification Centre", tab key `mytasks`). Takes `profile`, `supabase`, `fmtDate`, `openAlertId`, `onAlertShown`, `onOpenClient`. Tabs: My Notifications, Department, Management, Settings, by `alert_my_access`. Shows `HotAlerts` below as "My tasks" |
+| `components/AlertList.jsx`, `AlertDrawer.jsx`, `Tiles.jsx` | List, detail drawer, count tiles |
+| `components/DepartmentView.jsx`, `OwnerAssign.jsx`, `ManagementView.jsx`, `CentreSettings.jsx` | Department tab (picker from `service_departments`, tiles, owner assignment), Management tab (scan band, panels, Coverage), Settings tab (mode confirm, managers, rules, Run now) |
+| `components/ScopeView.jsx`, `ui.jsx` | Shared tiles + filters + list for one scope; shared styles, `Note`, `FilterBar` |
+| `logic/alertLogic.js` | Tags, day labels, colours, filters, `isNotSwitchedOn` (pure, tested) |
+| `services/alertsApi.js` | One wrapper per Notification Base RPC; throws the database's sentence |
+| `tests/` | `node --test "Hot Alerts Module/tests/"` |
 | `components/HotAlerts.jsx` | The page. Takes `profile`, `supabase` and `fmtDate` as props |
 | `supabase/support-agent/index.ts` | Edge Function `support-agent`: the Support Agent (`Agent Module/08_Support_Agent`) |
-| `index.js` | Default export of the page |
+| `index.js` | Default export of the page (NotificationCentre) |
 
 ## Support Agent
 
