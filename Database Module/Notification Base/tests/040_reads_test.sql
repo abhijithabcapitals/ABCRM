@@ -144,7 +144,7 @@ select t.ok('tiles equal list counts for each tile with a list filter', (:'ti_my
   and (:'ti_my'::jsonb->>'documents')::int = (:'l_docs'::jsonb->>'total')::int and (:'ti_my'::jsonb->>'authority')::int = (:'l_gov'::jsonb->>'total')::int
   and (:'ti_my'::jsonb->>'backlog')::int = (:'l_back'::jsonb->>'total')::int);
 select t.ok('resolved excluded from tiles: Dana tiles count no a8 (due in 2 days, resolved)', (:'ti_my'::jsonb->>'upcoming')::int = 4 and :d1_upcoming = 4);
-select t.ok('access: member is neither admin nor manager, mode Live', :'acc_d1'::jsonb = '{"is_admin": false, "is_manager": false, "mode": "Live"}'::jsonb);
+select t.ok('access: member is neither admin nor manager, mode Live', :'acc_d1'::jsonb = '{"is_admin": false, "is_manager": false, "mode": "Live", "can_register": false}'::jsonb);
 
 -- Detail
 select t.ok('detail has alert, recipients and events, with names and no dedupe key', (:'det_a1'::jsonb->'alert'->>'subject') = 'T5 a1'
@@ -176,7 +176,7 @@ select t.ok('Department with no name covers every department, as Management does
 select t.ok('manager My list is only the manager''s own assignments', (:'l_mgr_my'::jsonb->>'total')::int = 0);
 select t.ok('manager sees the detail of any alert, with its manager recipients', :'det_u1_mgr'::jsonb->'alert'->>'subject' = 'T5 u1'
   and (select count(*) = 2 and bool_and(r->>'reason' = 'Manager') from jsonb_array_elements(:'det_u1_mgr'::jsonb->'recipients') r));
-select t.ok('access: tagged manager', :'acc_mgr'::jsonb = '{"is_admin": false, "is_manager": true, "mode": "Live"}'::jsonb);
+select t.ok('access: tagged manager', :'acc_mgr'::jsonb = '{"is_admin": false, "is_manager": true, "mode": "Live", "can_register": true}'::jsonb);
 
 -- ═══ Live: admin, Management ═════════════════════════════════════════
 set role authenticated;
@@ -217,7 +217,7 @@ select t.ok('client risk counts open Critical per client', (select (c->>'critica
   and (select (c->>'critical')::int = :t5cl_crit and c->>'client_name' = 'T5 Client Ltd' from jsonb_array_elements(:'summ'::jsonb->'client_risk') c where c->>'client_id' = 'T5CL')
   and (select bool_and((c->>'critical')::int > 0) from jsonb_array_elements(:'summ'::jsonb->'client_risk') c));
 select t.ok('admin sees the detail of any alert, with its events', :'det_a1_adm'::jsonb->'alert'->>'subject' = 'T5 a1' and jsonb_array_length(:'det_a1_adm'::jsonb->'events') >= 1);
-select t.ok('access: admin', :'acc_adm'::jsonb = '{"is_admin": true, "is_manager": false, "mode": "Live"}'::jsonb);
+select t.ok('access: admin', :'acc_adm'::jsonb = '{"is_admin": true, "is_manager": false, "mode": "Live", "can_register": true}'::jsonb);
 
 -- ═══ Preview: nothing for members and managers, everything for admins ═
 update alert_settings set value = '"Preview"' where key = 'alert_mode';
