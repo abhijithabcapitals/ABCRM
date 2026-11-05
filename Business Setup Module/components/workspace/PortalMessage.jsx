@@ -29,17 +29,24 @@ export default function PortalMessage({ q, clientId }) {
     if (!sent?.emailed) throw new Error(`The email did not send: ${sent?.email_error || "unknown error"}.`);
     setNote(`Password emailed to ${q.contact_email}.`);
   });
+  const copy = () => navigator.clipboard?.writeText(text).then(() => setNote("Message copied."), () => setError("Copy was blocked: select the text and copy it."));
+  return <PortalMessageView q={q} a={a} state={state} text={text} error={error || login.error} onCloseError={error ? () => setError(null) : undefined}
+    isAdmin={!!admin.data} busy={busy} note={note} onSend={sendPassword} onCopy={copy} />;
+}
+
+// Everything drawn on screen, from plain props, so it can be rendered with a stubbed login.
+export function PortalMessageView({ q, a, state, text, error, onCloseError, isAdmin, busy, note, onSend, onCopy }) {
   return (
     <div className="bk-mt">
-      <ErrorNote message={error || login.error} onClose={error ? () => setError(null) : undefined} />
+      <ErrorNote message={error} onClose={onCloseError} />
       {state === "error" ? <p className="bk-note">The login could not be read, so the message cannot be built. Try again, or ask someone with access to the client's Client Login tab.</p>
         : !a ? <p className="bk-note">This client has no login yet, so the message has no login ID. Issue one with Share link, or on the client's Client Login tab.</p> : <>
         <label className="bk-muted" htmlFor={`pm-${q.id}`}>Message to send with the quote (portal link and login ID, no password)</label>
         <textarea id={`pm-${q.id}`} className="bk-input" rows={9} readOnly value={text} />
         <div className="bk-actions bk-mt">
-          <Button onClick={() => navigator.clipboard?.writeText(text).then(() => setNote("Message copied."), () => setError("Copy was blocked: select the text and copy it."))}>Copy message</Button>
-          {admin.data
-            ? <Button busy={busy} disabled={a.status !== "active"} onClick={sendPassword}>Send password</Button>
+          <Button onClick={onCopy}>Copy message</Button>
+          {isAdmin
+            ? <Button busy={busy} disabled={a.status !== "active"} onClick={onSend}>Send password</Button>
             : <small className="bk-muted">Only an admin can email the password. Ask an admin, or give it to the client yourself.</small>}
         </div>
         {a.status !== "active" && <p className="bk-note">This client's login is {a.status}. Restore it on the Client Login tab first.</p>}

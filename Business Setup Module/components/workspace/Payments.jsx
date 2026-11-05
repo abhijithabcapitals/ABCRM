@@ -26,7 +26,7 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
   const number = (id) => quotes.find((q) => q.id === id)?.document_number || "";
   const clientName = w?.client?.legal_name || caseRow?.client_name || caseRow?.lead_name || "";
   // What the case has net paid, from its payments (a refund or reversal takes away).
-  const caseNet = payments.filter((p) => !caseId || p.case_id === caseId || quotes.some((q) => q.id === p.quote_id)).reduce((n, p) => n + (p.type === "Payment" ? 1 : -1) * Number(p.amount || 0), 0);
+  const caseNet = payments.filter((p) => !caseId || p.case_id === caseId).reduce((n, p) => n + (p.type === "Payment" ? 1 : -1) * Number(p.amount || 0), 0);
   const done = async () => { await reload?.(); await onChanged?.(); };
   const canWaive = !!caseId && can("setup.payments.override") && caseRow?.docs?.quote && !caseRow.docs.paid && !["Lost", "Cancelled", "Completed"].includes(caseRow.stage);
   return (

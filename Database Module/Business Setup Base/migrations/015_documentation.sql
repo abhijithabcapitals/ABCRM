@@ -425,6 +425,8 @@ begin
     end if;
   end if;
   if o.case_id is not null then
+    -- The case's accepted quote is locked before the case (the order payment_add uses), so a send to Accounts cannot slip in between the check and the insert.
+    perform 1 from hub_documents where case_id = o.case_id and doc_type = 'quote' and status = 'accepted' for update;
     perform 1 from business_setup_cases where id = o.case_id for update;
     -- An advance has no quote on its row, but the case's accepted quote may be with Accounts.
     if business_setup_case_locked(o.case_id) then raise exception 'This quote is locked because Accounts holds it: no payment can be reversed'; end if;

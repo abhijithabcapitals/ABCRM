@@ -243,11 +243,19 @@ Deno.serve(async (req) => {
           if (!name || !SIGNED_EXT.includes(ext)) throw new InputError("Upload the signed quote as a PDF or an image.");
           const size = Number(body.size);
           if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) throw new InputError("Files must be under 25 MB.");
-          // Signed copies count toward the same daily limit as other uploads: this account's documents plus its signed copies of the last day.
-          const since = new Date(Date.now() - 86400000).toISOString();
-          const { count: docCount } = await admin.from("client_portal_documents").select("id", { count: "exact", head: true }).eq("account_id", accountId).gte("uploaded_at", since);
-          const { count: signedCount } = await admin.from("business_setup_signed_quotes").select("id", { count: "exact", head: true }).like("storage_path", `incoming/${accountId}/%`).gte("created_at", since);
-          if ((docCount || 0) + (signedCount || 0) >= MAX_UPLOADS_PER_DAY) throw new InputError("Upload limit reached for today. Please try again tomorrow.");
+          // Starts count toward the daily limit even when no row was ever written: every object this account has stored under incoming/<account>/
+          // in the last 24 hours (signed copies and other uploads share that path), read from storage. A list error refuses, never allows.
+          const since = Date.now() - 86400000;
+          const root = `incoming/${accountId}`;
+          const { data: folders, error: listErr } = await admin.storage.from(BUCKET).list(root, { limit: 1000 });
+          if (listErr || !folders) throw new Error("Could not check the upload limit.");
+          let recent = 0;
+          for (const folder of folders.filter((f: { id: string | null }) => f.id === null)) {
+            const { data: objs, error: objErr } = await admin.storage.from(BUCKET).list(`${root}/${folder.name}`, { limit: 100 });
+            if (objErr || !objs) throw new Error("Could not check the upload limit.");
+            recent += objs.filter((o: { created_at?: string }) => o.created_at && Date.parse(o.created_at) >= since).length;
+          }
+          if (recent >= MAX_UPLOADS_PER_DAY) throw new InputError("Upload limit reached for today. Please try again tomorrow.");
           const { data: view, error: viewErr } = await admin.rpc("business_setup_portal_view", { p_account: accountId });
           if (viewErr) throw new Error(viewErr.message);
           const quote = (view?.quotes || []).find((q: { id: string }) => q.id === quoteId);

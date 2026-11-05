@@ -407,6 +407,48 @@ select public.bs_check('case_documents: another case is not mixed in', jsonb_arr
 select public.bs_as('00000000-0000-0000-0000-000000000099');
 select public.bs_expect_error(format($$select business_setup_case_documents('%s')$$, pg_temp.fx('cX')), 'permission');
 select public.bs_as(null);
+-- ══ Task 8 fix round 2 ══
+-- Why the gate test for qNC expects the payment message: the test trigger aaa_bs_sign gives a quote inserted as accepted a Legacy Confirmed row,
+-- so the signature is met and only the payment is missing. This check makes that explicit.
+select public.bs_as(null);
+select public.bs_check('qNC (accepted, no case) has a Legacy Confirmed signed row, so its letter is refused for payment and not for the signature',
+  exists (select 1 from public.business_setup_signed_quotes where quote_id = pg_temp.fx('qNC')::uuid and status = 'Confirmed' and source = 'Legacy'));
+
+-- ── the payment door's Client Master right does not leak: Finance cannot call client_master_save directly ──
+select pg_temp.mkcase('cD1', null);
+with c as (insert into public.business_setup_cases (client_id, stage, lead_name) values (null, 'Lead', 'cI') returning id) insert into f90 select 'cJ2', id::text from c;
+create function pg_temp.door_then_direct(p_case uuid) returns text language plpgsql as $$
+begin
+  perform public.business_setup_case_link_client_for_payment(p_case);
+  begin
+    perform public.client_master_save(null, '{"Client Legal Name":"Leak Check One"}'::jsonb, null, true);
+    return 'LEAK: allowed straight after the door';
+  exception when others then
+    return case when sqlerrm ilike '%permission%' then 'refused' else 'other: ' || sqlerrm end;
+  end;
+end $$;
+create function pg_temp.failed_door_then_direct(p_case uuid) returns text language plpgsql as $$
+begin
+  begin
+    perform public.business_setup_case_link_client_for_payment(p_case);
+    return 'the door unexpectedly worked';
+  exception when others then
+    if sqlerrm not ilike '%already exists%' then return 'door failed for another reason: ' || sqlerrm; end if;
+  end;
+  begin
+    perform public.client_master_save(null, '{"Client Legal Name":"Leak Check Two"}'::jsonb, null, true);
+    return 'LEAK: allowed after a failed door';
+  exception when others then
+    return case when sqlerrm ilike '%permission%' then 'refused' else 'other: ' || sqlerrm end;
+  end;
+end $$;
+grant execute on function pg_temp.door_then_direct(uuid), pg_temp.failed_door_then_direct(uuid) to authenticated;
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error($$select public.client_master_save(null, '{"Client Legal Name":"Direct Finance Co"}'::jsonb, null, true)$$, 'permission');
+select public.bs_check('finance: client_master_save is refused straight after the payment door in the same transaction', pg_temp.door_then_direct(pg_temp.fx('cD1')::uuid) = 'refused');
+select public.bs_check('finance: client_master_save is refused after a failed payment door in the same transaction', pg_temp.failed_door_then_direct(pg_temp.fx('cJ2')::uuid) = 'refused');
+select public.bs_as(null);
+
 -- ── Summary ──
 do $$
 declare f int; t int;
