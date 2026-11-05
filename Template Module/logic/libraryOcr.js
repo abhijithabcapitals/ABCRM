@@ -53,7 +53,15 @@ export function fromClientMaster(row) {
   const data = (row && row.data) || {};
   const out = { client_id: row ? row.client_id : undefined };
   for (const [tag, key] of Object.entries(MASTER_KEYS)) {
-    if (txt(data[key])) out[tag] = txt(data[key]);
+    // Primary Contact can hold several names joined with "; ".
+    const value = txt(data[key]);
+    if (value) out[tag] = tag === "contact_name" ? value.split(";")[0].trim() : value;
   }
   return out;
+}
+
+// A document linked to a client shows in that client's login, so the name on it must be that client's.
+export function clientLinkProblem(linkedName, clientName) {
+  if (!txt(linkedName) || txt(linkedName).toUpperCase() === txt(clientName).toUpperCase()) return null;
+  return `This document is linked to ${txt(linkedName)}, but the client name says ${txt(clientName)}. Unlink the client or correct the name.`;
 }

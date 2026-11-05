@@ -103,3 +103,13 @@ export function checkRequired(fields, values, rows, company) {
   if (company === "AB Capital" && !(rows || []).some((r) => filled(r?.label))) problems.push("Add at least one fee row with a label.");
   return problems.length ? problems.join(" ") : null;
 }
+
+// The form for a template. AB Capital documents are Business Setup quotes, which always need these client details
+// and keep an address for the engagement letter, whether or not the template prints them.
+export function formFields(tags, company) {
+  const fields = fieldsFor(tags, company);
+  if (company !== "AB Capital") return fields;
+  const missing = ["client_name", "contact_name", "contact_email", "contact_phone", "client_address"].filter((n) => !fields.some((f) => f.name === n));
+  const extra = fieldsFor({ fields: missing }, company).map((f) => (f.name === "client_address" ? { ...f, label: "Client address (kept on the record, not printed)" } : f));
+  return [...fields, ...extra];
+}

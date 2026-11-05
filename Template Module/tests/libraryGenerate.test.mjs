@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { generateLibraryDocument, retryLibraryDocument } from "../services/libraryGenerate.js";
 
 const template = { template_key: "AB Capital/Formation/IFZA", company: "AB Capital" };
-const fields = [{ name: "client_name", label: "Client name", required: true }];
+const fields = [{ name: "client_name", label: "Client name", required: true }, ...["contact_name", "contact_email", "contact_phone", "client_address"].map((name) => ({ name, label: name }))];
 const input = (over = {}) => ({
   template, fileId: 7, fields, usdRate: 3.6725, clientId: "CL000001",
   values: { client_name: "Sample Client", contact_name: "Sam", contact_email: "s@example.com", contact_phone: "050", client_address: "Dubai", date: "2026-11-05" },
@@ -53,7 +53,7 @@ test("unloadable template file calls no create, so no number is used", async () 
 test("template file is loaded before create, then render, then save", async () => {
   const { calls, deps } = fakes();
   const out = await generateLibraryDocument(input(), deps);
-  assert.deepEqual(names(calls), ["loadFile", "create", "render", "save"]);
+  assert.deepEqual(names(calls), ["loadFile", "render", "create", "render", "save"]);
   assert.equal(out.error, undefined);
   assert.equal(out.doc, created);
   assert.equal(out.file.name, "ABC-2026-11-BSQ005 Sample Client.docx");
@@ -75,19 +75,47 @@ test("create receives the template, file, client, stored values and lines", asyn
 test("the created document's number is the Ref in the render", async () => {
   const { calls, deps } = fakes();
   await generateLibraryDocument(input(), deps);
-  const [buffer, data] = calls.find((c) => c.name === "render").args;
+  const [buffer, data] = calls.filter((c) => c.name === "render").at(-1).args;
   assert.equal(buffer, "BUFFER");
   assert.equal(data.ref_no, "ABC/2026/11/BSQ005");
   assert.equal(data.usd_rate, "3.6725");
   assert.equal(data.date, "05/11/2026");
 });
 
-test("render failure returns the doc with its Ref and an error", async () => {
+test("a template that cannot render uses no number", async () => {
   const { calls, deps } = fakes({ render: new Error("bad tag") });
   const out = await generateLibraryDocument(input(), deps);
-  assert.equal(out.doc, created);
+  assert.equal(out.doc, undefined);
   assert.equal(out.error, "bad tag");
+  assert.ok(!names(calls).includes("create"));
+});
+
+test("render failure after the number is taken returns the doc with its Ref and an error", async () => {
+  const { calls, deps } = fakes();
+  let n = 0;
+  deps.render = () => { n += 1; if (n === 2) throw new Error("late"); return "BLOB"; };
+  const out = await generateLibraryDocument(input(), deps);
+  assert.equal(out.doc, created);
+  assert.equal(out.error, "late");
   assert.ok(!names(calls).includes("save"));
+});
+
+test("values the form did not show are not stored", async () => {
+  const { calls, deps } = fakes();
+  await generateLibraryDocument(input({ values: { ...input().values, license_number: "L1", vat_trn: "T1" } }), deps);
+  const p = calls.find((c) => c.name === "create").args[0];
+  assert.equal(p.field_values.license_number, undefined);
+  assert.equal(p.field_values.vat_trn, undefined);
+  assert.equal(p.field_values.date, "2026-11-05");
+});
+
+test("a client name that differs from the linked client uses no number", async () => {
+  const { calls, deps } = fakes();
+  const out = await generateLibraryDocument(input({ linkedName: "Other Client" }), deps);
+  assert.match(out.error, /linked to Other Client/);
+  assert.deepEqual(calls, []);
+  const same = await generateLibraryDocument(input({ linkedName: "sample client" }), fakes().deps);
+  assert.equal(same.error, undefined);
 });
 
 test("upload failure returns the doc with its Ref and an error", async () => {

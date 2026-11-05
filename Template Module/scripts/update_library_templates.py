@@ -134,12 +134,14 @@ def fix_ardentax(xml, name):
 
 
 def rewrite(src, dst, change):
-    with zipfile.ZipFile(src) as old, zipfile.ZipFile(dst, "w") as new:
+    temp = dst.with_name(dst.name + ".tmp")
+    with zipfile.ZipFile(src) as old, zipfile.ZipFile(temp, "w") as new:
         for item in old.infolist():
             data = old.read(item.filename)
             if item.filename == "word/document.xml":
                 data = change(data.decode("utf-8"), src.name).encode("utf-8")
             new.writestr(item, data)
+    temp.replace(dst)
 
 
 def inside_git(folder):
@@ -149,6 +151,8 @@ def inside_git(folder):
 def run(originals, output):
     if inside_git(output):
         raise TemplateError("The output folder is inside a git repository. These files must stay out of the repository.")
+    if output.resolve() == originals.resolve():
+        raise TemplateError("The output folder must not be the folder of originals.")
     output.mkdir(parents=True, exist_ok=True)
     for name in AB_CAPITAL:
         rewrite(originals / name, output / name, fix_ab_capital)

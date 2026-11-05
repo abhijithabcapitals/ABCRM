@@ -6,6 +6,7 @@ import { IconDownload, IconFile } from "@app/components/icons";
 import { Button, DataTable, ErrorNote, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { profiles } from "@banking/services/bankingApi";
 import { libraryAccess, libraryFileUrl, listLibraryDocuments, listLibraryTemplates, openStored, storedBlob } from "../services/hubApi";
+import { fileNameFor } from "../logic/serviceDocs";
 import { retryLibraryDocument } from "../services/libraryGenerate";
 import LibraryFill, { libraryDeps } from "./LibraryFill";
 
@@ -116,16 +117,16 @@ export default function CompanyLibrary({ profile }) {
             key: "file", label: "File", render: (d) => (d.storage_path
               ? <span className="bk-actions">
                   <button type="button" className="bk-link" onClick={() => act(() => openStored(d.storage_path))}>Open</button>
-                  <button type="button" className="bk-link" onClick={() => act(async () => saveAs(await storedBlob(d.storage_path), `${String(d.document_number).replace(/[/\\]+/g, "-")}.docx`))}>Download</button>
+                  <button type="button" className="bk-link" onClick={() => act(async () => saveAs(await storedBlob(d.storage_path), fileNameFor(d.document_number, d.client_name)))}>Download</button>
                 </span>
               : d.created_by === profile?.id
                 ? <Button busy={retrying === d.id} onClick={() => retry(d)}>Retry</Button>
                 : <small className="bk-muted">File not saved</small>),
           },
-          { key: "again", label: "", render: (d) => <button type="button" className="bk-link" onClick={() => newFrom(d)}>New from this</button> },
+          { key: "again", label: "", render: (d) => (companyOf(d.library_template) === "AB Capital" ? access.data?.ab : access.data?.ardentax) && <button type="button" className="bk-link" onClick={() => newFrom(d)}>New from this</button> },
         ]}
       />
-      {fill && <LibraryFill template={fill.template} fileId={fill.template.file.id} start={fill.start} onClose={() => setFill(null)} onDone={documents.reload} />}
+      {fill && <LibraryFill template={fill.template} fileId={fill.template.file.id} start={fill.start} onClose={() => setFill(null)} onDone={documents.reload} onFailed={setError} />}
     </div>
   );
 }

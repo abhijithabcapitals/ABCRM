@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { readTags, fieldsFor, checkRequired } from "../logic/libraryFields.js";
+import { readTags, fieldsFor, formFields, checkRequired } from "../logic/libraryFields.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const JSZip = require("jszip");
@@ -82,4 +82,11 @@ test("Ardentax Master tags get proper labels and only client_name is required", 
     ["scope", "Scope or deliverables", false, "text", true],
     ["prepared_date", "Prepared on", false, "date", false],
   ]);
+});
+test("an AB Capital form always asks for client details; Ardentax only for its tags", () => {
+  const ab = formFields({ fields: ["date"] }, "AB Capital");
+  assert.deepEqual(ab.map((f) => f.name), ["date", "client_name", "contact_name", "contact_email", "contact_phone", "client_address"]);
+  assert.equal(ab.find((f) => f.name === "contact_phone").required, true);
+  assert.equal(ab.find((f) => f.name === "client_address").required, false);
+  assert.deepEqual(formFields({ fields: ["date"] }, "Ardentax").map((f) => f.name), ["date"]);
 });

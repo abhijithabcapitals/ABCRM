@@ -172,3 +172,13 @@ select at_check('doc_type and kind checks allow library and document, and librar
   (select count(*) from pg_constraint where conname = 'hub_documents_doc_type_check' and pg_get_constraintdef(oid) like '%library%') = 1
   and (select count(*) from pg_constraint where conname = 'hub_number_counters_kind_check' and pg_get_constraintdef(oid) like '%document%') = 1
   and (select count(*) from hub_documents where doc_type = 'library' and vat_mode <> 'none') = 0);
+
+-- ── A valid client link ──────────────────────────────────────────────
+select at_as(null);
+insert into public.client_master (client_id, legal_name, data) values ('CL900901', 'Linked Client LLC', '{}');
+select at_as(:'quoter');
+select at_check('AB Capital stores a valid client id',
+  (select client_id = 'CL900901' and doc_type = 'quote' from hub_library_create(at_lib('AB Capital/Test/Plain', :ab_file, '{"client_id": "CL900901"}'))));
+select at_as(:'ardent');
+select at_check('Ardentax stores a valid client id',
+  (select client_id = 'CL900901' and doc_type = 'library' from hub_library_create(at_lib('Ardentax/Test/Doc', :ardent_file, '{"client_id": "CL900901"}'))));

@@ -34,7 +34,7 @@ export function toLines(rows) {
 export function libraryContext(values, rows, usdRate, refNo) {
   const v = {};
   for (const [k, val] of Object.entries(values || {})) v[k] = clean(val);
-  if ("date" in v) v.date = isoToDisplay(v.date);
+  for (const k of Object.keys(v)) if (/(^|_)date$/.test(k)) v[k] = isoToDisplay(v[k]);
   const lines = cleanRows(rows);
   const ctx = buildContext(v, [], 0, usdRate, lines);
   ctx.items.forEach((it, i) => { it.rate = lines[i].rate; });

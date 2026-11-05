@@ -4,6 +4,7 @@
 // document and its Ref, and Retry rebuilds from what was stored.
 import { checkRequired } from "../logic/libraryFields.js";
 import { libraryContext, toLines } from "../logic/libraryContext.js";
+import { clientLinkProblem } from "../logic/libraryOcr.js";
 import { fileNameFor } from "../logic/serviceDocs.js";
 
 async function makeFile(doc, buffer, values, rows, usdRate, deps) {
@@ -17,8 +18,8 @@ async function makeFile(doc, buffer, values, rows, usdRate, deps) {
   }
 }
 
-export async function generateLibraryDocument({ template, fileId, fields, values, rows, usdRate, clientId }, deps) {
-  const problem = checkRequired(fields, values, rows, template.company);
+export async function generateLibraryDocument({ template, fileId, fields, values, rows, usdRate, clientId, linkedName }, deps) {
+  const problem = checkRequired(fields, values, rows, template.company) || clientLinkProblem(linkedName, values.client_name);
   if (problem) return { error: problem };
   let lines;
   try {
@@ -27,26 +28,29 @@ export async function generateLibraryDocument({ template, fileId, fields, values
   } catch (e) {
     return { error: e.message };
   }
+  // Only what the form showed is kept, so values read from a document for other templates stay out.
+  const kept = Object.fromEntries(["date", ...fields.map((f) => f.name)].filter((n) => n in values).map((n) => [n, values[n]]));
   let buffer;
   let doc;
   try {
     buffer = await deps.loadFile(fileId);
+    await deps.render(buffer, libraryContext(kept, rows, usdRate, "")); // a template that cannot render uses no number
     doc = await deps.create({
       template_key: template.template_key,
       file_id: fileId,
       client_id: clientId || null,
-      client_name: values.client_name,
-      contact_name: values.contact_name || null,
-      contact_email: values.contact_email || null,
-      contact_phone: values.contact_phone || null,
-      client_address: values.client_address || null,
-      field_values: { ...values, usd_rate: usdRate ?? null },
+      client_name: kept.client_name,
+      contact_name: kept.contact_name || null,
+      contact_email: kept.contact_email || null,
+      contact_phone: kept.contact_phone || null,
+      client_address: kept.client_address || null,
+      field_values: { ...kept, usd_rate: usdRate ?? null },
       lines,
     });
   } catch (e) {
     return { error: e.message };
   }
-  return makeFile(doc, buffer, values, rows, usdRate, deps);
+  return makeFile(doc, buffer, kept, rows, usdRate, deps);
 }
 
 export async function retryLibraryDocument(doc, deps) {

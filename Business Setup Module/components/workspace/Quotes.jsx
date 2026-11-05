@@ -47,7 +47,7 @@ function Quote({ q, w, clientId, reload, can, onRevise }) {
       <ul className="bk-list">{(q.lines || []).map((l, i) => <li key={i}>{l.description}: AED {money(l.amount)}</li>)}</ul>
       <div className="bk-actions bk-wrap">
         {q.storage_path ? <Button onClick={() => openStored(q.storage_path).catch((e) => setError(e.message))}>Open quote</Button>
-          : quotes && <Button busy={busy} onClick={() => act(() => fileQuote(q))}>Create file</Button>}
+          : quotes && !q.library_template && <Button busy={busy} onClick={() => act(() => fileQuote(q))}>Create file</Button>}
         {quotes && q.status === "issued" && <>
           <Button variant="primary" busy={busy} onClick={() => act(async () => {
             const expired = q.valid_until && q.valid_until < new Date().toISOString().slice(0, 10);
@@ -55,7 +55,7 @@ function Quote({ q, w, clientId, reload, can, onRevise }) {
             return acceptQuote(q.id, !!expired);
           })}>Mark accepted</Button>
           <Button onClick={() => setDialog("reject")}>Mark rejected</Button>
-          <Button onClick={onRevise}>Revise</Button>
+          {!q.library_template && <Button onClick={onRevise}>Revise</Button>}
         </>}
         {quotes && q.status === "accepted" && !letter && <Button busy={busy} onClick={() => act(async () => { const doc = await createDocument({ doc_type: "letter", parent_id: q.id }); await fileLetter(doc); })}>Create engagement letter</Button>}
         {letter?.storage_path && <Button onClick={() => openStored(letter.storage_path).catch((e) => setError(e.message))}>Open letter {letter.document_number}</Button>}

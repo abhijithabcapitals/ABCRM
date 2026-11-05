@@ -31,7 +31,7 @@ Staff fill a Company Library template inside the CRM (Template Hub > Company Lib
 
 ## Staff flow
 
-1. Company Library lists the active templates from the database. A **Fill** button appears beside download on any template that has `{{tags}}`, for people allowed to generate it. A template with no tags stays download only.
+1. Company Library lists the active templates from the database. A **Fill** button appears beside download for people allowed to generate from that template. Tags are read when it is clicked, so a template with no tags says it can only be downloaded.
 2. Client details: search Client Master, or start blank.
 3. OCR: upload a passport, Emirates ID or trade licence. OCR fills empty fields only and never overwrites a typed value. If two documents disagree, both readings are shown and staff choose.
 4. Manual entry: staff type what is missing. Required fields are marked, and Generate names any that are empty.
@@ -68,7 +68,7 @@ The six Word files leave the repo. They are kept in the private `hub-documents` 
 
 - All five AB Capital files: add `{{ ref_no }}` and a client block (name, contact, email, phone) near the date.
 - Rakez, SHAMS, Mainland: rename `{{ business_name }}` to `{{ business_activity }}`, to match the label above it. Liquidation keeps `{{ business_name }}`, because "For ..." there means the company.
-- Ardentax Master: convert brackets to tags and `[DOC-YYYY-###]` to `{{ ref_no }}`. Its fee table repeats with Service as `label`, Scope as `remarks`, Rate as `rate`, Amount as `amount`.
+- Ardentax Master: convert brackets to tags and `[DOC-YYYY-###]` to `{{ ref_no }}`. Its fee table repeats with Item as `label`, Description as `remarks`, Amount as `amount`. The Subtotal and VAT rows are removed and Total payable shows `{{ total }}`, since the CRM calculates no VAT.
 - The user reviews all six filled files before release, because a new block can shift the layout. Liquidation and IFZA use text boxes and need particular care.
 
 **Settings > Library Templates**, for `settings.manage` holders: add a template (company, folder, name, file), replace its file, set fee rows and USD rate, retire it. The user uploads the six edited files here once, after the migration and before the release that removes the repo copies.

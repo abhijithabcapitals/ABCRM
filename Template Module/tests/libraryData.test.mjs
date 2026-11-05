@@ -1,7 +1,7 @@
 // node --test "Template Module/tests/libraryData.test.mjs"
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeAutofill, fromClientMaster } from "../logic/libraryOcr.js";
+import { mergeAutofill, fromClientMaster, clientLinkProblem } from "../logic/libraryOcr.js";
 import { libraryContext, toLines } from "../logic/libraryContext.js";
 import { fmtMoney } from "../logic/helpers.js";
 
@@ -112,4 +112,22 @@ test("non-numeric amount on a labelled row throws naming the row", () => {
   assert.throws(() => libraryContext({}, [{ label: "Licence", amount: "abc" }], 3.6725, "R"), /Licence/);
   assert.throws(() => libraryContext({}, [{ label: "Visa", amount: "" }], 3.6725, "R"), /Visa/);
   assert.throws(() => toLines([{ label: "Fee", amount: "x" }]), /Fee/);
+});
+
+test("Primary Contact with several names gives the first", () => {
+  assert.equal(fromClientMaster({ client_id: "C", data: { "Primary Contact": "A One; B Two" } }).contact_name, "A One");
+});
+
+test("clientLinkProblem ignores case and an empty link", () => {
+  assert.equal(clientLinkProblem("", "Anyone"), null);
+  assert.equal(clientLinkProblem("Sample LLC", "SAMPLE llc"), null);
+  assert.match(clientLinkProblem("Sample LLC", "Other"), /linked to Sample LLC/);
+});
+
+test("every date field shows as DD/MM/YYYY; other text stays", () => {
+  const ctx = libraryContext({ date: "2026-11-05", prepared_date: "2026-01-02", acceptance_date: "Yes", ref: "2026-01-02" }, [], 3.6725, "R");
+  assert.equal(ctx.date, "05/11/2026");
+  assert.equal(ctx.prepared_date, "02/01/2026");
+  assert.equal(ctx.acceptance_date, "Yes");
+  assert.equal(ctx.ref, "2026-01-02");
 });
