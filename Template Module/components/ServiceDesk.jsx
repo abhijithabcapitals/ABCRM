@@ -10,8 +10,10 @@ import { ClientLists, listIdFor, useClientLookup } from "@banking/components/Cli
 import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
 import { withLineVat } from "@business-setup/logic/quoteData";
+import ProposalDesk from "./ProposalDesk";
 import { addLine, checkReady, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
 
+const PROPOSAL = "AB Capital/Proposal"; // proposals have their own screen and list
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
 const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
 const CLIENT_MAP = { client: "name", contact: "contact", email: "email", phone: "phone", address: "address", license: "license", trn: "trn" };
@@ -34,6 +36,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
   const [mail, setMail] = useState(null);
+  const [view, setView] = useState(initial ? "quotation" : "proposal"); // Business Setup: the proposal form or the old quotation form; a job that hands over its details keeps the old form
   const docs = useLoad(() => listDocuments(department || null), [department]);
   const mailPanel = useRef(null);
   useEffect(() => { if (mail) mailPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); }, [mail?.id]);
@@ -129,12 +132,16 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   };
   const mailto = mail ? `mailto:${encodeURIComponent(mail.email || form.email)}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}` : "#";
 
+  const deptTabs = !department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>;
+  const viewTabs = dept === "Business Setup" && <div className="bk-tabs" role="tablist" aria-label="Document format">{[["proposal", "Proposal"], ["quotation", "Old Quotation"]].map(([k, label]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}</div>;
+  if (dept === "Business Setup" && view === "proposal") return <div>{deptTabs}{viewTabs}<ProposalDesk profile={profile} /></div>;
   if (catalogue.loading && !catalogue.data) return <Spinner />;
   return (
     <div>
       <ErrorNote message={catalogue.error || settings.error || (dept === "Business Setup" && fees.error ? `The fee list could not be loaded, so VAT rates are unknown: ${fees.error}` : null) || error} onClose={error ? () => setError(null) : undefined} />
       {note && <div className={`bk-alert ${note.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{note.text}</div>}
-      {!department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>}
+      {deptTabs}
+      {viewTabs}
       <Panel title="1. Client details" sub="Choose any detail of an existing client to fill in the rest, or type them for a new one.">
         <div className="bk-grid">
           <div className="bk-field"><label htmlFor="d-client">Client name <em>*</em></label><ClientPicker id="d-client" value={form.client} clients={clients} onChange={(v, picked) => setForm((f) => (picked ? pickClient(f, CLIENT_MAP, "client", picked, clients) : applyClient(f, CLIENT_MAP, "client", v, clients)))} /><ClientLists clients={clients} keys={["email", "phone", "license", "trn"]} /></div>
@@ -194,7 +201,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
       )}
       <Panel title="Generated documents">
         <ErrorNote message={docs.error} />
-        <DataTable search="Search…" rows={(docs.data || []).filter((d) => d.doc_type !== "mail")} empty="Nothing generated yet." columns={[
+        <DataTable search="Search…" rows={(docs.data || []).filter((d) => d.doc_type !== "mail" && d.library_template !== PROPOSAL)} empty="Nothing generated yet." columns={[
           { key: "doc_type", label: "Type", render: (d) => <Badge>{LABEL[d.doc_type]}</Badge> }, { key: "document_number", label: "Number" }, { key: "document_serial", label: "Serial", right: true },
           { key: "client_name", label: "Client" }, ...(department ? [] : [{ key: "department", label: "Department" }]), { key: "services", label: "Services", render: (d) => d.services.join(", ") },
           { key: "total_amount", label: "Total", right: true, render: (d) => `AED ${Number(d.total_amount).toLocaleString("en-AE")}` }, { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
