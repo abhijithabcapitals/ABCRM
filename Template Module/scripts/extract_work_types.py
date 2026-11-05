@@ -18,7 +18,8 @@ TEXT = re.compile(r"<w:t(?: [^>]*)?>([^<]*)</w:t>")
 BANK = re.compile(r"account name|bank name|account number|\biban\b|swift|currency\b|bank details", re.I)
 STOP = re.compile(r"^contact\s*:|@|www\.|^\+?\d[\d -]{7,}$", re.I)
 HEADINGS = (
-    (re.compile(r"^add-?on services provided", re.I), "addons"),
+    (re.compile(r"^add-?on services", re.I), "addons"),
+    (re.compile(r"^scope of work", re.I), "scope"),
     (re.compile(r"^terms\s*&\s*conditions", re.I), "skip"),
     (re.compile(r"^documents required", re.I), "documents"),
     (re.compile(r"^payment terms", re.I), "payment"),
@@ -60,10 +61,17 @@ def extract(path):
     for kind, value in read_blocks(path):
         if kind == "table":
             for row in value:
-                if state == "addons" and len(row) >= 2 and row[0] and "{{" not in row[0] and not re.match(r"^add-on", row[0], re.I):
+                if state == "addons" and len(row) >= 2 and row[0] and "{{" not in row[0] and not re.match(r"^(add-on|particulars)", row[0], re.I):
                     parts["addons"].append(f"{row[0]}: AED {row[1]}" if re.search(r"\d", row[1]) else row[0] if not row[1] else f"{row[0]}: {row[1]}")
             continue
-        line = value
+        line = value.replace("PartnerActive", "Partner")
+        # These sit anywhere in the old files, whatever heading came before.
+        if re.match(r"^\*{0,3}\s*(please note\s*:?\s*-?\s*)?process will start", line, re.I):
+            parts["payment"].append(re.sub(r"^\*{0,3}\s*(please note\s*:?\s*-?\s*)?", "", line).rstrip(")").capitalize())
+            continue
+        if re.match(r"^please note", line, re.I):
+            parts["notes"].append(line)
+            continue
         if "{{" in line or BANK.search(line) or STOP.search(line):
             if BANK.search(line) and state in ("payment", "bank"):
                 state = "scope"
@@ -82,9 +90,6 @@ def extract(path):
 def to_sections(parts):
     about = [x for x in parts["about"] if not re.match(r"^(business formation proposal|business activity|license activity|license authority|approximate costing|business formation|particulars|aed|usd|remarks|total|sl\. no\.|description|quotation for|company formation \(uae)", x, re.I)]
     payment = list(parts["payment"])
-    extras = [x for x in about if x.startswith("***")]
-    about = [x for x in about if not x.startswith("***")]
-    payment += [x.strip("* ").replace("Please note: - ", "") for x in extras]
     additional = []
     if parts["documents"]:
         additional.append("Documents required:\n" + bullets(parts["documents"]))
