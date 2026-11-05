@@ -91,10 +91,10 @@ const bsDoc = { client_name: "Acme", department: "Business Setup", document_numb
 
 test("the built-in quote shows net, VAT and total for a Business Setup quote, and keeps one Total row for other departments", () => {
   const withVat = renderBuiltIn("Service_Quotation_Template.docx", { ...quoteData(bsDoc, {}), ...lineVatData(bsDoc) });
-  assert.match(withVat, /Net amount\s*1,500/); assert.match(withVat, /VAT\s*50\b/); assert.match(withVat, /Total quotation amount\s*1,550/); assert.match(withVat, /B \(0% VAT\)/);
+  assert.match(withVat, /Net amount\s*1,500/); assert.match(withVat, /VAT\s*50\b/); assert.match(withVat, /Total\s*1,550/); assert.match(withVat, /B \(0% VAT\)/);
   assert.doesNotMatch(withVat, /VAT: AED/);
   const other = renderBuiltIn("Service_Quotation_Template.docx", quoteData({ ...bsDoc, department: "Accounting", vat_mode: "inclusive", vat_amount: 71.43, total_amount: 1500 }, {}));
-  assert.doesNotMatch(other, /Net amount/); assert.match(other, /Total quotation amount\s*1,500/); assert.match(other, /VAT: AED 71.43/);
+  assert.doesNotMatch(other, /Net amount/); assert.match(other, /Total\s*1,500/); assert.match(other, /VAT included\s*71.43/);
 });
 
 test("the built-in letter shows net, VAT and total with line VAT", () => {
