@@ -1,6 +1,6 @@
 // deno test "Agent Module/11_Personal_Agent/CEO Agent Module/supabase/accounting-proposal-mail-send/rules_test.ts"
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { attachmentFileName, attachmentsFor, refusal } from "./rules.ts";
+import { attachmentFileName, attachmentsFor, CLAIM_REFUSED, claimRule, refusal } from "./rules.ts";
 
 const ID = "11111111-2222-3333-4444-555555555555";
 const PDF = `Accounting/${ID}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/ACC-Q-0001 Sample Trading LLC.pdf`;
@@ -41,4 +41,11 @@ Deno.test("the file name is built from number and client, and is safe", () => {
   assertEquals(attachmentFileName({ document_number: "ACC-Q-0001", client_name: "Sample Trading LLC" }), "ACC-Q-0001 Sample Trading LLC.pdf");
   assertEquals(attachmentFileName({ document_number: "ACC/Q:1", client_name: 'A"B\r\nC' }), "ACC-Q-1 A-B C.pdf");
   assertEquals(attachmentFileName({ document_number: null, client_name: null }), "Document.pdf");
+});
+
+Deno.test("the claim matches only unclaimed or stale rows, and never-sent rows unless resending", () => {
+  const now = new Date("2026-11-05T12:00:00.000Z");
+  assertEquals(claimRule(now, { resend: false }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true });
+  assertEquals(claimRule(now, { resend: true }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false });
+  assert(/in progress/i.test(CLAIM_REFUSED));
 });

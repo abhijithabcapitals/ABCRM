@@ -15,6 +15,7 @@ alter table public.hub_documents add column if not exists onedrive_saved_at time
 alter table public.hub_documents add column if not exists mail_sent_at timestamptz;
 alter table public.hub_documents add column if not exists mail_sent_by uuid references public.profiles(id);
 alter table public.hub_documents add column if not exists mail_sent_to text;
+alter table public.hub_documents add column if not exists mail_claimed_at timestamptz;         -- set while a mail is being sent, so two clicks cannot send twice; expires after 5 minutes
 alter table public.hub_documents add column if not exists approved_by uuid references public.profiles(id);
 alter table public.hub_documents add column if not exists approved_at timestamptz;
 alter table public.hub_documents add column if not exists agreement_changed_at timestamptz; -- when the agreement text last changed; Approve compares it with what the approver read

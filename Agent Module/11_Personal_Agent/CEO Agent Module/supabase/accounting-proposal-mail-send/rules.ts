@@ -41,3 +41,13 @@ export function attachmentFileName(doc: { document_number?: string | null; clien
   const base = [clean(doc.document_number), clean(doc.client_name)].filter(Boolean).join(" ");
   return `${base || "Document"}.pdf`;
 }
+
+// A send first claims the row, so two clicks cannot both send. A claim older than this is treated as a crashed send and may be taken over.
+export const CLAIM_MINUTES = 5;
+
+// What the claim update may match: unclaimed or stale-claimed rows, and (unless resending) rows never sent.
+export function claimRule(now: Date, opts: { resend?: boolean }) {
+  return { staleBefore: new Date(now.getTime() - CLAIM_MINUTES * 60_000).toISOString(), requireUnsent: !opts.resend };
+}
+
+export const CLAIM_REFUSED = "Another send of this document is already in progress, or it was just sent. Wait a few minutes and check its mail status.";

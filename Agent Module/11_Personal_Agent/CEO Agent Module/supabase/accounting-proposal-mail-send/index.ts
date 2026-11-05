@@ -10,7 +10,7 @@ import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail } from "../ardentax-mail-send/mime.ts";
 import { chooseLogin, htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients } from "../ardentax-mail-send/rules.ts";
-import { attachmentFileName, attachmentsFor, refusal } from "./rules.ts";
+import { attachmentFileName, attachmentsFor, CLAIM_REFUSED, claimRule, refusal } from "./rules.ts";
 
 const SENDER = "accounts@abcapital.ae";
 const SENDER_NAME = "AB Capital Services FZE";
@@ -56,53 +56,68 @@ Deno.serve(async (req) => {
     if (refused) return json({ error: refused }, doc.mail_sent_at && !resend ? 409 : 400);
     const to = parseRecipients(doc.contact_email);
 
-    const eb = admin.schema("email_base");
-    const { data: mailbox, error: mailboxError } = await eb.from("mailboxes").select("id, address, login_user, smtp_host, smtp_port, imap_host, imap_port").eq("address", SENDER).maybeSingle();
-    if (mailboxError) throw new Error(mailboxError.message);
-    if (!mailbox?.smtp_host) return json({ error: `The mailbox ${SENDER} is not set up for sending.` }, 400);
-    const login = await mailboxLogin(admin, mailbox.address, mailbox.login_user);
-    if (!login) return json({ error: `No password is saved for ${SENDER}. Add it in Settings > Email Accounts.` }, 400);
-
-    const [path] = attachmentsFor(doc);
-    const { data: file, error: fileError } = await admin.storage.from(BUCKET).download(path);
-    if (fileError) throw new Error(`Could not read the PDF: ${fileError.message}`);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.length > MAX_ATTACHMENT_BYTES) return json({ error: "The PDF is too large to send." }, 400);
-
-    const body = draft?.mail_body || "";
-    const { messageId, raw } = buildMail({
-      from: mailbox.address, fromName: SENDER_NAME, to, cc: [], subject: draft!.mail_subject, text: body, html: htmlBody(body, ""), inline: [],
-      attachments: [{ name: attachmentFileName(doc), type: "application/pdf", bytes }],
-    });
-
+    // Claim the row before sending; no row back means another send holds it or it was just sent.
+    const claimedAt = new Date();
+    const rule = claimRule(claimedAt, { resend: !!resend });
+    let claim = admin.from("hub_documents").update({ mail_claimed_at: claimedAt.toISOString() }).eq("id", doc.id).or(`mail_claimed_at.is.null,mail_claimed_at.lt.${rule.staleBefore}`);
+    if (rule.requireUnsent) claim = claim.is("mail_sent_at", null);
+    const { data: claimed, error: claimError } = await claim.select("id");
+    if (claimError) throw new Error(claimError.message);
+    if (!claimed?.length) return json({ error: CLAIM_REFUSED }, 409);
+    let released = false; // the success update clears the claim itself
     try {
-      await new SmtpClient(mailbox.smtp_host, mailbox.smtp_port || 465).send(login.user, login.pass, mailbox.address, to, raw);
-    } catch (e) {
-      return json({ error: `The mail was not sent: ${(e as Error).message}` }, 502);
-    }
+      const eb = admin.schema("email_base");
+      const { data: mailbox, error: mailboxError } = await eb.from("mailboxes").select("id, address, login_user, smtp_host, smtp_port, imap_host, imap_port").eq("address", SENDER).maybeSingle();
+      if (mailboxError) throw new Error(mailboxError.message);
+      if (!mailbox?.smtp_host) return json({ error: `The mailbox ${SENDER} is not set up for sending.` }, 400);
+      const login = await mailboxLogin(admin, mailbox.address, mailbox.login_user);
+      if (!login) return json({ error: `No password is saved for ${SENDER}. Add it in Settings > Email Accounts.` }, 400);
 
-    const warnings: string[] = [];
-    const sentAt = new Date().toISOString();
-    const { error: sentError } = await admin.from("hub_documents").update({ mail_sent_at: sentAt, mail_sent_by: user.id, mail_sent_to: doc.contact_email }).eq("id", doc.id);
-    if (sentError) warnings.push(`The mail was sent, but the CRM could not record it: ${sentError.message}`);
+      const [path] = attachmentsFor(doc);
+      const { data: file, error: fileError } = await admin.storage.from(BUCKET).download(path);
+      if (fileError) throw new Error(`Could not read the PDF: ${fileError.message}`);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (bytes.length > MAX_ATTACHMENT_BYTES) return json({ error: "The PDF is too large to send." }, 400);
 
-    const { data: sentFolder } = await eb.from("mailbox_folders").select("name").eq("mailbox_id", mailbox.id).eq("role", "sent").order("name").limit(1).maybeSingle();
-    if (sentFolder) {
-      const client = new ImapClient(mailbox.imap_host, mailbox.imap_port);
+      const body = draft?.mail_body || "";
+      const { messageId, raw } = buildMail({
+        from: mailbox.address, fromName: SENDER_NAME, to, cc: [], subject: draft!.mail_subject, text: body, html: htmlBody(body, ""), inline: [],
+        attachments: [{ name: attachmentFileName(doc), type: "application/pdf", bytes }],
+      });
+
       try {
-        await client.connect(login.user, login.pass);
-        await client.append(sentFolder.name, raw);
-        await client.logout();
+        await new SmtpClient(mailbox.smtp_host, mailbox.smtp_port || 465).send(login.user, login.pass, mailbox.address, to, raw);
       } catch (e) {
-        warnings.push(`No copy was saved in ${sentFolder.name}: ${(e as Error).message}`);
-      } finally {
-        client.close();
+        return json({ error: `The mail was not sent: ${(e as Error).message}` }, 502);
       }
-    } else {
-      warnings.push("No Sent folder is known yet, so no copy was saved there.");
+
+      const warnings: string[] = [];
+      const sentAt = new Date().toISOString();
+      const { error: sentError } = await admin.from("hub_documents").update({ mail_sent_at: sentAt, mail_sent_by: user.id, mail_sent_to: doc.contact_email, mail_claimed_at: null }).eq("id", doc.id);
+      if (sentError) warnings.push(`The mail was sent, but the CRM could not record it: ${sentError.message}`);
+      else released = true;
+
+      const { data: sentFolder } = await eb.from("mailbox_folders").select("name").eq("mailbox_id", mailbox.id).eq("role", "sent").order("name").limit(1).maybeSingle();
+      if (sentFolder) {
+        const client = new ImapClient(mailbox.imap_host, mailbox.imap_port);
+        try {
+          await client.connect(login.user, login.pass);
+          await client.append(sentFolder.name, raw);
+          await client.logout();
+        } catch (e) {
+          warnings.push(`No copy was saved in ${sentFolder.name}: ${(e as Error).message}`);
+        } finally {
+          client.close();
+        }
+      } else {
+        warnings.push("No Sent folder is known yet, so no copy was saved there.");
+      }
+      console.log("accounting-proposal-mail-send", doc.document_number, messageId);
+      return json({ ok: true, sent_at: sentAt, warnings });
+    } finally {
+      // Every failure path gives the claim back, but only our own claim, never one taken over after it went stale.
+      if (!released) await admin.from("hub_documents").update({ mail_claimed_at: null }).eq("id", doc.id).eq("mail_claimed_at", claimedAt.toISOString());
     }
-    console.log("accounting-proposal-mail-send", doc.document_number, messageId);
-    return json({ ok: true, sent_at: sentAt, warnings });
   } catch (e) {
     console.error("accounting-proposal-mail-send failed", (e as Error).message);
     return json({ error: (e as Error).message }, 500);

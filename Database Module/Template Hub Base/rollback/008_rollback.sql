@@ -49,6 +49,7 @@ delete from public.hub_settings where key = 'accounting_proposal_defaults';
 alter table public.hub_documents drop column if exists agreement_changed_at;
 alter table public.hub_documents drop column if exists approved_at;
 alter table public.hub_documents drop column if exists approved_by;
+alter table public.hub_documents drop column if exists mail_claimed_at;
 alter table public.hub_documents drop column if exists mail_sent_to;
 alter table public.hub_documents drop column if exists mail_sent_by;
 alter table public.hub_documents drop column if exists mail_sent_at;
