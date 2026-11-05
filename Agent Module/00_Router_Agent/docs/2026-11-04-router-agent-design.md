@@ -53,7 +53,7 @@ Not reachable in this version:
 3. `router_context` returns the person's eligible agents, their CEO thread and their recent messages.
 4. An agent is eligible only when all of these hold: enabled, access ticked, in the fixed list, the person's monthly credit is not used up, and the agent's monthly budget (if set) is not used up. Months use Dubai time, as in `admin_agent_usage_this_month`.
 5. With no eligible agent, the reply is the fixed reply and no paid call is made.
-6. With one eligible agent, Bruno uses it directly. With several, Claude Haiku 5.5, using the CRM Agent's key, ranks up to two, seeing only the question and each agent's name and role. Any id not on the eligible list is discarded. An empty ranking gives the fixed reply.
+6. With one eligible agent, Bruno uses it directly. With several, a low-cost model (`deepseek/deepseek-v4.1-flash` through OpenRouter) ranks up to two, seeing only the question and each agent's name and role. Any id not on the eligible list is discarded. An empty ranking gives the fixed reply.
 7. Bruno calls the first agent with the person's own login, the person's questions from the last 6 messages and only that agent's own earlier replies. If that agent has no answer, Bruno calls the second one. It never calls more than two.
 8. The first usable reply is returned unchanged, with the agent's name as a separate field. The panel shows that name as a small label ("from Support Agent") under the reply.
 9. The question and the reply are saved. Each call's cost is recorded in `agent_usage`.

@@ -4,7 +4,7 @@ import {
   FIXED_REPLY, NO_INFO, MAX_MESSAGE, ROUTES,
   eligibleAgents, canAfford, parseRanking, rankingPrompt,
   agentRequest, readAgentReply, agentHistory, fallbackAgents, rankingFailureReason,
-  agentTimeoutMs, rankingCostUsd, RANKING_MODEL,
+  agentTimeoutMs, RANKING_MODEL,
 } from "../supabase/router-agent/logic.js";
 
 test("the fixed reply keeps the user's spelling", () => assert.equal(FIXED_REPLY, "Opps! I dont Know"));
@@ -74,6 +74,4 @@ test("an agent gets only its own replies", () => assert.deepEqual(agentHistory(s
 test("an agent with no replies gets only the questions", () => assert.deepEqual(agentHistory(shared, "q3", "AGT-08-SUPPORT").map((m) => m.role), ["user", "user", "user"]));
 test("history items hold only role and content", () => assert.deepEqual(Object.keys(agentHistory(shared, "q", "AGT-05-BIZDEV")[1]), ["role", "content"]));
 test("the CRM Agent gets more time", () => { assert.equal(agentTimeoutMs("AGT-14-CRM"), 120000); assert.equal(agentTimeoutMs("AGT-08-SUPPORT"), 70000); });
-test("ranking is priced as Haiku", () => assert.equal(rankingCostUsd({ input_tokens: 1000000, output_tokens: 1000000 }), 0.6));
-test("no usage costs nothing", () => assert.equal(rankingCostUsd(undefined), 0));
-test("ranking uses Haiku", () => assert.equal(RANKING_MODEL, "claude-haiku-5-5"));
+test("ranking uses the low-cost OpenRouter model", () => assert.equal(RANKING_MODEL, "deepseek/deepseek-v4.1-flash"));

@@ -20,8 +20,7 @@ test("the audit job does not cover the router schema", () => {
   assert.doesNotMatch(sql, /'router'/);
 });
 test("a failed ranking still tries agents", () => assert.match(src, /ranked\.failed \? fallbackAgents\(agents\) : ranked\.ids/));
-test("ranking no longer uses OpenRouter", () => assert.doesNotMatch(src, /openrouter\.ai|OPENROUTER/));
-test("ranking uses the CRM Agent's key", () => assert.match(src, /credential_get[\s\S]*AGENT_KEY_AGT_14_CRM/));
+test("ranking uses the OpenRouter secret", () => { assert.match(src, /Deno\.env\.get\("OPENROUTER_API_KEY"\)/); assert.doesNotMatch(src, /anthropic/i); });
 test("each agent gets its own history", () => assert.match(src, /agentHistory\(ctx\.recent, question, id\)/));
 test("each route has its own time limit", () => assert.match(src, /agentTimeoutMs\(id\)/));
 test("an agent that records its own usage is not recorded twice", () => assert.match(src, /usage_recorded/));

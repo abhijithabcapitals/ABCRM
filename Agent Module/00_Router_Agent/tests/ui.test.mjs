@@ -40,4 +40,4 @@ test("the Profile page has the rename field", () => assert.match(profilePage, /<
 
 test("the panel has an error boundary", () => assert.match(read("components/BrunoPet.jsx"), /getDerivedStateFromError/));
 test("the README's deploy steps never deploy ceo-agent", () => assert.doesNotMatch(read("README.md"), /functions deploy ceo-agent/));
-test("the README names the migrations", () => { assert.match(read("README.md"), /014_crm_agent_chat\.sql/); assert.match(read("README.md"), /Router Base` migrations 001 and 002/); });
+test("the README names the migrations", () => { assert.match(read("README.md"), /016_crm_agent_openrouter\.sql/); assert.match(read("README.md"), /Router Base` migrations 001 and 002/); });

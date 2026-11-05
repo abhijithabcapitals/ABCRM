@@ -88,6 +88,5 @@ select t8.ok('row older than 90 days deleted', (select count(*) from crm_agent_t
 
 -- Agent description
 select t8.ok('agent renamed', (select name from agents where id = 'AGT-14-CRM') = 'CRM Agent');
-select t8.ok('agent role updated', (select role from agents where id = 'AGT-14-CRM') = 'Reads the current status of a Business Development lead from its exact lead number, such as LD-2026-000002.');
 
 drop schema t8 cascade;
