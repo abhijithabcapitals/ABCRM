@@ -126,7 +126,7 @@ end $$;
 --   Due date passed, level 0: managers added, level 1.
 --   licence_expiry or visa_expiry at step -1, level 0: managers added, level 1.
 --   No assigned employee and no Manager recipient yet: managers added.
--- The employee is never removed. A second run changes nothing. Returns the number of alerts changed.
+-- The employee is never removed. A second run changes nothing. Returns the number of alerts changed; 0 outside Live.
 create or replace function public.alert_escalate_due() returns int
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -134,6 +134,7 @@ declare
   a record;
   v_over int; v_level int; v_why text; v_changed boolean; v_n int := 0;
 begin
+  if alert_mode() <> 'Live' then return 0; end if;
   for a in select * from alerts where status in ('Open', 'In progress') and not backlog order by created_at, id loop
     v_changed := false;
     v_over := case when a.due_date is not null then v_today - a.due_date end;
@@ -218,16 +219,24 @@ begin
     order by m.client_id;
 end $$;
 
--- Sets (or changes) the owner for the clients in one department, and assigns that department's open unassigned
--- alerts for them. Alerts that already have an employee, closed alerts and other departments stay as they are.
+-- Sets (or changes) the owner for the clients in one department. That department's open alerts for those clients
+-- go to the new owner when they are unassigned or with the previous owner. Alerts with anyone else, closed alerts
+-- and other departments stay as they are. Bells follow alert_set_assignee, so a backlog row stays silent.
 -- Unknown client ids are ignored. Returns the number of clients set.
 create or replace function public.client_owners_set(p_department text, p_clients text[], p_owner uuid) returns int
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_n int; r record;
+declare v_n int; v_ids uuid[]; v_id uuid;
 begin
   if not (alert_is_admin() or alert_is_manager()) then raise exception 'You do not have permission to set client owners.'; end if;
   if p_department is null or not exists (select 1 from service_departments where name = p_department) then raise exception 'That department does not exist.'; end if;
   if p_owner is null or not exists (select 1 from profiles where id = p_owner) then raise exception 'That owner does not exist.'; end if;
+  -- Read before the owners change: this is the only moment the previous owner is known.
+  select coalesce(array_agg(a.id order by a.created_at, a.id), '{}') into v_ids
+  from alerts a
+  left join client_owners o on o.client_id = a.client_id and o.department = a.department
+  where a.client_id = any (coalesce(p_clients, '{}'::text[])) and a.department = p_department
+    and a.status in ('Open', 'In progress')
+    and (a.assigned_to is null or (a.assigned_to = o.owner_id and a.assigned_to <> p_owner));
   with ins as (
     insert into client_owners (client_id, department, owner_id, assigned_by)
     select distinct m.client_id, p_department, p_owner, auth.uid()
@@ -236,21 +245,18 @@ begin
       set owner_id = excluded.owner_id, assigned_at = now(), assigned_by = excluded.assigned_by
     returning 1
   ) select count(*) into v_n from ins;
-  for r in
-    select a.id from alerts a
-    where a.client_id = any (coalesce(p_clients, '{}'::text[])) and a.department = p_department
-      and a.assigned_to is null and a.status in ('Open', 'In progress')
-    order by a.created_at, a.id
-  loop
-    perform alert_set_assignee(r.id, p_owner);
+  foreach v_id in array v_ids loop
+    perform alert_set_assignee(v_id, p_owner);
   end loop;
   return v_n;
 end $$;
 
 -- ── Settings, admin only ─────────────────────────────────────────────
+-- Saving steps moves that rule's open alerts to the step their due date now falls in, without a bell and without
+-- touching backlog, so the next scan sees no crossing. An alert outside the new steps keeps its step; the scan closes it.
 create or replace function public.alert_rule_save(p_code text, p_enabled boolean, p_steps jsonb) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare s jsonb;
+declare s jsonb; v_enabled boolean; v_today date := (now() at time zone 'Asia/Dubai')::date;
 begin
   if not alert_is_admin() then raise exception 'You do not have permission to change alert rules.'; end if;
   if p_steps is null or jsonb_typeof(p_steps) <> 'array' then raise exception 'Steps must be a list.'; end if;
@@ -265,8 +271,22 @@ begin
   if (select count(*) <> count(distinct e->>'days') from jsonb_array_elements(p_steps) e) then
     raise exception 'Two steps cannot have the same days.';
   end if;
-  update alert_rules set enabled = coalesce(p_enabled, enabled), steps = p_steps where code = p_code;
+  select coalesce(p_enabled, enabled) into v_enabled from alert_rules where code = p_code;
   if not found then raise exception 'That alert rule does not exist.'; end if;
+  if v_enabled and jsonb_array_length(p_steps) = 0 then raise exception 'An enabled rule needs at least one step.'; end if;
+  update alert_rules set enabled = v_enabled, steps = p_steps where code = p_code;
+
+  with moved as (
+    select a.id, a.current_step as old_step, n.step as new_step
+    from alerts a
+    cross join lateral alert_step_for(p_steps, a.due_date - v_today) n
+    where a.rule_code = p_code and a.status in ('Open', 'In progress') and a.due_date is not null
+      and a.current_step is distinct from n.step
+  ), upd as (
+    update alerts a set current_step = m.new_step, updated_at = now() from moved m where a.id = m.id
+  )
+  insert into alert_events (alert_id, event, detail)
+  select m.id, 'step recomputed', jsonb_build_object('from', m.old_step, 'to', m.new_step, 'by', auth.uid()) from moved m;
 end $$;
 
 create or replace function public.alert_set_mode(p_mode text) returns void

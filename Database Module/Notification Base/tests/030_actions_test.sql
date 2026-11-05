@@ -262,7 +262,9 @@ select t.ok('a scan in Preview escalates nothing',
   and (select count(*) = 0 from alert_recipients where alert_id in (:'a_scan', :'a_scan_un') and reason = 'Manager')
   and (select status = 'Ok' and not rule_counts ? 'escalation' from alert_scan_log order by id desc limit 1)
   and (select count(*) = :bells_scan from notifications where type = 'alert_centre'));
+select t.ok('called directly in Preview, alert_escalate_due does nothing', alert_escalate_due() = 0 and (select escalation_level = 0 from alerts where id = :'a_scan'));
 update alert_settings set value = '"Triage"' where key = 'alert_mode';
+select t.ok('called directly in Triage, alert_escalate_due does nothing', alert_escalate_due() = 0 and (select escalation_level = 0 from alerts where id = :'a_scan'));
 select alert_scan() as scanned \gset
 select t.ok('a scan in Triage escalates nothing',
   (select escalation_level = 0 from alerts where id = :'a_scan')
@@ -371,15 +373,40 @@ select t.ok('managers stay on the alerts that were unassigned', (select count(*)
 
 -- a tagged manager reassigns an owner, any department
 select set_config('test.uid', :'mgr2', false);
+select alert_raise('r', 't4g-other', 'T4G', 'G with someone else', 'Accounting', :'today'::date + 9, 1, 'Normal', '00000000-0000-0000-0000-0000000000d1', 't', 'i') as g_other \gset
+select count(*) as g_bells_emp1 from notifications where user_id = :'emp1' and link_scope->>'alert_id' in (:'g_open', :'g_open2') \gset
 select client_owners_set('Accounting', array['T4G'], :'emp1') as re_acc \gset
 select client_owners_set('Business Setup', array['T4G', 'T4H'], :'emp1') as re_bs \gset
 select t.ok('tagged manager can reassign an owner in any department',
   :re_acc = 1 and :re_bs = 2
   and (select count(*) = 1 and bool_and(owner_id = :'emp1' and assigned_by = :'mgr2') from client_owners where client_id = 'T4G' and department = 'Accounting')
   and (select count(*) = 2 from client_owners where department = 'Business Setup' and client_id in ('T4G', 'T4H') and owner_id = :'emp1'));
-select t.ok('the Business Setup owner took the open Business Setup alert, the reassigned Accounting owner left old alerts alone',
-  (select assigned_to = :'emp1' from alerts where id = :'g_bs')
-  and (select count(*) = 2 and bool_and(assigned_to = :'emp2') from alerts where id in (:'g_open', :'g_open2')));
+select t.ok('the Business Setup owner took the open Business Setup alert',
+  (select assigned_to = :'emp1' from alerts where id = :'g_bs'));
+select t.ok('a new owner takes the open alerts of the previous owner, with event and bell, and the old owner loses the assignment',
+  (select count(*) = 2 and bool_and(assigned_to = :'emp1') from alerts where id in (:'g_open', :'g_open2'))
+  and (select count(*) = 2 from alert_events where alert_id in (:'g_open', :'g_open2') and event = 'assigned' and detail->>'from' = :'emp2' and detail->>'to' = :'emp1')
+  and (select count(*) = :g_bells_emp1 + 2 from notifications where user_id = :'emp1' and link_scope->>'alert_id' in (:'g_open', :'g_open2'))
+  and (select count(*) = 0 from alert_recipients where alert_id in (:'g_open', :'g_open2') and user_id = :'emp2'));
+select t.ok('an alert assigned to anyone else stays, with no event',
+  (select assigned_to = '00000000-0000-0000-0000-0000000000d1' from alerts where id = :'g_other')
+  and (select count(*) = 0 from alert_events where alert_id = :'g_other' and event = 'assigned')
+  and (select assigned_to = :'emp1' from alerts where id = :'g_has'));
+select t.ok('a closed alert does not move', (select assigned_to is null and status = 'Resolved' from alerts where id = :'g_closed'));
+select count(*) as g_events from alert_events where alert_id in (:'g_open', :'g_open2') \gset
+select client_owners_set('Accounting', array['T4G'], :'emp1') as re_same \gset
+select t.ok('setting the same owner again writes nothing', :re_same = 1 and (select count(*) = :g_events from alert_events where alert_id in (:'g_open', :'g_open2')));
+
+-- backlog rows move and stay silent. 'r' raises directly, in Preview, so they are backlog.
+select client_owners_set('Accounting', array['T4H'], :'emp1') as h_first \gset
+update alert_settings set value = '"Preview"' where key = 'alert_mode';
+select alert_raise('r', 't4h-back-prev', 'T4H', 'H backlog of the old owner', 'Accounting', :'today'::date + 9, 1, 'Normal', :'emp1', 't', 'i') as hb_prev \gset
+select alert_raise('r', 't4h-back-none', 'T4H', 'H backlog unassigned', 'Accounting', :'today'::date + 9, 1, 'Normal', null, 't', 'i') as hb_none \gset
+update alert_settings set value = '"Live"' where key = 'alert_mode';
+select client_owners_set('Accounting', array['T4H'], :'emp2') as h_second \gset
+select t.ok('backlog rows follow the new owner, stay backlog and ring no bell',
+  (select count(*) = 2 and bool_and(assigned_to = :'emp2' and backlog) from alerts where id in (:'hb_prev', :'hb_none'))
+  and (select count(*) = 0 from notifications where link_scope->>'alert_id' in (:'hb_prev', :'hb_none')));
 select set_config('test.uid', :'adm', false);
 select t.ok('admin can set owners', client_owners_set('Accounting', array['T4F'], :'emp2') = 1 and client_owners_set('Accounting', array[]::text[], :'emp2') = 0 and client_owners_set('Accounting', null, :'emp2') = 0);
 select t.fails('unknown department is refused', format('select client_owners_set(%L, array[%L], %L)', 'Nope', 'T4G', :'emp1'), 'department');
@@ -438,10 +465,49 @@ select t.ok('admin saves steps and the enabled flag', (select not enabled and st
 select alert_rule_save('job_due', null, :'job_steps'::jsonb);
 select alert_rule_save('job_due', true, :'job_steps'::jsonb);
 select t.ok('and restores them, null enabled keeps the flag', (select enabled and steps = :'job_steps'::jsonb from alert_rules where code = 'job_due'));
-select alert_rule_save('crm_task_due', true, '[]');
-select t.ok('an empty step list is allowed', (select steps = '[]'::jsonb from alert_rules where code = 'crm_task_due'));
+select t.fails('an enabled rule cannot have an empty step list', $q$select alert_rule_save('crm_task_due', true, '[]')$q$, 'at least one step');
+select t.fails('nor can a rule that stays enabled when the flag is left out', $q$select alert_rule_save('crm_task_due', null, '[]')$q$, 'at least one step');
+select alert_rule_save('crm_task_due', false, '[]');
+select t.ok('a disabled rule may have an empty step list', (select steps = '[]'::jsonb and not enabled from alert_rules where code = 'crm_task_due'));
+select t.fails('and cannot be switched on while empty', $q$select alert_rule_save('crm_task_due', true, '[]')$q$, 'at least one step');
 select alert_rule_save('crm_task_due', true, :'crm_steps'::jsonb);
 select t.ok('and the seeded steps are back', (select steps = :'crm_steps'::jsonb from alert_rules where code = 'crm_task_due'));
+
+-- Editing steps moves open alerts to the new step quietly, so the next scan sees no crossing: no bell, backlog kept.
+select set_config('test.uid', '', false);
+insert into client_master (client_id, legal_name, data) values ('T4S', 'T4 Steps Backlog', '{}'), ('T4U', 'T4 Steps Live', '{}');
+insert into business_setup_kyc_profiles (client_id, client_status, licence_expiry) values ('T4U', 'Active', :'today'::date - 5);
+select alert_scan() as scanned \gset
+update alert_settings set value = '"Preview"' where key = 'alert_mode';
+insert into business_setup_kyc_profiles (client_id, client_status, licence_expiry) values ('T4S', 'Active', :'today'::date - 5);
+select alert_scan() as scanned \gset
+update alert_settings set value = '"Live"' where key = 'alert_mode';
+select id as s_live from alerts where client_id = 'T4U' and rule_code = 'licence_expiry' \gset
+select id as s_back from alerts where client_id = 'T4S' and rule_code = 'licence_expiry' \gset
+select t.ok('setup: one backlog row and one live row at step -1', (select backlog and current_step = -1 from alerts where id = :'s_back') and (select not backlog and current_step = -1 from alerts where id = :'s_live'));
+select steps as lic_steps from alert_rules where code = 'licence_expiry' \gset
+select count(*) as s_bells from notifications where link_scope->>'alert_id' in (:'s_back', :'s_live') \gset
+select set_config('test.uid', :'adm', false);
+select alert_rule_save('licence_expiry', true, '[{"days":90,"priority":"Medium"},{"days":60,"priority":"Medium"},{"days":30,"priority":"High"},{"days":-2,"priority":"Critical"}]');
+select t.ok('saving steps moves open alerts to the new step, logged, no bell, backlog kept',
+  (select current_step = -2 and backlog from alerts where id = :'s_back')
+  and (select current_step = -2 and not backlog from alerts where id = :'s_live')
+  and (select count(*) = 2 and bool_and((detail->>'from')::int = -1 and (detail->>'to')::int = -2) from alert_events where alert_id in (:'s_back', :'s_live') and event = 'step recomputed')
+  and (select count(*) = :s_bells from notifications where link_scope->>'alert_id' in (:'s_back', :'s_live')));
+select set_config('test.uid', '', false);
+select alert_scan() as scanned \gset
+select t.ok('the next scan leaves backlog rows backlog and writes no bell',
+  (select current_step = -2 and backlog and status = 'Open' from alerts where id = :'s_back')
+  and (select current_step = -2 and status = 'Open' from alerts where id = :'s_live')
+  and (select count(*) = 0 from alert_events where alert_id in (:'s_back', :'s_live') and event = 'step changed')
+  and (select count(*) = :s_bells from notifications where link_scope->>'alert_id' in (:'s_back', :'s_live')));
+select set_config('test.uid', :'adm', false);
+select alert_rule_save('licence_expiry', true, '[{"days":-10,"priority":"Critical"}]');
+select t.ok('an alert outside the new steps keeps its step until the scan closes it', (select current_step = -2 and status = 'Open' from alerts where id = :'s_back'));
+select alert_rule_save('licence_expiry', true, :'lic_steps'::jsonb);
+select t.ok('restoring the steps moves them back, still quiet', (select count(*) = 2 and bool_and(current_step = -1) from alerts where id in (:'s_back', :'s_live'))
+  and (select backlog from alerts where id = :'s_back')
+  and (select count(*) = :s_bells from notifications where link_scope->>'alert_id' in (:'s_back', :'s_live')));
 
 select t.fails('bad mode refused', $q$select alert_set_mode('Urgent')$q$, 'Mode must');
 select t.fails('null mode refused', $q$select alert_set_mode(null)$q$, 'Mode must');
