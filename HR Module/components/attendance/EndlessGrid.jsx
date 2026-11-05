@@ -103,7 +103,7 @@ export default function EndlessGrid({ date, onMonth, refresh, today, canEdit, on
       <ErrorNote message={error} onClose={() => setError(null)} />
       {!ready && !error && <Spinner label="Loading attendance" />}
       <div className="hr-grid-wrap" ref={wrap} onScroll={onScroll} tabIndex={0} aria-label="Attendance by day. Scroll sideways for earlier or later months.">
-        <table className="hr-grid hr-grid-month hr-grid-endless" style={{ width: FROZEN + days.length * COL }}>
+        <table data-plain="true" className="hr-grid hr-grid-month hr-grid-endless" style={{ width: FROZEN + days.length * COL }}>
           <colgroup>
             <col style={{ width: NAME }} />
             {[1, 2, 3, 4].map((n) => <col key={n} style={{ width: TOTAL }} />)}
