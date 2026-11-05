@@ -69,7 +69,8 @@ export function agreementContext(doc, settings, signed) {
   const a = doc?.field_values?.agreement || {};
   const defs = settings?.accounting_proposal_defaults || {};
   const own = filled(a.billing_notes);
-  const billing_notes = own.length ? own : filled(defs.standard?.billing?.[a.billing]);
+  const stdBilling = defs.standard?.billing?.[a.billing];   // the server stores a string; a list is still accepted
+  const billing_notes = own.length ? own : filled(typeof stdBilling === "string" ? [stdBilling] : stdBilling);
   return {
     document_number: doc?.document_number || "", date: longDate(doc?.created_at), client_name: doc?.client_name || "",
     attention: blank(a.attention) ? "The Management" : String(a.attention).trim(),

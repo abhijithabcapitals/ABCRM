@@ -108,3 +108,19 @@ test("agreementContext numbers schedule rows and gives fee notes", () => {
   assert.deepEqual(d.schedule2.map((r) => r.no), [1, "", 2]);
   assert.deepEqual(d.fee_notes, ["Fee note"]);
 });
+
+test("agreementContext prints a stored billing string for each billing choice", () => {
+  const s = { accounting_proposal_defaults: { standard: { billing: { monthly: "Invented monthly wording.", quarterly: "Invented quarterly wording.", commencement: "Invented start wording." } } } };
+  for (const [k, text] of [["monthly", "Invented monthly wording."], ["quarterly", "Invented quarterly wording."], ["commencement", "Invented start wording."]]) {
+    const doc = { field_values: { agreement: { ...good(), billing: k } } };
+    assert.deepEqual(agreementContext(doc, s, false).billing_notes, [text]);
+  }
+});
+
+test("agreementContext: own billing notes override the stored string; arrays and empty strings still work", () => {
+  const std = (billing) => ({ accounting_proposal_defaults: { standard: { billing } } });
+  const doc = (extra) => ({ field_values: { agreement: { ...good(), ...extra } } });
+  assert.deepEqual(agreementContext(doc({ billing_notes: ["Own note."] }), std({ monthly: "Stored string." }), false).billing_notes, ["Own note."]);
+  assert.deepEqual(agreementContext(doc({}), std({ monthly: ["Listed A.", "Listed B."] }), false).billing_notes, ["Listed A.", "Listed B."]);
+  assert.deepEqual(agreementContext(doc({}), std({ monthly: "" }), false).billing_notes, []);
+});
