@@ -37,7 +37,9 @@ end $$;
 alter table public.business_setup_cases alter column stage set default 'Lead';
 
 -- ── What Onboarding needs, worked out from the records (never stored). Internal ──
---   fields, documents  the case's newest form is Validated; a case with no form counts when its client's KYC is Done
+--   fields             the case's newest form is Validated; a case with no form counts when its client's KYC is Done
+--   documents          no document attached to that form is unvalidated: nothing uploaded and finished is still pending or in review (a rejected one waits for the
+--                      client's replacement and blocks nothing; a payment proof is never a form document). A case with no form follows fields
 --   quote              a quote that was neither replaced nor rejected exists
 --   login              the client has an active portal account (a revoked one does not count)
 --   quote_accepted     the case has an accepted quote (a quote becomes accepted only on an Accepted acceptance row or a Confirmed signed copy, see quote_accept_body)
@@ -47,19 +49,22 @@ alter table public.business_setup_cases alter column stage set default 'Lead';
 --   balance            the accepted quote's total (else the newest live quote's) less the case's net payments. Display only: never blocks a move
 create or replace function public.business_setup_case_docs(p_case uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
-declare c business_setup_cases; v_form text; v_fields boolean; v_letter boolean; v_total numeric;
+declare c business_setup_cases; v_form text; v_form_id uuid; v_fields boolean; v_documents boolean; v_letter boolean; v_total numeric;
 begin
   select * into c from business_setup_cases where id = p_case;
-  select status into v_form from business_setup_onboarding_forms where case_id = p_case order by created_at desc limit 1;
+  select id, status into v_form_id, v_form from business_setup_onboarding_forms where case_id = p_case order by created_at desc limit 1;
   v_fields := case when v_form is not null then v_form = 'Validated'
                    else coalesce(c.client_id is not null and exists (select 1 from business_setup_kyc_profiles k where k.client_id = c.client_id and k.kyc_state = 'Done'), false) end;
+  v_documents := case when v_form_id is not null
+                      then not exists (select 1 from client_portal_documents d where d.form_id = v_form_id and d.upload_complete and d.doc_type <> 'Payment proof' and d.status in ('pending', 'in_review'))
+                      else v_fields end;
   -- A letter the client rejected, or that a new one replaced, is not the letter.
   v_letter := exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and l.status not in ('rejected', 'superseded') and lq.status = 'accepted');
   select total_amount into v_total from hub_documents where case_id = p_case and doc_type = 'quote' and status not in ('superseded', 'rejected')
    order by (status = 'accepted') desc, created_at desc limit 1;
   return jsonb_build_object(
     'fields', v_fields,
-    'documents', v_fields,
+    'documents', v_documents,
     'quote', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status not in ('superseded', 'rejected')),
     'login', c.client_id is not null and exists (select 1 from client_portal_accounts a where a.id = business_setup_portal_account(c.client_id) and a.status = 'active'),
     'quote_accepted', exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status = 'accepted'),
@@ -324,7 +329,8 @@ end $$;
 --   inputs      cases at Lead or Review whose form is Submitted or In review
 --   onboarding  Onboarding        pipeline  Pipeline        completion  Completion and With Accounts        closed  Lost
 -- documentation, cases and all are kept for the screens that still use them (replaced when the new tabs land): Onboarding; Pipeline onward; everything.
--- Each row holds the case fields, the client name, the owner's name, the checklist (case_docs), the referrer's name and any pending reassignment.
+-- Each row holds the case fields, the client name, the owner's name, the checklist (case_docs), the case's newest form (form_id and form_status, null when it has
+-- none: so a Returned or Validated form can be opened from the row), the referrer's name and any pending reassignment.
 -- referred_by_name reads a referred_by column once a later migration adds one; until then it is null.
 create or replace function public.business_setup_case_list(p_view text) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
@@ -348,6 +354,8 @@ begin
       'owner_name', case when c.owner_id is not null then business_setup_person_name(c.owner_id) end,
       'referred_by_name', case when (to_jsonb(c) ->> 'referred_by') is not null then business_setup_person_name((to_jsonb(c) ->> 'referred_by')::uuid) end,
       'docs', business_setup_case_docs(c.id),
+      'form_id', (select f.id from business_setup_onboarding_forms f where f.case_id = c.id order by f.created_at desc limit 1),
+      'form_status', (select f.status from business_setup_onboarding_forms f where f.case_id = c.id order by f.created_at desc limit 1),
       'reassign', (select jsonb_build_object('id', r.id, 'to_user', r.to_user, 'to_name', business_setup_person_name(r.to_user), 'reason', r.reason, 'created_by', r.created_by, 'created_at', r.created_at)
                      from business_setup_reassign_requests r where r.case_id = c.id and r.status = 'Pending')
     ) order by c.created_at desc, c.id), '[]'::jsonb)
@@ -679,6 +687,22 @@ drop trigger if exists business_setup_case_acceptance on public.business_setup_a
 create trigger business_setup_case_acceptance after insert on public.business_setup_acceptances
   for each row execute function public.business_setup_case_acceptance_trg();
 
+-- A form document that arrives, finishes uploading or is decided re-checks the form's case (the Documents item reads them). Only a document of a form counts;
+-- a payment proof and the other portal uploads have no form and touch nothing.
+create or replace function public.business_setup_case_doc_trg() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_case uuid;
+begin
+  if new.form_id is null then return null; end if;
+  select case_id into v_case from business_setup_onboarding_forms where id = new.form_id;
+  if v_case is not null then perform business_setup_case_sync(v_case); end if;
+  return null;
+end $$;
+revoke all on function public.business_setup_case_doc_trg() from public, anon, authenticated;
+drop trigger if exists business_setup_case_doc on public.client_portal_documents;
+create trigger business_setup_case_doc after insert or update of status, upload_complete, form_id on public.client_portal_documents
+  for each row execute function public.business_setup_case_doc_trg();
+
 -- ── Payment claims (spec section 7) ──────────────────────────────────
 -- A client says "I have paid" against one invoice of theirs. The claim belongs to that invoice and to the invoice's case, and changes no balance: only
 -- business_setup_payment_add with claim_id turns it into a payment (and a receipt voucher) and marks it Confirmed, in the same transaction. Staff may also
@@ -847,6 +871,47 @@ begin
 end $$;
 revoke all on function public.business_setup_claim_refuse(uuid, text) from public, anon;
 grant execute on function public.business_setup_claim_refuse(uuid, text) to authenticated;
+
+-- A case's payment claims for the Client Onboarding screen, newest first. proof_document_id is the portal document that holds the claim's proof of payment
+-- (found by the claim's proof_path, which is never returned), so staff open it through the staff document link. Anyone with setup.access reads the list.
+create or replace function public.business_setup_claim_list(p_case uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.access');
+  return coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'invoice_id', c.invoice_id, 'invoice_number', i.invoice_number, 'amount', c.amount, 'paid_on', c.paid_on,
+             'reference', c.reference, 'status', c.status, 'note', c.note, 'created_at', c.created_at, 'decided_at', c.decided_at, 'payment_id', c.payment_id,
+             'proof_document_id', d.id, 'proof_name', d.file_name) order by c.created_at desc, c.id)
+      from business_setup_payment_claims c join business_setup_invoices i on i.id = c.invoice_id
+      left join client_portal_documents d on d.account_id = c.account_id and d.storage_path = c.proof_path and d.doc_type = 'Payment proof' and d.upload_complete
+     where c.case_id = p_case), '[]'::jsonb);
+end $$;
+revoke all on function public.business_setup_claim_list(uuid) from public, anon;
+grant execute on function public.business_setup_claim_list(uuid) to authenticated;
+
+-- Staff who confirm payments may open the proof of a claim: the document must be a Payment proof that a claim names. Nothing else about portal documents changes.
+create or replace function public.business_setup_claim_proof_can(p_id uuid) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select business_setup_can('setup.payments.manage') and exists (
+    select 1 from client_portal_documents d join business_setup_payment_claims c on c.account_id = d.account_id and c.proof_path = d.storage_path
+     where d.id = p_id and d.doc_type = 'Payment proof')
+$$;
+revoke all on function public.business_setup_claim_proof_can(uuid) from public, anon;
+grant execute on function public.business_setup_claim_proof_can(uuid) to authenticated;
+
+-- The staff document link (client-portal staff_url) reads a document through client_inputs_file. 009's version, with one more way in: a claim's proof.
+create or replace function public.client_inputs_file(p_id uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare r jsonb;
+begin
+  if not (client_inputs_can() or business_setup_form_doc_can(p_id) or business_setup_claim_proof_can(p_id)) then raise exception 'You do not have access to Client Inputs.'; end if;
+  select jsonb_build_object('id', d.id, 'storage_path', d.storage_path, 'file_name', d.file_name, 'doc_type', d.doc_type,
+         'status', d.status, 'client', a.display_name, 'filed_path', d.filed_path, 'actor', auth.uid(),
+         'can_review', d.assigned_to = auth.uid() or client_portal_is_admin())
+    into r from client_portal_documents d join client_portal_accounts a on a.id = d.account_id
+   where d.id = p_id and d.upload_complete;
+  if r is null then raise exception 'Document not found.'; end if;
+  return r;
+end $$;
 
 
 -- ── Privileges ───────────────────────────────────────────────────────

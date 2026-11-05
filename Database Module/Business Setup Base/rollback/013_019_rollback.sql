@@ -19,6 +19,25 @@ begin;
 drop table if exists public.business_setup_payment_claims;
 drop function if exists public.business_setup_payment_claims_guard();
 drop function if exists public.business_setup_claim_refuse(uuid, text);
+-- Client Onboarding screen (client flow Task 7): the claim list and the claim-proof right go, client_inputs_file returns to 009's text, and the trigger that
+-- re-checks a case when one of its form documents changes goes.
+create or replace function public.client_inputs_file(p_id uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare r jsonb;
+begin
+  if not (client_inputs_can() or business_setup_form_doc_can(p_id)) then raise exception 'You do not have access to Client Inputs.'; end if;
+  select jsonb_build_object('id', d.id, 'storage_path', d.storage_path, 'file_name', d.file_name, 'doc_type', d.doc_type,
+         'status', d.status, 'client', a.display_name, 'filed_path', d.filed_path, 'actor', auth.uid(),
+         'can_review', d.assigned_to = auth.uid() or client_portal_is_admin())
+    into r from client_portal_documents d join client_portal_accounts a on a.id = d.account_id
+   where d.id = p_id and d.upload_complete;
+  if r is null then raise exception 'Document not found.'; end if;
+  return r;
+end $$;
+drop function if exists public.business_setup_claim_proof_can(uuid);
+drop function if exists public.business_setup_claim_list(uuid);
+drop trigger if exists business_setup_case_doc on public.client_portal_documents;
+drop function if exists public.business_setup_case_doc_trg();
 drop function if exists public.business_setup_portal_claim_add(uuid, jsonb);
 drop function if exists public.business_setup_portal_claims(uuid);
 drop trigger if exists business_setup_case_acceptance on public.business_setup_acceptances;

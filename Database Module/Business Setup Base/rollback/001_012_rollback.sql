@@ -8,7 +8,9 @@ begin
   if to_regnamespace('bs_rollback') is null then raise exception 'No bs_rollback snapshot: nothing to restore from'; end if;
 end $$;
 
--- Forms and handovers point at these, so they go first.
+-- Forms and handovers point at these, so they go first. The trigger that re-checks a case when a form document changes (016) reads form_id, so it goes before the column.
+drop trigger if exists business_setup_case_doc on public.client_portal_documents;
+drop function if exists public.business_setup_case_doc_trg();
 alter table public.client_portal_documents drop column if exists form_id;
 delete from public.voucher_register where source = 'business_setup';
 

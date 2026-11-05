@@ -5,6 +5,7 @@ import { readDocuments, rpc } from "@banking/services/bankingApi";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
 import { addStaffFormDocument, formDetail, formStaffSave, listForms, returnForm, takeForm, validateForm } from "../services/businessSetupApi";
 import { contactChoice } from "../logic/contact";
+import { visibleDocs } from "../logic/claims";
 import { DOC_KINDS, FIELDS, PARTNER_FIELDS, SERVICES_FIELD, changedAnswers, formValues } from "../logic/staffForm";
 
 const TONE = { Submitted: "warn", "In review": "warn", Returned: "bad", Validated: "good", Draft: undefined };
@@ -70,7 +71,7 @@ export function Review({ id, onBack }) {
       </Panel>
       <Panel title="Partners"><DataTable rows={a.partners || []} empty="None entered." columns={[{ key: "name", label: "Name" }, { key: "nationality", label: "Nationality" }, { key: "share", label: "Share %", right: true }, { key: "ubo", label: "UBO", render: (p) => (p.ubo ? "Yes" : "") }]} /></Panel>
       <Panel title="Documents" actions={d.status === "In review" && <Button onClick={() => setDialog("upload")}>Upload for client</Button>}>
-        <DataTable rows={(d.documents || []).filter((x) => x.upload_complete)} empty="No documents uploaded." columns={[
+        <DataTable rows={visibleDocs(d.documents).filter((x) => x.upload_complete)} empty="No documents uploaded." columns={[
           { key: "doc_type", label: "Type" },
           { key: "file_name", label: "File", render: (x) => <button type="button" className="bk-link" onClick={() => staffCall("staff_url", { id: x.id }).then((r) => window.open(r.url, "_blank", "noopener")).catch((e) => setError(e.message))}>{x.file_name}</button> },
           { key: "status", label: "Status", render: (x) => <Badge tone={x.status === "validated" ? "good" : x.status === "rejected" ? "bad" : "warn"}>{DOC[x.status]}</Badge> }, { key: "review_note", label: "Note" },

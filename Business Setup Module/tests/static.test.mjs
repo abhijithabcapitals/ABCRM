@@ -55,7 +55,7 @@ test("navigation follows the spec and is filtered by permission", () => {
 
 test("the shell opens each page of the spec", () => {
   const shell = readFileSync(join(here, "components/BusinessSetup.jsx"), "utf8");
-  for (const c of ["Dashboard", "AllLeads", "DocumentationPage", "Cases", "Completion", "Clients", "FeeMaster", "Tasks", "Settings"]) assert.match(shell, new RegExp(`<${c} />`));
+  for (const c of ["Dashboard", "AllLeads", "ClientOnboarding", "Cases", "Completion", "Clients", "FeeMaster", "Tasks", "Settings"]) assert.match(shell, new RegExp(`<${c} />`));
   assert.doesNotMatch(shell, /<Import \/>/);
   assert.match(readFileSync(join(here, "components/Settings.jsx"), "utf8"), /<Import \/>/);
   assert.match(shell, /myAccess\(\)/);
@@ -76,7 +76,7 @@ test("the dashboard figures each open a tab of the module", () => {
 test("the new pages call the case functions with the right parameters", () => {
   const api = readFileSync(join(here, "services/businessSetupApi.js"), "utf8");
   for (const f of ["case_new", "case_take", "case_link_client", "case_move_to_onboarding", "case_shared", "case_lost", "case_confirm", "case_assign", "reassign_request", "reassign_respond", "case_list", "form_staff_save", "form_doc_add"]) assert.ok(api.includes(`rpc("business_setup_${f}"`), f);
-  for (const c of ["AllLeads", "DocumentationPage", "Cases", "Completion"]) assert.ok(readFileSync(join(here, `components/${c}.jsx`), "utf8").length > 200, c);
+  for (const c of ["AllLeads", "ClientOnboarding", "Cases", "Completion"]) assert.ok(readFileSync(join(here, `components/${c}.jsx`), "utf8").length > 200, c);
   const flow = readFileSync(join(here, "components/NewServiceFlow.jsx"), "utf8");
   assert.match(flow, /caseId/);
   assert.match(flow, /case_id: caseId/);

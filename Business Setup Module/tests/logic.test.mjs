@@ -159,12 +159,14 @@ test("changed answers keep services and the first partner in their stored shape"
 });
 
 test("the checklist shows the real state of the invoice: Done on an invoice or the override, else Open", () => {
-  const all = { stage: "Documentation", docs: { quote: true, signed: true, letter: true, invoice: true } };
+  const all = { stage: "Onboarding", docs: { quote: true, quote_accepted: true, letter: true, invoice: true } };
   assert.equal(itemState(all, "invoice"), "Done");
   assert.equal(itemState({ ...all, docs: { ...all.docs, invoice: false } }, "invoice"), "Open");
-  assert.equal(itemState({ stage: "Documentation", docs: {} }, "invoice"), "Open");
-  assert.equal(itemState(all, "signed"), "Done");
-  assert.deepEqual(CHECKLIST.map(([k]) => k), ["services", "quote", "signed", "letter", "invoice"]);   // no Paid item: a payment blocks nothing
+  assert.equal(itemState({ stage: "Onboarding", docs: {} }, "invoice"), "Open");
+  assert.equal(itemState({ stage: "Onboarding" }, "fields"), "Open");
+  assert.equal(itemState(all, "quote_accepted"), "Done");
+  // checklist_order: the keys are business_setup_case_docs' keys except balance, in the order Onboarding works through them.
+  assert.deepEqual(CHECKLIST.map(([k]) => k), ["fields", "documents", "quote", "login", "quote_accepted", "letter", "letter_accepted", "invoice"]);   // no Paid item: a payment blocks nothing
   assert.equal(itemTone("Done"), "good");
   assert.equal(itemTone("Open"), "warn");
 });
@@ -197,7 +199,7 @@ test("invoices are recorded through the database function, with the file under t
   const inv = rd("../components/workspace/Invoices.jsx");
   assert.match(inv, /invoiceRecord\(\{ \.\.\.v, case_id: caseId, file_path \}\)/);
   assert.match(inv, /uploadFile\(caseRow\.client_id, scan, "invoice"\)/);
-  assert.match(rd("../components/DocumentationPage.jsx"), /<Invoices caseId=\{c\.id\}/);
+  assert.match(rd("../components/ClientOnboarding.jsx"), /<Invoices caseId=\{c\.id\}/);
 });
 
 test("pages use the decided rules: superseded is not live, Move needs the owner or the approve right, Mark lost on Documentation and All Leads", () => {
@@ -205,9 +207,9 @@ test("pages use the decided rules: superseded is not live, Move needs the owner 
   assert.match(rd("../components/workspace/Quotes.jsx"), /\["rejected", "superseded"\]/);
   assert.match(rd("../logic/leads.js"), /setup\.cases\.approve/);
   assert.doesNotMatch(rd("../components/AllLeads.jsx"), /A manager issues the login|ShareLink/);
-  for (const f of ["DocumentationPage", "AllLeads"]) assert.match(rd(`../components/${f}.jsx`), /LostDialog/);
-  for (const f of ["DocumentationPage", "Cases", "AllLeads"]) assert.match(rd(`../components/${f}.jsx`), /ReassignActions/);
-  assert.match(rd("../components/DocumentationPage.jsx"), /caseLinkClient/);
+  for (const f of ["ClientOnboarding", "AllLeads"]) assert.match(rd(`../components/${f}.jsx`), /LostDialog/);
+  for (const f of ["ClientOnboarding", "Cases", "AllLeads"]) assert.match(rd(`../components/${f}.jsx`), /ReassignActions/);
+  assert.match(rd("../components/ClientOnboarding.jsx"), /caseLinkClient/);
 });
 
 // ── Phase 2, Task 7: suggested amounts and line VAT ──
@@ -321,4 +323,61 @@ test("a duplicate refusal names the existing client, and the age counts whole da
   assert.equal(duplicateClient("A client already exists"), null);
   assert.equal(ageDays("2026-11-01T10:00:00Z", new Date("2026-11-05T09:00:00Z")), 3);
   assert.equal(ageDays(null, new Date()), null);
+});
+
+// ── Phase 2, Task 7: reading documents into the client's form ──
+import { mergeOcr, fromDocai, ocrRows, ocrPayload } from "../logic/ocrFill.js";
+
+test("merge_fills_empty: an empty field takes the read value", () => {
+  const r = mergeOcr({ client_name: "", phone: "  " }, { client_name: "Acme LLC", phone: "0501234567" });
+  assert.equal(r.answers.client_name, "Acme LLC"); assert.equal(r.answers.phone, "0501234567");
+  assert.deepEqual(r.conflicts, []);
+  assert.equal(mergeOcr({}, { email: "a@b.ae" }).answers.email, "a@b.ae");
+});
+
+test("merge_keeps_value: a filled field stays, and the difference is in conflicts", () => {
+  const r = mergeOcr({ client_name: "Acme LLC", email: "a@b.ae" }, { client_name: "ACME Trading", email: " A@B.AE " });
+  assert.equal(r.answers.client_name, "Acme LLC");
+  assert.deepEqual(r.conflicts, [{ key: "client_name", current: "Acme LLC", read: "ACME Trading" }]);   // the same email in another case or spacing is no conflict
+});
+
+test("merge_ignores_unknown: a read key not on the form is dropped", () => {
+  const r = mergeOcr({}, { favourite_colour: "blue", client_name: "Acme" });
+  assert.equal("favourite_colour" in r.answers, false); assert.equal(r.answers.client_name, "Acme");
+  assert.deepEqual(r.conflicts, []);
+});
+
+test("merge never changes the answers it was given, and skips empty reads", () => {
+  const a = { client_name: "" }; const before = JSON.stringify(a);
+  const r = mergeOcr(a, { client_name: "Acme", phone: "", email: null });
+  assert.equal(JSON.stringify(a), before);
+  assert.equal("phone" in r.answers, false); assert.equal("email" in r.answers, false);
+});
+
+test("partners are filled only while the form has none", () => {
+  const read = { partners: [{ name: "Sara", nationality: "India" }] };
+  assert.deepEqual(mergeOcr({ partners: [] }, read).answers.partners, read.partners);
+  assert.deepEqual(mergeOcr({ partners: [{ name: "Omar", nationality: "UAE" }] }, read).answers.partners, [{ name: "Omar", nationality: "UAE" }]);
+});
+
+test("docai results become form values: licence fields, people as partners, low confidence skipped, first document wins", () => {
+  const docs = [
+    { name: "licence.pdf", extraction: { fields: [{ key: "legal_name", value: "Acme LLC" }, { key: "licence_number", value: "L-1" }, { key: "licence_authority", value: "IFZA" }, { key: "licence_expiry_date", value: "2027-03-01" }, { key: "main_activity", value: "Trading", confidence: "low" }, { key: "email", value: "a@b.ae" }] } },
+    { name: "moa.pdf", extraction: { fields: [{ key: "legal_name", value: "Acme Trading LLC" }], people: [{ name: "Sara Khan", nationality: "India" }, { name: "No Nation" }] } },
+  ];
+  const { read, sources, disagree } = fromDocai(docs);
+  assert.deepEqual(read, { client_name: "Acme LLC", licence_number: "L-1", issuing_authority: "IFZA", licence_expiry: "2027-03-01", email: "a@b.ae", partners: [{ name: "Sara Khan", nationality: "India" }] });
+  assert.equal(sources.client_name, "licence.pdf");
+  assert.deepEqual(disagree, { client_name: ["Acme LLC (licence.pdf)", "Acme Trading LLC (moa.pdf)"] });
+  assert.equal("licence_expiry" in fromDocai([{ name: "x", extraction: { fields: [{ key: "licence_expiry_date", value: "01/03/2027" }] } }]).read, false);   // only a date the form can store
+});
+
+test("rows for staff: empty fields are ticked, a difference is not, and only ticked values are saved", () => {
+  const answers = { client_name: "Acme LLC", phone: "" };
+  const read = { client_name: "ACME Trading", phone: "0501234567", email: "a@b.ae" };
+  const rows = ocrRows(answers, read, { phone: "pass.pdf" });
+  assert.deepEqual(rows.map((r) => [r.key, r.state, r.tick]), [["client_name", "differs", false], ["phone", "new", true], ["email", "new", true]]);
+  assert.equal(rows[1].source, "pass.pdf"); assert.equal(rows[0].label, "Client name");
+  assert.deepEqual(ocrPayload(rows, { phone: true, email: false, client_name: true }), { client_name: "ACME Trading", phone: "0501234567" });
+  assert.deepEqual(ocrPayload(rows, Object.fromEntries(rows.map((r) => [r.key, r.tick]))), { phone: "0501234567", email: "a@b.ae" });
 });

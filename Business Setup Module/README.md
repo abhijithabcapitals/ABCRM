@@ -5,7 +5,7 @@ The CRM's **Business Setup** tab: from a client's form to a finished service han
 | Path | Purpose |
 |---|---|
 | `components/BusinessSetup.jsx` | Shell, permissions, navigation |
-| `components/{Dashboard,AllLeads,DocumentationPage,Cases,Completion,Clients,FeeMaster,Tasks,Settings}.jsx` | Tabs: Dashboard, All Leads (with the Move to Client Onboarding dialog and the Review screen from `Onboarding.jsx`), Client Onboarding (temporarily `DocumentationPage.jsx`), Pipeline (`Cases.jsx`), Completion, Clients, Services & Fees, Tasks, Settings |
+| `components/{Dashboard,AllLeads,ClientOnboarding,Cases,Completion,Clients,FeeMaster,Tasks,Settings}.jsx` | Tabs: Dashboard, All Leads (with the Move to Client Onboarding dialog and the Review screen from `Onboarding.jsx`), Client Onboarding (temporarily `DocumentationPage.jsx`), Pipeline (`Cases.jsx`), Completion, Clients, Services & Fees, Tasks, Settings |
 | `components/Documents.jsx`, `components/Import.jsx` | The document register (second view of Documentation) and the old CRM import (inside Settings) |
 | `components/Workspace.jsx`, `components/workspace/` | One client, one file per tab. `ClientCases.jsx` is the Cases tab with + New Case |
 | `components/NewServiceFlow.jsx` | Services, fees and template, then a quote. Takes a `caseId` and passes `case_id` to `createDocument` |

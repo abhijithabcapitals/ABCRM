@@ -8,7 +8,7 @@ import { SetupContext } from "./SetupContext";
 import Settings from "./Settings";
 import Dashboard from "./Dashboard";
 import AllLeads from "./AllLeads";
-import DocumentationPage from "./DocumentationPage";
+import ClientOnboarding from "./ClientOnboarding";
 import Cases from "./Cases";
 import Completion from "./Completion";
 import Clients from "./Clients";
@@ -62,7 +62,7 @@ export default function BusinessSetup({ profile }) {
         </nav></div>
         {current === "dashboard" && <Dashboard />}
         {current === "leads" && <AllLeads />}
-        {current === "onboarding" && <DocumentationPage />}
+        {current === "onboarding" && <ClientOnboarding />}
         {current === "pipeline" && <Cases />}
         {current === "completion" && <Completion />}
         {current === "clients" && <Clients />}

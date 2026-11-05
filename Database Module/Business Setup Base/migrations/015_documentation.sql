@@ -455,7 +455,8 @@ language plpgsql stable security definer set search_path = public, pg_temp as $$
 begin
   perform business_setup_require('setup.access');
   return coalesce((select jsonb_agg(jsonb_build_object('id', d.id, 'doc_type', d.doc_type, 'document_number', d.document_number, 'status', d.status, 'total_amount', d.total_amount,
-                          'storage_path', d.storage_path, 'created_at', d.created_at, 'parent_id', d.parent_id) order by d.created_at)
+                          'storage_path', d.storage_path, 'created_at', d.created_at, 'parent_id', d.parent_id,
+                          'revises_id', d.revises_id, 'status_reason', d.status_reason, 'status_at', d.status_at) order by d.created_at)
                      from hub_documents d where d.case_id = p_case and d.department = 'Business Setup' and d.doc_type in ('quote', 'letter')), '[]'::jsonb);
 end $$;
 revoke all on function public.business_setup_case_documents(uuid) from public, anon;

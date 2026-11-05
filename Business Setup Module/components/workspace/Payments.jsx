@@ -11,7 +11,8 @@ import { fileReceipt } from "../../services/documents";
 import { money } from "@app/money";
 
 
-export default function Payments({ w, reload, caseId = null, caseRow = null, onChanged }) {
+// claim: a pending payment claim to confirm. The form opens with its values, and saving the payment confirms the claim (payment_add with claim_id).
+export default function Payments({ w, reload, caseId = null, caseRow = null, onChanged, claim = null, onClaimClose }) {
   const { can } = useSetup();
   const manage = can("setup.payments.manage");
   const { error, setError, busy, act } = useAction(reload);
@@ -47,7 +48,7 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
           </span>
         ) },
       ]} />}
-      {adding && <FormModal title="Record payment" submitLabel="Record and issue receipt" initial={{ quote_id: accepted[0]?.id, paid_on: today() }} onClose={() => setAdding(false)}
+      {(adding || (claim && caseId)) && <FormModal title={claim ? "Confirm payment claim" : "Record payment"} submitLabel="Record and issue receipt" initial={claim ? { quote_id: accepted[0]?.id, amount: claim.amount, paid_on: String(claim.paid_on).slice(0, 10), method: "Bank transfer", reference: claim.reference || "" } : { quote_id: accepted[0]?.id, paid_on: today() }} onClose={() => { setAdding(false); onClaimClose?.(); }}
         note={caseId ? (accepted.length ? (can("setup.payments.override") ? "An amount above the balance needs a reason." : "An amount above the balance is refused.") : "No quote is accepted yet, so this is held as an advance and counts toward the quote once it is accepted.")
           : (can("setup.payments.override") ? "An amount above the balance needs a reason." : "An amount above the balance is refused.")}
         fields={[...(caseId ? [] : [{ name: "quote_id", label: "Quote", type: "select", required: true, options: accepted.map((q) => ({ value: q.id, label: `${q.document_number}: outstanding AED ${money(q.balance?.outstanding)}` })) }]),
@@ -60,7 +61,7 @@ export default function Payments({ w, reload, caseId = null, caseRow = null, onC
           if (caseId && !caseRow?.client_id) {
             try { await caseLinkClientForPayment(caseId); } catch (e) { throw new Error(paymentLinkError(e.message, can("setup.leads.manage"))); }
           }
-          const r = await addPayment(caseId ? { ...v, case_id: caseId } : v);
+          const r = await addPayment({ ...(caseId ? { ...v, case_id: caseId } : v), ...(claim ? { claim_id: claim.id } : {}) });
           try {
             await fileReceipt({ ...v, receipt_id: r.receipt_id, receipt_number: r.receipt_number }, clientName, number(v.quote_id) || accepted[0]?.document_number || caseRow?.case_number || "");
           } catch (e) { setError(`Payment saved as ${r.receipt_number}, but the file was not created: ${e.message}. Use Create file.`); }

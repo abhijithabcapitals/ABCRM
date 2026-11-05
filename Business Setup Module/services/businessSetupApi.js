@@ -1,6 +1,7 @@
 // Supabase access for the Business Setup module. The generic helpers are Banking's; the functions below are this module's.
 import { rpc, run, table } from "@banking/services/bankingApi";
 import { supabase } from "@app/supabase";
+import { staffPost } from "@client-login/portal/portalApi";
 import { caseInvoiceFilter } from "../logic/caseWorkspace";
 
 export { rpc, table, run, listAll, insertRow, updateRow, profiles } from "@banking/services/bankingApi";
@@ -144,3 +145,18 @@ export const caseInvoices = async (caseId) => {
   return run(table("business_setup_invoices").select("id,invoice_number,issued_on,amount,file_path,source,created_at").or(caseInvoiceFilter(caseId, quotes)).order("created_at", { ascending: false }));
 };
 export const caseDocuments = (id) => rpc("business_setup_case_documents", { p_case: id });
+
+// Client Onboarding (client flow Task 7)
+// The login that goes out with a quote. The client-portal function makes the password on the server and emails it, so none is returned here.
+// resend: true emails the stored login again without changing it. A refusal comes back as an error carrying the server's own sentence.
+export async function issueLogin(caseId, resend = false) {
+  const token = (await supabase.auth.getSession()).data.session?.access_token;
+  return staffPost(token, "setup_issue_login", resend ? { case_id: caseId, resend: true } : { case_id: caseId });
+}
+// A case's payment claims, newest first, each with the portal document that holds its proof (opened through the staff document link).
+export const claimList = (caseId) => rpc("business_setup_claim_list", { p_case: caseId });
+export const claimRefuse = (id, note) => rpc("business_setup_claim_refuse", { p_id: id, p_note: note });
+// What the client decided on quotes and letters, with their notes (business_setup_acceptances is readable by Business Setup staff).
+export const listDecisions = (documentIds) => (documentIds.length
+  ? run(table("business_setup_acceptances").select("document_id,kind,revision,decision,note,source,username,created_at").in("document_id", documentIds).order("created_at", { ascending: false }))
+  : Promise.resolve([]));

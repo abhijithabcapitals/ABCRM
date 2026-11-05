@@ -28,22 +28,22 @@ const html = async (file, name, props, can) => {
   return renderToString(React.createElement(SetupContext.Provider, { value: setup(can) }, React.createElement(mod[name], props))).replaceAll("<!-- -->", "");
 };
 
-test("Documentation page renders its case list", { skip }, async () => {
-  assert.match(await html("DocumentationPage.jsx", "default", {}), /Documentation/);
+test("Client Onboarding renders its case list", { skip }, async () => {
+  assert.match(await html("ClientOnboarding.jsx", "default", {}), /Client Onboarding/);
 });
 
 test("a case page renders with no client (Link client) and with a client, with Mark lost for lead staff", { skip }, async () => {
   const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", lead_name: "Lead", docs: {} };
-  const bare = await html("DocumentationPage.jsx", "CaseDocs", { c, onBack() {} });
+  const bare = await html("ClientOnboarding.jsx", "CaseDocs", { c, onBack() {} });
   assert.match(bare, /Link client/); assert.match(bare, /Mark lost/); assert.match(bare, /Invoice: Open/); assert.match(bare, /Quote accepted: Open/);
-  const withClient = await html("DocumentationPage.jsx", "CaseDocs", { c: { ...c, client_id: "CL000001", reassign: { id: "r1", to_user: "u2", to_name: "Docs" } }, onBack() {} });
+  const withClient = await html("ClientOnboarding.jsx", "CaseDocs", { c: { ...c, client_id: "CL000001", reassign: { id: "r1", to_user: "u2", to_name: "Docs" } }, onBack() {} });
   assert.match(withClient, /Reassign to Docs/); assert.match(withClient, /Approve/); assert.match(withClient, /Refuse/);
   // A case with a client has an Invoices panel with the record button; without a client the button is off and says why.
   assert.match(bare, /Invoices/); assert.match(bare, /Link a client to this case before recording an invoice/);
   assert.match(await html("workspace/Invoices.jsx", "default", { caseId: "c1", caseRow: { id: "c1", client_id: "CL000001", stage: "Documentation", docs: { quote: true } } }), /\+ Record invoice/);
   assert.match(await html("workspace/Invoices.jsx", "default", { caseId: "c1", caseRow: { id: "c1", client_id: "CL000001", stage: "Documentation", docs: { quote: true } } }), /Waive invoice/);
   assert.doesNotMatch(await html("workspace/Invoices.jsx", "default", { caseId: "c1", caseRow: { id: "c1", client_id: "CL000001", stage: "Documentation", docs: { quote: true } } }, false), /Record invoice/);
-  const limited = await html("DocumentationPage.jsx", "CaseDocs", { c, onBack() {} }, false);
+  const limited = await html("ClientOnboarding.jsx", "CaseDocs", { c, onBack() {} }, false);
   assert.doesNotMatch(limited, /Mark lost/); assert.doesNotMatch(limited, /Link client/);
 });
 
@@ -104,7 +104,7 @@ test("revising an older quote shows the VAT note; an exclusive one does not", { 
 
 test("a case with no client lists its quote and letter read-only and offers no issuing actions", { skip }, async () => {
   const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", lead_name: "Lead", docs: {} };
-  const bare = await html("DocumentationPage.jsx", "CaseDocs", { c, onBack() {} });
+  const bare = await html("ClientOnboarding.jsx", "CaseDocs", { c, onBack() {} });
   assert.match(bare, /Read-only until a client is linked/); assert.match(bare, /No quote or letter for this case yet/);
   assert.match(bare, /\+ Record payment/); assert.match(bare, /first creates the client from the lead details/);
   assert.doesNotMatch(bare, /New quote/); assert.doesNotMatch(bare, /Add signed copy/); assert.doesNotMatch(bare, /Create engagement letter/); assert.doesNotMatch(bare, /Waive payment/);
@@ -144,12 +144,12 @@ test("Record refund is offered in case mode only when the case has money, with n
 
 test("a case that moved on says so, and shows no false no-client note or stale checklist", { skip }, async () => {
   const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", lead_name: "Lead", docs: {}, client_id: "CL000001" };
-  const moved = await html("DocumentationPage.jsx", "CaseDocs", { c, moved: true, onBack() {} });
-  assert.match(moved, /This case has moved to Assignment/); assert.match(moved, /Back to the list/);
+  const moved = await html("ClientOnboarding.jsx", "CaseDocs", { c, moved: true, onBack() {} });
+  assert.match(moved, /This case has moved to Pipeline/); assert.match(moved, /Back to the list/);
   assert.doesNotMatch(moved, /no client yet/); assert.doesNotMatch(moved, /Invoice: Open/); assert.doesNotMatch(moved, /Mark lost/);
-  const bare = await html("DocumentationPage.jsx", "CaseDocs", { c: { id: "c1", case_number: "BSC000001" }, moved: true, onBack() {} });
-  assert.match(bare, /This case has moved to Assignment/); assert.doesNotMatch(bare, /no client yet/);
-  assert.doesNotMatch(await html("DocumentationPage.jsx", "CaseDocs", { c, onBack() {} }), /moved to Assignment/);
+  const bare = await html("ClientOnboarding.jsx", "CaseDocs", { c: { id: "c1", case_number: "BSC000001" }, moved: true, onBack() {} });
+  assert.match(bare, /This case has moved to Pipeline/); assert.doesNotMatch(bare, /no client yet/);
+  assert.doesNotMatch(await html("ClientOnboarding.jsx", "CaseDocs", { c, onBack() {} }), /moved to Pipeline/);
 });
 
 test("a lead's payment panel works in case mode for a client-less lead", { skip }, async () => {
@@ -162,4 +162,25 @@ test("dashboard: the pipeline figure sums the open stages, and each stage card o
   const mod = await server.ssrLoadModule("/../Business Setup Module/components/Dashboard.jsx");
   assert.equal(mod.pipelineTotal({ pipeline: { Lead: 2, Review: 1, Onboarding: 3, Pipeline: 4, Completion: 1, "With Accounts": 2 } }), 13);
   assert.equal(mod.pipelineTotal({}), 0);
+});
+
+test("a case page shows the eight Onboarding items, the form, the login and the claims panel", { skip }, async () => {
+  const c = { id: "c1", case_number: "BSC000001", stage: "Onboarding", client_id: "CL000001", form_id: "f1", form_status: "Returned", docs: { fields: false, quote: true, login: false } };
+  const out = await html("ClientOnboarding.jsx", "CaseDocs", { c, onBack() {} });
+  for (const t of ["Fields: Open", "Documents: Open", "Quote: Done", "Login: Open", "Quote accepted: Open", "Letter: Open", "Letter accepted: Open", "Invoice: Open"]) assert.match(out, new RegExp(t), t);
+  assert.match(out, /Form: Returned/); assert.match(out, /Open form/);                       // a Returned form is reachable
+  assert.match(out, /Issue login/);                                                          // a quote with no login can have it issued
+  assert.doesNotMatch(out, /Read documents/);                                                // only while the form is In review
+  const withLogin = await html("ClientOnboarding.jsx", "CaseDocs", { c: { ...c, docs: { ...c.docs, login: true } }, onBack() {} });
+  assert.match(withLogin, /Resend/); assert.doesNotMatch(withLogin, /Issue login/);
+  const noForm = await html("ClientOnboarding.jsx", "CaseDocs", { c: { ...c, form_id: null, form_status: null }, onBack() {} });
+  assert.match(noForm, /This case has no client form/); assert.doesNotMatch(noForm, /Open form/);
+  assert.doesNotMatch(out, /password/i);
+  const limited = await html("ClientOnboarding.jsx", "CaseDocs", { c, onBack() {} }, false);
+  assert.doesNotMatch(limited, /Issue login/);
+});
+
+test("the Onboarding list names each case's form state and loads before it shows rows", { skip }, async () => {
+  const out = await html("ClientOnboarding.jsx", "default", {});
+  assert.match(out, /Client Onboarding/); assert.match(out, /Document register/);
 });
