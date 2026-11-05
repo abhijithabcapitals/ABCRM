@@ -24,6 +24,8 @@ QUOTE_TAGS = ["{client_name}", "{client_address}", "{document_date}", "{document
 LETTER_TAGS = ["{client_name}", "{client_address}", "{document_date}", "{understanding}", "{scope_text}", "{fee_intro}",
                "{#lines}{description}", "{amount}{/lines}", "{payment_text}", "{reps}", "{other_terms}",
                "Company Seal", "{client_name}", "{contact_name}", "______________________"]
+PHONE = "+971 52 3655193"
+SECOND_PHONE = "+971 58 561 9500"
 BANK_LINES = [("Bank details", ""), ("Account name", "{ba_name}"), ("Bank", "{ba_bank}"), ("Account number", "{ba_no}"), ("IBAN", "{ba_iban}"), ("SWIFT", "{ba_swift}"), ("Currency", "{ba_ccy}")]
 
 TEXT = re.compile(r"(<w:t(?: [^>]*)?>)([^<]*)(</w:t>)")
@@ -112,6 +114,21 @@ def fix_letter(xml):
     return add_letter_ref(add_bank_details(add_fee_rows(xml, LETTER), LETTER), LETTER)
 
 
+def add_second_phone(xml, name):
+    """Both company numbers in the header, each on its own line, as the user asked on 2026-11-05."""
+    if PHONE not in xml:
+        raise DesignError(f"{name}: the phone number was not found in the header")
+    def both(m):
+        para = m.group(0)
+        if PHONE not in para:
+            return para
+        # No space after these two lines, so the taller box stays clear of the page body.
+        tight = para.replace("<w:pPr>", '<w:pPr><w:spacing w:after="0"/>', 1)
+        return tight + tight.replace(PHONE, SECOND_PHONE)
+
+    return PARA.sub(both, xml)
+
+
 def rewrite(src, dst, change):
     temp = dst.with_name(dst.name + ".tmp")
     with zipfile.ZipFile(src) as old, zipfile.ZipFile(temp, "w") as new:
@@ -119,6 +136,8 @@ def rewrite(src, dst, change):
             data = old.read(item.filename)
             if item.filename == "word/document.xml":
                 data = change(data.decode("utf-8")).encode("utf-8")
+            elif re.fullmatch(r"word/header\d*\.xml", item.filename):
+                data = add_second_phone(data.decode("utf-8"), src.name).encode("utf-8")
             new.writestr(item, data)
     temp.replace(dst)
 
