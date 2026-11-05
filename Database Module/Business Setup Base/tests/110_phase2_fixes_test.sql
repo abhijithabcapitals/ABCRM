@@ -3,15 +3,18 @@
 \pset tuples_only on
 \pset format unaligned
 -- 010 grants every function to signed-in users for its own calls: run the migrations again to restore their real grants.
+-- 013's backfill writes the old stage names (as on the live database): lift the new check for it and let 016 map them.
+alter table public.business_setup_cases drop constraint if exists business_setup_cases_stage_check;
 \ir ../migrations/013_cases.sql
 \ir ../migrations/014_leads_ownership.sql
 \ir ../migrations/015_documentation.sql
+\ir ../migrations/016_client_flow.sql
 \ir ../migrations/018_portal.sql
 create temp table f110 (k text primary key, v text);
 grant all on f110 to authenticated;
 create function pg_temp.fx(p_k text) returns text language sql as $$ select v from f110 where k = p_k $$;
 create function pg_temp.mkcase(p_key text, p_client text) returns void language plpgsql as $$
-begin with c as (insert into public.business_setup_cases (client_id, stage, lead_name) values (p_client, 'Documentation', p_key) returning id) insert into f110 select p_key, id::text from c; end $$;
+begin with c as (insert into public.business_setup_cases (client_id, stage, lead_name) values (p_client, 'Onboarding', p_key) returning id) insert into f110 select p_key, id::text from c; end $$;
 create function pg_temp.mkq(p_key text, p_client text, p_case text, p_amount numeric) returns void language plpgsql as $$
 begin
   insert into f110 values (p_key, (public.hub_document_create(jsonb_build_object('doc_type', 'quote', 'department', 'Business Setup', 'client_name', 'Fix LLC', 'contact_name', 'C', 'contact_email', 'c@x.ae',
@@ -87,11 +90,11 @@ select pg_temp.mkq('qLet2', 'CL900111', 'cLet', 500);
 select pg_temp.signaccept('qLet2', 'staff/CL900111/let2.pdf');
 select public.bs_as(null);
 select public.bs_check('letter: Q1 rejected with a letter and Q2 accepted leaves Letter not done', pg_temp.qst('qLet2') = 'accepted' and (pg_temp.docs('cLet') ->> 'letter')::boolean = false);
-select public.bs_check('letter: the case stays in Documentation', pg_temp.stg('cLet') = 'Documentation');
--- case_sync moves forward only: a case already past Documentation stays there though its letter no longer counts.
-select public.business_setup_case_set_stage(pg_temp.fx('cLet')::uuid, 'Assignment', 'test');
+select public.bs_check('letter: the case stays at Onboarding', pg_temp.stg('cLet') = 'Onboarding');
+-- case_sync moves forward only: a case already past Onboarding stays there though its letter no longer counts.
+select public.business_setup_case_set_stage(pg_temp.fx('cLet')::uuid, 'Pipeline', 'test');
 select public.business_setup_case_sync(pg_temp.fx('cLet')::uuid);
-select public.bs_check('letter: a case past Documentation does not move back', pg_temp.stg('cLet') = 'Assignment');
+select public.bs_check('letter: a case past Onboarding does not move back', pg_temp.stg('cLet') = 'Pipeline');
 
 -- ── Step 3: a reversal cannot take net paid below zero ──
 select public.bs_as('00000000-0000-0000-0000-00000000000e');

@@ -42,6 +42,7 @@ begin
   select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
      and p.proname in ('business_setup_signed_add', 'business_setup_signed_file', 'business_setup_signed_decide', 'business_setup_portal_signed_add', 'business_setup_case_paid_override', 'business_setup_case_net_paid', 'business_setup_case_documents', 'business_setup_case_locked', 'business_setup_case_link_client_for_payment', 'business_setup_case_link_client_body', 'business_setup_portal_login_name');
   if bad is not null then raise exception 'signed copy functions remain: %', bad; end if;
+  if pg_get_functiondef('public.business_setup_start_gate(uuid, text)'::regprocedure) ilike '%case_id%' then raise exception 'the start gate still reads case_id'; end if;
   if pg_get_functiondef('public.business_setup_portal_view(uuid)'::regprocedure) ilike '%can_sign%' then raise exception 'the portal view still has the signed copy fields'; end if;
   raise notice 'rollback 013 check ok';
 end $$;

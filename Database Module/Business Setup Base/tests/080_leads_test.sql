@@ -69,7 +69,7 @@ select pg_temp.mkclient('CL980002', false, false);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('ret', public.business_setup_case_new('{"lead_name":"Returning","client_id":"CL980001"}')::text);
 insert into f80 values ('new_kyc', public.business_setup_case_new('{"lead_name":"Not yet","client_id":"CL980002"}')::text);
-select public.bs_check('returning_client: KYC Done starts at Services', pg_temp.stage('ret') = 'Services' and (select client_id from public.business_setup_cases where id = pg_temp.cid('ret')) = 'CL980001');
+select public.bs_check('returning_client: KYC Done starts at Onboarding', pg_temp.stage('ret') = 'Onboarding' and (select client_id from public.business_setup_cases where id = pg_temp.cid('ret')) = 'CL980001');
 select public.bs_check('a client with KYC not done starts at Lead', pg_temp.stage('new_kyc') = 'Lead');
 
 -- ── take_race ──
@@ -84,12 +84,12 @@ select pg_temp.mkcase('closed_c', null, 'Lost');
 select public.bs_as('00000000-0000-0000-0000-00000000000d');
 select public.bs_expect_error(format($$select business_setup_case_take('%s')$$, pg_temp.fx('closed_c')), 'closed');
 
--- ── Taking a case at Assignment starts the service ──
+-- ── Taking a case in Pipeline sets the owner and moves nothing ──
 select public.bs_as(null);
-select pg_temp.mkcase('asg_take', null, 'Assignment');
+select pg_temp.mkcase('asg_take', null, 'Pipeline');
 select public.bs_as('00000000-0000-0000-0000-00000000000d');
 select public.business_setup_case_take(pg_temp.cid('asg_take'));
-select public.bs_check('taking at Assignment moves to In service', pg_temp.stage('asg_take') = 'In service' and pg_temp.owner('asg_take') = '00000000-0000-0000-0000-00000000000d');
+select public.bs_check('taking a Pipeline case sets the owner and leaves it in Pipeline', pg_temp.stage('asg_take') = 'Pipeline' and pg_temp.owner('asg_take') = '00000000-0000-0000-0000-00000000000d');
 
 -- ── link_client: creates, retries, duplicates, existing ──
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
@@ -132,9 +132,9 @@ select public.business_setup_case_shared(pg_temp.cid('shared'));
 select public.bs_check('share_existing_login_reused: the form is attached, not duplicated', pg_temp.forms('CL980004') = 1
   and pg_temp.accounts('CL980004') = 1
   and (select case_id from public.business_setup_onboarding_forms where client_id = 'CL980004') = pg_temp.cid('shared'));
-select public.bs_check('sharing moves Lead to Contact', pg_temp.stage('shared') = 'Contact');
+select public.bs_check('sharing keeps a Lead a Lead while the client fills in the form', pg_temp.stage('shared') = 'Lead');
 select public.business_setup_case_shared(pg_temp.cid('shared'));
-select public.bs_check('sharing again changes nothing', pg_temp.stage('shared') = 'Contact' and pg_temp.forms('CL980004') = 1);
+select public.bs_check('sharing again changes nothing', pg_temp.stage('shared') = 'Lead' and pg_temp.forms('CL980004') = 1);
 -- a login with no form yet gets one
 select public.bs_as(null);
 select pg_temp.mkclient('CL980005', true, false);
@@ -142,15 +142,15 @@ select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('shared2', public.business_setup_case_new('{"lead_name":"Shared two","client_id":"CL980005"}')::text);
 select public.business_setup_case_shared(pg_temp.cid('shared2'));
 select public.bs_check('a login with no form gets one, on the case', pg_temp.forms('CL980005') = 1
-  and (select case_id from public.business_setup_onboarding_forms where client_id = 'CL980005') = pg_temp.cid('shared2') and pg_temp.stage('shared2') = 'Contact');
--- KYC done: no form, straight to Services
+  and (select case_id from public.business_setup_onboarding_forms where client_id = 'CL980005') = pg_temp.cid('shared2') and pg_temp.stage('shared2') = 'Lead');
+-- KYC done: no form, straight to Onboarding
 select public.bs_as(null);
 select pg_temp.mkclient('CL980006', true, true);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('shared3', public.business_setup_case_new('{"lead_name":"Shared three"}')::text);
 select public.business_setup_case_link_client(pg_temp.cid('shared3'), 'CL980006');
 select public.business_setup_case_shared(pg_temp.cid('shared3'));
-select public.bs_check('KYC done: shared goes to Services with no form', pg_temp.stage('shared3') = 'Services' and pg_temp.forms('CL980006') = 0);
+select public.bs_check('KYC done: shared goes to Onboarding with no form', pg_temp.stage('shared3') = 'Onboarding' and pg_temp.forms('CL980006') = 0);
 -- a form already on another case
 insert into f80 values ('shared4', public.business_setup_case_new('{"lead_name":"Second case","client_id":"CL980004"}')::text);
 select public.bs_expect_error(format($$select business_setup_case_shared('%s')$$, pg_temp.fx('shared4')), 'open form');
@@ -167,16 +167,16 @@ select public.bs_check('an already submitted form puts the case in Review', pg_t
 -- ── lost: reason, paid, stage ──
 select public.bs_as(null);
 select pg_temp.mkclient('CL980010', true, false);
-select pg_temp.mkcase('lost_paid', 'CL980010', 'Contact', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('lost_paid', 'CL980010', 'Lead', '00000000-0000-0000-0000-00000000000c');
 insert into public.business_setup_payments (client_id, paid_on, amount, type, case_id) values ('CL980010', current_date, 250, 'Payment', pg_temp.cid('lost_paid'));
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error(format($$select business_setup_case_lost('%s', 'Changed mind')$$, pg_temp.fx('lost_paid')), 'net payment');
 select public.bs_expect_error(format($$select business_setup_case_lost('%s', '  ')$$, pg_temp.fx('lead')), 'reason');
-select public.bs_check('lost_blocked_paid: the case stays open and the login active', pg_temp.stage('lost_paid') = 'Contact' and pg_temp.login_status('CL980010') = 'active');
+select public.bs_check('lost_blocked_paid: the case stays open and the login active', pg_temp.stage('lost_paid') = 'Lead' and pg_temp.login_status('CL980010') = 'active');
 select public.bs_as(null);
-select pg_temp.mkcase('lost_svc_stage', null, 'In service');
+select pg_temp.mkcase('lost_svc_stage', null, 'Pipeline');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.bs_expect_error(format($$select business_setup_case_lost('%s', 'Too late')$$, pg_temp.fx('lost_svc_stage')), 'in service');
+select public.bs_expect_error(format($$select business_setup_case_lost('%s', 'Too late')$$, pg_temp.fx('lost_svc_stage')), 'Pipeline or later');
 select public.bs_as(null);
 -- a refunded payment no longer blocks
 insert into public.business_setup_payments (client_id, paid_on, amount, type, reverses_id, case_id)
@@ -192,7 +192,7 @@ select public.bs_expect_error(format($$select business_setup_case_lost('%s', 'Ag
 select public.bs_as(null);
 select pg_temp.mkclient('CL980011', true, false);
 select pg_temp.mkcase('keep_a1', 'CL980011', 'Lead');
-select pg_temp.mkcase('keep_a2', 'CL980011', 'Documentation');
+select pg_temp.mkcase('keep_a2', 'CL980011', 'Onboarding');
 select pg_temp.mkclient('CL980012', true, false);
 select pg_temp.mkcase('keep_b', 'CL980012', 'Lead');
 insert into public.business_setup_services (client_id, name, status) values ('CL980012', 'Imported work', 'In progress');
@@ -224,28 +224,20 @@ select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.business_setup_case_lost(pg_temp.cid('keep_e'), 'Not now');
 select public.bs_check('lost_keeps_login: only a finished service keeps it', pg_temp.login_status('CL980015') = 'active');
 
--- ── confirm ──
+-- ── confirm: the Assignment step is gone, so nothing is left to confirm ──
 select public.bs_as(null);
-select pg_temp.mkcase('conf', null, 'Assignment', '00000000-0000-0000-0000-00000000000c');
-select pg_temp.mkcase('conf2', null, 'Assignment', '00000000-0000-0000-0000-00000000000c');
-select pg_temp.mkcase('conf_none', null, 'Assignment');
-select pg_temp.mkcase('conf_early', null, 'Documentation', '00000000-0000-0000-0000-00000000000c');
-select public.bs_as('00000000-0000-0000-0000-00000000000d');
-select public.bs_expect_error(format($$select business_setup_case_confirm('%s')$$, pg_temp.fx('conf')), 'owner');
+select pg_temp.mkcase('conf', null, 'Pipeline', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('conf_none', null, 'Pipeline');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.business_setup_case_confirm(pg_temp.cid('conf'));
-select public.bs_check('the owner confirms: Assignment to In service', pg_temp.stage('conf') = 'In service');
-select public.bs_expect_error(format($$select business_setup_case_confirm('%s')$$, pg_temp.fx('conf')), 'Assignment');
-select public.bs_expect_error(format($$select business_setup_case_confirm('%s')$$, pg_temp.fx('conf_early')), 'Assignment');
+select public.bs_expect_error(format($$select business_setup_case_confirm('%s')$$, pg_temp.fx('conf')), 'nothing to confirm');
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
-select public.business_setup_case_confirm(pg_temp.cid('conf2'));
-select public.bs_check('an approver confirms for the owner', pg_temp.stage('conf2') = 'In service' and pg_temp.owner('conf2') = '00000000-0000-0000-0000-00000000000c');
-select public.bs_expect_error(format($$select business_setup_case_confirm('%s')$$, pg_temp.fx('conf_none')), 'owner');
+select public.bs_expect_error(format($$select business_setup_case_confirm('%s')$$, pg_temp.fx('conf')), 'nothing to confirm');
+select public.bs_check('confirm changes nothing', pg_temp.stage('conf') = 'Pipeline');
 
 -- ── reassign ──
 select public.bs_as(null);
-select pg_temp.mkcase('re', null, 'In service', '00000000-0000-0000-0000-00000000000c');
-select pg_temp.mkcase('re_mgr', null, 'In service', '00000000-0000-0000-0000-00000000000b');
+select pg_temp.mkcase('re', null, 'Pipeline', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('re_mgr', null, 'Pipeline', '00000000-0000-0000-0000-00000000000b');
 select public.bs_as('00000000-0000-0000-0000-00000000000d');
 select public.bs_expect_error(format($$select business_setup_reassign_request('%s', '00000000-0000-0000-0000-00000000000d', 'I want it')$$, pg_temp.fx('re')), 'owner');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
@@ -276,7 +268,7 @@ insert into f80 values ('req2', public.business_setup_reassign_request(pg_temp.c
 select public.bs_check('one pending request per case, by index', (select count(*) from public.business_setup_reassign_requests where case_id = pg_temp.cid('re') and status = 'Pending') = 1);
 -- a request on a case that has since closed cannot be approved
 select public.bs_as(null);
-select pg_temp.mkcase('re_closed', null, 'In service', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('re_closed', null, 'Pipeline', '00000000-0000-0000-0000-00000000000c');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('req_closed', public.business_setup_reassign_request(pg_temp.cid('re_closed'), '00000000-0000-0000-0000-00000000000d', 'Away')::text);
 select public.bs_as(null);
@@ -285,8 +277,8 @@ select public.bs_as('00000000-0000-0000-0000-00000000000a');
 select public.bs_expect_error(format($$select business_setup_reassign_respond('%s', true, null)$$, pg_temp.fx('req_closed')), 'closed');
 select public.bs_check('the closed case keeps its owner', pg_temp.owner('re_closed') = '00000000-0000-0000-0000-00000000000c');
 select public.bs_as(null);
-select pg_temp.mkcase('re_done', null, 'In service', '00000000-0000-0000-0000-00000000000c');
-select pg_temp.mkcase('re_canc', null, 'In service', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('re_done', null, 'Pipeline', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('re_canc', null, 'Pipeline', '00000000-0000-0000-0000-00000000000c');
 insert into public.business_setup_reassign_requests (case_id, from_user, to_user, reason, created_by) values
   (pg_temp.cid('re_done'), '00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d', 'x', '00000000-0000-0000-0000-00000000000c'),
   (pg_temp.cid('re_canc'), '00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d', 'x', '00000000-0000-0000-0000-00000000000c');
@@ -306,10 +298,10 @@ select public.bs_check('reassign: an approver changes the owner directly', pg_te
 select public.bs_check('the direct change is recorded', public.bs_audit_count('case_assign', pg_temp.fx('re'), '{"owner_id":"00000000-0000-0000-0000-00000000000d","note":"Cover while Sales is away"}') = 1);
 select public.bs_check('a direct change closes the pending request', (select status from public.business_setup_reassign_requests where id = pg_temp.cid('req2')) = 'Cancelled');
 select public.bs_as(null);
-select pg_temp.mkcase('asg_unowned', null, 'Assignment');
+select pg_temp.mkcase('asg_unowned', null, 'Pipeline');
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.business_setup_case_assign(pg_temp.cid('asg_unowned'), '00000000-0000-0000-0000-00000000000c', null);
-select public.bs_check('assigning at Assignment sets the owner and leaves the stage for them to confirm', pg_temp.owner('asg_unowned') = '00000000-0000-0000-0000-00000000000c' and pg_temp.stage('asg_unowned') = 'Assignment');
+select public.bs_check('assigning a Pipeline case sets the owner and leaves the stage', pg_temp.owner('asg_unowned') = '00000000-0000-0000-0000-00000000000c' and pg_temp.stage('asg_unowned') = 'Pipeline');
 
 -- ── staff_completes_form ──
 select public.bs_as(null);
@@ -376,41 +368,41 @@ select public.bs_expect_error($$select business_setup_case_list('all')$$, 'permi
 select public.bs_as('00000000-0000-0000-0000-00000000000e');
 select public.bs_expect_error($$select business_setup_case_new('{"lead_name":"Finance"}')$$, 'permission');
 select public.bs_expect_error(format($$select business_setup_case_take('%s')$$, pg_temp.fx('conf_none')), 'permission');
-select public.bs_check('nothing changed under the refusals', pg_temp.stage('conf_none') = 'Assignment' and pg_temp.owner('conf_none') is null);
+select public.bs_check('nothing changed under the refusals', pg_temp.stage('conf_none') = 'Pipeline' and pg_temp.owner('conf_none') is null);
 
 -- ── case_list ──
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error($$select business_setup_case_list('bogus')$$, 'view');
-select public.bs_check('leads view: Lead, Contact, Review and Lost only', (select bool_and(e ->> 'stage' in ('Lead', 'Contact', 'Review', 'Lost')) and count(*) > 3 from jsonb_array_elements(public.business_setup_case_list('leads')) e));
+select public.bs_check('leads view: Lead and Review only', (select bool_and(e ->> 'stage' in ('Lead', 'Review')) and count(*) > 3 from jsonb_array_elements(public.business_setup_case_list('leads')) e));
 select public.bs_check('leads view holds the lead with its owner name and docs', (select e ->> 'owner_name' = 'Sales' and e ? 'docs' and e ->> 'lead_name' = 'Alpha Trading' and e ->> 'case_number' ~ '^BSC' and e ? 'reassign'
   from jsonb_array_elements(public.business_setup_case_list('leads')) e where e ->> 'id' = pg_temp.fx('lead')));
-select public.bs_check('documentation view: Services and Documentation only', (select bool_and(e ->> 'stage' in ('Services', 'Documentation')) and count(*) >= 2 from jsonb_array_elements(public.business_setup_case_list('documentation')) e));
-select public.bs_check('cases view: Assignment onward only', (select bool_and(e ->> 'stage' in ('Assignment', 'In service', 'Completed', 'Cancelled')) and count(*) >= 3 from jsonb_array_elements(public.business_setup_case_list('cases')) e));
+select public.bs_check('documentation view (kept for the old screens): Onboarding only', (select bool_and(e ->> 'stage' = 'Onboarding') and count(*) >= 2 from jsonb_array_elements(public.business_setup_case_list('documentation')) e));
+select public.bs_check('cases view (kept for the old screens): Pipeline onward only', (select bool_and(e ->> 'stage' in ('Pipeline', 'Completion', 'With Accounts', 'Completed', 'Cancelled')) and count(*) >= 3 from jsonb_array_elements(public.business_setup_case_list('cases')) e));
 select public.bs_check('all view holds every case', jsonb_array_length(public.business_setup_case_list('all')) = (select count(*) from public.business_setup_cases));
-select public.bs_check('a case list row carries the document checklist', (select e -> 'docs' ? 'quote' and e -> 'docs' ? 'signed' from jsonb_array_elements(public.business_setup_case_list('cases')) e limit 1));
+select public.bs_check('a case list row carries the document checklist', (select e -> 'docs' ? 'quote' and e -> 'docs' ? 'quote_accepted' from jsonb_array_elements(public.business_setup_case_list('cases')) e limit 1));
 
 -- ── Services closing a case ──
 select public.bs_as(null);
 select pg_temp.mkclient('CL980030', false);
-select pg_temp.mkcase('svc_done', 'CL980030', 'In service');
+select pg_temp.mkcase('svc_done', 'CL980030', 'Pipeline');
 select pg_temp.mkquote('svc_done_q', 'T80-SVC1', 'CL980030', pg_temp.cid('svc_done'), 'accepted');
 insert into public.business_setup_services (id, client_id, quote_id, name, status) values ('00000000-0000-0000-0000-0000000000a1', 'CL980030', pg_temp.cid('svc_done_q'), 's1', 'In progress'),
   ('00000000-0000-0000-0000-0000000000a2', 'CL980030', pg_temp.cid('svc_done_q'), 's2', 'In progress');
 update public.business_setup_services set status = 'Completed' where id = '00000000-0000-0000-0000-0000000000a1';
-select public.bs_check('one service open: the case stays In service', pg_temp.stage('svc_done') = 'In service');
+select public.bs_check('one service open: the case stays in Pipeline', pg_temp.stage('svc_done') = 'Pipeline');
 update public.business_setup_services set status = 'Cancelled' where id = '00000000-0000-0000-0000-0000000000a2';
-select public.bs_check('service trigger: one Completed, none open gives Completed', pg_temp.stage('svc_done') = 'Completed');
+select public.bs_check('service trigger: one Completed, none open gives Completion', pg_temp.stage('svc_done') = 'Completion');
 select pg_temp.mkclient('CL980031', false);
-select pg_temp.mkcase('svc_can', 'CL980031', 'In service');
+select pg_temp.mkcase('svc_can', 'CL980031', 'Pipeline');
 select pg_temp.mkquote('svc_can_q', 'T80-SVC2', 'CL980031', pg_temp.cid('svc_can'), 'accepted');
 insert into public.business_setup_services (id, client_id, quote_id, name, status) values ('00000000-0000-0000-0000-0000000000b1', 'CL980031', pg_temp.cid('svc_can_q'), 's1', 'In progress');
 update public.business_setup_services set status = 'Cancelled' where id = '00000000-0000-0000-0000-0000000000b1';
 select public.bs_check('service trigger: every service Cancelled gives Cancelled', pg_temp.stage('svc_can') = 'Cancelled');
-select pg_temp.mkcase('svc_asg', 'CL980031', 'Assignment');
+select pg_temp.mkcase('svc_asg', 'CL980031', 'Onboarding');
 select pg_temp.mkquote('svc_asg_q', 'T80-SVC3', 'CL980031', pg_temp.cid('svc_asg'), 'accepted');
 insert into public.business_setup_services (id, client_id, quote_id, name, status) values ('00000000-0000-0000-0000-0000000000c1', 'CL980031', pg_temp.cid('svc_asg_q'), 's1', 'Not started');
 update public.business_setup_services set status = 'Cancelled' where id = '00000000-0000-0000-0000-0000000000c1';
-select public.bs_check('a case not yet In service is left alone', pg_temp.stage('svc_asg') = 'Assignment');
+select public.bs_check('a case still at Onboarding is left alone', pg_temp.stage('svc_asg') = 'Onboarding');
 insert into public.business_setup_services (client_id, name, status) values ('CL980031', 'no quote', 'In progress');
 update public.business_setup_services set status = 'Completed' where name = 'no quote';
 
@@ -418,16 +410,16 @@ update public.business_setup_services set status = 'Completed' where name = 'no 
 select public.bs_as(null);
 select pg_temp.mkclient('CL980040', false);
 select pg_temp.mkclient('CL980041', false);
-select pg_temp.mkcase('doc_case', 'CL980040', 'Services');
+select pg_temp.mkcase('doc_case', 'CL980040', 'Onboarding');
 select pg_temp.mkcase('doc_case_open', null, 'Lead');
-select pg_temp.mkcase('doc_case2', 'CL980040', 'Services');
+select pg_temp.mkcase('doc_case2', 'CL980040', 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Accounting","case_id":"%s"}')$$, pg_temp.fx('doc_case')), 'Business Setup');
 select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s","client_id":"CL980041"}')$$, pg_temp.fx('doc_case')), 'client');
 select public.bs_check('a matching client keeps the case on the quote', (select case_id = pg_temp.cid('doc_case') from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","client_id":"CL980040"}', pg_temp.fx('doc_case'))::jsonb)));
 select public.bs_check('a quote with no client of its own joins the case', (select case_id = pg_temp.cid('doc_case2') from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('doc_case2'))::jsonb)));
 select public.bs_check('a case with no client yet accepts a quote for any client', (select case_id = pg_temp.cid('doc_case_open') from pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","client_id":"CL980041"}', pg_temp.fx('doc_case_open'))::jsonb)));
-select public.bs_check('issuing a quote moved the case on', pg_temp.stage('doc_case') = 'Documentation');
+select public.bs_check('issuing a quote leaves the case at Onboarding', pg_temp.stage('doc_case') = 'Onboarding');
 select public.bs_check('Accounting with no case behaves as before', (select case_id is null and status = 'issued' from pg_temp.hq('{"department":"Accounting"}'::jsonb)));
 select public.bs_check('Business Setup with no case behaves as before', (select case_id is null from pg_temp.hq('{"department":"Business Setup","client_id":"CL980040"}'::jsonb)));
 select public.bs_expect_error($$select pg_temp.hq('{"department":"Business Setup","case_id":"00000000-0000-0000-0000-0000000000ff"}'::jsonb)$$, 'Unknown case');
@@ -445,17 +437,17 @@ select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('d0', pg_temp.dash()::text);
 select public.bs_check('dash_keys: every old key is still present', pg_temp.dash() ?& array['forms_waiting', 'open_quotes', 'accepted_without_letter', 'outstanding', 'active_services', 'expiries', 'ready_for_accounts', 'reverted_by_accounts']);
 select public.bs_check('dash_keys: the new keys are present', pg_temp.dash() ?& array['processes_pending', 'receivables', 'advances', 'cases_completed_month', 'cases_completed_total', 'pipeline', 'forms_to_review', 'pending_after_kyc']);
-select public.bs_check('dash_pipeline: lists every open stage, even at zero', (select count(*) = 7 from jsonb_object_keys(pg_temp.dash() -> 'pipeline'))
+select public.bs_check('dash_pipeline: lists every open stage, even at zero', (select count(*) = 6 from jsonb_object_keys(pg_temp.dash() -> 'pipeline'))
   and not (pg_temp.dash() -> 'pipeline') ?| array['Completed', 'Cancelled', 'Lost']);
 select public.bs_check('dash_keys: forms to review is the forms waiting', pg_temp.dash() ->> 'forms_to_review' = pg_temp.dash() ->> 'forms_waiting');
 
 -- Money: an accepted quote with a part payment, an overpaid one, a quote only issued, and advances on a case with no accepted quote.
 select public.bs_as(null);
 select pg_temp.mkclient('CL980060', false);
-select pg_temp.mkcase('d_rec', 'CL980060', 'Documentation');
-select pg_temp.mkcase('d_over', 'CL980060', 'Documentation');
-select pg_temp.mkcase('d_iss', 'CL980060', 'Documentation');
-select pg_temp.mkcase('d_adv', 'CL980060', 'Documentation');
+select pg_temp.mkcase('d_rec', 'CL980060', 'Onboarding');
+select pg_temp.mkcase('d_over', 'CL980060', 'Onboarding');
+select pg_temp.mkcase('d_iss', 'CL980060', 'Onboarding');
+select pg_temp.mkcase('d_adv', 'CL980060', 'Onboarding');
 select pg_temp.mkquote('dq_rec', 'DQ-1', 'CL980060', pg_temp.cid('d_rec'));
 select pg_temp.mkquote('dq_over', 'DQ-2', 'CL980060', pg_temp.cid('d_over'));
 select pg_temp.mkquote('dq_iss', 'DQ-3', 'CL980060', pg_temp.cid('d_iss'));
@@ -476,22 +468,23 @@ select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('d1', pg_temp.dash()::text);
 select public.bs_as(null);
 select pg_temp.mkcase('s_lead', null, 'Lead');
-select pg_temp.mkcase('s_svc1', 'CL980060', 'Services');
-select pg_temp.mkcase('s_svc2', 'CL980060', 'Services');
-select pg_temp.mkcase('s_doc', 'CL980060', 'Documentation');
-select pg_temp.mkcase('s_asg', 'CL980060', 'Assignment');
-select pg_temp.mkcase('s_done_new', 'CL980060', 'In service');
-select pg_temp.mkcase('s_done_old', 'CL980060', 'In service');
+select pg_temp.mkcase('s_svc1', 'CL980060', 'Onboarding');
+select pg_temp.mkcase('s_svc2', 'CL980060', 'Onboarding');
+select pg_temp.mkcase('s_doc', 'CL980060', 'Onboarding');
+select pg_temp.mkquote('sq_doc', 'SQ-DOC', 'CL980060', pg_temp.cid('s_doc'));
+select pg_temp.mkcase('s_asg', 'CL980060', 'Pipeline');
+select pg_temp.mkcase('s_done_new', 'CL980060', 'Pipeline');
+select pg_temp.mkcase('s_done_old', 'CL980060', 'Pipeline');
 select pg_temp.mkcase('s_canc', 'CL980060', 'Cancelled');
 select pg_temp.mkcase('s_lost', null, 'Lost');
 select public.business_setup_case_set_stage(pg_temp.cid('s_done_new'), 'Completed', 'test');
 update public.business_setup_cases set stage = 'Completed' where id = pg_temp.cid('s_done_old');
 insert into public.business_setup_audit_log (table_name, row_id, action, new_data, occurred_at) values ('business_setup_cases', pg_temp.fx('s_done_old'), 'case_stage', '{"stage":"Completed"}', now() - interval '70 days');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.bs_check('dash_pipeline: counts per stage', pg_temp.dstage('d1', 'Lead') = 1 and pg_temp.dstage('d1', 'Services') = 2 and pg_temp.dstage('d1', 'Documentation') = 1
-  and pg_temp.dstage('d1', 'Assignment') = 1 and pg_temp.dstage('d1', 'In service') = 0);
+select public.bs_check('dash_pipeline: counts per stage', pg_temp.dstage('d1', 'Lead') = 1 and pg_temp.dstage('d1', 'Onboarding') = 3
+  and pg_temp.dstage('d1', 'Pipeline') = 1 and pg_temp.dstage('d1', 'Completion') = 0);
 select public.bs_check('dash_pipeline: Completed, Cancelled and Lost are left out', not (pg_temp.dash() -> 'pipeline') ? 'Completed' and not (pg_temp.dash() -> 'pipeline') ? 'Cancelled' and not (pg_temp.dash() -> 'pipeline') ? 'Lost');
-select public.bs_check('dash_after_kyc: cases at Services count, Documentation does not', pg_temp.dd('d1', 'pending_after_kyc') = 2);
+select public.bs_check('dash_after_kyc: cases at Onboarding with no quote count, the one with a quote does not', pg_temp.dd('d1', 'pending_after_kyc') = 2);
 select public.bs_check('dash_completed: two completed in total, one this month', pg_temp.dd('d1', 'cases_completed_total') = 2 and pg_temp.dd('d1', 'cases_completed_month') = 1);
 
 -- Services: only those whose quote is in a case are processes.
@@ -516,14 +509,14 @@ select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 values ('e0', pg_temp.dash()::text);
 select public.bs_as(null);
 select pg_temp.mkclient('CL980070', false);
-select pg_temp.mkcase('f_a', 'CL980070', 'Documentation');
+select pg_temp.mkcase('f_a', 'CL980070', 'Onboarding');
 select pg_temp.mkquote('fq_a1', 'FQ-1', 'CL980070', pg_temp.cid('f_a'));
 select pg_temp.mkpay('CL980070', pg_temp.cid('fq_a1'), pg_temp.cid('f_a'), 400);
 select pg_temp.mkquote('fq_a2', 'FQ-2', 'CL980070', pg_temp.cid('f_a'), 'accepted');
 update public.hub_documents set total_amount = 1050 where id = pg_temp.cid('fq_a2');
 update public.hub_documents set status = 'superseded' where id = pg_temp.cid('fq_a1');
 -- B: a case-linked payment with no quote, on a case with an accepted quote.
-select pg_temp.mkcase('f_b', 'CL980070', 'Documentation');
+select pg_temp.mkcase('f_b', 'CL980070', 'Onboarding');
 select pg_temp.mkquote('fq_b', 'FQ-3', 'CL980070', pg_temp.cid('f_b'), 'accepted');
 select pg_temp.mkpay('CL980070', null, pg_temp.cid('f_b'), 100);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
@@ -536,7 +529,7 @@ select public.bs_check('scenario A and B together: receivables rose by 1550', pg
 
 -- C: a payment on a quote in a case with no accepted quote is an advance only. The case follows the quote when none is given.
 select public.bs_as(null);
-select pg_temp.mkcase('f_c', 'CL980070', 'Documentation');
+select pg_temp.mkcase('f_c', 'CL980070', 'Onboarding');
 select pg_temp.mkquote('fq_c', 'FQ-4', 'CL980070', pg_temp.cid('f_c'));
 select pg_temp.mkpay('CL980070', pg_temp.cid('fq_c'), null, 200);
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
@@ -550,31 +543,31 @@ select pg_temp.mkpay('CL980070', pg_temp.cid('fq_d'), null, 300);
 select pg_temp.mkpay('CL980070', pg_temp.cid('fq_d'), null, 50, 'Refund');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_check('net_paid: a quote with no case is summed by quote', pg_temp.np(pg_temp.cid('fq_d')) = 250 and (select case_id is null from public.business_setup_payments where quote_id = pg_temp.cid('fq_d') limit 1));
--- E: a payment recorded through payment_add moves the case when the other items are met.
+-- E: a payment recorded through payment_add takes the case_id of its quote.
 select public.bs_as(null);
-select pg_temp.mkcase('f_e', 'CL980070', 'Documentation');
+select pg_temp.mkcase('f_e', 'CL980070', 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 select 'fq_e', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","client_id":"CL980070"}', pg_temp.fx('f_e'))::jsonb)).id::text;
 select public.bs_as(null);
 update public.hub_documents set status = 'accepted' where id = pg_temp.cid('fq_e');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.bs_check('payment_case: before the payment the case stays at Documentation', pg_temp.stage('f_e') = 'Documentation');
+select public.bs_check('payment_case: before the payment the case stays at Onboarding', pg_temp.stage('f_e') = 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000b');
 select public.business_setup_payment_add(jsonb_build_object('quote_id', pg_temp.cid('fq_e'), 'amount', 100)) as ignored \gset
-select public.bs_check('payment_case: with the payment alone the case stays at Documentation, the letter is missing', pg_temp.stage('f_e') = 'Documentation');
+select public.bs_check('payment_case: with the payment alone the case stays at Onboarding, the letter is missing', pg_temp.stage('f_e') = 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', pg_temp.cid('fq_e')));
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_check('payment_case: payment_add sets the case_id', (select count(*) = 1 from public.business_setup_payments where quote_id = pg_temp.cid('fq_e') and case_id = pg_temp.cid('f_e')));
-select public.bs_check('payment_case: and the case moves to Assignment', pg_temp.stage('f_e') = 'Assignment');
+select public.bs_check('payment_case: a payment moves no stage: the invoice, fields and login are still open', pg_temp.stage('f_e') = 'Onboarding');
 select public.bs_as(null);
 
 -- ── One quote per case (fix round 2) ──
 -- A case holds one quote and its revisions. Cases are made as the table owner, quotes as a user who may issue them.
 select public.bs_as(null);
-select pg_temp.mkcase('g_iss', 'CL980070', 'Services');
-select pg_temp.mkcase('g_acc', 'CL980070', 'Documentation');
-select pg_temp.mkcase('g_rej', 'CL980070', 'Services');
+select pg_temp.mkcase('g_iss', 'CL980070', 'Onboarding');
+select pg_temp.mkcase('g_acc', 'CL980070', 'Onboarding');
+select pg_temp.mkcase('g_rej', 'CL980070', 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 select 'gq_iss', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('g_iss'))::jsonb)).id::text;
 select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","case_id":"%s"}')$$, pg_temp.fx('g_iss')), 'already has a quote');
@@ -598,7 +591,7 @@ select public.bs_as(null);
 
 -- ── Revising a quote that has no case (fix round 3) ──
 select public.bs_as(null);
-select pg_temp.mkcase('h_case', 'CL980070', 'Services');
+select pg_temp.mkcase('h_case', 'CL980070', 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 select 'hq_nocase', (pg_temp.hq('{"department":"Business Setup","client_id":"CL980070"}'::jsonb)).id::text;
 select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Business Setup","client_id":"CL980070","case_id":"%s","revises_id":"%s"}')$$, pg_temp.fx('h_case'), pg_temp.fx('hq_nocase')), 'not in a case');
@@ -636,34 +629,31 @@ select public.bs_check('upload policy: no SELECT, UPDATE or DELETE policy for th
 select public.bs_check('upload_ok: signed-in staff can call it, anon cannot', has_function_privilege('authenticated', 'public.business_setup_staff_upload_ok(text, text)', 'execute')
   and not has_function_privilege('anon', 'public.business_setup_staff_upload_ok(text, text)', 'execute'));
 
--- ── 2. A case cannot stick at In service ──
+-- ── 2. A case cannot stick in Pipeline ──
 select pg_temp.mkclient('CL980100', false, false);
-select pg_temp.mkcase('s_conf', 'CL980100', 'Assignment', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('s_conf', 'CL980100', 'Pipeline', '00000000-0000-0000-0000-00000000000c');
 select pg_temp.mkquote('s_conf_q', 'S-CONF', 'CL980100', pg_temp.cid('s_conf'), 'accepted');
 insert into public.business_setup_services (client_id, quote_id, name, status) values ('CL980100', pg_temp.cid('s_conf_q'), 'Done early', 'Completed');
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.business_setup_case_confirm(pg_temp.cid('s_conf'));
-select public.bs_check('confirm: every service already closed, so the case reaches Completed', pg_temp.stage('s_conf') = 'Completed');
-select public.bs_as(null);
+select public.business_setup_case_sync(pg_temp.cid('s_conf'));
+select public.bs_check('sync: every service already closed, so the case reaches Completion', pg_temp.stage('s_conf') = 'Completion');
 select pg_temp.mkclient('CL980101', false, false);
-select pg_temp.mkcase('s_take', 'CL980101', 'Assignment');
+select pg_temp.mkcase('s_take', 'CL980101', 'Pipeline');
 select pg_temp.mkquote('s_take_q', 'S-TAKE', 'CL980101', pg_temp.cid('s_take'), 'accepted');
 insert into public.business_setup_services (client_id, quote_id, name, status) values ('CL980101', pg_temp.cid('s_take_q'), 'Cancelled early', 'Cancelled');
 select public.bs_as('00000000-0000-0000-0000-00000000000d');
 select public.business_setup_case_take(pg_temp.cid('s_take'));
-select public.bs_check('take at Assignment: every service already closed, so the case reaches Cancelled', pg_temp.stage('s_take') = 'Cancelled' and pg_temp.owner('s_take') = '00000000-0000-0000-0000-00000000000d');
+select public.bs_check('take in Pipeline: every service already closed, so the case reaches Cancelled', pg_temp.stage('s_take') = 'Cancelled' and pg_temp.owner('s_take') = '00000000-0000-0000-0000-00000000000d');
 select public.bs_as(null);
-select pg_temp.mkcase('s_open', 'CL980101', 'Assignment', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('s_open', 'CL980101', 'Pipeline', '00000000-0000-0000-0000-00000000000c');
 select pg_temp.mkquote('s_open_q', 'S-OPEN', 'CL980101', pg_temp.cid('s_open'), 'accepted');
 insert into public.business_setup_services (client_id, quote_id, name, status) values ('CL980101', pg_temp.cid('s_open_q'), 'Still open', 'Not started');
-select public.bs_as('00000000-0000-0000-0000-00000000000c');
-select public.business_setup_case_confirm(pg_temp.cid('s_open'));
-select public.bs_check('confirm: an open service keeps the case In service', pg_temp.stage('s_open') = 'In service');
+select public.business_setup_case_sync(pg_temp.cid('s_open'));
+select public.bs_check('sync: an open service keeps the case in Pipeline', pg_temp.stage('s_open') = 'Pipeline');
 
 -- ── 3. Quote chain, Mark lost, closed cases ──
 select public.bs_as(null);
 select pg_temp.mkclient('CL980110', false, true);
-select pg_temp.mkcase('c_chain', 'CL980110', 'Services');
+select pg_temp.mkcase('c_chain', 'CL980110', 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 select 'c_q1', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s"}', pg_temp.fx('c_chain'))::jsonb)).id::text;
 insert into f80 select 'c_q2', (pg_temp.hq(format('{"department":"Business Setup","case_id":"%s","revises_id":"%s"}', pg_temp.fx('c_chain'), pg_temp.fx('c_q1'))::jsonb)).id::text;
@@ -676,14 +666,14 @@ select public.bs_check('chain: Q1 superseded and Q2 rejected, so a new quote is 
 -- Mark lost: an accepted quote refuses, with the way out
 select public.bs_as(null);
 select pg_temp.mkclient('CL980111', false, true);
-select pg_temp.mkcase('c_acc', 'CL980111', 'Documentation');
+select pg_temp.mkcase('c_acc', 'CL980111', 'Onboarding');
 select pg_temp.mkquote('c_acc_q', 'C-ACC', 'CL980111', pg_temp.cid('c_acc'), 'accepted');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error(format($$select business_setup_case_lost('%s', 'Gone')$$, pg_temp.fx('c_acc')), 'cancel its services');
-select public.bs_check('lost with an accepted quote leaves the case where it was', pg_temp.stage('c_acc') = 'Documentation');
+select public.bs_check('lost with an accepted quote leaves the case where it was', pg_temp.stage('c_acc') = 'Onboarding');
 -- a client-less backfilled case (issued quote, letter, no client, no login) can be closed by Sales
 select public.bs_as(null);
-select pg_temp.mkcase('c_bsq1', null, 'Documentation');
+select pg_temp.mkcase('c_bsq1', null, 'Onboarding');
 select pg_temp.mkquote('c_bsq1_q', 'C-BSQ1', null, pg_temp.cid('c_bsq1'), 'issued');
 insert into public.hub_documents (parent_id, doc_type, department, client_name, document_number, case_id) values (pg_temp.cid('c_bsq1_q'), 'letter', 'Business Setup', 'x', 'C-BSQ1-L', pg_temp.cid('c_bsq1'));
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
@@ -692,7 +682,7 @@ select public.bs_check('lost: a case with no client and no login closes', pg_tem
 -- a Lost / Completed / Cancelled case takes no accepted quote and no new document
 select public.bs_as(null);
 select pg_temp.mkclient('CL980112', false, true);
-select pg_temp.mkcase('c_lostq', 'CL980112', 'Documentation');
+select pg_temp.mkcase('c_lostq', 'CL980112', 'Onboarding');
 select pg_temp.mkquote('c_lostq_q', 'C-LOSTQ', 'CL980112', pg_temp.cid('c_lostq'), 'issued');
 select pg_temp.mkcase('c_done', 'CL980112', 'Completed');
 select pg_temp.mkcase('c_canc', 'CL980112', 'Cancelled');
@@ -710,7 +700,7 @@ select public.bs_expect_error(format($$select pg_temp.hq('{"department":"Busines
 select public.bs_check('no document was created in the closed cases', not exists (select 1 from public.hub_documents where case_id in (pg_temp.cid('c_done'), pg_temp.cid('c_canc')))
   and (select count(*) from public.hub_documents where case_id = pg_temp.cid('c_lostq')) = 1);
 select public.bs_as(null);
-select pg_temp.mkcase('c_donel', 'CL980112', 'Services');
+select pg_temp.mkcase('c_donel', 'CL980112', 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 insert into f80 select 'c_donel_q', (pg_temp.hq(format('{"department":"Business Setup","client_id":"CL980112","case_id":"%s"}', pg_temp.fx('c_donel'))::jsonb)).id::text;
 select public.bs_as(null);
@@ -724,7 +714,7 @@ select public.bs_expect_error(format($$select public.hub_document_create('{"doc_
 -- ── 4. A form on a closed case is free ──
 select public.bs_as(null);
 select pg_temp.mkclient('CL980120', true, false);
-select pg_temp.mkcase('f_old', 'CL980120', 'Contact');
+select pg_temp.mkcase('f_old', 'CL980120', 'Lead');
 select public.business_setup_form_create('CL980120', (select id from public.client_portal_accounts where client_master_id = 'CL980120'));
 update public.business_setup_onboarding_forms set case_id = pg_temp.cid('f_old') where client_id = 'CL980120';
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
@@ -733,13 +723,13 @@ select public.bs_expect_error(format($$select business_setup_case_shared('%s')$$
 select public.business_setup_case_lost(pg_temp.cid('f_old'), 'Went quiet');
 select public.business_setup_case_shared(pg_temp.cid('f_new'));
 select public.bs_check('form_on_lost_case: Share link moves the form to the new case', (select count(*) = 1 and bool_and(case_id = pg_temp.cid('f_new')) from public.business_setup_onboarding_forms where client_id = 'CL980120')
-  and pg_temp.stage('f_new') = 'Contact');
+  and pg_temp.stage('f_new') = 'Lead');
 select public.bs_check('form_on_lost_case: the lost case keeps no form', not exists (select 1 from public.business_setup_onboarding_forms where case_id = pg_temp.cid('f_old')));
 
--- ── 9. Link a client-less case from Documentation ──
+-- ── 9. Link a client-less case at Onboarding ──
 select public.bs_as(null);
 select pg_temp.mkclient('CL980130', false, true);
-select pg_temp.mkcase('l_case', null, 'Documentation');
+select pg_temp.mkcase('l_case', null, 'Onboarding');
 select pg_temp.mkquote('l_q', 'L-Q1', null, pg_temp.cid('l_case'), 'issued');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.business_setup_quote_link(pg_temp.cid('l_q'), 'CL980130');
@@ -751,20 +741,20 @@ select public.bs_check('quote_link: a repeat changes nothing', public.bs_audit_c
 select public.bs_expect_error(format($$select business_setup_quote_link('%s', 'CL980111')$$, pg_temp.fx('l_q')), 'different client');
 -- a quote already linked to the client, in a case that is not: the repeat call fills the case
 select public.bs_as(null);
-select pg_temp.mkcase('l_case2', null, 'Documentation');
+select pg_temp.mkcase('l_case2', null, 'Onboarding');
 select pg_temp.mkquote('l_q2', 'L-Q2', 'CL980130', pg_temp.cid('l_case2'), 'issued');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.business_setup_quote_link(pg_temp.cid('l_q2'), 'CL980130');
 select public.bs_check('quote_link: a quote with the client but a case without fills the case', (select client_id = 'CL980130' from public.business_setup_cases where id = pg_temp.cid('l_case2')));
 -- a case with another client refuses
 select public.bs_as(null);
-select pg_temp.mkcase('l_case3', 'CL980111', 'Documentation');
+select pg_temp.mkcase('l_case3', 'CL980111', 'Onboarding');
 select pg_temp.mkquote('l_q3', 'L-Q3', null, pg_temp.cid('l_case3'), 'issued');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.bs_expect_error(format($$select business_setup_quote_link('%s', 'CL980130')$$, pg_temp.fx('l_q3')), 'case of this quote');
 -- case link: the case's quote follows, so it can be accepted
 select public.bs_as(null);
-select pg_temp.mkcase('l_case4', null, 'Documentation');
+select pg_temp.mkcase('l_case4', null, 'Onboarding');
 select pg_temp.mkquote('l_q4', 'L-Q4', null, pg_temp.cid('l_case4'), 'issued');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 select public.business_setup_case_link_client(pg_temp.cid('l_case4'), 'CL980130');

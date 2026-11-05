@@ -3,9 +3,12 @@
 \pset tuples_only on
 \pset format unaligned
 -- 010 grants every function to signed-in users for its own calls: run the migrations again to restore their real grants.
+-- 013's backfill writes the old stage names (as on the live database): lift the new check for it and let 016 map them.
+alter table public.business_setup_cases drop constraint if exists business_setup_cases_stage_check;
 \ir ../migrations/013_cases.sql
 \ir ../migrations/014_leads_ownership.sql
 \ir ../migrations/015_documentation.sql
+\ir ../migrations/016_client_flow.sql
 \ir ../migrations/018_portal.sql
 create temp table f100 (k text primary key, v text);
 grant all on f100 to authenticated;

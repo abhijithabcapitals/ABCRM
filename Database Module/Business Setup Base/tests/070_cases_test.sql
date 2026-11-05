@@ -76,20 +76,20 @@ select public.bs_check('my access lists them', (public.business_setup_my_access(
 select public.bs_as(null);
 
 -- ── set_stage writes the audit entry ──
-select public.business_setup_case_set_stage(pg_temp.fx('shape')::uuid, 'Contact', 'Link used');
-select public.bs_check('set_stage moves the case', pg_temp.stage('shape') = 'Contact');
-select public.bs_check('set_stage audits it', public.bs_audit_count('case_stage', pg_temp.fx('shape'), '{"stage":"Contact","note":"Link used"}') = 1);
+select public.business_setup_case_set_stage(pg_temp.fx('shape')::uuid, 'Review', 'Link used');
+select public.bs_check('set_stage moves the case', pg_temp.stage('shape') = 'Review');
+select public.bs_check('set_stage audits it', public.bs_audit_count('case_stage', pg_temp.fx('shape'), '{"stage":"Review","note":"Link used"}') = 1);
 select public.bs_expect_error(format($$select business_setup_case_set_stage('%s', 'Bogus', null)$$, pg_temp.fx('shape')), 'check');
 
 -- ── case_sync_forward_only ──
-select pg_temp.mkcase('fwd', 'CL970002', 'In service');
+select pg_temp.mkcase('fwd', 'CL970002', 'Pipeline');
 select pg_temp.mkquote('fwd_q', 'T70-FWD', 'CL970002', pg_temp.fx('fwd')::uuid, 'accepted');
 select public.business_setup_case_sync(pg_temp.fx('fwd')::uuid);
-select public.bs_check('case_sync_forward_only: In service is unchanged', pg_temp.stage('fwd') = 'In service');
-select pg_temp.mkcase('fwd2', 'CL970003', 'Assignment');
+select public.bs_check('case_sync_forward_only: Pipeline is unchanged', pg_temp.stage('fwd') = 'Pipeline');
+select pg_temp.mkcase('fwd2', 'CL970003', 'Pipeline');
 select pg_temp.mkquote('fwd2_q', 'T70-FWD2', 'CL970003', pg_temp.fx('fwd2')::uuid);
 select public.business_setup_case_sync(pg_temp.fx('fwd2')::uuid);
-select public.bs_check('Assignment does not slide back to Documentation', pg_temp.stage('fwd2') = 'Assignment');
+select public.bs_check('Pipeline does not slide back to Onboarding', pg_temp.stage('fwd2') = 'Pipeline');
 select pg_temp.mkcase('fwd3', 'CL970004', 'Review');
 select pg_temp.mkquote('fwd3_q', 'T70-FWD3', 'CL970004', pg_temp.fx('fwd3')::uuid);
 select public.bs_check('a quote does not lift a case still in Review', pg_temp.stage('fwd3') = 'Review');
@@ -98,95 +98,99 @@ select pg_temp.mkquote('lost_q', 'T70-LOST', 'CL970005', pg_temp.fx('lost')::uui
 select public.bs_check('a Lost case stays Lost', pg_temp.stage('lost') = 'Lost');
 
 -- ── form_trigger ──
-select pg_temp.mkcase('form', 'CL970010', 'Contact');
+select pg_temp.mkcase('form', 'CL970010', 'Lead');
 select pg_temp.mkform('CL970010', 'form_f', 'Draft', pg_temp.fx('form')::uuid);
-select public.bs_check('a Draft form leaves the stage', pg_temp.stage('form') = 'Contact');
+select public.bs_check('a Draft form leaves the stage', pg_temp.stage('form') = 'Lead');
 update public.business_setup_onboarding_forms set status = 'Submitted' where id = pg_temp.fx('form_f')::uuid;
 select public.bs_check('form_trigger: Submitted gives Review', pg_temp.stage('form') = 'Review');
 update public.business_setup_onboarding_forms set status = 'Returned' where id = pg_temp.fx('form_f')::uuid;
-select public.bs_check('form_trigger: Returned gives Contact', pg_temp.stage('form') = 'Contact');
+select public.bs_check('form_trigger: Returned gives Lead', pg_temp.stage('form') = 'Lead');
 update public.business_setup_onboarding_forms set status = 'Submitted' where id = pg_temp.fx('form_f')::uuid;
 update public.business_setup_onboarding_forms set status = 'In review' where id = pg_temp.fx('form_f')::uuid;
 select public.bs_check('form_trigger: In review gives Review', pg_temp.stage('form') = 'Review');
 update public.business_setup_onboarding_forms set status = 'Validated' where id = pg_temp.fx('form_f')::uuid;
-select public.bs_check('form_trigger: Validated gives Services', pg_temp.stage('form') = 'Services');
-select pg_temp.mkcase('form2', 'CL970011', 'Documentation');
+select public.bs_check('form_trigger: Validated moves no stage by itself', pg_temp.stage('form') = 'Review');
+select pg_temp.mkcase('form2', 'CL970011', 'Onboarding');
 select pg_temp.mkform('CL970011', 'form2_f', 'Draft', pg_temp.fx('form2')::uuid);
 update public.business_setup_onboarding_forms set status = 'Returned' where id = pg_temp.fx('form2_f')::uuid;
-select public.bs_check('a form change does not pull a later stage back', pg_temp.stage('form2') = 'Documentation');
+select public.bs_check('a form change does not pull a later stage back', pg_temp.stage('form2') = 'Onboarding');
 select pg_temp.mkform('CL970012', 'form3_f', 'Draft');
 update public.business_setup_onboarding_forms set status = 'Submitted' where id = pg_temp.fx('form3_f')::uuid;
 select public.bs_check('a form with no case still updates', (select status from public.business_setup_onboarding_forms where id = pg_temp.fx('form3_f')::uuid) = 'Submitted');
-select pg_temp.mkcase('form4', 'CL970013', 'Contact');
+select pg_temp.mkcase('form4', 'CL970013', 'Lead');
 select pg_temp.mkquote('form4_q', 'T70-FORM4', 'CL970013', pg_temp.fx('form4')::uuid);
 select pg_temp.mkform('CL970013', 'form4_f', 'Draft', pg_temp.fx('form4')::uuid);
 update public.business_setup_onboarding_forms set status = 'Validated' where id = pg_temp.fx('form4_f')::uuid;
-select public.bs_check('validating a form with a quote already issued reaches Documentation', pg_temp.stage('form4') = 'Documentation');
+select public.bs_check('validating a form of a Lead does not move it: only the owner moves it to Onboarding', pg_temp.stage('form4') = 'Lead');
 
--- ── quote_trigger and docs_ready ──
-select pg_temp.mkcase('doc', 'CL970020', 'Services');
-select public.bs_check('no quote yet: stays in Services', pg_temp.stage('doc') = 'Services' and (pg_temp.docs('doc') ->> 'quote')::boolean = false);
+-- ── The Onboarding checklist (case_docs) and the move to Pipeline ──
+select pg_temp.mkcase('doc', 'CL970020', 'Onboarding');
+select public.bs_check('no quote yet: the quote item is open and the case stays at Onboarding', pg_temp.stage('doc') = 'Onboarding' and (pg_temp.docs('doc') ->> 'quote')::boolean = false);
 select pg_temp.mkquote('doc_q', 'T70-DOC', 'CL970020', pg_temp.fx('doc')::uuid);
-select public.bs_check('quote_trigger: issuing a quote moves Services to Documentation', pg_temp.stage('doc') = 'Documentation');
-select public.bs_check('docs: quote only', pg_temp.docs('doc') = '{"quote":true,"signed":false,"letter":false,"invoice":false}'::jsonb);
+select public.bs_check('issuing a quote meets the quote item and the case stays at Onboarding', pg_temp.stage('doc') = 'Onboarding' and (pg_temp.docs('doc') ->> 'quote')::boolean and not (pg_temp.docs('doc') ->> 'quote_accepted')::boolean);
 update public.hub_documents set status = 'accepted' where id = pg_temp.fx('doc_q')::uuid;
-select public.bs_check('accepting the quote counts as signed', (pg_temp.docs('doc') ->> 'signed')::boolean and pg_temp.stage('doc') = 'Documentation');
+select public.bs_check('accepting the quote meets quote_accepted', (pg_temp.docs('doc') ->> 'quote_accepted')::boolean and pg_temp.stage('doc') = 'Onboarding');
 select pg_temp.mkpay('CL970020', 'doc_q', pg_temp.fx('doc')::uuid, 400);
-select public.bs_check('a payment changes nothing in the list: no Paid item, the case stays in Documentation', not (pg_temp.docs('doc') ? 'paid') and pg_temp.stage('doc') = 'Documentation');
+select public.bs_check('a payment changes no item, only the balance: the case stays at Onboarding', (pg_temp.docs('doc') ->> 'balance')::numeric = 600 and pg_temp.stage('doc') = 'Onboarding');
 select pg_temp.mkletter('doc_q', 'T70-DOC-L', pg_temp.fx('doc')::uuid);
-select public.bs_check('docs_ready: accepted quote, payment and letter alone wait for the invoice', pg_temp.stage('doc') = 'Documentation');
+select public.bs_check('a letter on the accepted quote meets letter and letter_accepted', (pg_temp.docs('doc') ->> 'letter')::boolean and (pg_temp.docs('doc') ->> 'letter_accepted')::boolean and pg_temp.stage('doc') = 'Onboarding');
 insert into public.business_setup_invoices (client_id, quote_id, case_id, invoice_number, source) values ('CL970020', pg_temp.fx('doc_q')::uuid, pg_temp.fx('doc')::uuid, 'T70-INV', 'Manual');
-select public.bs_check('docs_ready: with the invoice the case moves to Assignment', pg_temp.stage('doc') = 'Assignment');
-select public.bs_check('all four items are met', pg_temp.docs('doc') = '{"quote":true,"signed":true,"letter":true,"invoice":true}'::jsonb);
+select public.bs_check('with the invoice, fields, documents and login are still open: the case stays at Onboarding', pg_temp.stage('doc') = 'Onboarding'
+  and (pg_temp.docs('doc') ->> 'invoice')::boolean and not (pg_temp.docs('doc') ->> 'fields')::boolean and not (pg_temp.docs('doc') ->> 'login')::boolean);
+insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL970020', 'Done') on conflict (client_id) do update set kyc_state = 'Done';
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash) values ('CL970020', 'Doc', 'portal.doc70', 'x');
+select public.business_setup_case_sync(pg_temp.fx('doc')::uuid);
+select public.bs_check('every item met: the case moves to Pipeline with a balance still owing', pg_temp.stage('doc') = 'Pipeline' and (pg_temp.docs('doc') ->> 'balance')::numeric = 600);
 
-select pg_temp.mkcase('doc2', 'CL970021', 'Services');
+select pg_temp.mkcase('doc2', 'CL970021', 'Onboarding');
 select pg_temp.mkquote('doc2_q', 'T70-DOC2', 'CL970021', pg_temp.fx('doc2')::uuid, 'accepted', 500);
 select pg_temp.mkpay('CL970021', 'doc2_q', pg_temp.fx('doc2')::uuid, 500);
 select pg_temp.mkpay('CL970021', 'doc2_q', pg_temp.fx('doc2')::uuid, 500, 'Refund');
-select public.bs_check('a refund takes the net back to zero', public.business_setup_case_net_paid(pg_temp.fx('doc2')::uuid) = 0);
+select public.bs_check('a refund takes the net back to zero', public.business_setup_case_net_paid(pg_temp.fx('doc2')::uuid) = 0 and (pg_temp.docs('doc2') ->> 'balance')::numeric = 500);
 select pg_temp.mkletter('doc2_q', 'T70-DOC2-L', pg_temp.fx('doc2')::uuid);
-select public.bs_check('letter without net payment stays in Documentation', pg_temp.stage('doc2') = 'Documentation');
-select pg_temp.mkcase('doc3', 'CL970022', 'Services');
+select public.bs_check('a letter with no net payment is met, and the case waits for its other items', (pg_temp.docs('doc2') ->> 'letter')::boolean and pg_temp.stage('doc2') = 'Onboarding');
+select pg_temp.mkcase('doc3', 'CL970022', 'Onboarding');
 select pg_temp.mkquote('doc3_q', 'T70-DOC3', 'CL970022', pg_temp.fx('doc3')::uuid, 'accepted', 0);
-select pg_temp.mkcase('doc4', 'CL970023', 'Services');
+select pg_temp.mkcase('doc4', 'CL970023', 'Onboarding');
 select pg_temp.mkquote('doc4_q', 'T70-DOC4', 'CL970023', pg_temp.fx('doc4')::uuid, 'issued', 0);
-select public.bs_check('an unsigned quote is not signed, even at zero', not (pg_temp.docs('doc4') ->> 'signed')::boolean);
-select pg_temp.mkcase('doc5', 'CL970024', 'Services');
+select public.bs_check('an unaccepted quote is not accepted, even at zero', not (pg_temp.docs('doc4') ->> 'quote_accepted')::boolean);
+select pg_temp.mkcase('doc5', 'CL970024', 'Onboarding');
 select pg_temp.mkquote('doc5_q', 'T70-DOC5', 'CL970024', pg_temp.fx('doc5')::uuid, 'superseded');
-select public.bs_check('a superseded quote does not count', not (pg_temp.docs('doc5') ->> 'quote')::boolean and pg_temp.stage('doc5') = 'Services');
-select public.bs_check('docs of an unknown case are all false', public.business_setup_case_docs(gen_random_uuid()) = '{"quote":false,"signed":false,"letter":false,"invoice":false}'::jsonb);
+select public.bs_check('a superseded quote does not count', not (pg_temp.docs('doc5') ->> 'quote')::boolean and pg_temp.stage('doc5') = 'Onboarding');
+select public.bs_check('docs of an unknown case are all false', public.business_setup_case_docs(gen_random_uuid())
+  = '{"fields":false,"documents":false,"quote":false,"login":false,"quote_accepted":false,"letter":false,"letter_accepted":false,"invoice":false,"balance":0}'::jsonb);
 
--- ── In service closes ──
-select pg_temp.mkcase('svc', 'CL970030', 'In service');
+-- ── Pipeline closes ──
+select pg_temp.mkcase('svc', 'CL970030', 'Pipeline');
 select pg_temp.mkquote('svc_q', 'T70-SVC', 'CL970030', pg_temp.fx('svc')::uuid, 'accepted');
 select pg_temp.mkservice('CL970030', 'svc_q', 'Completed');
 select pg_temp.mkservice('CL970030', 'svc_q', 'In progress');
 select public.business_setup_case_sync(pg_temp.fx('svc')::uuid);
-select public.bs_check('an open service keeps the case In service', pg_temp.stage('svc') = 'In service');
+select public.bs_check('an open service keeps the case in Pipeline', pg_temp.stage('svc') = 'Pipeline');
 update public.business_setup_services set status = 'Cancelled' where client_id = 'CL970030' and status = 'In progress';
 select public.business_setup_case_sync(pg_temp.fx('svc')::uuid);
-select public.bs_check('Completed plus Cancelled gives Completed', pg_temp.stage('svc') = 'Completed');
-select pg_temp.mkcase('svc2', 'CL970031', 'In service');
+select public.bs_check('Completed plus Cancelled gives Completion', pg_temp.stage('svc') = 'Completion');
+select pg_temp.mkcase('svc2', 'CL970031', 'Pipeline');
 select pg_temp.mkquote('svc2_q', 'T70-SVC2', 'CL970031', pg_temp.fx('svc2')::uuid, 'accepted');
 select pg_temp.mkservice('CL970031', 'svc2_q', 'Cancelled');
 select public.business_setup_case_sync(pg_temp.fx('svc2')::uuid);
 select public.bs_check('all Cancelled gives Cancelled', pg_temp.stage('svc2') = 'Cancelled');
-select pg_temp.mkcase('svc3', 'CL970032', 'In service');
+select pg_temp.mkcase('svc3', 'CL970032', 'Pipeline');
 select public.business_setup_case_sync(pg_temp.fx('svc3')::uuid);
-select public.bs_check('no services leaves In service alone', pg_temp.stage('svc3') = 'In service');
+select public.bs_check('no services leaves Pipeline alone', pg_temp.stage('svc3') = 'Pipeline');
 
 -- ── hub_document_create: case_id is copied, a letter and a revision inherit it ──
-select pg_temp.mkcase('fn', 'CL970040', 'Services');
+select pg_temp.mkcase('fn', 'CL970040', 'Onboarding');
 select public.bs_as('00000000-0000-0000-0000-00000000000c');
 create function pg_temp.fq(p_dept text, p_extra jsonb default '{}') returns public.hub_documents language sql as $$
   select * from public.hub_document_create(jsonb_build_object('doc_type','quote','department',p_dept,'client_name','Fn LLC','contact_name','C','contact_email','c@x.ae','contact_phone','1','client_address','Dubai',
     'lines','[{"description":"Licence","amount":100}]'::jsonb) || p_extra) $$;
 insert into f70 select 'fn_q', (pg_temp.fq('Business Setup', jsonb_build_object('client_id', 'CL970040', 'case_id', pg_temp.fx('fn')))).id::text;
 select public.bs_check('hub_document_create copies case_id', (select case_id::text from public.hub_documents where id = pg_temp.fx('fn_q')::uuid) = pg_temp.fx('fn'));
-select public.bs_check('creating it moves the case to Documentation', pg_temp.stage('fn') = 'Documentation');
+select public.bs_check('creating it leaves the case at Onboarding', pg_temp.stage('fn') = 'Onboarding');
 insert into f70 select 'fn_rev', (pg_temp.fq('Business Setup', jsonb_build_object('client_id', 'CL970040', 'revises_id', pg_temp.fx('fn_q')))).id::text;
 select public.bs_check('a revision inherits the case', (select case_id::text from public.hub_documents where id = pg_temp.fx('fn_rev')::uuid) = pg_temp.fx('fn'));
-select public.bs_check('the revised quote is superseded and the case stays', (select status from public.hub_documents where id = pg_temp.fx('fn_q')::uuid) = 'superseded' and pg_temp.stage('fn') = 'Documentation');
+select public.bs_check('the revised quote is superseded and the case stays', (select status from public.hub_documents where id = pg_temp.fx('fn_q')::uuid) = 'superseded' and pg_temp.stage('fn') = 'Onboarding');
 select public.bs_expect_error(format($$select pg_temp.fq('Business Setup', '{"client_id":"CL970040","case_id":"%s"}'::jsonb)$$, gen_random_uuid()), 'case');
 select public.bs_as(null);
 update public.hub_documents set status = 'accepted' where id = pg_temp.fx('fn_rev')::uuid;
@@ -237,30 +241,33 @@ select pg_temp.mkform('CL970120', 'bf_m_f', 'Draft');
 select pg_temp.mkcase('bf_n_case', 'CL970121', 'Lost');
 select pg_temp.mkform('CL970121', 'bf_n_f', 'Draft');
 select pg_temp.casecount() as n0 \gset
+-- 013's backfill writes the old stage names, as on the live database: lift the new check for it and let 016 map them afterwards.
+alter table public.business_setup_cases drop constraint business_setup_cases_stage_check;
 \ir ../migrations/013_cases.sql
 select pg_temp.casecount() as n1 \gset
 \ir ../migrations/013_cases.sql
 \ir ../migrations/013_cases.sql
 -- 013 replaced hub_document_create: put 014's version back, as a real re-run would.
 \ir ../migrations/014_leads_ownership.sql
+\ir ../migrations/016_client_flow.sql
 select public.bs_check('backfill: running 013 again makes no second case', pg_temp.casecount() = :n1, (:n1 - :n0)::text || ' new, ' || pg_temp.casecount() || ' now');
 select public.bs_check('backfill: the first run made cases', :n1 > :n0);
 select public.bs_check('backfill: one case per client', (select max(c) from (select count(*) c from public.business_setup_cases where client_id like 'CL9701%' group by client_id) x) = 1);
-select public.bs_check('backfill: A reaches Assignment', (select stage from public.business_setup_cases where client_id = 'CL970100') = 'Assignment');
+select public.bs_check('backfill: A reaches Assignment, which maps to Pipeline', (select stage from public.business_setup_cases where client_id = 'CL970100') = 'Pipeline');
 select public.bs_check('backfill: quote, letter and payment carry the case', (select count(distinct case_id) = 1 and bool_and(case_id is not null) from (
   select case_id from public.hub_documents where client_name = 'CL970100' union all select case_id from public.business_setup_payments where client_id = 'CL970100') y));
-select public.bs_check('backfill: B is in Documentation', (select stage from public.business_setup_cases where client_id = 'CL970101') = 'Documentation');
-select public.bs_check('backfill: C with work started is In service', (select stage from public.business_setup_cases where client_id = 'CL970102') = 'In service');
+select public.bs_check('backfill: B is in Documentation, which maps to Onboarding', (select stage from public.business_setup_cases where client_id = 'CL970101') = 'Onboarding');
+select public.bs_check('backfill: C with work started is In service, which maps to Pipeline', (select stage from public.business_setup_cases where client_id = 'CL970102') = 'Pipeline');
 select public.bs_check('backfill: D is Completed', (select stage from public.business_setup_cases where client_id = 'CL970103') = 'Completed');
 select public.bs_check('backfill: E is Cancelled', (select stage from public.business_setup_cases where client_id = 'CL970104') = 'Cancelled');
 select public.bs_check('backfill: a revision chain is one case', (select count(*) from public.business_setup_cases where client_id = 'CL970105') = 1
-  and (select count(distinct case_id) from public.hub_documents where client_name = 'CL970105') = 1 and (select stage from public.business_setup_cases where client_id = 'CL970105') = 'Documentation');
+  and (select count(distinct case_id) from public.hub_documents where client_name = 'CL970105') = 1 and (select stage from public.business_setup_cases where client_id = 'CL970105') = 'Onboarding');
 select public.bs_check('backfill: quote and form share one case', (select count(*) from public.business_setup_cases where client_id = 'CL970106') = 1
   and (select case_id from public.business_setup_onboarding_forms where id = pg_temp.fx('bf_g_f')::uuid) = (select id from public.business_setup_cases where client_id = 'CL970106'));
-select public.bs_check('backfill: validated form alone is Services', (select stage from public.business_setup_cases where client_id = 'CL970107') = 'Services');
-select public.bs_check('backfill: returned form is Contact', (select stage from public.business_setup_cases where client_id = 'CL970108') = 'Contact');
+select public.bs_check('backfill: validated form alone is Services, which maps to Onboarding', (select stage from public.business_setup_cases where client_id = 'CL970107') = 'Onboarding');
+select public.bs_check('backfill: returned form is Contact, which maps to Lead', (select stage from public.business_setup_cases where client_id = 'CL970108') = 'Lead');
 select public.bs_check('backfill: submitted form is Review', (select stage from public.business_setup_cases where client_id = 'CL970109') = 'Review');
-select public.bs_check('backfill: draft form is Contact', (select stage from public.business_setup_cases where client_id = 'CL970110') = 'Contact');
+select public.bs_check('backfill: draft form is Contact, which maps to Lead', (select stage from public.business_setup_cases where client_id = 'CL970110') = 'Lead');
 select public.bs_check('backfill: in-review form is Review', (select stage from public.business_setup_cases where client_id = 'CL970111') = 'Review');
 select public.bs_check('backfill: a Draft form of a finished client is left unattached and makes no case', (select case_id is null from public.business_setup_onboarding_forms where id = pg_temp.fx('bf_m_f')::uuid)
   and (select count(*) = 1 and bool_and(stage = 'Completed') from public.business_setup_cases where client_id = 'CL970120'));
@@ -268,7 +275,7 @@ select public.bs_check('backfill: a form of a client with only a Lost case stays
   and (select count(*) from public.business_setup_cases where client_id = 'CL970121') = 1);
 select public.bs_check('backfill: lead details come from the records', (select lead_name = 'CL970107 LLC' from public.business_setup_cases where client_id = 'CL970107'));
 select public.bs_check('backfill: only Business Setup documents get a case', not exists (select 1 from public.hub_documents where department <> 'Business Setup' and case_id is not null));
-select public.bs_check('backfill: a stage already moved is not reset by a re-run', pg_temp.stage('doc') = 'Assignment' and pg_temp.stage('lost') = 'Lost');
+select public.bs_check('backfill: a stage already moved is not reset by a re-run', pg_temp.stage('doc') = 'Pipeline' and pg_temp.stage('lost') = 'Lost');
 select public.bs_expect_error($$update public.business_setup_payments set amount = amount + 1$$, 'append-only');
 select public.bs_expect_error($$update public.business_setup_payments set case_id = gen_random_uuid() where case_id is not null$$, 'append-only');
 select public.bs_expect_error($$delete from public.business_setup_payments$$, 'append-only');

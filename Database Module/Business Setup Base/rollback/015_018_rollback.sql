@@ -16,12 +16,28 @@
 -- and the Paid and Invoice items of 014's checklist go back to how 013 defined them. Override reasons stay on the case rows (the columns are 013's) and are read by nothing.
 -- WARNING (fee items): every empty amount becomes 0, and each item's VAT rate and its is_service flag are lost (a cost-only item then creates a service again when a quote is accepted).
 -- Quotes keep their rows: the vat_rate and scope on their lines stay in the JSON, where nothing reads them, and a quote issued with line VAT keeps its amounts.
--- Quotes that a Lost case rejected stay rejected, and cases keep their stage: stages only move forward.
+-- Quotes that a Lost case rejected stay rejected.
+-- 016 (client flow stages) goes too: the stage check returns to 013's list and each case is mapped back to its nearest old stage. Onboarding becomes Documentation when
+-- the case has a quote that was not replaced, else Services. Pipeline becomes In service when the case has an owner, else Assignment (an Assignment case that already had an
+-- owner comes back as In service). Completion and With Accounts become Completed. Lead and Review stay. Stage history in the audit log is kept.
 begin;
 
 -- ── 018_portal.sql ───────────────────────────────────────────────────
 drop function if exists public.business_setup_portal_signed_add(uuid, uuid, text);
 drop function if exists public.business_setup_portal_login_name(text);
+
+-- ── 016_client_flow.sql ──────────────────────────────────────────────
+drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
+alter table public.business_setup_cases drop constraint if exists business_setup_cases_stage_check;
+alter table public.business_setup_cases disable trigger business_setup_cases_touch;
+update public.business_setup_cases c set stage = case c.stage
+  when 'Onboarding' then case when exists (select 1 from public.hub_documents q where q.case_id = c.id and q.doc_type = 'quote' and q.status <> 'superseded') then 'Documentation' else 'Services' end
+  when 'Pipeline' then case when c.owner_id is null then 'Assignment' else 'In service' end
+  else 'Completed' end
+ where c.stage in ('Onboarding', 'Pipeline', 'Completion', 'With Accounts');
+alter table public.business_setup_cases enable trigger business_setup_cases_touch;
+alter table public.business_setup_cases add constraint business_setup_cases_stage_check
+  check (stage in ('Lead', 'Contact', 'Review', 'Services', 'Documentation', 'Assignment', 'In service', 'Completed', 'Cancelled', 'Lost'));
 
 -- ── 015_documentation.sql ────────────────────────────────────────────
 drop policy if exists business_setup_invoice_upload on storage.objects;
@@ -485,6 +501,434 @@ begin
   returning id into v_id;
   perform business_setup_audit('business_setup_payments', v_id::text, 'refund_add', null, jsonb_build_object('client_id', q.client_id, 'quote_id', q.id, 'amount', v_amount, 'reason', v_reason));
   return v_id;
+end $function$
+;
+
+-- 016 also replaced these, as 006, 013 and 014 left them
+-- business_setup_case_confirm(uuid)
+CREATE OR REPLACE FUNCTION public.business_setup_case_confirm(p_case uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+declare c business_setup_cases;
+
+begin
+
+  perform business_setup_require('setup.access');
+
+  select * into c from business_setup_cases where id = p_case for update;
+
+  if c.id is null then raise exception 'Case not found'; end if;
+
+  if c.stage <> 'Assignment' then raise exception 'Only a case at Assignment can be confirmed'; end if;
+
+  if c.owner_id is null then raise exception 'This case has no owner yet: ask a manager to assign one'; end if;
+
+  if c.owner_id <> auth.uid() and not business_setup_can('setup.cases.approve') then
+
+    raise exception 'Only the owner (%) or a manager can confirm this case', business_setup_person_name(c.owner_id);
+
+  end if;
+
+  perform business_setup_case_set_stage(p_case, 'In service', 'Confirmed by ' || business_setup_person_name(auth.uid()));
+
+  perform business_setup_case_sync(p_case);
+
+end $function$
+;
+
+-- business_setup_case_form_trg()
+CREATE OR REPLACE FUNCTION public.business_setup_case_form_trg()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+declare v_to text := case new.status when 'Submitted' then 'Review' when 'In review' then 'Review' when 'Returned' then 'Contact' when 'Validated' then 'Services' end;
+
+        v_stage text;
+
+begin
+
+  if v_to is null then return null; end if;
+
+  select stage into v_stage from business_setup_cases where id = new.case_id for update;
+
+  if v_stage in ('Lead', 'Contact', 'Review') and v_stage <> v_to then
+
+    perform business_setup_case_set_stage(new.case_id, v_to, 'Form ' || lower(new.status));
+
+  end if;
+
+  perform business_setup_case_sync(new.case_id);
+
+  return null;
+
+end $function$
+;
+
+-- business_setup_case_list(text)
+CREATE OR REPLACE FUNCTION public.business_setup_case_list(p_view text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+declare v_stages text[];
+
+begin
+
+  perform business_setup_require('setup.access');
+
+  v_stages := case p_view
+
+    when 'leads' then array['Lead', 'Contact', 'Review', 'Lost']
+
+    when 'documentation' then array['Services', 'Documentation']
+
+    when 'cases' then array['Assignment', 'In service', 'Completed', 'Cancelled']
+
+    when 'all' then array['Lead', 'Contact', 'Review', 'Services', 'Documentation', 'Assignment', 'In service', 'Completed', 'Cancelled', 'Lost'] end;
+
+  if v_stages is null then raise exception 'Unknown view %: use leads, documentation, cases or all', p_view; end if;
+
+  return (select coalesce(jsonb_agg(to_jsonb(c) || jsonb_build_object(
+
+      'client_name', m.legal_name,
+
+      'owner_name', case when c.owner_id is not null then business_setup_person_name(c.owner_id) end,
+
+      'docs', business_setup_case_docs(c.id),
+
+      'reassign', (select jsonb_build_object('id', r.id, 'to_user', r.to_user, 'to_name', business_setup_person_name(r.to_user), 'reason', r.reason, 'created_by', r.created_by, 'created_at', r.created_at)
+
+                     from business_setup_reassign_requests r where r.case_id = c.id and r.status = 'Pending')
+
+    ) order by c.created_at desc, c.id), '[]'::jsonb)
+
+    from business_setup_cases c left join client_master m on m.client_id = c.client_id
+
+   where c.stage = any (v_stages));
+
+end $function$
+;
+
+-- business_setup_case_new(jsonb)
+CREATE OR REPLACE FUNCTION public.business_setup_case_new(p jsonb)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+declare v_name text := nullif(btrim(coalesce(p ->> 'lead_name', '')), ''); v_client text := nullif(btrim(coalesce(p ->> 'client_id', '')), '');
+
+        v_stage text := 'Lead'; v_id uuid;
+
+begin
+
+  perform business_setup_require('setup.leads.manage');
+
+  if v_name is null then raise exception 'Enter the lead name'; end if;
+
+  if v_client is not null then
+
+    if not exists (select 1 from client_master where client_id = v_client) then raise exception 'Unknown client %', v_client; end if;
+
+    if exists (select 1 from business_setup_kyc_profiles where client_id = v_client and kyc_state = 'Done') then v_stage := 'Services'; end if;
+
+  end if;
+
+  insert into business_setup_cases (client_id, stage, source, lead_name, contact_person, phone, email, notes)
+
+  values (v_client, v_stage, nullif(btrim(coalesce(p ->> 'source', '')), ''), v_name, nullif(btrim(coalesce(p ->> 'contact_person', '')), ''),
+
+          nullif(btrim(coalesce(p ->> 'phone', '')), ''), nullif(btrim(coalesce(p ->> 'email', '')), ''), nullif(btrim(coalesce(p ->> 'notes', '')), ''))
+
+  returning id into v_id;
+
+  perform business_setup_audit('business_setup_cases', v_id::text, 'case_new', null, jsonb_build_object('stage', v_stage, 'lead_name', v_name, 'client_id', v_client));
+
+  return v_id;
+
+end $function$
+;
+
+-- business_setup_case_shared(uuid)
+CREATE OR REPLACE FUNCTION public.business_setup_case_shared(p_case uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+declare c business_setup_cases; f business_setup_onboarding_forms; v_acct uuid; v_done boolean; v_to text;
+
+begin
+
+  perform business_setup_require('setup.leads.manage');
+
+  select * into c from business_setup_cases where id = p_case for update;
+
+  if c.id is null then raise exception 'Case not found'; end if;
+
+  if c.stage in ('Completed', 'Cancelled', 'Lost') then raise exception 'This case is closed'; end if;
+
+  if c.client_id is null then raise exception 'Link or create the client first'; end if;
+
+  v_acct := business_setup_portal_account(c.client_id);
+
+  if not exists (select 1 from client_portal_accounts where id = v_acct and status = 'active') then raise exception 'Issue an active client login first'; end if;
+
+  v_done := exists (select 1 from business_setup_kyc_profiles where client_id = c.client_id and kyc_state = 'Done');
+
+  select * into f from business_setup_onboarding_forms where client_id = c.client_id and status <> 'Validated' order by created_at desc limit 1 for update;
+
+  if f.id is null and not v_done then
+
+    perform business_setup_form_create(c.client_id, v_acct);
+
+    select * into f from business_setup_onboarding_forms where client_id = c.client_id and status <> 'Validated' order by created_at desc limit 1 for update;
+
+    if f.id is null then raise exception 'This client has no form to send'; end if;
+
+  end if;
+
+  if f.id is not null then
+
+    -- A form on a case that is Lost, Completed or Cancelled is free: it moves to this case.
+
+    if f.case_id is not null and f.case_id <> p_case
+
+       and (select stage from business_setup_cases where id = f.case_id) not in ('Completed', 'Cancelled', 'Lost') then
+
+      raise exception 'This client already has an open form on case %', (select case_number from business_setup_cases where id = f.case_id);
+
+    end if;
+
+    update business_setup_onboarding_forms set case_id = p_case where id = f.id and case_id is distinct from p_case;
+
+  end if;
+
+  if c.stage = 'Lead' then
+
+    v_to := case when v_done then 'Services' when f.status in ('Submitted', 'In review') then 'Review' else 'Contact' end;
+
+    perform business_setup_case_set_stage(p_case, v_to, 'The client link was shared');
+
+  end if;
+
+  perform business_setup_audit('business_setup_cases', p_case::text, 'case_shared', null, jsonb_build_object('client_id', c.client_id, 'form_id', f.id));
+
+  perform business_setup_case_sync(p_case);
+
+end $function$
+;
+
+-- business_setup_case_sync(uuid)
+CREATE OR REPLACE FUNCTION public.business_setup_case_sync(p_case uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+declare v_stage text; v_open int; v_done int; v_total int;
+
+begin
+
+  select stage into v_stage from business_setup_cases where id = p_case for update;
+
+  if not found then return; end if;
+
+  if v_stage = 'Services' and exists (select 1 from hub_documents where case_id = p_case and doc_type = 'quote' and status <> 'superseded') then
+
+    perform business_setup_case_set_stage(p_case, 'Documentation', 'A quote was issued');
+
+    v_stage := 'Documentation';
+
+  end if;
+
+  if v_stage = 'Documentation' and not exists (select 1 from jsonb_each(business_setup_case_docs(p_case)) where value <> 'true'::jsonb) then
+
+    perform business_setup_case_set_stage(p_case, 'Assignment', 'Quote, signature, payment, letter and invoice are in place');
+
+    v_stage := 'Assignment';
+
+  end if;
+
+  if v_stage = 'In service' then
+
+    select count(*), count(*) filter (where s.status not in ('Completed', 'Cancelled')), count(*) filter (where s.status = 'Completed') into v_total, v_open, v_done
+
+      from business_setup_services s where s.quote_id in (select id from hub_documents where case_id = p_case and doc_type = 'quote');
+
+    if v_total > 0 and v_open = 0 then
+
+      perform business_setup_case_set_stage(p_case, case when v_done > 0 then 'Completed' else 'Cancelled' end, 'Every service is closed');
+
+    end if;
+
+  end if;
+
+end $function$
+;
+
+-- business_setup_case_take(uuid)
+CREATE OR REPLACE FUNCTION public.business_setup_case_take(p_case uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+declare c business_setup_cases;
+
+begin
+
+  perform business_setup_require('setup.leads.manage');
+
+  select * into c from business_setup_cases where id = p_case for update;
+
+  if c.id is null then raise exception 'Case not found'; end if;
+
+  if c.stage in ('Completed', 'Cancelled', 'Lost') then raise exception 'This case is closed'; end if;
+
+  if c.owner_id is not null then raise exception 'This case was already taken by %', business_setup_person_name(c.owner_id); end if;
+
+  update business_setup_cases set owner_id = auth.uid() where id = p_case;
+
+  perform business_setup_audit('business_setup_cases', p_case::text, 'case_take', null, jsonb_build_object('owner_id', auth.uid()));
+
+  if c.stage = 'Assignment' then
+
+    perform business_setup_case_set_stage(p_case, 'In service', 'The owner took the case');
+
+    -- Every service may already be closed: the case then completes now instead of waiting for a service change that never comes.
+
+    perform business_setup_case_sync(p_case);
+
+  end if;
+
+end $function$
+;
+
+-- business_setup_dashboard()
+CREATE OR REPLACE FUNCTION public.business_setup_dashboard()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+declare v_exp jsonb; v_month timestamptz := date_trunc('month', now() at time zone 'Asia/Dubai') at time zone 'Asia/Dubai';
+
+        v_done_total int; v_done_month int; v_recv numeric;
+
+begin
+
+  perform business_setup_require('setup.access');
+
+  v_exp := business_setup_expiries();
+
+  -- One expression for both outstanding and receivables.
+
+  select coalesce(sum(greatest(q.total_amount - business_setup_net_paid(q.id), 0)), 0) into v_recv from hub_documents q
+
+   where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted';
+
+  select count(*), count(*) filter (where t.at >= v_month) into v_done_total, v_done_month
+
+    from (select coalesce(
+
+                   (select max(a.occurred_at) from business_setup_audit_log a
+
+                     where a.table_name = 'business_setup_cases' and a.row_id = c.id::text and a.action = 'case_stage' and a.new_data ->> 'stage' = 'Completed'),
+
+                   (select max(s.completed_at) from business_setup_services s where s.quote_id in (select id from hub_documents where case_id = c.id and doc_type = 'quote')),
+
+                   c.updated_at) as at
+
+            from business_setup_cases c where c.stage = 'Completed') t;
+
+  return jsonb_build_object(
+
+    'forms_waiting', business_setup_dash_forms(),
+
+    'open_quotes', (select count(*) from hub_documents where department = 'Business Setup' and doc_type = 'quote' and status = 'issued'),
+
+    'accepted_without_letter', (select count(*) from hub_documents q where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'
+
+                                   and not exists (select 1 from hub_documents l where l.parent_id = q.id and l.doc_type = 'letter')),
+
+    'outstanding', v_recv,
+
+    'active_services', (select count(*) from business_setup_services where status not in ('Completed', 'Cancelled') and not historical),
+
+    'expiries', jsonb_build_object('upcoming', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Upcoming'),
+
+                                   'past', (select count(*) from jsonb_array_elements(v_exp) e where e ->> 'state' = 'Past date')),
+
+    'processes_pending', (select count(*) from business_setup_services s
+
+                           where s.status not in ('Completed', 'Cancelled') and not s.historical
+
+                             and exists (select 1 from hub_documents q where q.id = s.quote_id and q.case_id is not null)),
+
+    'receivables', v_recv,
+
+    'advances', (select coalesce(sum(case when p.type = 'Payment' then p.amount else -p.amount end), 0) from business_setup_payments p
+
+                  where p.case_id is not null
+
+                    and not exists (select 1 from hub_documents q where q.department = 'Business Setup' and q.doc_type = 'quote' and q.status = 'accepted'
+
+                                       and (q.case_id = p.case_id or q.id = p.quote_id))),
+
+    'cases_completed_month', v_done_month,
+
+    'cases_completed_total', v_done_total,
+
+    'pipeline', (select jsonb_object_agg(st, (select count(*) from business_setup_cases c where c.stage = st))
+
+                   from unnest(array['Lead', 'Contact', 'Review', 'Services', 'Documentation', 'Assignment', 'In service']) st),
+
+    'forms_to_review', business_setup_dash_forms(),
+
+    'pending_after_kyc', (select count(*) from business_setup_cases where stage = 'Services')
+
+  ) || business_setup_dash_handover();
+
+end $function$
+;
+
+-- business_setup_start_gate(uuid,text)
+CREATE OR REPLACE FUNCTION public.business_setup_start_gate(p_quote uuid, p_reason text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+
+begin
+
+  if p_quote is null or coalesce((select total_amount from hub_documents where id = p_quote), 0) <= 0 or business_setup_net_paid(p_quote) > 0 then
+
+    return false;
+
+  end if;
+
+  if not business_setup_can('setup.services.override') then raise exception 'A payment is needed before this service can start'; end if;
+
+  if nullif(btrim(coalesce(p_reason, '')), '') is null then raise exception 'Give a reason for starting without a payment'; end if;
+
+  return true;
+
 end $function$
 ;
 

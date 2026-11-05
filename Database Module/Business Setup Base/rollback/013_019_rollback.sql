@@ -10,6 +10,21 @@
 -- To undo phase 2 alone and keep cases, run rollback/015_018_rollback.sql instead.
 begin;
 
+-- ── 016_client_flow.sql ──────────────────────────────────────────────
+-- The move function goes. The start gate returns to 006's (016 lets a quote of a case start without a payment, which reads case_id). The other functions 016
+-- replaced (case_sync, case_docs, case_list, case_new, case_take, case_shared, case_confirm, case_lost, case_form_trg, dashboard) are dropped or restored by the sections below.
+drop function if exists public.business_setup_case_move_to_onboarding(uuid, text, boolean);
+create or replace function public.business_setup_start_gate(p_quote uuid, p_reason text) returns boolean
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  if p_quote is null or coalesce((select total_amount from hub_documents where id = p_quote), 0) <= 0 or business_setup_net_paid(p_quote) > 0 then
+    return false;
+  end if;
+  if not business_setup_can('setup.services.override') then raise exception 'A payment is needed before this service can start'; end if;
+  if nullif(btrim(coalesce(p_reason, '')), '') is null then raise exception 'Give a reason for starting without a payment'; end if;
+  return true;
+end $$;
+
 -- ── 018_portal.sql ───────────────────────────────────────────────────
 -- The portal view goes back to 010's (no signed-copy fields) and the client upload function goes.
 drop function if exists public.business_setup_portal_signed_add(uuid, uuid, text);

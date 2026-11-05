@@ -11,7 +11,7 @@ export const FIGURES = [
   ["processes_pending", "Processes pending", "cases"], ["receivables", "Receivables", "clients"], ["cases_completed_month", "Cases completed", "cases"],
   ["pipeline_total", "Cases in the pipeline", "leads"], ["forms_to_review", "Forms to review", "review"], ["pending_after_kyc", "Pending after KYC", "documentation"],
 ];
-const STAGES = ["Lead", "Contact", "Review", "Services", "Documentation", "Assignment", "In service"];
+const STAGES = ["Lead", "Review", "Onboarding", "Pipeline", "Completion", "With Accounts"];
 
 const pipelineTotal = (d) => Object.values(d.pipeline || {}).reduce((a, n) => a + Number(n || 0), 0);
 const figure = (k, d) => (k === "receivables" ? money(d.receivables) : k === "pipeline_total" ? pipelineTotal(d) : d[k] ?? 0);

@@ -9,3 +9,5 @@ insert into public.business_setup_invoices (client_id, invoice_number, issued_on
   select 'CL990015', 'RB-015', current_date, 10, 'manual', id from public.business_setup_cases where lead_name = 'rollback-015';
 -- A fee item with no amount and a 0% rate.
 insert into public.business_setup_fee_items (grp, name, default_amount, vat_rate, sort_order) values ('RB015', 'Empty amount', null, 0, 1);
+-- Cases at the new stages (016): they must map back to Services, Assignment and Completed.
+insert into public.business_setup_cases (stage, lead_name) values ('Onboarding', 'rollback-016-onboarding'), ('Pipeline', 'rollback-016-pipeline'), ('Completion', 'rollback-016-completion');

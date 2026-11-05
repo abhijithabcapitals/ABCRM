@@ -41,7 +41,17 @@ begin
   -- Tables phase 2 added are gone; phase 1 rows stay.
   if to_regclass('public.business_setup_signed_quotes') is not null then raise exception 'business_setup_signed_quotes remains'; end if;
   if to_regclass('public.business_setup_cases') is null then raise exception 'business_setup_cases went'; end if;
-  if (select count(*) from public.business_setup_cases) <> (select cases from public.bs_pre015_kept) then raise exception 'cases lost rows'; end if;
+  if (select count(*) from public.business_setup_cases where lead_name not like 'rollback-016%') <> (select cases from public.bs_pre015_kept) then raise exception 'cases lost rows'; end if;
+  -- 016: the stages map back, and the old check is back.
+  if (select stage from public.business_setup_cases where lead_name = 'rollback-015') <> 'Documentation' then raise exception 'a case with a quote did not return to Documentation'; end if;
+  if (select stage from public.business_setup_cases where lead_name = 'rollback-016-onboarding') <> 'Services' then raise exception 'Onboarding with no quote did not return to Services'; end if;
+  if (select stage from public.business_setup_cases where lead_name = 'rollback-016-pipeline') <> 'Assignment' then raise exception 'an unowned Pipeline case did not return to Assignment'; end if;
+  if (select stage from public.business_setup_cases where lead_name = 'rollback-016-completion') <> 'Completed' then raise exception 'Completion did not return to Completed'; end if;
+  begin
+    insert into public.business_setup_cases (stage) values ('Onboarding');
+    raise exception 'the old stage check is not back';
+  exception when check_violation then null;
+  end;
   if (select count(*) from public.hub_documents) <> (select docs from public.bs_pre015_kept) then raise exception 'hub_documents lost rows'; end if;
   if (select status from public.hub_documents where document_number = 'RB-015-Q') <> 'accepted' then raise exception 'an accepted quote changed'; end if;
   if (select count(*) from public.business_setup_fee_items where grp <> 'RB015') <> (select fees from public.bs_pre015_kept) then raise exception 'fee items lost rows'; end if;
