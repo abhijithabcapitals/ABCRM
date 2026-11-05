@@ -1,4 +1,4 @@
-import { PRIORITY_STYLES, TAG_STYLES, tagFor, daysLabel } from "../logic/alertLogic";
+import { BACKLOG_STYLE, PRIORITY_STYLES, TAG_STYLES, tagFor, daysLabel } from "../logic/alertLogic";
 
 const th = { textAlign: "left", fontSize: 11, color: "#888", fontWeight: 600, padding: "8px 12px", borderBottom: "1px solid #eee", whiteSpace: "nowrap" };
 const td = { fontSize: 13, padding: "9px 12px", borderBottom: "1px solid #f3f3f3", verticalAlign: "top" };
@@ -19,7 +19,7 @@ export default function AlertList({ rows, today, onOpen, showRead, showAssignee,
           <tr>
             <th style={th}>Alert</th>
             <th style={th}>Client</th>
-            <th style={th}>Service</th>
+            <th style={th}>Category</th>
             {showAssignee && <th style={th}>Assigned to</th>}
             <th style={th}>Due</th>
             <th style={th}>Priority</th>
@@ -45,7 +45,10 @@ export default function AlertList({ rows, today, onOpen, showRead, showAssignee,
                 {showAssignee && <td style={td}>{a.assignee_name || "Unassigned"}</td>}
                 <td style={{ ...td, whiteSpace: "nowrap", color: days.endsWith("overdue") ? "#b91c1c" : undefined }}>{days}</td>
                 <td style={td}><span className="badge" style={PRIORITY_STYLES[a.priority] || PRIORITY_STYLES.Normal}>{a.priority}</span></td>
-                <td style={td}>{tag ? <span className="badge" style={TAG_STYLES[tag]}>{tag}</span> : ""}</td>
+                <td style={td}>
+                  {tag ? <span className="badge" style={TAG_STYLES[tag]}>{tag}</span> : ""}
+                  {a.backlog && <span className="badge" style={{ ...BACKLOG_STYLE, marginLeft: tag ? 4 : 0 }}>Backlog</span>}
+                </td>
               </tr>
             );
           })}

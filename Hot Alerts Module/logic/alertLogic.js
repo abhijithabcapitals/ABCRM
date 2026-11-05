@@ -2,6 +2,8 @@
 // "today" is always passed in as an Asia/Dubai date string (YYYY-MM-DD); see dubaiToday().
 
 export const FILTERS = ["All", "Urgent", "Due Today", "Client Pending", "Government Pending"];
+// Department and Management work the backlog too.
+export const MANAGER_FILTERS = [...FILTERS, "Backlog"];
 
 // Stored priorities only. "Urgent" is a display tag and never a priority.
 export const PRIORITY_STYLES = {
@@ -16,6 +18,7 @@ export const TAG_STYLES = {
   "Action required": { background: "#fff7ed", color: "#c2410c" },
   Upcoming: { background: "#f1f5f9", color: "#475569" },
 };
+export const BACKLOG_STYLE = { background: "#ede9fe", color: "#5b21b6" };
 
 export function dubaiToday(now = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
@@ -60,9 +63,41 @@ export function isNotSwitchedOn(error) {
   return code === "42883" || code === "PGRST202";
 }
 
+export const PREVIEW_TEXT = "The Notification Centre is in preview. Alerts will show here once it is switched on.";
+
+// In Preview only admins see alerts, so an empty list says nothing about the work. It must not read as all clear.
 export function emptyText(access, filter) {
+  if (access?.mode === "Preview" && !access?.is_admin) return PREVIEW_TEXT;
   if (filter && filter !== "All") return "Nothing matches this filter";
   return "Nothing assigned to you";
+}
+
+// One page of the alert list. The server caps a single read at 500.
+export const ALERT_PAGE = 100;
+
+// Reads pages until `want` rows or a short page. fetchPage(limit, offset) returns { rows, total }.
+export async function readAlertRows(fetchPage, want = ALERT_PAGE, pageSize = ALERT_PAGE) {
+  let rows = [];
+  let total = 0;
+  while (rows.length < want) {
+    const page = await fetchPage(pageSize, rows.length);
+    const got = page?.rows || [];
+    rows = rows.concat(got);
+    total = page?.total || 0;
+    if (got.length < pageSize) break;
+  }
+  return { rows, total };
+}
+
+// Load more adds at the end. A row can repeat when the list shifted between two reads.
+export function appendAlertRows(rows, more) {
+  const seen = new Set(rows.map((r) => r.id));
+  return rows.concat(more.filter((r) => !seen.has(r.id)));
+}
+
+// The server refuses to close a Critical alert with no note.
+export function resolvePlaceholder(priority) {
+  return priority === "Critical" ? "Resolution note (required for a Critical alert)" : "Resolution note (optional)";
 }
 
 // Tabs the caller may see. The server still refuses on its own.

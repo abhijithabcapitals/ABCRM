@@ -39,9 +39,6 @@ test("error that carries a code on a wrapped cause", () => {
   assert.equal(isNotSwitchedOn(e), true);
 });
 
-test("empty text in Preview for a non-admin", () => {
-  assert.equal(emptyText({ mode: "Preview", is_admin: false }, "All"), "Nothing assigned to you");
-});
 test("empty text with a filter", () => {
   assert.equal(emptyText({ mode: "Live", is_admin: false }, "Urgent"), "Nothing matches this filter");
   assert.equal(emptyText({ mode: "Live", is_admin: false }, "All"), "Nothing assigned to you");
@@ -78,4 +75,52 @@ test("modeConfirmText says who starts receiving what", () => {
   assert.match(modeConfirmText("Triage", "Live"), /Managers start getting bells/);
   assert.match(modeConfirmText("Live", "Preview"), /Nobody will be belled/);
   assert.equal(modeConfirmText("Live", "Live"), null);
+});
+
+import { MANAGER_FILTERS, ALERT_PAGE, readAlertRows, appendAlertRows, resolvePlaceholder, PREVIEW_TEXT } from "../logic/alertLogic.js";
+test("emptyText says the Centre is in preview to a non-admin, whatever the filter", () => {
+  assert.equal(emptyText({ mode: "Preview", is_admin: false }, "All"), PREVIEW_TEXT);
+  assert.equal(emptyText({ mode: "Preview", is_admin: false }, "Urgent"), PREVIEW_TEXT);
+  assert.match(PREVIEW_TEXT, /preview/i);
+});
+test("emptyText keeps its usual words for an admin in Preview and for anyone after Preview", () => {
+  assert.equal(emptyText({ mode: "Preview", is_admin: true }, "All"), "Nothing assigned to you");
+  assert.equal(emptyText({ mode: "Live", is_admin: false }, "All"), "Nothing assigned to you");
+  assert.equal(emptyText({ mode: "Triage", is_admin: false }, "Urgent"), "Nothing matches this filter");
+});
+test("managers get the Backlog filter on top of the usual ones", () => {
+  assert.deepEqual(MANAGER_FILTERS, [...FILTERS, "Backlog"]);
+  assert.equal(FILTERS.includes("Backlog"), false);
+});
+test("readAlertRows reads one page when one is wanted", async () => {
+  const calls = [];
+  const r = await readAlertRows(async (limit, offset) => { calls.push([limit, offset]); return { rows: [{ id: 1 }, { id: 2 }], total: 300 }; }, 2, 2);
+  assert.deepEqual(calls, [[2, 0]]);
+  assert.deepEqual(r, { rows: [{ id: 1 }, { id: 2 }], total: 300 });
+});
+test("readAlertRows reads as many pages as were on screen, so a reload keeps the list as long", async () => {
+  const all = Array.from({ length: 5 }, (_, i) => ({ id: i }));
+  const offsets = [];
+  const r = await readAlertRows(async (limit, offset) => { offsets.push(offset); return { rows: all.slice(offset, offset + limit), total: 5 }; }, 4, 2);
+  assert.deepEqual(offsets, [0, 2]);
+  assert.equal(r.rows.length, 4);
+  assert.equal(r.total, 5);
+});
+test("readAlertRows stops at a short page", async () => {
+  let n = 0;
+  const r = await readAlertRows(async () => { n += 1; return { rows: [{ id: 1 }], total: 1 }; }, 200, ALERT_PAGE);
+  assert.equal(n, 1);
+  assert.equal(r.rows.length, 1);
+});
+test("readAlertRows copes with an empty answer", async () => {
+  assert.deepEqual(await readAlertRows(async () => null, 100, 100), { rows: [], total: 0 });
+});
+test("appendAlertRows adds new rows at the end and skips any already shown", () => {
+  assert.deepEqual(appendAlertRows([{ id: 1 }, { id: 2 }], [{ id: 2 }, { id: 3 }]), [{ id: 1 }, { id: 2 }, { id: 3 }]);
+  assert.deepEqual(appendAlertRows([], []), []);
+});
+test("the resolve placeholder says a Critical alert needs a note", () => {
+  assert.match(resolvePlaceholder("Critical"), /required/i);
+  assert.match(resolvePlaceholder("High"), /optional/i);
+  assert.match(resolvePlaceholder(undefined), /optional/i);
 });

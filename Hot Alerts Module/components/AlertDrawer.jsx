@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { alertDetail, alertMarkRead, alertAssign, alertEscalate, alertResolve } from "../services/alertsApi";
-import { PRIORITY_STYLES, TAG_STYLES, tagFor, daysLabel } from "../logic/alertLogic";
+import { BACKLOG_STYLE, PRIORITY_STYLES, TAG_STYLES, resolvePlaceholder, tagFor, daysLabel } from "../logic/alertLogic";
 
 const btn = { padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid #d4d4d4", background: "#fff", cursor: "pointer" };
 
@@ -43,7 +43,8 @@ export default function AlertDrawer({ supabase, alertId, today, fmtDate, access,
         setData(d);
         try {
           await alertMarkRead(supabase, alertId);
-          if (live) onChanged?.(false);
+          // Reload the list behind the drawer, so the unread dot clears.
+          if (live && !d?.alert?.read) onChanged?.(true);
         } catch {
           // not a recipient: nothing to mark
         }
@@ -90,6 +91,7 @@ export default function AlertDrawer({ supabase, alertId, today, fmtDate, access,
               <span className="badge" style={PRIORITY_STYLES[a.priority] || PRIORITY_STYLES.Normal}>{a.priority}</span>
               {tag && <span className="badge" style={TAG_STYLES[tag]}>{tag}</span>}
               <span className="badge" style={{ background: "#f1f5f9", color: "#475569" }}>{a.status}</span>
+              {a.backlog && <span className="badge" style={BACKLOG_STYLE}>Backlog</span>}
               {a.escalation_level > 0 && <span className="badge" style={{ background: "#fef3c7", color: "#92400e" }}>Escalated {a.escalation_level}</span>}
             </div>
             <Field name="Notification ID">{a.alert_number}</Field>
@@ -126,7 +128,7 @@ export default function AlertDrawer({ supabase, alertId, today, fmtDate, access,
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   rows={3}
-                  placeholder={mode === "escalate" ? "Reason for escalation" : "Resolution note (optional)"}
+                  placeholder={mode === "escalate" ? "Reason for escalation" : resolvePlaceholder(a.priority)}
                   style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box", marginBottom: 6 }}
                 />
                 <button

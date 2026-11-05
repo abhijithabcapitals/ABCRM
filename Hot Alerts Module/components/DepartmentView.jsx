@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import ScopeView from "./ScopeView";
 import OwnerAssign from "./OwnerAssign";
 import { Note, btn } from "./ui";
-import { noteForCategories } from "../logic/alertLogic";
+import { MANAGER_FILTERS, noteForCategories } from "../logic/alertLogic";
 import { alertCoverage } from "../services/alertsApi";
 
 // Department tab: a department picker, six tiles, the list, and a link to owner assignment.
@@ -54,7 +54,7 @@ export default function DepartmentView({ supabase, access, people, today, onOpen
         {!department && <span style={{ fontSize: 11, color: "#888" }}>Choose a department to assign client owners.</span>}
       </div>
       <ScopeView supabase={supabase} scope="Department" department={department || null} today={today} onOpen={onOpen} refreshKey={refreshKey}
-        empty={(f) => (f === "All" ? "No open alerts" : "Nothing matches this filter")}
+        filters={MANAGER_FILTERS} empty={(f) => (f === "All" ? "No open alerts" : "Nothing matches this filter")}
         tileItems={(t) => [
           { label: "Overdue", value: t.overdue, tone: "red", note: deadlines },
           { label: "Upcoming (7 days)", value: t.upcoming, note: deadlines },

@@ -92,7 +92,7 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
 
       <div style={{ fontSize: 14, fontWeight: 700, marginTop: 24 }}>My tasks</div>
     </div>
-    <HotAlerts profile={profile} supabase={supabase} fmtDate={fmtDate} />
+    <HotAlerts profile={profile} supabase={supabase} fmtDate={fmtDate} hideTitle />
 
       {drawerId && (
         <AlertDrawer supabase={supabase} alertId={drawerId} today={today} fmtDate={fmtDate} access={access} people={people}

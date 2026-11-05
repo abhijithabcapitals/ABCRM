@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 
 // The host app passes its Supabase client and date formatter, so this module
-// has no imports of its own beyond React.
-export default function HotAlerts({ profile, supabase, fmtDate }) {
+// has no imports of its own beyond React. hideTitle drops the "Hot Alerts" title when a host page gives the section its own.
+export default function HotAlerts({ profile, supabase, fmtDate, hideTitle = false }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -212,7 +212,7 @@ export default function HotAlerts({ profile, supabase, fmtDate }) {
     <div>
       <div className="page-header">
         <div>
-          <div className="page-title">Hot Alerts</div>
+          {!hideTitle && <div className="page-title">Hot Alerts</div>}
           <div className="page-subtitle">
             {profile?.full_name} · {tasks.length} task
             {tasks.length !== 1 ? "s" : ""} assigned

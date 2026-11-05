@@ -95,7 +95,7 @@ export default function OwnerAssign({ supabase, department, people, onBack, onCh
         ids.forEach((id) => delete left[id]);
         saved += ids.length;
       }
-      setMessage(`Saved ${saved} client${saved === 1 ? "" : "s"}. Open unassigned alerts for them are now assigned.`);
+      setMessage(`Saved ${saved} client${saved === 1 ? "" : "s"}. Their open alerts that were unassigned or with the previous owner now go to the new owner. Alerts with anyone else stay.`);
     } catch (e) {
       setError(`${e.message} ${saved} saved before the error; the rest are still waiting.`);
     }

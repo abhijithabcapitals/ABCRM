@@ -24,3 +24,7 @@ test("a missing function surfaces as not switched on", async () => {
     (e) => isNotSwitchedOn(e),
   );
 });
+test("alertList sends the limit and offset for Load more", async () => {
+  await alertList(stub({ data: { rows: [], total: 0 }, error: null }), "Department", "Backlog", "Accounting", 100, 200);
+  assert.deepEqual(stub.last.args, { p_scope: "Department", p_filter: "Backlog", p_department: "Accounting", p_limit: 100, p_offset: 200 });
+});

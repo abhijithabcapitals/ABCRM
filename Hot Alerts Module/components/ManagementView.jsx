@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import ScopeView from "./ScopeView";
 import Tiles from "./Tiles";
 import { Note, box } from "./ui";
-import { FILTERS, scanBand, noteForCategories, fmtScanTime } from "../logic/alertLogic";
+import { MANAGER_FILTERS, scanBand, noteForCategories, fmtScanTime } from "../logic/alertLogic";
 import { alertManagementSummary, alertCoverage } from "../services/alertsApi";
 
 const th = { textAlign: "left", fontSize: 11, color: "#888", fontWeight: 600, padding: "6px 10px", borderBottom: "1px solid #eee", whiteSpace: "nowrap" };
@@ -52,7 +52,7 @@ export default function ManagementView({ supabase, access, today, onOpen, refres
       )}
 
       <ScopeView supabase={supabase} scope="Management" today={today} onOpen={onOpen} refreshKey={refreshKey}
-        filters={[...FILTERS, "Backlog"]} empty={(f) => (f === "All" ? "No open alerts" : "Nothing matches this filter")} tileItems={() => []} />
+        filters={MANAGER_FILTERS} empty={(f) => (f === "All" ? "No open alerts" : "Nothing matches this filter")} tileItems={() => []} />
 
       {summary && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
