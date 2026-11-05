@@ -94,7 +94,7 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
       {rejectedLetter && <div className="bk-note bk-overdue">Letter {rejectedLetter.document_number} was rejected by the client. Create a new engagement letter to replace it.<Decision rows={decisions} doc={rejectedLetter} label="the letter" /></div>}
       {["issued", "accepted"].includes(q.status) && (
         <div className="bk-mt">
-          <ZohoPanel key={`${q.id}:${clientId}`} supabase={supabase} department="business_setup" sourceTable="hub_documents" sourceId={q.id} clientId={clientId} publish={q.status === "accepted" ? { onPublished: () => { after(); } } : undefined} {...zohoProps(q.status, { quotes, held, ready: !!h?.ready, known: !!h, invoiceRight: can("setup.services.manage") })} />
+          <ZohoPanel key={`${q.id}:${clientId}`} supabase={supabase} department="business_setup" sourceTable="hub_documents" sourceId={q.id} clientId={clientId} publish={q.status === "accepted" ? { onPublished: () => { after().catch((e) => setError(e.message)); } } : undefined} {...zohoProps(q.status, { quotes, held, ready: !!h?.ready, known: !!h, invoiceRight: can("setup.services.manage") })} />
         </div>
       )}
       {q.status === "accepted" && h && !held && (

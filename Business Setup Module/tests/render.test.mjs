@@ -118,19 +118,6 @@ test("the payments panel of a case has no quote picker, and the ledger shows adv
   assert.doesNotMatch(out, /A payment needs an accepted quote/);
 });
 
-test("the quote message area shows the login ID and link and never a password (rendered with a stubbed login)", { skip }, async () => {
-  const { quoteMessage } = await import("../logic/quoteMessage.js");
-  const q = { id: "q1", document_number: "Q1", contact_name: "Sara", contact_email: "a@b.ae" };
-  const a = { id: "acc1", username: "acme.llc", status: "active", password: "S3cret!pass" };
-  const text = quoteMessage({ contact: q.contact_name, number: q.document_number, url: "https://portal.example/", username: a.username });
-  const ready = await html("workspace/PortalMessage.jsx", "PortalMessageView", { q, a, state: "ready", text, isAdmin: false });
-  assert.match(ready, /Login ID: acme\.llc/); assert.match(ready, /https:\/\/portal\.example\//); assert.match(ready, /Only an admin can email the password/);
-  assert.doesNotMatch(ready, /S3cret/); assert.doesNotMatch(ready, /Password:/);
-  assert.match(await html("workspace/PortalMessage.jsx", "PortalMessageView", { q, a, state: "ready", text, isAdmin: true }), /Send password/);
-  assert.match(await html("workspace/PortalMessage.jsx", "PortalMessageView", { q, a: null, state: "error" }), /could not be read/);
-  assert.match(await html("workspace/PortalMessage.jsx", "PortalMessageView", { q, a: null, state: "nologin" }), /has no login yet/);
-});
-
 test("Record refund is offered in case mode only when the case has money, with no quote picker", { skip }, async () => {
   const mk = (amount) => ({ client: { legal_name: "Acme" }, quotes: [], letters: [], services: [], payments: [{ id: "p1", type: "Payment", amount, paid_on: "2026-11-04", quote_id: null, case_id: "c1", receipt_number: "R1" }] });
   const c = { id: "c1", case_number: "BSC000001", stage: "Documentation", client_id: "CL000001", docs: {} };

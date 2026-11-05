@@ -38,8 +38,8 @@ alter table public.business_setup_cases alter column stage set default 'Lead';
 
 -- ── What Onboarding needs, worked out from the records (never stored). Internal ──
 --   fields             the case's newest form is Validated; a case with no form counts when its client's KYC is Done
---   documents          no document attached to that form is unvalidated: nothing uploaded and finished is still pending or in review (a rejected one waits for the
---                      client's replacement and blocks nothing; a payment proof is never a form document). A case with no form follows fields
+--   documents          every finished upload attached to that form is validated (pending, in review and rejected ones all block; a payment proof is never a form
+--                      document). A form with no document counts only when it is Validated, like fields. A case with no form follows fields
 --   quote              a quote that was neither replaced nor rejected exists
 --   login              the client has an active portal account (a revoked one does not count)
 --   quote_accepted     the case has an accepted quote (a quote becomes accepted only on an Accepted acceptance row or a Confirmed signed copy, see quote_accept_body)
@@ -56,7 +56,8 @@ begin
   v_fields := case when v_form is not null then v_form = 'Validated'
                    else coalesce(c.client_id is not null and exists (select 1 from business_setup_kyc_profiles k where k.client_id = c.client_id and k.kyc_state = 'Done'), false) end;
   v_documents := case when v_form_id is not null
-                      then not exists (select 1 from client_portal_documents d where d.form_id = v_form_id and d.upload_complete and d.doc_type <> 'Payment proof' and d.status in ('pending', 'in_review'))
+                      then not exists (select 1 from client_portal_documents d where d.form_id = v_form_id and d.upload_complete and d.doc_type <> 'Payment proof' and d.status <> 'validated')
+                           and (v_fields or exists (select 1 from client_portal_documents d where d.form_id = v_form_id and d.upload_complete and d.doc_type <> 'Payment proof'))
                       else v_fields end;
   -- A letter the client rejected, or that a new one replaced, is not the letter.
   v_letter := exists (select 1 from hub_documents l join hub_documents lq on lq.id = l.parent_id where l.case_id = p_case and l.doc_type = 'letter' and l.status not in ('rejected', 'superseded') and lq.status = 'accepted');

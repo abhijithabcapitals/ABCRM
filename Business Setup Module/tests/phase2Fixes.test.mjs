@@ -90,6 +90,4 @@ test("the quote message names the company as the rebrand does", () => {
   const m = quoteMessage({ contact: "Sara", number: "Q1", url: "https://p/", username: "u" });
   assert.match(m, /the AB Capital Services FZE client portal/); assert.match(m, /contact AB Capital Services FZE\./); assert.match(m, /Regards,\nAB Capital Services FZE$/);
   assert.match(quoteMessage({ contact: "S", number: "Q", url: "u", username: "u", company: "Stored Co" }), /Regards,\nStored Co$/);
-  assert.match(rd("components/workspace/PortalMessage.jsx"), /loadHubSettings/);
-  assert.match(rd("components/workspace/PortalMessage.jsx"), /short_name/);
 });

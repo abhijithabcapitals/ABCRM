@@ -47,7 +47,7 @@ export default function NewServiceFlow({ w, clientId, caseId = null, revises, fr
     try {
       const doc = await createDocument({ doc_type: "quote", department: "Business Setup", client_id: clientId, client_name: w.client.legal_name, contact_name: w.client.data?.["Primary Contact"]?.split(";")[0] || w.client.legal_name,
         contact_email: w.client.email, contact_phone: w.client.phone, client_address: w.client.data?.["Registered Address"] || null, services: lines.map((l) => l.service_name), lines, valid_until: validUntil, template_key: template, revises_id: revises?.id || null, case_id: caseId || revises?.case_id || null, notes: w.kyc?.business_activity || null });
-      try { await fileQuote(doc, w.kyc?.business_activity); } catch (e) { setError(`Quote ${doc.document_number} is saved, but its file was not created: ${e.message}. Use Create file on the quote.`); setBusy(false); return null; }
+      try { await fileQuote(doc, w.kyc?.business_activity); } catch (e) { setError(`Quote ${doc.document_number} is saved, but its file was not created: ${e.message}. The client's login has not been issued yet. Close this window, then use Create file on the quote and Issue login in the Login panel.`); setBusy(false); return null; }
       const forCase = caseId || revises?.case_id;
       if (!forCase) { await onDone(); return null; }
       setIssued({ number: doc.document_number, forCase, notice: await login(forCase, false) });

@@ -55,7 +55,9 @@ select public.bs_check('documents: a document in review is not validated either'
 update public.client_portal_documents set status = 'validated' where id = pg_temp.fx('d1_ej')::uuid;
 select public.bs_check('documents: validating it meets documents', (pg_temp.docs('d1') ->> 'documents')::boolean);
 select pg_temp.mkdoc('d1_rej', 'd1_form', 'Utility bill', 'rejected');
-select public.bs_check('documents: a rejected document waits for the client to replace it and blocks nothing', (pg_temp.docs('d1') ->> 'documents')::boolean);
+select public.bs_check('documents: a rejected document is not validated, so it blocks', not (pg_temp.docs('d1') ->> 'documents')::boolean);
+update public.client_portal_documents set status = 'validated' where id = pg_temp.fx('d1_rej')::uuid;
+select public.bs_check('documents: once validated it no longer blocks', (pg_temp.docs('d1') ->> 'documents')::boolean);
 select pg_temp.mkdoc('d1_part', 'd1_form', 'Other', 'pending', false);
 select public.bs_check('documents: an upload that never finished is not a document', (pg_temp.docs('d1') ->> 'documents')::boolean);
 -- A proof of payment has no form, so it never counts against the form.
@@ -69,6 +71,11 @@ select pg_temp.mkcase('d2', 'CL976002', 'Onboarding');
 select pg_temp.mkform('d2', 'd2', 'CL976002', 'Submitted');
 select pg_temp.mkdoc('d2_pass', 'd2_form', 'Passport', 'validated');
 select public.bs_check('documents: validated documents on a form still under review meet documents, not fields', not (pg_temp.docs('d2') ->> 'fields')::boolean and (pg_temp.docs('d2') ->> 'documents')::boolean);
+select pg_temp.mkcase('d5', 'CL976005', 'Onboarding');
+select pg_temp.mkform('d5', 'd5', 'CL976005', 'Submitted');
+select public.bs_check('documents: a form with no document is not met while it is not Validated', not (pg_temp.docs('d5') ->> 'documents')::boolean);
+update public.business_setup_onboarding_forms set status = 'Validated' where id = pg_temp.fx('d5_form')::uuid;
+select public.bs_check('documents: a Validated form with no document meets documents, like fields', (pg_temp.docs('d5') ->> 'documents')::boolean and (pg_temp.docs('d5') ->> 'fields')::boolean);
 select pg_temp.mkcase('d3', 'CL976003', 'Onboarding');
 select public.bs_check('documents: no form and no KYC leaves both open', not (pg_temp.docs('d3') ->> 'fields')::boolean and not (pg_temp.docs('d3') ->> 'documents')::boolean);
 insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL976003', 'Done') on conflict (client_id) do update set kyc_state = 'Done';
