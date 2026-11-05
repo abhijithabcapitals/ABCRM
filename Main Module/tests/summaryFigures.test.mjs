@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, readPages, PAGE_SIZE, NOTIFICATION_LIMIT, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes, isMissingTable, failureNote, RATE_LIMIT_MESSAGES,
+  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, alertFigures, isMissingFunction, readPages, PAGE_SIZE, NOTIFICATION_LIMIT, isNoAccess, snapshotState, fmtRatio, refreshWaitMinutes, isMissingTable, failureNote, RATE_LIMIT_MESSAGES,
 } from "../../Dashboard Module/logic/summaryFigures.js";
 
 const rows = (n, stage = "New", status = "active") => Array.from({ length: n }, () => ({ stage, status }));
@@ -177,4 +177,18 @@ test("isMissingTable recognises a missing table and nothing else", () => {
   assert.equal(isMissingTable({ code: "PGRST205" }), true);
   assert.equal(isMissingTable({ code: "42501" }), false);
   assert.equal(isMissingTable(null), false);
+});
+
+test("alertFigures reads the six tile counts, missing keys as 0", () => {
+  assert.equal(alertFigures({ overdue: 2 }).renewals, 0);
+  assert.equal(alertFigures({ overdue: 2 }).overdue, 2);
+  assert.equal(alertFigures(null).overdue, 0);
+  assert.deepEqual(alertFigures({ overdue: 1, upcoming: 2, documents: 3, authority: 4, renewals: 5, unassigned: 6, backlog: 9 }),
+    { overdue: 1, upcoming: 2, documents: 3, authority: 4, renewals: 5, unassigned: 6 });
+});
+test("isMissingFunction is true for a function not in the schema", () => {
+  assert.equal(isMissingFunction({ code: "PGRST202" }), true);
+  assert.equal(isMissingFunction({ code: "42883" }), true);
+  assert.equal(isMissingFunction({ code: "42501" }), false);
+  assert.equal(isMissingFunction(null), false);
 });

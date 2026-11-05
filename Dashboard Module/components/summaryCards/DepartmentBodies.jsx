@@ -130,3 +130,17 @@ export function NotificationsBody({ data }) {
     </>
   );
 }
+
+export function AlertsBody({ data }) {
+  if (data.missing) return <Empty>Not set up yet</Empty>;
+  return (
+    <div className="sum-stats">
+      <Stat label="Overdue" value={data.overdue} tone="danger" />
+      <Stat label="Upcoming" value={data.upcoming} tone="warn" />
+      <Stat label="Documents" value={data.documents} />
+      <Stat label="Authority" value={data.authority} />
+      <Stat label="Renewals" value={data.renewals} />
+      <Stat label="Unassigned" value={data.unassigned} tone="warn" />
+    </div>
+  );
+}

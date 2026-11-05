@@ -3,7 +3,7 @@ import { supabase } from "@app/supabase";
 import { compliance } from "@client-module/crm/taxLogic";
 import { BD_STAGES } from "@business-development/logic/businessDevelopmentData";
 import {
-  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, readPages, NOTIFICATION_LIMIT, isNoAccess, isMissingTable,
+  bdFigures, bankingFigures, setupFigures, accountingFigures, hrFigures, taxFigures, notificationFigures, alertFigures, readPages, NOTIFICATION_LIMIT, isNoAccess, isMissingTable, isMissingFunction,
 } from "../logic/summaryFigures.js";
 
 // Keeps error.code so the card can say "no access" instead of "failed".
@@ -29,6 +29,15 @@ export const summaryApi = {
   tax: async () => {
     const rows = await allRows(() => supabase.from("client_master").select("data").order("client_id"));
     return taxFigures(compliance(rows.map((r) => r.data)));
+  },
+  // A missing alert_tiles (migration not applied) reads as { missing: true }, not an error.
+  alerts: async () => {
+    try {
+      return { ...alertFigures(check(await supabase.rpc("alert_tiles", { p_scope: "My" }))), missing: false };
+    } catch (e) {
+      if (isMissingFunction(e)) return { ...alertFigures(null), missing: true };
+      throw e;
+    }
   },
   notifications: async () => {
     const { data: auth } = await supabase.auth.getUser();
