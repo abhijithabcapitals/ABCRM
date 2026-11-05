@@ -284,7 +284,7 @@ grant select on public.client_owners to authenticated;
 revoke execute on function
   public.alert_mode(), public.alert_is_admin(), public.alert_is_manager(), public.alert_managers(), public.alert_owner(text, text),
   public.alert_can_see(uuid), public.alert_bell(uuid, uuid, text), public.alert_add_recipient(uuid, uuid, text),
-  public.alert_raise(text, text, text, text, text, date, int, text, uuid, text, text, uuid, text, uuid[])
+  public.alert_raise(text, text, text, text, text, date, int, text, uuid, text, text, uuid, text, uuid[]), public.alert_events_append_only()
   from public, anon, authenticated;
 -- Only what the browser needs to evaluate its own row policies.
 grant execute on function public.alert_is_admin(), public.alert_is_manager(), public.alert_can_see(uuid) to authenticated;

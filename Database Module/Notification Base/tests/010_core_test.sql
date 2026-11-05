@@ -120,25 +120,56 @@ select t.ok('fallback alert records fell_back and reaches admins', (select fell_
 insert into banking_user_roles select * from saved_roles;
 insert into hr_employees select * from saved_hr;
 
--- Visibility in Live
+-- Visibility in Live. Unfiltered figures are taken before the role switch.
+select alert_raise('r', 'k13', 'CL000001', 'Thirteen', 'Accounting', current_date, 1, 'High', '00000000-0000-0000-0000-0000000000c1', 't', 'i') as k13_id \gset
+insert into client_owners (client_id, department, owner_id) values ('CL000001', 'Business Setup', '00000000-0000-0000-0000-0000000000c1');
+select count(*) as total_alerts from alerts \gset
+select not exists (select 1 from alert_recipients where alert_id = :'k13_id' and user_id = '00000000-0000-0000-0000-0000000000b2') as k13_unlinked \gset
+select t.ok('unfiltered count is meaningful', :total_alerts > 10);
 set role authenticated;
 select set_config('test.uid', '00000000-0000-0000-0000-0000000000c1', false);
-select t.ok('untagged member sees only alerts where a recipient', (select count(*) > 0 from alerts) and (select bool_and(alert_can_see(id)) from alerts)
+select t.ok('untagged member sees only alerts where a recipient', (select count(*) > 0 from alerts) and (select count(*) < :total_alerts from alerts) and (select bool_and(alert_can_see(id)) from alerts)
   and not exists (select 1 from alerts where dedupe_key in ('k7', 'k8', 'k11', 'k12')));
 select set_config('test.uid', '00000000-0000-0000-0000-0000000000c2', false);
 select t.ok('other untagged member sees only their own', (select count(*) = 2 from alerts) and exists (select 1 from alerts where dedupe_key = 'k1') and exists (select 1 from alerts where dedupe_key = 'k9'));
 select set_config('test.uid', '00000000-0000-0000-0000-0000000000b2', false);
-select t.ok('tagged manager sees every department outside Preview', (select count(*) = (select count(*) from alerts) from alerts) and alert_is_manager());
+select t.ok('tagged manager sees every alert outside Preview', alert_is_manager() and (select count(*) = :total_alerts from alerts));
+select t.ok('tagged manager sees an Accounting alert with no link to them', exists (select 1 from alerts where dedupe_key = 'k13' and department = 'Accounting') and :'k13_unlinked'::boolean);
 select set_config('test.uid', '00000000-0000-0000-0000-0000000000c1', false);
 select t.ok('untagged member is not a manager and not an admin', not alert_is_manager() and not alert_is_admin());
 select set_config('test.uid', '00000000-0000-0000-0000-0000000000a1', false);
-select t.ok('admin is not tagged but sees all', not alert_is_manager() and alert_is_admin() and (select count(*) = (select count(*) from alerts) from alerts));
-select t.ok('client_owners readable by admin', (select count(*) = 0 from client_owners));
+select t.ok('admin is not tagged but sees all', not alert_is_manager() and alert_is_admin() and (select count(*) = :total_alerts from alerts));
+select t.ok('client_owners readable by admin', (select count(*) = 1 from client_owners));
+select set_config('test.uid', '00000000-0000-0000-0000-0000000000b2', false);
+select t.ok('client_owners readable by tagged manager', (select count(*) = 1 from client_owners));
 select set_config('test.uid', '00000000-0000-0000-0000-0000000000c1', false);
-select t.ok('client_owners empty for untagged member', (select count(*) = 0 from client_owners));
+select t.ok('client_owners hidden from untagged member, even the owner', (select count(*) = 0 from client_owners));
+select t.fails('browser cannot write client_owners', $q$delete from client_owners$q$, 'permission denied');
 reset role;
 
-insert into client_owners (client_id, department, owner_id) values ('CL000001', 'Business Setup', '00000000-0000-0000-0000-0000000000c1');
+-- Same figures back in Preview: the tagged manager sees none, the admin still sees all
+update alert_settings set value = '"Preview"' where key = 'alert_mode';
+set role authenticated;
+select set_config('test.uid', '00000000-0000-0000-0000-0000000000b2', false);
+select t.ok('tagged manager sees none in Preview', (select count(*) = 0 from alerts));
+select set_config('test.uid', '00000000-0000-0000-0000-0000000000a1', false);
+select t.ok('admin still sees all in Preview', (select count(*) = :total_alerts from alerts));
+reset role;
+update alert_settings set value = '"Live"' where key = 'alert_mode';
+
+-- Grants: authenticated may run only the three policy helpers; anon none; anon cannot read alerts
+select t.ok('authenticated runs only the three policy helpers',
+  (select count(*) = 3 and array_agg(proname::text order by proname) = array['alert_can_see', 'alert_is_admin', 'alert_is_manager']
+   from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%' and has_function_privilege('authenticated', p.oid, 'execute')));
+select t.ok('there are alert functions to check', (select count(*) >= 9 from pg_proc where pronamespace = 'public'::regnamespace and proname like 'alert\_%'));
+select t.ok('anon runs no alert function', (select count(*) = 0 from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%' and has_function_privilege('anon', p.oid, 'execute')));
+select t.ok('public runs no alert function', (select count(*) = 0 from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%'
+  and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
+set role anon;
+select t.fails('anon cannot read alerts', 'select * from alerts', 'permission denied');
+select t.fails('anon cannot read client_owners', 'select * from client_owners', 'permission denied');
+reset role;
+
 select t.ok('alert_owner reads client_owners', alert_owner('CL000001', 'Business Setup') = '00000000-0000-0000-0000-0000000000c1' and alert_owner('CL000001', 'Accounting') is null);
 select t.fails('client_owners unique per client and department', $q$insert into client_owners (client_id, department, owner_id) values ('CL000001', 'Business Setup', '00000000-0000-0000-0000-0000000000c2')$q$, 'duplicate key');
 select t.fails('events are append-only (update)', $q$update alert_events set event = 'x'$q$, 'append-only');
