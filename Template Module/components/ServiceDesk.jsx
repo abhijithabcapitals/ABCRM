@@ -11,6 +11,7 @@ import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
 import { withLineVat } from "@business-setup/logic/quoteData";
 import ProposalDesk from "./ProposalDesk";
+import { isProposalLetter } from "../logic/proposalLetter";
 import { addLine, checkReady, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
 
 const PROPOSAL = "AB Capital/Proposal"; // proposals have their own screen and list
@@ -201,7 +202,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
       )}
       <Panel title="Generated documents">
         <ErrorNote message={docs.error} />
-        <DataTable search="Search…" rows={(docs.data || []).filter((d) => d.doc_type !== "mail" && d.library_template !== PROPOSAL)} empty="Nothing generated yet." columns={[
+        <DataTable search="Search…" rows={(docs.data || []).filter((d) => d.doc_type !== "mail" && d.library_template !== PROPOSAL && !isProposalLetter(d, docs.data, PROPOSAL))} empty="Nothing generated yet." columns={[
           { key: "doc_type", label: "Type", render: (d) => <Badge>{LABEL[d.doc_type]}</Badge> }, { key: "document_number", label: "Number" }, { key: "document_serial", label: "Serial", right: true },
           { key: "client_name", label: "Client" }, ...(department ? [] : [{ key: "department", label: "Department" }]), { key: "services", label: "Services", render: (d) => d.services.join(", ") },
           { key: "total_amount", label: "Total", right: true, render: (d) => `AED ${Number(d.total_amount).toLocaleString("en-AE")}` }, { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },

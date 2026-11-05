@@ -6,7 +6,8 @@ import { openWord, sendProposal } from "../services/proposalApi";
 import { retryProposal, saveToOneDrive } from "../services/proposalGenerate";
 import { oneDriveDeps, proposalDeps } from "../services/proposalDeps";
 import { optionTotal } from "../logic/proposalModel";
-import ProposalLetterDialog from "./ProposalLetterDialog";
+import ProposalLetterDialog, { fileLetter } from "./ProposalLetterDialog";
+import { letterAction } from "../logic/proposalLetter";
 
 const PROPOSAL = "AB Capital/Proposal";
 const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -39,6 +40,12 @@ export default function ProposalDocuments({ profile, settings, refresh }) {
     const out = await retryProposal(d, proposalDeps, settings);
     if (out.error) throw new Error(`${d.document_number}: ${out.error}`);
     setNote({ ok: true, text: `${d.document_number} files were made.` });
+    await docs.reload();
+  });
+  // Files an existing letter again under its own number; no new letter is made.
+  const retryLetter = (l) => run(`letter-${l.id}`, async () => {
+    await fileLetter(l, { settings, catalogue: catalogue.data, profile }, !!mailOf(l));
+    setNote({ ok: true, text: `Letter ${l.document_number} file made.` });
     await docs.reload();
   });
   const saveDraft = () => run("mail-save", async () => { await updateMail(mail.id, mail.subject, mail.body); await docs.reload(); setNote({ ok: true, text: "Mail changes saved." }); });
@@ -81,7 +88,12 @@ export default function ProposalDocuments({ profile, settings, refresh }) {
             ? <Badge tone="good">Saved</Badge>
             : <span className="bk-actions"><Badge tone="warn">Not in OneDrive</Badge>{d.storage_path && d.word_path && <Button busy={busy === `od-${d.id}`} onClick={() => saveNow(d)}>Save now</Button>}</span>) },
           { key: "mail", label: "Mail", render: (d) => (!mailOf(d) ? "–" : <span className="bk-actions"><button type="button" className={`bk-mail-icon${mail?.id === mailOf(d).id ? " active" : ""}`} title={`Draft mail for ${d.document_number}`} aria-label={`Open draft mail for ${d.document_number}`} onClick={() => openMail(d)}><MailIcon /></button>{d.mail_sent_at && <small className="bk-muted">Sent {fmtDateTime(d.mail_sent_at)}</small>}</span>) },
-          { key: "letter", label: "Engagement Letter", render: (d) => (letterOf(d) ? <Badge tone="good">Letter generated</Badge> : <Button disabled={!d.storage_path} onClick={() => setLetterFor(d)}>Engagement Letter + Mail</Button>) },
+          { key: "letter", label: "Engagement Letter", render: (d) => {
+            const l = letterOf(d), act = letterAction(l);
+            if (act === "done") return <span className="bk-actions"><Badge tone="good">Letter generated</Badge><button type="button" className="bk-link" onClick={() => openStored(l.storage_path).catch((e) => setError(e.message))}>View</button></span>;
+            if (act === "retry") return <span className="bk-actions"><Badge tone="warn">{l.document_number} has no file</Badge><Button variant="primary" busy={busy === `letter-${l.id}`} onClick={() => retryLetter(l)}>Retry letter file</Button></span>;
+            return <Button disabled={!d.storage_path} onClick={() => setLetterFor(d)}>Engagement Letter + Mail</Button>;
+          } },
         ]} />
       </Panel>
       {mail && (

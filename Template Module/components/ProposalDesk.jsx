@@ -88,14 +88,17 @@ export default function ProposalDesk({ profile }) {
     if (cleared) clear();
   };
 
+  const stuck = !!(result?.error && result.doc); // numbered but not finished: only Retry may continue it
+  const startNew = () => { if (window.confirm(`Proposal ${result.doc.document_number} has no files yet. Starting a new proposal leaves it without files (Retry stays available in the list below). Start a new proposal?`)) { setResult(null); clear(); } };
   const generate = async () => {
+    if (stuck) return;
     setBusy("generate"); setError(null); setResult(null);
     try { await finish(await generateProposal({ form, proposal: { usd_rate: rate, options, shared }, clientId, settings: settings.data, guard: guard.current }, proposalDeps), true); } catch (e) { setError(e.message); }
     setBusy(null);
   };
   const retry = async () => {
     setBusy("retry"); setError(null);
-    try { await finish(await retryProposal(result.doc, proposalDeps, settings.data), false); } catch (e) { setError(e.message); }
+    try { await finish(await retryProposal(result.doc, proposalDeps, settings.data), true); } catch (e) { setError(e.message); }
     setBusy(null);
   };
 
@@ -143,7 +146,9 @@ export default function ProposalDesk({ profile }) {
         </div>
       </Panel>
       <Panel title="4. Generate" sub="Creates the Ref, the Word and PDF files and a mail draft. The PDF downloads when done.">
-        <div className="bk-actions"><Button variant="primary" busy={busy === "generate"} disabled={!!busy || !!blocked} onClick={generate}>Generate Proposal + Mail</Button></div>
+        {stuck
+          ? <div className="bk-actions"><Button variant="primary" busy={busy === "retry"} disabled={!!busy} onClick={retry}>Retry {result.doc.document_number}</Button><Button disabled={!!busy} onClick={startNew}>Start a new proposal</Button></div>
+          : <div className="bk-actions"><Button variant="primary" busy={busy === "generate"} disabled={!!busy || !!blocked} onClick={generate}>Generate Proposal + Mail</Button></div>}
       </Panel>
       <ProposalDocuments profile={profile} settings={settings.data} refresh={refresh} />
     </div>
