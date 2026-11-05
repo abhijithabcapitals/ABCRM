@@ -24,13 +24,13 @@ const displayDate = (iso) => {
 
 export function letterFields() {
   const fields = formFields({ fields: ["client_name", "contact_name", "contact_email", "contact_phone", "client_address", "license_number", "vat_trn", "date"] }, "AB Capital");
-  return fields.map((f) => (f.name === "client_address" ? { ...f, label: "Client address" } : f));
+  return fields.map((f) => (f.name === "client_address" ? { ...f, label: "Client address" } : f.name === "date" ? { ...f, required: true } : f));
 }
 
 // What a letter copies from the quote it starts from. The date stays today's.
 export function quoteToForm(q) {
   const values = {};
-  for (const k of ["client_name", "contact_name", "contact_email", "contact_phone", "client_address", "license_number", "vat_trn"]) if (q[k]) values[k] = q[k];
+  for (const k of ["client_name", "contact_name", "contact_email", "contact_phone", "client_address", "license_number", "vat_trn"]) { const v = q[k] || q.field_values?.[k]; if (v) values[k] = v; }
   return {
     values,
     clientId: q.client_id || null,

@@ -90,3 +90,8 @@ test("an AB Capital form always asks for client details; Ardentax only for its t
   assert.equal(ab.find((f) => f.name === "client_address").required, false);
   assert.deepEqual(formFields({ fields: ["date"] }, "Ardentax").map((f) => f.name), ["date"]);
 });
+test("a fee with an amount and no label is refused", () => {
+  const fs = fieldsFor({ fields: ["client_name"] }, "Ardentax");
+  assert.match(checkRequired(fs, { client_name: "X" }, [{ label: "", amount: "100" }], "Ardentax"), /no label/);
+  assert.equal(checkRequired(fs, { client_name: "X" }, [{ label: "", amount: "" }], "Ardentax"), null);
+});

@@ -103,3 +103,12 @@ test("a document's own wording replaces the default", () => {
   for (const s of ["Hello intro", "Own scope", "Own payment"]) assert.ok(t.includes(s), s);
   assert.ok(!t.includes("Saved terms"));
 });
+test("the document date is the Dubai date", () => {
+  assert.equal(quoteData({ ...doc, created_at: "2026-11-05T21:00:00Z" }, company).document_date, "06/11/2026");
+});
+test("an inclusive VAT row says it is included, and typed wording fills the VAT statement", () => {
+  assert.equal(quoteData({ ...doc, vat_mode: "inclusive" }, company).vat_label, "VAT included");
+  assert.equal(quoteData({ ...doc, vat_mode: "exclusive", vat_rate: 5 }, company).vat_label, "VAT");
+  const d = quoteData({ ...doc, vat_mode: "inclusive", field_values: { sections: { payment: "Pay. {{vat_statement}}" } } }, company);
+  assert.equal(d.payment_text, "Pay. The fees are inclusive of applicable UAE VAT.");
+});

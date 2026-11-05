@@ -100,6 +100,7 @@ export function checkRequired(fields, values, rows, company) {
   if (missing.length) problems.push(`Fill in: ${missing.join(", ")}.`);
   const emailBad = fields.some((f) => f.name === "contact_email" && filled(v[f.name]) && !EMAIL.test(String(v[f.name]).trim()));
   if (emailBad) problems.push("Email is not a valid address.");
+  if ((rows || []).some((r) => !filled(r?.label) && filled(r?.amount))) problems.push("A fee row has an amount but no label. Add a label or remove the row.");
   if (company === "AB Capital" && !(rows || []).some((r) => filled(r?.label))) problems.push("Add at least one fee row with a label.");
   return problems.length ? problems.join(" ") : null;
 }

@@ -144,8 +144,12 @@ export default function LibraryForm({ template, fileId, kind, start, onClose, on
       {fields && fields.length > 0 && (
         <>
           <div className="bk-row">
-            <input className="bk-search" type="search" placeholder="Search Client Master" aria-label="Search Client Master" value={search} onChange={(e) => setSearch(e.target.value)} />
-            <Button busy={busy === "search"} onClick={findClients} disabled={!search.trim() || busy === "search"}>Search</Button>
+            {!start?.parentId && (
+              <>
+                <input className="bk-search" type="search" placeholder="Search Client Master" aria-label="Search Client Master" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Button busy={busy === "search"} onClick={findClients} disabled={!search.trim() || busy === "search"}>Search</Button>
+              </>
+            )}
             <FilePick label="Read passport, Emirates ID or licence" busy={busy === "ocr"} accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff" onFile={readFile} />
           </div>
           {found && (found.length
@@ -185,7 +189,7 @@ export default function LibraryForm({ template, fileId, kind, start, onClose, on
           ))}
           <Button onClick={() => setRows((rs) => [...rs, emptyRow()])}>Add fee row</Button>
           <div className="bk-modal-actions">
-            <Button onClick={onClose}>{kind ? "Clear" : "Cancel"}</Button>
+            <Button onClick={onClose} disabled={busy === "generate"}>{kind ? "Clear" : "Cancel"}</Button>
             <Button variant="primary" busy={busy === "generate"} onClick={generate}>Generate</Button>
           </div>
         </>

@@ -1,7 +1,7 @@
 // Settings: Company Library Word templates, their files and saved fee rows.
 import { useRef, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FilePick, FormGrid, FormModal, Modal, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { libraryFileUrl, listLibraryTemplates, saveLibraryTemplate, uploadLibraryFile } from "../services/hubApi";
+import { libraryAccess, libraryFileUrl, listLibraryTemplates, saveLibraryTemplate, uploadLibraryFile } from "../services/hubApi";
 import { readTags } from "../logic/libraryFields";
 import { SECTIONS, cleanSections } from "../logic/libraryLetter";
 import { renderDocx } from "../logic/renderDocx";
@@ -28,6 +28,7 @@ function saveParams(t, over = {}) {
 function WordingModal({ template, onClose, onSaved }) {
   const [quote, setQuote] = useState(template.sections?.quote || {});
   const [letter, setLetter] = useState(template.sections?.letter || {});
+  const [which, setWhich] = useState("quote");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const save = async (e) => {
@@ -44,10 +45,15 @@ function WordingModal({ template, onClose, onSaved }) {
       <form onSubmit={save}>
         <p className="bk-note">An empty box uses the default from the saved terms. Bank details are added from Settings, so leave them out here.</p>
         <ErrorNote message={error} />
-        <h3>Quotation</h3>
-        <FormGrid fields={SECTIONS.quote} values={quote} setValues={setQuote} />
-        <h3>Engagement letter</h3>
-        <FormGrid fields={SECTIONS.letter} values={letter} setValues={setLetter} />
+        <label>Wording for{" "}
+          <select value={which} onChange={(e) => setWhich(e.target.value)} style={{ width: "auto" }}>
+            <option value="quote">Quotation</option>
+            <option value="letter">Engagement letter</option>
+          </select>
+        </label>
+        {which === "quote"
+          ? <FormGrid key="quote" fields={SECTIONS.quote} values={quote} setValues={setQuote} />
+          : <FormGrid key="letter" fields={SECTIONS.letter} values={letter} setValues={setLetter} />}
         <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy}>Save</Button></div>
       </form>
     </Modal>
@@ -103,7 +109,9 @@ function FeeRowsModal({ template, onClose, onSaved }) {
   );
 }
 
-export default function LibrarySettings({ manage }) {
+export default function LibrarySettings() {
+  const access = useLoad(libraryAccess, []);
+  const manage = !!access.data?.manage;
   const list = useLoad(listLibraryTemplates, []);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);

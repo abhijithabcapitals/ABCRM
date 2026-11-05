@@ -414,13 +414,14 @@ function Quotation({ c, client, reload }) {
   const { can, personName } = useBanking();
   const quotes = useLoad(() => run(table("banking_quotations").select("*, banking_partners(bank_name), banking_schemes(scheme_name), banking_quotation_items(*)").eq("case_id", c.id).order("created_at", { ascending: false })), [c.id]);
   const settings = useLoad(() => loadSettings(), []);
+  const kyc = useLoad(() => run(table("banking_kyc_profiles").select("registered_address").eq("client_id", client.id).maybeSingle()), [client.id]);
   const [open, setOpen] = useState(null);
   const [revise, setRevise] = useState(null);
   const [decide, setDecide] = useState(null);
   const { error, busy, act } = useAction(async () => { await quotes.reload(); await reload(); });
   const rows = quotes.data || [];
   const company = settings.data?.company;
-  const merge = (q) => quoteMerge(q, client, c, company, personName(q.prepared_by));
+  const merge = (q) => quoteMerge(q, { ...client, registered_address: kyc.data?.registered_address }, c, company, personName(q.prepared_by));
   const [savedKey, setSavedKey] = useState(0);
   const [savedNote, setSavedNote] = useState(null);
   const saveCopy = async (q) => {

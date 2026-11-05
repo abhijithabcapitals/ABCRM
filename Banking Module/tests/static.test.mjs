@@ -47,8 +47,8 @@ function render(file, data) {
 test("quotation template renders separate lines and memos", () => {
   const q = { quotation_number: "BQ-1", version: 2, status: "Issued", quotation_date: "2026-10-31", valid_until: "2026-11-15", vat_mode: "inclusive", vat_rate: 5, vat_amount: 142.86, discount_total: 0, total_amount: 3000, initial_deposit_memo: 5000, minimum_balance_memo: null, banking_partners: { bank_name: "ADCB" },
     banking_quotation_items: [{ item_type: "Service Fee", description: "Svc", amount: 2000, sort_order: 1 }, { item_type: "Supplementary", description: "Home Ejari", amount: 1000, sort_order: 2 }, { item_type: "Bank Fee", description: "Direct fee", amount: 300, collected_through_ab: false, sort_order: 3 }] };
-  const text = render("Quotation_Template.docx", designQuote(flat(quoteMerge(q, { display_name: "Client LLC" }, { case_ref: "BC-1" }, company, "Me"))));
-  for (const s of ["BQ-1 v2", "Client LLC", "ADCB", "BC-1", "Home Ejari", "2,000", "3,000", "Direct fee", "initial deposit 5,000", "Me"]) assert.ok(text.includes(s), s);
+  const text = render("Quotation_Template.docx", designQuote(flat(quoteMerge(q, { display_name: "Client LLC", registered_address: "Road 9, Dubai" }, { case_ref: "BC-1" }, company, "Me"))));
+  for (const s of ["BQ-1 v2", "Client LLC", "Road 9, Dubai", "ADCB", "BC-1", "Home Ejari", "2,000", "3,000", "Direct fee", "initial deposit 5,000", "Me"]) assert.ok(text.includes(s), s);
   assert.ok(!/\{[#/]?\w+\}/.test(text), "no placeholder left");
 });
 

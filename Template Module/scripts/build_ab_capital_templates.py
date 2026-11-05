@@ -69,7 +69,7 @@ def add_fee_rows(xml, name):
     if not m:
         raise DesignError(f"{name}: the fee row was not found")
     row = m.group(0)
-    vat = set_row_text(row, ("{#has_vat}VAT", "{vat}{/has_vat}"))
+    vat = set_row_text(row, ("{#has_vat}{vat_label}", "{vat}{/has_vat}"))
     total = set_row_text(row, ("Total", "{total}"), bold=True)
     return xml[: m.end()] + vat + total + xml[m.end() :]
 
@@ -90,8 +90,8 @@ def add_bank_details(xml, name):
     lines = ""
     for label, tag in BANK_LINES:
         text = f"{label}: {tag}" if tag else label
-        bold = "" if tag else "<w:b/>"
-        lines += f'<w:p>{props}<w:r><w:rPr>{bold or "<w:b w:val=\"0\"/>"}</w:rPr><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+        weight = '<w:b w:val="0"/>' if tag else "<w:b/>"
+        lines += f'<w:p>{props}<w:r><w:rPr>{weight}</w:rPr><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
     return xml[: m.end()] + lines + xml[m.end() :]
 
 

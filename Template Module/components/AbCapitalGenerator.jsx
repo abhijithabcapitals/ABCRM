@@ -71,7 +71,7 @@ export default function AbCapitalGenerator({ docType, profile }) {
         ) : null}
         <div className="bk-row">
           <label>Work type{" "}
-            <select style={selectStyle} value={picked} onChange={(e) => { setPicked(e.target.value); setStart(null); setQuoteId(""); setFormKey((n) => n + 1); }}>
+            <select style={selectStyle} value={picked} onChange={(e) => { setPicked(e.target.value); if (!(isLetter && from === "quote" && quoteId)) { setStart(null); setQuoteId(""); } setFormKey((n) => n + 1); }}>
               <option value="">{isLetter ? "None: use the saved default wording" : "Choose a work type"}</option>
               {usable.map((t) => <option key={t.template_key} value={t.template_key}>{t.name}</option>)}
             </select>

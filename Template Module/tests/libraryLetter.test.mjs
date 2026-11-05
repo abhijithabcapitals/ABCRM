@@ -162,3 +162,13 @@ test("each design's wording boxes are text boxes with their own labels", () => {
   assert.deepEqual(SECTIONS.letter.map((s) => s.name), ["understanding", "scope", "fee_intro", "payment", "reps", "other"]);
   assert.ok([...SECTIONS.quote, ...SECTIONS.letter].every((s) => s.type === "textarea" && s.label));
 });
+
+test("Date is required on the AB Capital form", () => {
+  assert.equal(letterFields().find((f) => f.name === "date").required, true);
+});
+
+test("a letter from a quote takes licence and TRN from the quote's stored values", () => {
+  const form = quoteToForm({ id: "Q", client_name: "C", lines: [], field_values: { license_number: "L9", vat_trn: "T9" } });
+  assert.equal(form.values.license_number, "L9");
+  assert.equal(form.values.vat_trn, "T9");
+});

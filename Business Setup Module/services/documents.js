@@ -13,9 +13,8 @@ async function fileWithMail(doc, type, blob) {
   return saved;
 }
 
-// The service template holds the company's letterhead text; the zone templates carry their own wording and USD columns.
 export async function fileQuote(doc) {
-  if (doc.library_template) throw new Error("This document came from Company Library. Use Retry there.");
+  if (doc.library_template) throw new Error("This document came from Template Hub. Use Retry there.");
   const settings = await loadHubSettings();
   // Every AB Capital quote uses the same design. The zone stays as a label on the quote.
   const blob = await renderTemplate("Service_Quotation_Template.docx", quoteData(doc, settings.company, settings.engagement_terms));

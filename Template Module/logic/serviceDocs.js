@@ -42,13 +42,16 @@ export const folderKind = (department, type) => (department === "Business Bankin
 // Word is a list: "A", "A and B", "A, B and C".
 export const listWords = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
 
+const dubaiDate = (iso) => (iso ? dmy(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date(iso))) : "");
+const vatLabel = (doc) => (doc.vat_mode === "inclusive" ? "VAT included" : "VAT");
+
 function common(doc, company) {
   const co = company || {};
   const bank = co.bank || {};
   return {
     company_name: co.name || "", company_short: co.short_name || "AB Capital Services FZE", company_website: co.website || "", company_email: co.email || "", company_mobile: co.mobile || "",
     ba_name: bank.account_name || "", ba_bank: bank.bank || "", ba_no: bank.account_no || "", ba_iban: bank.iban || "", ba_swift: bank.swift || "", ba_ccy: bank.currency || "",
-    client_name: doc.client_name, contact_name: doc.contact_name || "", contact_email: doc.contact_email || "", contact_phone: doc.contact_phone || "", client_address: doc.client_address || "", license_number: doc.license_number || "", vat_trn: doc.vat_trn || "", document_number: doc.document_number || "", document_date: dmy(doc.created_at), department: doc.department,
+    client_name: doc.client_name, contact_name: doc.contact_name || "", contact_email: doc.contact_email || "", contact_phone: doc.contact_phone || "", client_address: doc.client_address || "", license_number: doc.license_number || "", vat_trn: doc.vat_trn || "", document_number: doc.document_number || "", document_date: dubaiDate(doc.created_at), department: doc.department,
     lines: (doc.lines || []).map((l, i) => ({ no: i + 1, description: l.description, amount: plain(l.amount) })),
     total: plain(doc.total_amount), vat_statement: vatStatement(doc.vat_mode, doc.vat_rate), notes: doc.notes || "",
   };
@@ -58,13 +61,13 @@ function common(doc, company) {
 // otherwise the text comes from its services and the saved terms.
 const bullets = (items) => (items || []).filter(Boolean).map((t) => `• ${t}`).join("\n");
 const paymentText = (doc, t) => (t?.payment_terms || []).map((text) => String(text).replace("{{vat_statement}}", vatStatement(doc.vat_mode, doc.vat_rate))).join("\n");
-const wording = (doc, key, fallback) => { const own = doc.field_values?.sections?.[key]; return own !== undefined && own !== null ? own : fallback; };
+const wording = (doc, key, fallback) => { const own = doc.field_values?.sections?.[key]; return own !== undefined && own !== null ? String(own).replace("{{vat_statement}}", vatStatement(doc.vat_mode, doc.vat_rate)) : fallback; };
 const understandingOf = (doc) => `We understand that you require the following: ${listWords(doc.services || [])}.`;
 
 export function quoteData(doc, company, terms) {
   const validity = doc.valid_until ? `This quotation is valid until ${dmy(doc.valid_until)}.` : "";
   return {
-    ...common(doc, company), valid_until: dmy(doc.valid_until), has_vat: doc.vat_mode !== "none", vat: plain(doc.vat_amount),
+    ...common(doc, company), valid_until: dmy(doc.valid_until), has_vat: doc.vat_mode !== "none", vat_label: vatLabel(doc), vat: plain(doc.vat_amount),
     intro: wording(doc, "intro", ""), understanding: wording(doc, "understanding", understandingOf(doc)), scope_text: wording(doc, "scope", bullets(doc.services)),
     payment_text: wording(doc, "payment", paymentText(doc, terms)),
     additional: [wording(doc, "additional", doc.notes || ""), validity].filter(Boolean).join("\n"),
@@ -86,7 +89,7 @@ export function letterData(doc, company, terms, limitations = []) {
   return {
     ...common(doc, company),
     understanding: wording(doc, "understanding", understandingOf(doc)), scope_text: wording(doc, "scope", bullets(doc.services)),
-    has_vat: doc.vat_mode !== "none", vat: plain(doc.vat_amount), payment_text: wording(doc, "payment", paymentText(doc, t)),
+    has_vat: doc.vat_mode !== "none", vat_label: vatLabel(doc), vat: plain(doc.vat_amount), payment_text: wording(doc, "payment", paymentText(doc, t)),
     other_terms: wording(doc, "other", otherTerms(t, limitations)),
     scope: (doc.services || []).map((text) => ({ text })),
     fee_intro: wording(doc, "fee_intro", t.fee_intro || ""), payment_terms: lines(t.payment_terms), ab_responsibilities: lines(t.ab_responsibilities), client_responsibilities: lines(t.client_responsibilities),
