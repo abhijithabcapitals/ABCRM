@@ -6,6 +6,9 @@ do $$ begin
   end if;
 end $$;
 
+-- 002: function
+drop function if exists public.alert_step_for(jsonb, int);
+
 -- 001: tables first (their policies depend on the functions), then functions
 drop table if exists public.alert_scan_log;
 drop table if exists public.alert_events;
