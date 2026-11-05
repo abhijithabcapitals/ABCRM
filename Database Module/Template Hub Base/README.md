@@ -1,5 +1,7 @@
 # Template Hub Base
 
+`migrations/004_hub_admin.sql` gives managers (data role MANAGER, or active HR designation Manager) Template Hub admin rights; undo with `rollback/004_rollback.sql`.
+
 `migrations/002_master_templates.sql` records the master Word file uploaded in Settings for each generated document, keeping every earlier upload.
 
 Database for the CRM's **Template Hub** tab (`Template Module` folder, formerly Document Generator), in the CRM Supabase project.

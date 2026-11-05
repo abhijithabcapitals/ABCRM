@@ -3,7 +3,7 @@ import GenerateTab from "./GenerateTab";
 import TemplatesTab from "./TemplatesTab";
 import { fetchTemplates as loadTemplates, downloadTemplateBuffer } from "../services/templatesApi";
 
-export default function Quotations({ profile }) {
+export default function Quotations({ profile, hubAdmin = false }) {
   const [tab, setTab] = useState("generate");
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +62,7 @@ export default function Quotations({ profile }) {
           <TemplatesTab
             templates={templates}
             profile={profile}
+            hubAdmin={hubAdmin}
             onChanged={fetchTemplates}
             downloadTemplateBuffer={downloadTemplateBuffer}
           />
