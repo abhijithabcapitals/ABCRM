@@ -1,10 +1,19 @@
--- Rollback for Notification Base migrations 001 to 004. Covers only what exists today; extended as migrations are added.
+-- Rollback for Notification Base migrations 001 to 004. Newest migration first.
 -- Safe to run twice. Deletes the alert_centre bell rows; other notifications stay.
 do $$ begin
   if to_regclass('public.notifications') is not null then
     delete from public.notifications where type = 'alert_centre';
   end if;
 end $$;
+
+-- 004: read functions (no tables of their own). Dropped first: alert_scope_rows returns the alerts row type.
+drop function if exists public.alert_my_access();
+drop function if exists public.alert_coverage();
+drop function if exists public.alert_management_summary();
+drop function if exists public.alert_detail(uuid);
+drop function if exists public.alert_tiles(text, text);
+drop function if exists public.alert_list(text, text, text, int, int);
+drop function if exists public.alert_scope_rows(text, text);
 
 -- 003: browser actions, escalation, owner functions, settings (no tables of their own)
 drop function if exists public.alert_scan_now();
