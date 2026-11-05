@@ -858,7 +858,6 @@ export default function Sidebar({
           { key: "business-banking", Icon: IconClients, label: "Business Banking" },
           { key: "accounts", Icon: IconCheck, label: "Accounting" },
           { key: "quotations", Icon: IconFile, label: "Template Hub" },
-          { key: "ardentax", Icon: IconFile, label: "ArdentTax (ASP)" },
           { key: "clients", Icon: IconClients, label: "Clients" },
           { key: "hr", Icon: IconClients, label: "HR" },
           { key: "tax", Icon: IconCheck, label: "Tax Compliance" },

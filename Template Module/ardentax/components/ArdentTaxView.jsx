@@ -1,4 +1,5 @@
 // The ArdentTax (ASP) page. api is the real one in the CRM and the fake one on the development page.
+// docType: "quote" or "letter" fixes the form and the list to that kind of document. embedded: drops the page's own header and scrolling.
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import "./ardentax.css";
@@ -21,8 +22,9 @@ async function browserDeps() {
   };
 }
 
-export default function ArdentTaxView({ api, clients = [] }) {
-  const [details, setDetails] = useState(() => defaultDetails(dubaiToday()));
+export default function ArdentTaxView({ api, clients = [], docType, embedded = false }) {
+  const freshDetails = () => ({ ...defaultDetails(dubaiToday()), ...(docType ? { docType } : {}) });
+  const [details, setDetails] = useState(freshDetails);
   const [revising, setRevising] = useState(null);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
@@ -40,7 +42,7 @@ export default function ArdentTaxView({ api, clients = [] }) {
   const checks = quoteChecks(details, totals);
   const missing = quoteBlockers(details, totals);
 
-  const startOver = () => { setRevising(null); setDetails(defaultDetails(dubaiToday())); };
+  const startOver = () => { setRevising(null); setDetails(freshDetails()); };
   // formJob: this job came from the form, so the form clears when it is done. Register buttons leave the form alone.
   const run = async (key, work, formJob = false) => {
     // A ref, because a second click can arrive before the page redraws with busy set.
@@ -50,7 +52,7 @@ export default function ArdentTaxView({ api, clients = [] }) {
     let created = null;
     try {
       const { doc } = await work(await browserDeps(), (d) => { created = d; });
-      setNote({ ok: true, text: `${doc.document_number}${doc.version > 1 ? ` v${doc.version}` : ""} is ready. Open its Word file, PDF or email in the register below.` });
+      setNote({ ok: true, text: `${doc.document_number}${doc.version > 1 ? ` v${doc.version}` : ""} is ready. ${docType && doc.doc_type !== docType ? "Open its Word file, PDF or email under Engagement Letter." : "Open its Word file, PDF or email in the register below."}` });
       if (formJob) startOver();
     } catch (e) {
       // The number is issued and the details are saved. Clearing the form stops an edit from taking a second number.
@@ -81,14 +83,16 @@ export default function ArdentTaxView({ api, clients = [] }) {
   };
 
   return (
-    <div className="at-page">
+    <div className={embedded ? "at-page at-embedded" : "at-page"}>
       <div className="at-head" ref={top}>
-        <h1>ArdentTax (ASP)</h1>
-        <div>Generate e-invoicing quotations and engagement letters. Numbers come from the CRM, so they stay in order.</div>
+        {!embedded && <>
+          <h1>ArdentTax (ASP)</h1>
+          <div>Generate e-invoicing quotations and engagement letters. Numbers come from the CRM, so they stay in order.</div>
+        </>}
       </div>
       <div className="at-body">
         {revising && <p className="bk-note">Revising {revising.document_number}. It keeps this number and becomes version {Math.max(...(docs.data || []).filter((x) => x.document_number === revising.document_number).map((x) => x.version), revising.version) + 1}. <button type="button" className="bk-link" onClick={startOver}>Cancel</button></p>}
-        <QuoteForm details={details} setDetails={setDetails} totals={totals} clients={clients} locked={!!revising} />
+        <QuoteForm details={details} setDetails={setDetails} totals={totals} clients={clients} locked={!!revising} fixedType={!!docType} />
 
         <Panel title="5. Totals">
           <dl className="at-totals">
@@ -119,7 +123,7 @@ export default function ArdentTaxView({ api, clients = [] }) {
 
         <Panel title="Generated documents">
           <ErrorNote message={docs.error} />
-          {docs.loading && !docs.data ? <Spinner /> : <Register docs={docs.data || []} busy={busy} onOpen={open} onAgain={again} onLetter={letter} onRevise={revise} onMail={setMailDoc} />}
+          {docs.loading && !docs.data ? <Spinner /> : <Register docs={docs.data || []} docType={docType} busy={busy} onOpen={open} onAgain={again} onLetter={letter} onRevise={revise} onMail={setMailDoc} />}
         </Panel>
         {mailDoc && <MailPanel doc={mailDoc} api={api} onClose={() => setMailDoc(null)} onChanged={docs.reload} />}
       </div>

@@ -3,14 +3,14 @@ import { Badge, Button, DataTable, fmtDate } from "@banking/components/shared";
 
 const aed = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
 
-export default function Register({ docs, busy, onOpen, onAgain, onLetter, onRevise, onMail }) {
+export default function Register({ docs, docType, busy, onOpen, onAgain, onLetter, onRevise, onMail }) {
   // A quote's number has one letter, whichever version of the quote it came from.
   const hasLetter = (q) => docs.some((d) => d.doc_type === "letter" && docs.some((s) => s.id === d.source_quote_id && s.document_number === q.document_number));
   const latestOf = (d) => !docs.some((x) => x.document_number === d.document_number && x.version > d.version);
   return (
     <DataTable
       search="Search by number or client…"
-      rows={docs}
+      rows={docType ? docs.filter((d) => d.doc_type === docType) : docs}
       empty="Nothing generated yet."
       columns={[
         { key: "document_number", label: "Number", render: (d) => <span>{d.document_number}{d.version > 1 ? ` v${d.version}` : ""}</span> },

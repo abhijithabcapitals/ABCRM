@@ -7,7 +7,8 @@ export const GRANTABLE_TABS = [
   { key: "business-banking", label: "Business Banking" },
   { key: "accounts", label: "Accounting" },
   { key: "quotations", label: "Template Hub" },
-  { key: "ardentax", label: "ArdentTax (ASP)" },
+  // Not a page of its own any more: it opens in Template Hub > Company Templates > Ardentax. The database rules still read this grant.
+  { key: "ardentax", label: "ArdentTax (ASP), in Template Hub" },
   { key: "clients", label: "Clients" },
   { key: "hr", label: "HR" },
   { key: "tax", label: "Tax Compliance" },
@@ -29,10 +30,11 @@ const tabOf = (view) => (KEYS.has(view) ? view : "spaces");
 
 // The page a person actually sees. Admins go anywhere; members only where they were given access.
 // The full Messenger page needs no grant, as every member already has the chat dock.
-export function resolveView(view, isAdmin, tabs) {
+export function resolveView(requested, isAdmin, tabs) {
+  const view = requested === "ardentax" ? "quotations" : requested;
   if (isAdmin || view === "profile" || view === "team-messenger") return view;
   if (!ADMIN_ONLY.has(view) && (tabs || []).includes(tabOf(view))) return view;
-  return (tabs || []).find((t) => t !== "spaces") || "profile";
+  return (tabs || []).find((t) => t !== "spaces" && t !== "ardentax") || "profile";
 }
 
 // The page asked for in the address (a link can open ?view=settings), else the saved one.
@@ -47,8 +49,8 @@ export function startView(search, saved) {
 // tabs were removed. `write` says the saved value in abc_view must be set again.
 export function initialView(search, stored) {
   const saved = startView(search, stored);
-  const view = saved === "accounting" ? "clients" : saved === "wiki" || saved === "messenger" ? "dashboard" : saved || "dashboard";
-  return { view, write: new URLSearchParams(search).has("view") || stored === "messenger" };
+  const view = saved === "ardentax" ? "quotations" : saved === "accounting" ? "clients" : saved === "wiki" || saved === "messenger" ? "dashboard" : saved || "dashboard";
+  return { view, write: new URLSearchParams(search).has("view") || stored === "messenger" || stored === "ardentax" };
 }
 
 // Each person's own sidebar order, kept in this browser. Tabs not in the saved order go last.

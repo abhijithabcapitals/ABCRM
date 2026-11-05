@@ -18,7 +18,7 @@ const TABS = [
   { key: "settings", label: "⚙ Settings" },
 ];
 
-export default function TemplateHub({ profile }) {
+export default function TemplateHub({ profile, canArdentax = false }) {
   const [tab, setTab] = useState("services");
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "calc(100vh - var(--brand-footer-h))", overflow: "hidden", background: "#f7f8fa" }}>
@@ -60,7 +60,7 @@ export default function TemplateHub({ profile }) {
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><ServiceDesk profile={profile} /></div>
         ) : tab === "quotations" || tab === "company-templates" ? (
           <Suspense fallback={<div style={{ color: "#9ca3af", fontSize: 13 }}>Loading…</div>}>
-            {tab === "quotations" ? <QuotationsPage profile={profile} /> : <CompanyTemplatesPage />}
+            {tab === "quotations" ? <QuotationsPage profile={profile} /> : <CompanyTemplatesPage canArdentax={canArdentax} />}
           </Suspense>
         ) : (
           <CompanyLibrary />

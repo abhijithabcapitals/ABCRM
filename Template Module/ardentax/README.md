@@ -1,4 +1,6 @@
-# ArdentTax (ASP) tab
+# ArdentTax (ASP)
+
+Opens from Template Hub > Company Templates > Ardentax: the Quote and Engagement Letter columns each open the generator, fixed to that document with its own list. Email Content and Social Content stay empty. Using it needs Template Hub plus the `ardentax` grant in Settings, which the database rules read.
 
 Generates Ardentax e-invoicing quotations and engagement letters as Word, PDF and an email, replacing `Ardentax_Quote_Generator.xlsm` for single documents. Numbers come from the CRM database: `Ardentax/{YYYY}/{MM}/ADTQ001` and `ADTE001`.
 
