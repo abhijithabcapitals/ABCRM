@@ -5,6 +5,7 @@ import ScopeView from "./ScopeView";
 import DepartmentView from "./DepartmentView";
 import ManagementView from "./ManagementView";
 import CentreSettings from "./CentreSettings";
+import ComplianceRegister from "./ComplianceRegister";
 import { Note, btn } from "./ui";
 import { dubaiToday, emptyText, isNotSwitchedOn, tabsFor } from "../logic/alertLogic";
 import { alertMyAccess } from "../services/alertsApi";
@@ -85,6 +86,7 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
       {access && tab === "Department" && (
         <DepartmentView supabase={supabase} access={access} people={people} today={today} onOpen={open} refreshKey={refreshKey} onChanged={bump} />
       )}
+      {access && tab === "Compliance Register" && <ComplianceRegister supabase={supabase} today={today} fmtDate={fmtDate} />}
       {access && tab === "Management" && <ManagementView supabase={supabase} access={access} today={today} onOpen={open} refreshKey={refreshKey} />}
       {access && tab === "Settings" && (
         <CentreSettings supabase={supabase} access={access} onChanged={() => { bump(); alertMyAccess(supabase).then(setAccess).catch(() => {}); }} />

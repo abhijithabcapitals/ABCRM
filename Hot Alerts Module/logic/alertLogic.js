@@ -104,6 +104,7 @@ export function resolvePlaceholder(priority) {
 export function tabsFor(access) {
   const tabs = ["My Notifications"];
   if (access?.is_admin || access?.is_manager) tabs.push("Department");
+  if (access?.can_register) tabs.push("Compliance Register");
   if (access?.is_admin) tabs.push("Management", "Settings");
   return tabs;
 }
@@ -130,7 +131,7 @@ export function basedOnNote(rule) {
 // Sums checked and with_data over the rules in the given categories and applies basedOnNote.
 // Null when no such rule has been scanned, so a tile with no matching rule shows no line.
 // The rules behind a tile that counts by due date (Overdue, Upcoming, Today's Work): deadlines, licences and visas alike.
-export const DUE_DATE_CATEGORIES = ["Deadlines", "Licence", "Visa & Emirates ID"];
+export const DUE_DATE_CATEGORIES = ["Deadlines", "Licence", "Visa & Emirates ID", "Ejari & Establishment Card"];
 
 export function noteForCategories(coverage, categories) {
   const rules = (coverage?.rules || []).filter((r) => categories.includes(r.category) && r.checked != null);

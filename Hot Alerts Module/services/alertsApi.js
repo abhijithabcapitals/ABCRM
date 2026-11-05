@@ -36,3 +36,10 @@ export const alertSetMode = (s, mode) => call(s, "alert_set_mode", { p_mode: mod
 export const alertScanNow = (s) => call(s, "alert_scan_now", {});
 export const alertRuleList = (s) => call(s, "alert_rule_list", {});
 export const alertManagerList = (s) => call(s, "alert_manager_list", {});
+
+// Compliance register (006). Rows carry `reference`: show it on the register screen and client detail only.
+export const clientComplianceList = (s, client = null, type = null, status = "Active", limit = 100, offset = 0) =>
+  call(s, "client_compliance_list", { p_client: client, p_type: type, p_status: status, p_limit: limit, p_offset: offset });
+export const clientComplianceSave = (s, p) => call(s, "client_compliance_save", { p });
+export const clientComplianceClose = (s, id, reason) => call(s, "client_compliance_close", { p_id: id, p_reason: reason });
+export const clientComplianceImport = (s, rows) => call(s, "client_compliance_import", { p_rows: rows });
