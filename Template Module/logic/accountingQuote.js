@@ -118,6 +118,8 @@ const feeText = (s) => {
   const b = baseOf(s.basis);
   return b?.priced ? `AED ${plain(serviceAmount(s))} ${b.printed}` : b?.printed || "";
 };
+const basisText = (s) => baseOf(s.basis)?.printed || "";
+const aedText = (s) => (baseOf(s.basis)?.priced ? plain(serviceAmount(s)) : "");
 const dubaiDmy = (iso) => {
   const d = iso ? new Date(iso) : new Date();
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(d).map((x) => [x.type, x.value]));
@@ -133,14 +135,15 @@ export function quoteContext(doc, settings) {
     document_number: doc?.document_number || "", date: dubaiDmy(doc?.created_at), client_name: doc?.client_name || "", contact_name: doc?.contact_name || "",
     show_option_heading: options.length > 1,
     options: options.map((o, i) => ({
-      number: i + 1, name: o.name, description: o.description || "", notes: strs(o.notes),
+      number: i + 1, new_page: i > 0, name: o.name, description: o.description || "", notes: strs(o.notes),
       rows: (o.services || []).flatMap((s) => [
-        { name: s.name, fee: feeText(s), is_sub: false },
-        ...(baseOf(s.basis)?.priced ? (s.subs || []).map((b) => ({ name: b.name, fee: `AED ${plain(b.amount)}`, is_sub: true })) : []),
+        { name: s.name, fee: feeText(s), basis: basisText(s), aed: aedText(s), is_sub: false },
+        ...(baseOf(s.basis)?.priced ? (s.subs || []).map((b) => ({ name: b.name, fee: `AED ${plain(b.amount)}`, basis: "", aed: plain(b.amount), is_sub: true })) : []),
       ]),
-      totals: totalsByBasis(o).map((t) => ({ label: t.label, text: `AED ${plain(t.total)} ${baseOf(t.basis).printed}` })),
+      totals: totalsByBasis(o).map((t) => ({ label: t.label, basis: baseOf(t.basis).printed, aed: plain(t.total), text: `AED ${plain(t.total)} ${baseOf(t.basis).printed}` })),
     })),
     scope: strs(sh.scope), payment: strs(sh.payment), notes: strs(sh.notes),
+    has_scope: strs(sh.scope).length > 0, has_payment: strs(sh.payment).length > 0, has_notes: strs(sh.notes).length > 0,
     contact: { name: "", phone: "", email: "", website: "", ...(settings?.accounting_proposal_defaults?.contact || {}) },
     bank: { account_name: "", bank: "", account_no: "", iban: "", swift: "", currency: "", ...(settings?.company?.bank || {}) },
   };

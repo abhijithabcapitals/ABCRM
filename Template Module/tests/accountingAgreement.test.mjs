@@ -99,3 +99,12 @@ test("agreementContext", () => {
   const filled = agreementContext({ ...doc, field_values: { agreement: { ...good(), scope_notes: ["Keep"] } } }, settings, false);
   assert.deepEqual(filled.scope_notes, ["Keep"]);
 });
+
+test("agreementContext numbers schedule rows and gives fee notes", () => {
+  const a = { ...good(), schedule1: [{ name: "A", description: "" }, { name: "B", description: "" }], schedule2: [{ description: "A", fee: "x" }, { description: "S", fee: "y", sub: true }, { description: "B", fee: "z" }] };
+  const doc = { created_at: "2026-11-05T10:00:00Z", field_values: { agreement: a } };
+  const d = agreementContext(doc, { accounting_proposal_defaults: { standard: { fee_notes: ["Fee note", " "] } } }, false);
+  assert.deepEqual(d.schedule1.map((r) => r.no), [1, 2]);
+  assert.deepEqual(d.schedule2.map((r) => r.no), [1, "", 2]);
+  assert.deepEqual(d.fee_notes, ["Fee note"]);
+});

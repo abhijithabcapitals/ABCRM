@@ -90,3 +90,12 @@ test("quoteContext", () => {
   assert.equal(quoteContext({ ...doc, field_values: { quote: quote([opt("A", [svc("a", "once", 1)])]) } }, settings).show_option_heading, false);
   assert.equal(Object.keys(c).some((k) => /^(grand|total|sum)/i.test(k)), false);
 });
+
+test("quoteContext gives basis and AED columns, new_page and section flags", () => {
+  const doc = { created_at: "2026-11-05T10:00:00Z", field_values: { quote: { options: [opt("A", [svc("a", "month", 100), svc("b", "month", null, [{ name: "x", amount: 3 }]), svc("c", "included", null)]), opt("B", [svc("a", "once", 7)])], shared: { scope: ["s"], payment: [], notes: [] } } } };
+  const c = quoteContext(doc, {});
+  assert.deepEqual(c.options.map((o) => o.new_page), [false, true]);
+  assert.deepEqual(c.options[0].rows.map((r) => [r.basis, r.aed]), [["per month", "100"], ["per month", "3"], ["", "3"], ["Included in the above mentioned fees", ""]]);
+  assert.deepEqual(c.options[0].totals.map((t) => [t.basis, t.aed]), [["per month", "103"]]);
+  assert.deepEqual([c.has_scope, c.has_payment, c.has_notes], [true, false, false]);
+});
