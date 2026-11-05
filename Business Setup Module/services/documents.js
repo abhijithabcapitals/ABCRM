@@ -16,6 +16,7 @@ async function fileWithMail(doc, type, blob) {
 
 // The service template holds the company's letterhead text; the zone templates carry their own wording and USD columns.
 export async function fileQuote(doc, activity) {
+  if (doc.library_template) throw new Error("This document came from Company Library. Use Retry there.");
   const [settings, templates, rate] = await Promise.all([loadHubSettings(), listQuoteTemplates(), usdRate()]);
   const tpl = templates.find((t) => t.key === doc.template_key) || templates.find((t) => t.key === "service");
   const generic = tpl.key === "service";

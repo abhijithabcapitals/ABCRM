@@ -63,7 +63,7 @@ export default function TemplateHub({ profile }) {
             {tab === "quotations" ? <QuotationsPage profile={profile} /> : <CompanyTemplatesPage />}
           </Suspense>
         ) : (
-          <CompanyLibrary />
+          <CompanyLibrary profile={profile} />
         )}
       </div>
     </div>

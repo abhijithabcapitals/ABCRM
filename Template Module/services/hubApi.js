@@ -98,6 +98,11 @@ export async function renderTemplate(templateFile, data, { builtIn = true } = {}
 }
 
 // ── Company Library: Word templates filled by staff ──
+export async function storedBlob(path) {
+  const { data, error } = await supabase.storage.from(BUCKET).download(path);
+  if (error) throw new Error(error.message);
+  return data;
+}
 export const libraryAccess = async () => check(await supabase.rpc("hub_library_my_access"));
 export async function listLibraryTemplates() {
   const templates = check(await supabase.from("hub_library_templates").select("*").order("template_key"));
