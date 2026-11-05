@@ -40,6 +40,7 @@ begin
   if pg_get_functiondef('public.business_setup_client_list()'::regprocedure) ilike '%kyc_missing%' then raise exception 'the client list still has kyc_missing'; end if;
   if to_regclass('public.business_setup_signed_quotes') is not null then raise exception 'business_setup_signed_quotes remains'; end if;
   if to_regclass('public.business_setup_acceptances') is not null then raise exception 'business_setup_acceptances remains'; end if;
+  if to_regclass('public.business_setup_payment_claims') is not null then raise exception 'business_setup_payment_claims remains'; end if;
   select string_agg(p.proname, ', ') into bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
      and p.proname in ('business_setup_signed_add', 'business_setup_signed_file', 'business_setup_signed_decide', 'business_setup_portal_signed_add', 'business_setup_case_paid_override', 'business_setup_case_net_paid', 'business_setup_case_documents', 'business_setup_case_locked', 'business_setup_case_link_client_for_payment', 'business_setup_case_link_client_body', 'business_setup_portal_login_name', 'business_setup_portal_decide', 'business_setup_issue_login_ok', 'business_setup_login_grant', 'business_setup_login_mail', 'business_setup_quote_accept_body', 'business_setup_doc_revision');
   if bad is not null then raise exception 'signed copy functions remain: %', bad; end if;

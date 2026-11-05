@@ -194,3 +194,85 @@ grant execute on function public.business_setup_login_mail(text, boolean, uuid) 
 
 revoke all on function public.business_setup_portal_view(uuid) from public, anon, authenticated;
 grant execute on function public.business_setup_portal_view(uuid) to service_role;
+
+-- ── Payment claims from the portal ───────────────────────────────────
+-- "I have paid" on one invoice (p: invoice_id, amount, paid_on, reference, proof_path). p_account comes from the live session; the client is worked out here and
+-- an invoice of another client reads as not found. The claim belongs to the invoice and to the invoice's case, changes no balance, and waits for staff
+-- (business_setup_payment_add with claim_id, or business_setup_claim_refuse, both in 016). One Pending claim per invoice. A claim above the balance is allowed:
+-- staff meet the overpayment rule when they confirm it. proof_path is optional and must be a finished upload of this very login (incoming/<account>/...).
+-- Service role only.
+create or replace function public.business_setup_portal_claim_add(p_account uuid, p jsonb) returns uuid
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_client text := business_setup_portal_client(p_account); a client_portal_accounts; i business_setup_invoices; v_case uuid; v_stage text; v_id uuid;
+  v_today date := (now() at time zone 'Asia/Dubai')::date; v_amount numeric; v_on date; v_ref text; v_proof text; v_prefix text; v_inv uuid;
+begin
+  select * into a from client_portal_accounts where id = p_account;
+  if a.id is null or a.status <> 'active' or v_client is null then raise exception 'Please sign in again.'; end if;
+  p := coalesce(p, '{}'::jsonb);
+  begin
+    v_inv := nullif(p ->> 'invoice_id', '')::uuid;
+  exception when invalid_text_representation then
+    v_inv := null;
+  end;
+  -- Locking the invoice makes two claims on it wait for each other, so "one Pending" holds (the unique index is the last guard).
+  select * into i from business_setup_invoices where id = v_inv for update;
+  if i.id is null or i.client_id is distinct from v_client then raise exception 'Invoice not found.'; end if;
+  v_case := coalesce(i.case_id, (select q.case_id from hub_documents q where q.id = i.quote_id));
+  if v_case is null then raise exception 'This invoice cannot take a payment claim yet. Please contact AB Capital Services FZE.'; end if;
+  select stage into v_stage from business_setup_cases where id = v_case;
+  if v_stage is null or v_stage = 'Lost' then raise exception 'This case is closed and takes no payment.'; end if;
+  if exists (select 1 from business_setup_payment_claims where invoice_id = i.id and status = 'Pending') then
+    raise exception 'A payment claim for this invoice is already waiting for AB Capital Services FZE to check.';
+  end if;
+  begin
+    v_amount := nullif(btrim(coalesce(p ->> 'amount', '')), '')::numeric;
+  exception when others then
+    v_amount := null;
+  end;
+  if v_amount is null or v_amount <= 0 or v_amount >= 10000000000000000 or v_amount <> round(v_amount, 2) then
+    raise exception 'Enter an amount above zero with at most two decimals.';
+  end if;
+  begin
+    v_on := nullif(btrim(coalesce(p ->> 'paid_on', '')), '')::date;
+  exception when others then
+    raise exception 'Enter the date you paid.';
+  end;
+  if v_on is null then raise exception 'Enter the date you paid.'; end if;
+  if v_on > v_today then raise exception 'The payment date cannot be in the future.'; end if;
+  v_ref := nullif(btrim(coalesce(p ->> 'reference', '')), '');
+  if length(v_ref) > 200 then raise exception 'The reference is too long.'; end if;
+  v_proof := nullif(btrim(coalesce(p ->> 'proof_path', '')), '');
+  if v_proof is not null then
+    v_prefix := 'incoming/' || p_account::text || '/';
+    if not coalesce(left(v_proof, length(v_prefix)) = v_prefix, false) or '..' = any (string_to_array(v_proof, '/')) or '' = any (string_to_array(v_proof, '/'))
+       or not exists (select 1 from client_portal_documents d where d.account_id = p_account and d.storage_path = v_proof and d.upload_complete) then
+      raise exception 'The proof of payment is not one of your finished uploads. Please upload it again.';
+    end if;
+  end if;
+  begin
+    insert into business_setup_payment_claims (case_id, account_id, invoice_id, amount, paid_on, reference, proof_path)
+    values (v_case, p_account, i.id, v_amount, v_on, v_ref, v_proof) returning id into v_id;
+  exception when unique_violation then
+    raise exception 'A payment claim for this invoice is already waiting for AB Capital Services FZE to check.';
+  end;
+  perform business_setup_audit('business_setup_payment_claims', v_id::text, 'claim_add', null,
+          jsonb_build_object('case_id', v_case, 'invoice_id', i.id, 'amount', v_amount, 'username', a.username, 'has_proof', v_proof is not null));
+  return v_id;
+end $$;
+revoke all on function public.business_setup_portal_claim_add(uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.business_setup_portal_claim_add(uuid, jsonb) to service_role;
+
+-- The client's own claims, newest first: status, the refusal note when refused, and the receipt when confirmed. Never a staff name, an id of staff, or a file path.
+create or replace function public.business_setup_portal_claims(p_account uuid) returns jsonb
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'invoice_id', c.invoice_id, 'invoice_number', i.invoice_number, 'amount', c.amount, 'paid_on', c.paid_on,
+           'reference', c.reference, 'status', c.status, 'date', c.created_at::date, 'has_proof', c.proof_path is not null,
+           'note', case when c.status = 'Refused' then c.note end,
+           'receipt_id', case when c.status = 'Confirmed' then (select r.id from business_setup_receipts r where r.payment_id = c.payment_id) end)
+         order by c.created_at desc), '[]'::jsonb)
+    from business_setup_payment_claims c join business_setup_invoices i on i.id = c.invoice_id
+   where i.client_id = business_setup_portal_client(p_account) and business_setup_portal_client(p_account) is not null
+$$;
+revoke all on function public.business_setup_portal_claims(uuid) from public, anon, authenticated;
+grant execute on function public.business_setup_portal_claims(uuid) to service_role;

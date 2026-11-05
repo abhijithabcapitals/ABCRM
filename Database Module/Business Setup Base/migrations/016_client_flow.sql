@@ -400,7 +400,14 @@ begin
                    from unnest(array['Lead', 'Review', 'Onboarding', 'Pipeline', 'Completion', 'With Accounts']) st),
     'forms_to_review', business_setup_dash_forms(),
     'pending_after_kyc', (select count(*) from business_setup_cases c where c.stage = 'Onboarding'
-                           and not exists (select 1 from hub_documents q where q.case_id = c.id and q.doc_type = 'quote' and q.status not in ('superseded', 'rejected')))
+                           and not exists (select 1 from hub_documents q where q.case_id = c.id and q.doc_type = 'quote' and q.status not in ('superseded', 'rejected'))),
+    -- Client flow figures (spec section 12). The two old form figures above stay for the Dashboard Module until Task 8.
+    'client_inputs', (select count(*) from business_setup_onboarding_forms f where f.status = 'Submitted'),
+    -- Issued and not decided. Each revision is its own document, so no acceptance row on the document means no decision on the current revision.
+    'awaiting_client', (select count(*) from hub_documents d where d.department = 'Business Setup' and d.doc_type in ('quote', 'letter') and d.status = 'issued'
+                         and not exists (select 1 from business_setup_acceptances a where a.document_id = d.id)),
+    'payment_claims', (select count(*) from business_setup_payment_claims where status = 'Pending'),
+    'at_completion', (select count(*) from business_setup_cases where stage = 'Completion')
   ) || business_setup_dash_handover();
 end $$;
 
@@ -671,6 +678,176 @@ revoke all on function public.business_setup_case_acceptance_trg() from public, 
 drop trigger if exists business_setup_case_acceptance on public.business_setup_acceptances;
 create trigger business_setup_case_acceptance after insert on public.business_setup_acceptances
   for each row execute function public.business_setup_case_acceptance_trg();
+
+-- ── Payment claims (spec section 7) ──────────────────────────────────
+-- A client says "I have paid" against one invoice of theirs. The claim belongs to that invoice and to the invoice's case, and changes no balance: only
+-- business_setup_payment_add with claim_id turns it into a payment (and a receipt voucher) and marks it Confirmed, in the same transaction. Staff may also
+-- Refuse it with a note the client can read. A claim is written by the portal function in 018 and decided by staff functions; the table is read-only through
+-- the API. Once decided it cannot change or go. One Pending claim per invoice at a time. proof_path is the client's own upload (client_portal_documents).
+create table if not exists public.business_setup_payment_claims (
+  id uuid primary key default gen_random_uuid(),
+  case_id uuid not null references public.business_setup_cases(id),
+  account_id uuid not null references public.client_portal_accounts(id),
+  invoice_id uuid not null references public.business_setup_invoices(id),
+  amount numeric(18,2) not null check (amount > 0),
+  paid_on date not null,
+  reference text,
+  proof_path text,
+  status text not null default 'Pending' check (status in ('Pending', 'Confirmed', 'Refused')),
+  decided_by uuid,   -- no foreign key: a profile that goes must not be blocked by, or change, the record
+  decided_at timestamptz,
+  note text,
+  payment_id uuid references public.business_setup_payments(id),
+  created_at timestamptz not null default now(),
+  check ((status = 'Pending') = (decided_at is null)),
+  check ((status = 'Confirmed') = (payment_id is not null)),
+  check (status <> 'Refused' or nullif(btrim(coalesce(note, '')), '') is not null)
+);
+create unique index if not exists business_setup_payment_claims_one_pending on public.business_setup_payment_claims (invoice_id) where status = 'Pending';
+create index if not exists business_setup_payment_claims_case_idx on public.business_setup_payment_claims (case_id);
+create index if not exists business_setup_payment_claims_account_idx on public.business_setup_payment_claims (account_id);
+alter table public.business_setup_payment_claims enable row level security;
+drop policy if exists business_setup_payment_claims_read on public.business_setup_payment_claims;
+create policy business_setup_payment_claims_read on public.business_setup_payment_claims for select to authenticated using (public.business_setup_can('setup.access'));
+revoke all on public.business_setup_payment_claims from anon, authenticated;
+grant select on public.business_setup_payment_claims to authenticated;
+create or replace function public.business_setup_payment_claims_guard() returns trigger
+language plpgsql set search_path = public, pg_temp as $$
+begin
+  if tg_op = 'DELETE' then raise exception 'A payment claim cannot be removed'; end if;
+  if old.status <> 'Pending' then raise exception 'A payment claim that was decided cannot be changed'; end if;
+  if new.id <> old.id or new.case_id <> old.case_id or new.account_id <> old.account_id or new.invoice_id <> old.invoice_id or new.amount <> old.amount
+     or new.paid_on <> old.paid_on or new.reference is distinct from old.reference or new.proof_path is distinct from old.proof_path or new.created_at <> old.created_at then
+    raise exception 'What the client claimed cannot be changed';
+  end if;
+  return new;
+end $$;
+revoke all on function public.business_setup_payment_claims_guard() from public, anon, authenticated;
+drop trigger if exists business_setup_payment_claims_guard on public.business_setup_payment_claims;
+create trigger business_setup_payment_claims_guard before update or delete on public.business_setup_payment_claims
+  for each row execute function public.business_setup_payment_claims_guard();
+
+-- Record a payment and its receipt, on a case or on an accepted quote (p: case_id or quote_id, amount, paid_on, method, reference,
+-- note, override_reason, and claim_id). Redefined from 015 for claim_id: with it the payment confirms that Pending payment claim, in the same transaction.
+-- The claim is locked first, before the quote and the case; it must be Pending and belong to the same case. Nothing else changes, so the overpayment rule
+-- applies to a claim as to any payment. On a case the payment follows the case's accepted quote when there is one; before that quote_id stays empty,
+-- and the money counts toward the quote once it is accepted. The overpayment check applies once a quote is accepted.
+create or replace function public.business_setup_payment_add(p jsonb) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; c business_setup_cases; v_today date := (now() at time zone 'Asia/Dubai')::date; v_amount numeric; v_on date;
+  v_case uuid; v_quote uuid; v_client text;
+  cl business_setup_payment_claims; v_claim uuid;
+  v_outstanding numeric; v_over boolean := false; v_reason text; v_note text; v_pay uuid; v_rec uuid; v_number text;
+begin
+  perform business_setup_require('setup.payments.manage');
+  p := coalesce(p, '{}'::jsonb);
+  begin
+    v_case := nullif(p ->> 'case_id', '')::uuid; v_quote := nullif(p ->> 'quote_id', '')::uuid;
+  exception when invalid_text_representation then
+    raise exception 'The case or quote is not valid';
+  end;
+  begin
+    v_claim := nullif(p ->> 'claim_id', '')::uuid;
+  exception when invalid_text_representation then
+    raise exception 'The payment claim is not valid';
+  end;
+  if v_claim is not null then
+    select * into cl from business_setup_payment_claims where id = v_claim for update;
+    if cl.id is null then raise exception 'Payment claim not found'; end if;
+    if cl.status <> 'Pending' then raise exception 'This payment claim has already been decided'; end if;
+    if v_case is null and v_quote is null then v_case := cl.case_id; end if;
+  end if;
+  if v_case is null and v_quote is null then raise exception 'Choose the case or the quote this payment is for'; end if;
+  -- A case pays its accepted quote. The quote is locked before the case, the order an accept uses.
+  if v_quote is null then
+    select id into v_quote from hub_documents where case_id = v_case and doc_type = 'quote' and department = 'Business Setup' and status = 'accepted' limit 1;
+  end if;
+  if v_quote is not null then
+    select * into q from hub_documents where id = v_quote for update;
+    if q.id is null then raise exception 'Quote not found'; end if;
+    if q.doc_type <> 'quote' or q.department <> 'Business Setup' or q.status <> 'accepted' then
+      raise exception 'A payment can be recorded only against an accepted Business Setup quote';
+    end if;
+    if v_case is null then v_case := q.case_id;
+    elsif q.case_id is distinct from v_case then raise exception 'This quote does not belong to that case'; end if;
+  end if;
+  if cl.id is not null and cl.case_id is distinct from v_case then raise exception 'This payment claim belongs to another case'; end if;
+  if v_case is not null then
+    select * into c from business_setup_cases where id = v_case for update;
+    if c.id is null then raise exception 'Case not found'; end if;
+    if c.stage = 'Lost' then raise exception 'This case is lost and takes no payment'; end if;
+    v_client := c.client_id;
+    if v_client is null then raise exception 'Link a client to this case before recording a payment'; end if;
+    if q.id is not null and q.client_id is not null and q.client_id <> v_client then raise exception 'The client of this quote does not match the client of the case'; end if;
+  else
+    v_client := q.client_id;
+    if v_client is null then raise exception 'Link this quote to a client before recording a payment'; end if;
+  end if;
+  if q.id is not null and business_setup_quote_locked(q.id) then
+    raise exception 'This quote is locked because Accounts holds it: no payment can be recorded';
+  end if;
+  begin
+    v_amount := nullif(btrim(coalesce(p ->> 'amount', '')), '')::numeric;
+  exception when others then
+    v_amount := null;
+  end;
+  if v_amount is null or v_amount <= 0 or v_amount <> round(v_amount, 2) then
+    raise exception 'Enter an amount above zero with at most two decimals';
+  end if;
+  v_on := coalesce(nullif(p ->> 'paid_on', '')::date, v_today);
+  if v_on > v_today then raise exception 'The payment date cannot be in the future'; end if;
+
+  v_reason := nullif(btrim(coalesce(p ->> 'override_reason', '')), '');
+  if q.id is not null then
+    v_outstanding := coalesce(q.total_amount, 0) - business_setup_net_paid(q.id);
+    v_over := v_amount > v_outstanding;
+    if v_over then
+      if not business_setup_can('setup.payments.override') then
+        raise exception 'This payment is above the balance of %: ask someone who may accept an overpayment', to_char(v_outstanding, 'FM999,999,999,990.00');
+      end if;
+      if v_reason is null then raise exception 'Give a reason for accepting a payment above the balance'; end if;
+    end if;
+  end if;
+  v_note := nullif(btrim(coalesce(p ->> 'note', '')), '');
+  if v_over then v_note := concat_ws(E'\n', v_note, 'Above the balance: ' || v_reason); end if;
+
+  insert into business_setup_payments (client_id, quote_id, case_id, paid_on, amount, method, reference, type, note)
+  values (v_client, q.id, v_case, v_on, v_amount, nullif(btrim(coalesce(p ->> 'method', '')), ''), nullif(btrim(coalesce(p ->> 'reference', '')), ''), 'Payment', v_note)
+  returning id into v_pay;
+  v_number := hub_next_number('Business Setup', 'receipt');
+  insert into business_setup_receipts (payment_id, receipt_number) values (v_pay, v_number) returning id into v_rec;
+  if cl.id is not null then
+    update business_setup_payment_claims set status = 'Confirmed', payment_id = v_pay, decided_by = auth.uid(), decided_at = now() where id = cl.id;
+    perform business_setup_audit('business_setup_payment_claims', cl.id::text, 'claim_confirm', jsonb_build_object('status', 'Pending'),
+            jsonb_build_object('status', 'Confirmed', 'payment_id', v_pay, 'case_id', v_case, 'claimed', cl.amount, 'recorded', v_amount));
+  end if;
+
+  perform business_setup_audit('business_setup_payments', v_pay::text, 'payment_add', null,
+          jsonb_build_object('client_id', v_client, 'quote_id', q.id, 'case_id', v_case, 'amount', v_amount, 'receipt_number', v_number,
+                             'overpayment', v_over, 'reason', case when v_over then v_reason end));
+  return jsonb_build_object('payment_id', v_pay, 'receipt_id', v_rec, 'receipt_number', v_number);
+end $$;
+revoke all on function public.business_setup_payment_add(jsonb) from public, anon;
+grant execute on function public.business_setup_payment_add(jsonb) to authenticated;
+
+-- Refuse a claim, with a note the client can read. Staff with setup.payments.manage. A decided claim cannot be decided again.
+create or replace function public.business_setup_claim_refuse(p_id uuid, p_note text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare cl business_setup_payment_claims; v_note text := nullif(btrim(coalesce(p_note, '')), '');
+begin
+  perform business_setup_require('setup.payments.manage');
+  if v_note is null then raise exception 'Tell the client why this claim is refused'; end if;
+  select * into cl from business_setup_payment_claims where id = p_id for update;
+  if cl.id is null then raise exception 'Payment claim not found'; end if;
+  if cl.status <> 'Pending' then raise exception 'This payment claim has already been decided'; end if;
+  update business_setup_payment_claims set status = 'Refused', note = v_note, decided_by = auth.uid(), decided_at = now() where id = cl.id;
+  perform business_setup_audit('business_setup_payment_claims', cl.id::text, 'claim_refuse', jsonb_build_object('status', 'Pending'),
+          jsonb_build_object('status', 'Refused', 'case_id', cl.case_id, 'note', v_note));
+end $$;
+revoke all on function public.business_setup_claim_refuse(uuid, text) from public, anon;
+grant execute on function public.business_setup_claim_refuse(uuid, text) to authenticated;
+
 
 -- ── Privileges ───────────────────────────────────────────────────────
 -- Internal functions (case_docs, case_sync, form_trg, start_gate) were revoked beside their definitions above. The functions below are callable by

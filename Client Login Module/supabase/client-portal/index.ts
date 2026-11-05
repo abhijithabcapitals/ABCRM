@@ -9,9 +9,13 @@
 //   login { username, password }, logout, me
 //   upload_start { file_name, size, doc_type, note? } -> { id, upload_url }
 //   upload_start { for_form: true, ... } files the upload under this login's own Business Setup form
+//   upload_start { for_claim: true, file_name, size } -> { id, upload_url }   a proof of payment: PDF, JPG or PNG up to 10 MB, kept as this login's own upload
 //   upload_done { id }, doc_url { id }
 //   setup_view, form_get, form_save { answers }, form_submit, setup_file { kind, id }
 //   setup_decide { document_id, decision, note? }   Accepted or Rejected on the client's own quote or letter; the account comes from the session
+//   setup_payment_claim { invoice_id, amount, paid_on, reference?, proof_id? } -> { id }   "I have paid" on the client's own invoice; the account comes from the
+//     session, never the body. proof_id is the id of a finished upload_start { for_claim: true } upload of this login. The claim changes no balance: staff confirm
+//     it (a payment and a receipt) or refuse it with a note, and the client sees the status in setup_view.
 //   submit_change { field, value } -> { id }       asks staff to change one company detail
 //   gallery_url { source, id } -> { url }          source is kyc or generated; link lasts 120 seconds
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
@@ -43,6 +47,8 @@ const BUCKET = "client-portal";
 const GALLERY_BUCKET = "banking-documents";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BYTES = 25 * 1024 * 1024;
+const MAX_CLAIM_PROOF_BYTES = 10 * 1024 * 1024;
+const CLAIM_PROOF_EXT = ["pdf", "jpg", "jpeg", "png"];
 const MAX_UPLOADS_PER_DAY = 100;
 const EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
 const DOC_TYPES = ["Trade Licence", "MOA / AOA", "Passport / ID", "Bank Statement", "Invoice", "VAT Document", "Corporate Tax Document", "Other"];
@@ -219,10 +225,17 @@ Deno.serve(async (req) => {
         const ext = name.split(".").pop()?.toLowerCase() || "";
         if (!name || !MIME[ext]) throw new InputError("Upload a PDF, image, Word, Excel, CSV, text or email file.");
         const size = Number(body.size);
-        if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) throw new InputError("Files must be under 25 MB.");
-        const docType = String(body.doc_type || "");
+        const forClaim = body.for_claim === true;
+        if (forClaim) {
+          // A proof of payment: PDF, JPG or PNG, 10 MB. It is the login's own upload, named by the claim afterwards.
+          if (!CLAIM_PROOF_EXT.includes(ext)) throw new InputError("Upload the proof of payment as a PDF, JPG or PNG file.");
+          if (!Number.isFinite(size) || size <= 0 || size > MAX_CLAIM_PROOF_BYTES) throw new InputError("The proof of payment must be under 10 MB.");
+        } else if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) throw new InputError("Files must be under 25 MB.");
+        const docType = forClaim ? "Payment proof" : String(body.doc_type || "");
         let formId: string | null = null;
-        if (body.for_form) {
+        if (forClaim) {
+          // Nothing more to check: the claim itself checks the invoice and the proof.
+        } else if (body.for_form) {
           const { data: form, error: formErr } = await admin.rpc("business_setup_form_get", { p_account: accountId });
           if (formErr) throw new Error(formErr.message);
           if (!form || !["Draft", "Returned"].includes(form.status)) throw new InputError("This form cannot take new documents now.");
@@ -311,6 +324,28 @@ Deno.serve(async (req) => {
           throw new Error(error.message);
         }
         return json({ ok: true });
+      }
+      case "setup_payment_claim": {
+        const invoiceId = String(body.invoice_id || "");
+        if (!UUID.test(invoiceId)) throw new InputError("Invoice not found.");
+        let proofPath: string | null = null;
+        if (body.proof_id) {
+          // The proof must be an upload of this very login that finished (ownDoc reads body.id, so the lookup is made here).
+          const { data: proof } = await admin.from("client_portal_documents").select("storage_path, upload_complete")
+            .eq("id", String(body.proof_id)).eq("account_id", accountId).eq("doc_type", "Payment proof").maybeSingle();
+          if (!proof || !proof.upload_complete) throw new InputError("The proof of payment did not finish uploading. Please upload it again.");
+          proofPath = proof.storage_path;
+        }
+        // The account is the one of the live session; the database works out the client and refuses an invoice that is not theirs.
+        const { data, error } = await admin.rpc("business_setup_portal_claim_add", {
+          p_account: accountId,
+          p: { invoice_id: invoiceId, amount: body.amount, paid_on: body.paid_on, reference: String(body.reference ?? "").trim().slice(0, 200) || null, proof_path: proofPath },
+        });
+        if (error) {
+          if (error.code === "P0001") throw new InputError(error.message);
+          throw new Error(error.message);
+        }
+        return json({ id: data });
       }
       case "gallery_url": {
         const source = String(body.source || "");

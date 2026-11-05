@@ -14,6 +14,13 @@ begin;
 -- Acceptance records (016) and the client login and decision functions (018): the triggers, the append-only table (before business_setup_signed_quotes, which it
 -- points at) and the functions go. WARNING: every acceptance row is lost. A quote accepted from the portal stays accepted, with no signed copy behind it; an
 -- accepted quote needs none at 014. The accept logic returns to 014's below (business_setup_quote_accept_body goes with it).
+-- Payment claims (016, 018): the table with its trigger, and the functions. WARNING: every claim row is lost, with its status and refusal note. A confirmed claim's
+-- payment and receipt stay (payments are append-only); payment_add returns to 014's below and no longer takes claim_id.
+drop table if exists public.business_setup_payment_claims;
+drop function if exists public.business_setup_payment_claims_guard();
+drop function if exists public.business_setup_claim_refuse(uuid, text);
+drop function if exists public.business_setup_portal_claim_add(uuid, jsonb);
+drop function if exists public.business_setup_portal_claims(uuid);
 drop trigger if exists business_setup_case_acceptance on public.business_setup_acceptances;
 drop trigger if exists business_setup_case_login on public.client_portal_accounts;
 drop trigger if exists business_setup_case_kyc on public.business_setup_kyc_profiles;

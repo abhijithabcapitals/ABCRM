@@ -114,3 +114,21 @@ test("a quote of a closed case does not read as waiting for the client", () => {
   const view = readFileSync(fileURLToPath(new URL("../portal/SetupView.jsx", import.meta.url)), "utf8");
   assert.match(view, /q\.status === "issued" && q\.closed \? "Closed" : QUOTE\[q\.status\]/);
 });
+
+test("setup_payment_claim runs after the session check and takes the account from the session only", () => {
+  assert.ok(src.indexOf('case "setup_payment_claim":') > src.indexOf('"client_portal_session"'), "it runs before the session check");
+  const b = branch("setup_payment_claim");
+  assert.doesNotMatch(b, /body\.(client_id|client|account_id|account|case_id|case|status)/, "it reads an identity or a status from the browser");
+  assert.match(b, /business_setup_portal_claim_add/);
+  assert.match(b, /p_account: accountId/);
+  assert.match(b, /eq\("account_id", accountId\)/, "the proof is not tied to the session's account");
+});
+
+test("a proof of payment is a PDF, JPG or PNG up to 10 MB and is filed as the login's own upload", () => {
+  const b = branch("upload_start");
+  assert.match(b, /for_claim/);
+  assert.match(src, /MAX_CLAIM_PROOF_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(src, /CLAIM_PROOF_EXT = \["pdf", "jpg", "jpeg", "png"\]/);
+  assert.match(b, /"Payment proof"/);
+  assert.match(b, /incoming\/\$\{accountId\}/);
+});

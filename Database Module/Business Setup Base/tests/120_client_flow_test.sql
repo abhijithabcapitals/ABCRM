@@ -669,6 +669,204 @@ select public.bs_as(null);
 select public.bs_check('letter_closed: no acceptance was written', pg_temp.acc_rows('t3f_lx') = 0);
 
 
+-- ── Task 4: payment claims, confirmed by staff ──
+select pg_temp.mkclient('CL974001');
+select pg_temp.mkclient('CL974002');
+insert into public.business_setup_kyc_profiles (client_id, kyc_state) values ('CL974001', 'Done'), ('CL974002', 'Done') on conflict (client_id) do update set kyc_state = 'Done';
+insert into public.client_portal_accounts (client_master_id, display_name, username, password_hash, email) values ('CL974001', 'A', 'portal.a974', 'x', 'a974@x.ae'), ('CL974002', 'B', 'portal.b974', 'x', 'b974@x.ae');
+insert into f120 select 't4_acc_a', id::text from public.client_portal_accounts where username = 'portal.a974';
+insert into f120 select 't4_acc_b', id::text from public.client_portal_accounts where username = 'portal.b974';
+create function pg_temp.qtotal(p_q text) returns numeric language sql security definer as $$ select total_amount from public.hub_documents where id = pg_temp.fx(p_q)::uuid $$;
+create function pg_temp.mkinv(p_key text, p_case text, p_amount numeric) returns void language plpgsql as $$
+begin
+  perform public.bs_as('00000000-0000-0000-0000-00000000000a');
+  insert into f120 values (p_key, public.business_setup_invoice_record(jsonb_build_object('case_id', pg_temp.fx(p_case), 'invoice_number', p_key, 'amount', p_amount))::text);
+  perform public.bs_as(null);
+end $$;
+create function pg_temp.claim(p_key text, p_acc text, p_inv text, p jsonb) returns void language plpgsql as $$
+begin
+  insert into f120 values (p_key, public.business_setup_portal_claim_add(pg_temp.fx(p_acc)::uuid, jsonb_build_object('invoice_id', pg_temp.fx(p_inv)) || p)::text);
+end $$;
+create function pg_temp.ydate() returns text language sql as $$ select ((now() at time zone 'Asia/Dubai')::date - 1)::text $$;
+create function pg_temp.net(p_case text) returns numeric language sql security definer as $$ select public.business_setup_case_net_paid(pg_temp.cid(p_case)) $$;
+create function pg_temp.pays(p_case text) returns bigint language sql security definer as $$ select count(*) from public.business_setup_payments where case_id = pg_temp.cid(p_case) $$;
+create function pg_temp.vouchers(p_case text) returns bigint language sql security definer as $$
+  select count(*) from public.voucher_register v where v.source = 'business_setup' and v.source_id in (select id from public.business_setup_payments where case_id = pg_temp.cid(p_case)) $$;
+create function pg_temp.cstatus(p_key text) returns text language sql security definer as $$ select status from public.business_setup_payment_claims where id = pg_temp.fx(p_key)::uuid $$;
+create function pg_temp.bal(p_case text) returns numeric language sql security definer as $$ select (public.business_setup_case_docs(pg_temp.cid(p_case)) ->> 'balance')::numeric $$;
+create function pg_temp.pclaims(p_acc text) returns jsonb language plpgsql security definer as $$ begin return public.business_setup_portal_claims(pg_temp.fx(p_acc)::uuid); end $$;
+
+select pg_temp.mkcase('t4_ca', 'CL974001', 'Pipeline', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t4_qa', 'CL974001', 't4_ca');
+select pg_temp.decide('t4_acc_a', 't4_qa', 'Accepted');
+select pg_temp.mkinv('t4_inv_a', 't4_ca', pg_temp.qtotal('t4_qa'));
+select pg_temp.mkcase('t4_cb', 'CL974002', 'Pipeline', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t4_qb', 'CL974002', 't4_cb');
+select pg_temp.decide('t4_acc_b', 't4_qb', 'Accepted');
+select pg_temp.mkinv('t4_inv_b', 't4_cb', pg_temp.qtotal('t4_qb'));
+select pg_temp.bal('t4_ca') as bal0 \gset
+
+-- claim_no_balance
+select pg_temp.claim('t4_c1', 't4_acc_a', 't4_inv_a', jsonb_build_object('amount', 400, 'paid_on', pg_temp.ydate(), 'reference', 'TT-1'));
+select public.bs_check('claim_no_balance: a claim leaves net paid, balance and vouchers unchanged', pg_temp.net('t4_ca') = 0 and pg_temp.bal('t4_ca') = :bal0 and pg_temp.pays('t4_ca') = 0 and pg_temp.vouchers('t4_ca') = 0
+  and pg_temp.cstatus('t4_c1') = 'Pending');
+select public.bs_check('claim_no_balance: the claim belongs to the invoice and its case', (select case_id = pg_temp.cid('t4_ca') and invoice_id = pg_temp.fx('t4_inv_a')::uuid and account_id = pg_temp.fx('t4_acc_a')::uuid
+  from public.business_setup_payment_claims where id = pg_temp.fx('t4_c1')::uuid));
+-- rules of a claim
+select public.bs_expect_error(format($$select pg_temp.claim('x1', 't4_acc_a', 't4_inv_a', '{"amount":10,"paid_on":"%s"}')$$, pg_temp.ydate()), 'already waiting');
+select public.bs_expect_error(format($$select pg_temp.claim('x2', 't4_acc_b', 't4_inv_b', '{"amount":0,"paid_on":"%s"}')$$, pg_temp.ydate()), 'above zero');
+select public.bs_expect_error(format($$select pg_temp.claim('x3', 't4_acc_b', 't4_inv_b', '{"amount":-5,"paid_on":"%s"}')$$, pg_temp.ydate()), 'above zero');
+select public.bs_expect_error($$select pg_temp.claim('x4', 't4_acc_b', 't4_inv_b', '{"amount":10,"paid_on":"2999-01-01"}')$$, 'future');
+select public.bs_expect_error($$select pg_temp.claim('x5', 't4_acc_b', 't4_inv_b', '{"amount":10}')$$, 'date');
+select public.bs_expect_error(format($$select pg_temp.claim('x6', 't4_acc_b', 't4_inv_b', '{"amount":10,"paid_on":"%s","proof_path":"incoming/%s/x/p.pdf"}')$$, pg_temp.ydate(), pg_temp.fx('t4_acc_a')), 'proof');
+select public.bs_expect_error(format($$select pg_temp.claim('x7', 't4_acc_b', 't4_inv_b', '{"amount":10,"paid_on":"%s","proof_path":"incoming/%s/../%s/x/p.pdf"}')$$, pg_temp.ydate(), pg_temp.fx('t4_acc_b'), pg_temp.fx('t4_acc_a')), 'proof');
+select public.bs_expect_error(format($$select pg_temp.claim('x8', 't4_acc_b', 't4_inv_b', '{"amount":10,"paid_on":"%s","proof_path":"incoming/%s/nothing/p.pdf"}')$$, pg_temp.ydate(), pg_temp.fx('t4_acc_b')), 'proof');
+select public.bs_check('claim_rules: refused claims wrote no row', (select count(*) from public.business_setup_payment_claims) = 1);
+-- claim_other_client
+select public.bs_expect_error(format($$select pg_temp.claim('x9', 't4_acc_a', 't4_inv_b', '{"amount":10,"paid_on":"%s"}')$$, pg_temp.ydate()), 'not found');
+select public.bs_expect_error(format($$select public.business_setup_portal_claim_add('%s', '{"invoice_id":"not-an-id","amount":10}')$$, pg_temp.fx('t4_acc_a')), 'not found');
+select public.bs_expect_error(format($$select public.business_setup_portal_claim_add(gen_random_uuid(), '{"invoice_id":"%s","amount":10,"paid_on":"%s"}')$$, pg_temp.fx('t4_inv_a'), pg_temp.ydate()), 'sign in');
+update public.client_portal_accounts set status = 'revoked' where username = 'portal.b974';
+select public.bs_expect_error(format($$select pg_temp.claim('x10', 't4_acc_b', 't4_inv_b', '{"amount":10,"paid_on":"%s"}')$$, pg_temp.ydate()), 'sign in');
+update public.client_portal_accounts set status = 'active' where username = 'portal.b974';
+-- proof from the account's own folder, an upload that finished
+insert into public.client_portal_documents (account_id, doc_type, file_name, mime, storage_path, upload_complete)
+  values (pg_temp.fx('t4_acc_b')::uuid, 'Payment proof', 'p.pdf', 'application/pdf', 'incoming/' || pg_temp.fx('t4_acc_b') || '/d1/p.pdf', true);
+select pg_temp.claim('t4_c2', 't4_acc_b', 't4_inv_b', jsonb_build_object('amount', 100, 'paid_on', pg_temp.ydate(), 'proof_path', 'incoming/' || pg_temp.fx('t4_acc_b') || '/d1/p.pdf'));
+select public.bs_check('claim_proof: a proof under the account folder is kept', (select proof_path = 'incoming/' || pg_temp.fx('t4_acc_b') || '/d1/p.pdf' from public.business_setup_payment_claims where id = pg_temp.fx('t4_c2')::uuid));
+
+-- tables are read-only through the API; only the definer functions write
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_expect_error(format($$insert into public.business_setup_payment_claims (case_id, account_id, invoice_id, amount, paid_on) values ('%s', '%s', '%s', 5, current_date)$$,
+  pg_temp.fx('t4_cb'), pg_temp.fx('t4_acc_b'), pg_temp.fx('t4_inv_b')), 'permission denied');
+select public.bs_expect_error(format($$update public.business_setup_payment_claims set status = 'Confirmed' where id = '%s'$$, pg_temp.fx('t4_c1')), 'permission denied');
+select public.bs_check('claim_read: staff can read the claims', (select count(*) from public.business_setup_payment_claims) = 2);
+select public.bs_as(null);
+
+-- claim_refuse
+select public.bs_as('00000000-0000-0000-0000-00000000000c');
+select public.bs_expect_error(format($$select public.business_setup_claim_refuse('%s', 'No')$$, pg_temp.fx('t4_c2')), 'permission');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select public.business_setup_claim_refuse('%s', null)$$, pg_temp.fx('t4_c2')), 'why');
+select public.bs_expect_error(format($$select public.business_setup_claim_refuse('%s', '   ')$$, pg_temp.fx('t4_c2')), 'why');
+select public.bs_expect_error(format($$select public.business_setup_claim_refuse('%s', 'x')$$, gen_random_uuid()), 'not found');
+select public.business_setup_claim_refuse(pg_temp.fx('t4_c2')::uuid, 'The transfer is not on our statement');
+select public.bs_as(null);
+select public.bs_check('claim_refuse: the claim is Refused with the note, decider and time', (select status = 'Refused' and note = 'The transfer is not on our statement' and decided_by = '00000000-0000-0000-0000-00000000000e'::uuid and decided_at is not null and payment_id is null
+  from public.business_setup_payment_claims where id = pg_temp.fx('t4_c2')::uuid));
+select public.bs_check('claim_refuse: the client sees the status and the note', (pg_temp.pclaims('t4_acc_b')) @> jsonb_build_array(jsonb_build_object('id', pg_temp.fx('t4_c2'), 'status', 'Refused', 'note', 'The transfer is not on our statement')));
+select public.bs_check('claim_refuse: no staff name, id or file path reaches the client', pg_temp.pclaims('t4_acc_b')::text !~ '00000000-0000-0000-0000-00000000000e|decided_by|incoming/|Finance');
+select public.bs_check('claim_refuse: another client sees nothing of it', not (pg_temp.pclaims('t4_acc_a')::text like '%' || pg_temp.fx('t4_c2') || '%'));
+select public.bs_check('claim_refuse: it was audited', public.bs_audit_count('claim_refuse', pg_temp.fx('t4_c2'), '{"status":"Refused"}') = 1);
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select public.business_setup_claim_refuse('%s', 'again')$$, pg_temp.fx('t4_c2')), 'already');
+select public.bs_expect_error(format($$select public.business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('t4_cb'), 'claim_id', pg_temp.fx('t4_c2'), 'amount', 100)), 'already');
+select public.bs_as(null);
+select public.bs_check('claim_refuse: a refused claim made no payment', pg_temp.pays('t4_cb') = 0);
+-- a refused claim frees the invoice for a new one
+select pg_temp.claim('t4_c3', 't4_acc_b', 't4_inv_b', jsonb_build_object('amount', 50, 'paid_on', pg_temp.ydate()));
+select public.bs_check('claim_refuse: a new claim can follow a refused one', pg_temp.cstatus('t4_c3') = 'Pending' and pg_temp.cstatus('t4_c2') = 'Refused');
+-- a decided claim cannot be edited or removed, even by the table owner
+select public.bs_expect_error(format($$update public.business_setup_payment_claims set amount = 1 where id = '%s'$$, pg_temp.fx('t4_c2')), 'cannot be changed');
+select public.bs_expect_error(format($$delete from public.business_setup_payment_claims where id = '%s'$$, pg_temp.fx('t4_c1')), 'cannot be');
+
+-- claim_confirm
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select public.business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('t4_ca'), 'claim_id', pg_temp.fx('t4_c3'), 'amount', 50)), 'another case');
+select public.bs_expect_error(format($$select public.business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('t4_ca'), 'claim_id', 'nonsense', 'amount', 50)), 'claim');
+select public.bs_expect_error(format($$select public.business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('t4_ca'), 'claim_id', gen_random_uuid(), 'amount', 50)), 'not found');
+select public.bs_as(null);
+select public.bs_check('claim_other_case: a refused confirm changed nothing', pg_temp.pays('t4_ca') = 0 and pg_temp.pays('t4_cb') = 0 and pg_temp.cstatus('t4_c3') = 'Pending' and pg_temp.cstatus('t4_c1') = 'Pending');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('t4_ca'), 'claim_id', pg_temp.fx('t4_c1'), 'amount', 400, 'paid_on', pg_temp.ydate(), 'method', 'Bank transfer', 'reference', 'TT-1'))::text as r1 \gset
+select public.bs_as(null);
+select public.bs_check('claim_confirm: one payment and one voucher, the claim is Confirmed with the payment', pg_temp.pays('t4_ca') = 1 and pg_temp.vouchers('t4_ca') = 1 and pg_temp.net('t4_ca') = 400
+  and (select status = 'Confirmed' and payment_id = (:'r1'::jsonb ->> 'payment_id')::uuid and decided_by = '00000000-0000-0000-0000-00000000000e'::uuid and decided_at is not null and note is null
+         from public.business_setup_payment_claims where id = pg_temp.fx('t4_c1')::uuid));
+select public.bs_check('claim_confirm: the balance fell by the payment', pg_temp.bal('t4_ca') = :bal0 - 400);
+select public.bs_check('claim_confirm: the client sees Confirmed and the receipt', pg_temp.pclaims('t4_acc_a') @> jsonb_build_array(jsonb_build_object('id', pg_temp.fx('t4_c1'), 'status', 'Confirmed', 'receipt_id', (select id from public.business_setup_receipts where payment_id = (:'r1'::jsonb ->> 'payment_id')::uuid))));
+select public.bs_check('claim_confirm: audited', public.bs_audit_count('claim_confirm', pg_temp.fx('t4_c1'), '{"status":"Confirmed"}') = 1);
+-- claim_confirm_twice
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select public.business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('t4_ca'), 'claim_id', pg_temp.fx('t4_c1'), 'amount', 400)), 'already');
+select public.bs_expect_error(format($$select public.business_setup_claim_refuse('%s', 'late')$$, pg_temp.fx('t4_c1')), 'already');
+select public.bs_as(null);
+select public.bs_check('claim_confirm_twice: still one payment and one voucher', pg_temp.pays('t4_ca') = 1 and pg_temp.vouchers('t4_ca') = 1 and pg_temp.net('t4_ca') = 400);
+-- a payment that fails leaves the claim Pending (same transaction)
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select public.business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('t4_cb'), 'claim_id', pg_temp.fx('t4_c3'), 'amount', 0)), 'above zero');
+select public.bs_as(null);
+select public.bs_check('claim_confirm: a payment that fails leaves the claim Pending', pg_temp.cstatus('t4_c3') = 'Pending' and pg_temp.pays('t4_cb') = 0);
+-- part_payment: two payments, the case moves to With Accounts between them
+select pg_temp.claim('t4_c4', 't4_acc_a', 't4_inv_a', jsonb_build_object('amount', pg_temp.qtotal('t4_qa') - 400, 'paid_on', pg_temp.ydate(), 'reference', 'TT-2'));
+update public.business_setup_cases set stage = 'With Accounts' where id = pg_temp.cid('t4_ca');
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('t4_ca'), 'claim_id', pg_temp.fx('t4_c4'), 'amount', pg_temp.qtotal('t4_qa') - 400, 'paid_on', pg_temp.ydate())) as ignored \gset
+select public.bs_as(null);
+select public.bs_check('part_payment: two payments settle the invoice through With Accounts', pg_temp.pays('t4_ca') = 2 and pg_temp.vouchers('t4_ca') = 2 and pg_temp.net('t4_ca') = pg_temp.qtotal('t4_qa') and pg_temp.bal('t4_ca') = 0
+  and pg_temp.cstatus('t4_c4') = 'Confirmed');
+select public.bs_check('part_payment: the portal shows nothing left to pay', (public.business_setup_portal_view(pg_temp.fx('t4_acc_a')::uuid) -> 'quotes') @> jsonb_build_array(jsonb_build_object('id', pg_temp.fx('t4_qa'), 'outstanding', 0)));
+-- claim_over: above the balance follows the override rule
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.business_setup_claim_refuse(pg_temp.fx('t4_c3')::uuid, 'Please send the right amount');
+select public.bs_as(null);
+select pg_temp.claim('t4_c5', 't4_acc_b', 't4_inv_b', jsonb_build_object('amount', pg_temp.qtotal('t4_qb') + 500, 'paid_on', pg_temp.ydate()));
+select public.bs_check('claim_over: the client may claim above the balance, and it moves nothing', pg_temp.cstatus('t4_c5') = 'Pending' and pg_temp.net('t4_cb') = 0);
+select public.bs_as('00000000-0000-0000-0000-00000000000e');
+select public.bs_expect_error(format($$select public.business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('t4_cb'), 'claim_id', pg_temp.fx('t4_c5'), 'amount', pg_temp.qtotal('t4_qb') + 500)), 'above the balance');
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.bs_expect_error(format($$select public.business_setup_payment_add('%s')$$, jsonb_build_object('case_id', pg_temp.fx('t4_cb'), 'claim_id', pg_temp.fx('t4_c5'), 'amount', pg_temp.qtotal('t4_qb') + 500)), 'reason');
+select public.bs_as(null);
+select public.bs_check('claim_over: refused without the override and without a reason, the claim stays Pending', pg_temp.cstatus('t4_c5') = 'Pending' and pg_temp.pays('t4_cb') = 0);
+select public.bs_as('00000000-0000-0000-0000-00000000000b');
+select public.business_setup_payment_add(jsonb_build_object('case_id', pg_temp.fx('t4_cb'), 'claim_id', pg_temp.fx('t4_c5'), 'amount', pg_temp.qtotal('t4_qb') + 500, 'override_reason', 'Client paid ahead for the next service')) as ignored \gset
+select public.bs_as(null);
+select public.bs_check('claim_over: with the override right and a reason it confirms', pg_temp.cstatus('t4_c5') = 'Confirmed' and pg_temp.pays('t4_cb') = 1);
+-- a closed (Lost) case takes no claim
+select public.bs_as(null);
+update public.business_setup_cases set stage = 'Lost' where id = pg_temp.cid('t4_cb');
+select public.bs_expect_error(format($$select pg_temp.claim('x11', 't4_acc_b', 't4_inv_b', '{"amount":5,"paid_on":"%s"}')$$, pg_temp.ydate()), 'closed');
+update public.business_setup_cases set stage = 'Pipeline' where id = pg_temp.cid('t4_cb');
+
+-- who may call
+select public.bs_check('claim_add and portal_claims are for the service role only', (select bool_and(has_function_privilege('service_role', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute'))
+  from unnest(array['public.business_setup_portal_claim_add(uuid,jsonb)', 'public.business_setup_portal_claims(uuid)']) f));
+select public.bs_check('claim_refuse is for signed-in users and never anon', has_function_privilege('authenticated', 'public.business_setup_claim_refuse(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.business_setup_claim_refuse(uuid,text)', 'execute'));
+
+-- dashboard_keys: the old keys stay, the new ones count
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+create temp table d4 as select public.business_setup_dashboard() as d;
+grant all on d4 to authenticated;
+select public.bs_check('dashboard_keys: every old key is still there', (select bool_and(d ? k) from d4, unnest(array['forms_waiting', 'open_quotes', 'accepted_without_letter', 'outstanding', 'active_services', 'expiries', 'processes_pending', 'receivables',
+  'advances', 'cases_completed_month', 'cases_completed_total', 'pipeline', 'forms_to_review', 'pending_after_kyc']) k));
+select public.bs_check('dashboard_keys: the four new keys are there', (select d ?& array['client_inputs', 'awaiting_client', 'payment_claims', 'at_completion'] from d4));
+select public.bs_as(null);
+-- Counted from the records, against the same tables.
+select count(*) as n_forms from public.business_setup_onboarding_forms where status = 'Submitted' \gset
+select count(*) as n_claims from public.business_setup_payment_claims where status = 'Pending' \gset
+select count(*) as n_comp from public.business_setup_cases where stage = 'Completion' \gset
+select count(*) as n_wait from public.hub_documents d where d.department = 'Business Setup' and d.doc_type in ('quote', 'letter') and d.status = 'issued'
+  and not exists (select 1 from public.business_setup_acceptances a where a.document_id = d.id) \gset
+select public.bs_check('dashboard_keys: payment_claims counts Pending claims', (select (d ->> 'payment_claims')::int = :n_claims from d4));
+select public.bs_check('dashboard_keys: client_inputs counts Submitted forms', (select (d ->> 'client_inputs')::int = :n_forms from d4));
+select public.bs_check('dashboard_keys: awaiting_client counts issued quotes and letters with no decision', (select (d ->> 'awaiting_client')::int = :n_wait from d4));
+select public.bs_check('dashboard_keys: at_completion counts the stage Completion', (select (d ->> 'at_completion')::int = :n_comp from d4));
+-- the counts move with the records: two cases at Completion, an issued quote, a Submitted form, a Pending claim
+select pg_temp.mkcase('t4_comp', 'CL974001', 'Completion', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkcase('t4_comp2', 'CL974001', 'Completion', '00000000-0000-0000-0000-00000000000c');
+select pg_temp.mkdq('t4_qw', 'CL974001', 't4_comp');
+select pg_temp.claim('t4_c7', 't4_acc_b', 't4_inv_b', jsonb_build_object('amount', 7, 'paid_on', pg_temp.ydate()));
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_check('dashboard_keys: Completion cases, an issued quote and a Pending claim each add to their figure',
+  (public.business_setup_dashboard() ->> 'at_completion')::int = :n_comp + 2
+  and (public.business_setup_dashboard() ->> 'awaiting_client')::int = :n_wait + 1
+  and (public.business_setup_dashboard() ->> 'payment_claims')::int = :n_claims + 1);
+select public.bs_as(null);
+select pg_temp.decide('t4_acc_a', 't4_qw', 'Accepted');
+select public.bs_as('00000000-0000-0000-0000-00000000000a');
+select public.bs_check('dashboard_keys: a decided quote leaves awaiting_client', (public.business_setup_dashboard() ->> 'awaiting_client')::int = :n_wait);
+select public.bs_as(null);
+
 do $$
 declare f int; t int;
 begin
