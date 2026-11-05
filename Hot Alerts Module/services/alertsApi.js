@@ -43,3 +43,7 @@ export const clientComplianceList = (s, client = null, type = null, status = "Ac
 export const clientComplianceSave = (s, p) => call(s, "client_compliance_save", { p });
 export const clientComplianceClose = (s, id, reason) => call(s, "client_compliance_close", { p_id: id, p_reason: reason });
 export const clientComplianceImport = (s, rows) => call(s, "client_compliance_import", { p_rows: rows });
+
+// Preferences (007): the signed-in person's own.
+export const alertPreferencesGet = (s) => call(s, "alert_preferences_get", {});
+export const alertPreferencesSave = (s, category, channel, enabled) => call(s, "alert_preferences_save", { p_category: category, p_channel: channel, p_enabled: enabled });

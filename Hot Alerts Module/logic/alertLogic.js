@@ -105,8 +105,19 @@ export function tabsFor(access) {
   const tabs = ["My Notifications"];
   if (access?.is_admin || access?.is_manager) tabs.push("Department");
   if (access?.can_register) tabs.push("Compliance Register");
-  if (access?.is_admin) tabs.push("Management", "Settings");
+  if (access?.is_admin) tabs.push("Management");
+  tabs.push("Settings"); // Everyone sets their own preferences; the admin parts show to admins only.
   return tabs;
+}
+
+// A preference is on unless it is listed as off.
+export function prefIsOn(prefs, category, channel) {
+  return !(prefs?.off || []).some((o) => o.category === category && o.channel === channel);
+}
+
+export function prefWithChange(prefs, category, channel, enabled) {
+  const off = (prefs?.off || []).filter((o) => !(o.category === category && o.channel === channel));
+  return { ...prefs, off: enabled ? off : [...off, { category, channel }] };
 }
 
 // The red band over Management: a failed last scan, or no good scan in 26 hours. Null when healthy or unknown.

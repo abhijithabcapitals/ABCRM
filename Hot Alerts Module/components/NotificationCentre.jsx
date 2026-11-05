@@ -5,6 +5,7 @@ import ScopeView from "./ScopeView";
 import DepartmentView from "./DepartmentView";
 import ManagementView from "./ManagementView";
 import CentreSettings from "./CentreSettings";
+import MyPreferences from "./MyPreferences";
 import ComplianceRegister from "./ComplianceRegister";
 import { Note, btn } from "./ui";
 import { dubaiToday, emptyText, isNotSwitchedOn, tabsFor } from "../logic/alertLogic";
@@ -89,7 +90,10 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
       {access && tab === "Compliance Register" && <ComplianceRegister supabase={supabase} today={today} fmtDate={fmtDate} />}
       {access && tab === "Management" && <ManagementView supabase={supabase} access={access} today={today} onOpen={open} refreshKey={refreshKey} />}
       {access && tab === "Settings" && (
-        <CentreSettings supabase={supabase} access={access} onChanged={() => { bump(); alertMyAccess(supabase).then(setAccess).catch(() => {}); }} />
+        <>
+          <MyPreferences supabase={supabase} />
+          {access.is_admin && <CentreSettings supabase={supabase} access={access} onChanged={() => { bump(); alertMyAccess(supabase).then(setAccess).catch(() => {}); }} />}
+        </>
       )}
 
       <div style={{ fontSize: 14, fontWeight: 700, marginTop: 24 }}>My tasks</div>

@@ -2,6 +2,25 @@
 -- Runs before rollback/005_rollback.sql and rollback/001_004_rollback.sql: it restores the functions 004 owns and drops what Phase 2 added.
 -- Later tasks add their sections above the 006 section.
 
+-- ── 007: preferences ───────────────────────────────────────────────
+-- 001's bell, restored first, as it reads the function dropped below.
+create or replace function public.alert_bell(p_id uuid, p_user uuid, p_reason text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_mode text := alert_mode(); v_a alerts%rowtype;
+begin
+  if v_mode = 'Preview' then return; end if;
+  if v_mode = 'Triage' and p_reason <> 'Assigned' then return; end if;
+  select * into v_a from alerts where id = p_id;
+  if not found or v_a.backlog then return; end if;
+  insert into notifications (user_id, task_id, type, title, body, link_scope, read)
+  values (p_user, null, 'alert_centre', v_a.title, v_a.action_required, jsonb_build_object('alert_id', p_id), false);
+end $$;
+drop function if exists public.alert_preferences_save(text, text, boolean);
+drop function if exists public.alert_preferences_get();
+drop function if exists public.alert_channel_on(uuid, text, text, text);
+drop function if exists public.alert_categories();
+drop table if exists public.alert_preferences;
+
 -- ── 006: compliance register ─────────────────────────────────────────
 -- Alerts of the compliance rules go first (alerts.rule_code references alert_rules), with their bell rows.
 -- alert_events has no foreign key and is append-only, so the history rows stay; the 001 to 004 rollback drops that table.

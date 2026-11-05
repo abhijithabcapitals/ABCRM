@@ -203,3 +203,19 @@ test("register tab only with can_register", async () => {
   assert.ok(!tabsFor({}).includes("Compliance Register"));
   assert.ok(tabsFor({ can_register: true }).includes("Compliance Register"));
 });
+
+test("everyone has Settings; Management stays admin only", async () => {
+  const { tabsFor } = await import("../logic/alertLogic.js");
+  assert.ok(tabsFor({}).includes("Settings"));
+  assert.ok(!tabsFor({ is_manager: true }).includes("Management"));
+  assert.ok(tabsFor({ is_admin: true }).includes("Management"));
+});
+test("preferences read and change", async () => {
+  const { prefIsOn, prefWithChange } = await import("../logic/alertLogic.js");
+  const p = { off: [{ category: "Tax", channel: "Bell" }] };
+  assert.equal(prefIsOn(p, "Tax", "Bell"), false);
+  assert.equal(prefIsOn(p, "Tax", "Email"), true);
+  assert.equal(prefIsOn(prefWithChange(p, "Tax", "Bell", true), "Tax", "Bell"), true);
+  assert.equal(prefIsOn(prefWithChange(p, "Licence", "Email", false), "Licence", "Email"), false);
+  assert.equal(prefIsOn(null, "Tax", "Bell"), true);
+});
