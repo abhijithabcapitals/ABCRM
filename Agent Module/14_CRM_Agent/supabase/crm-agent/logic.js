@@ -65,13 +65,28 @@ export const KNOWN_TABLES = Object.entries(TABLES)
   .flatMap(([schema, names]) => names.split(" ").map((table) => ({ schema, table })))
   .filter((k) => tabForTable(k.schema, k.table) !== null);
 
-export function personFrom(role, tabs) {
-  return { isAdmin: role === "admin", tabs: Array.isArray(tabs) ? tabs : [] };
+// `scope` is set only when a sub agent asks: its Database access list from Settings > Agents, as "schema.table".
+export function personFrom(role, tabs, scope) {
+  return { isAdmin: role === "admin", tabs: Array.isArray(tabs) ? tabs : [], ...(scope ? { scope } : {}) };
+}
+
+// A sub agent that may ask: null when none is named, "" when the name is refused. A person can only name an agent they
+// are ticked for, and then gets that agent's narrower access, so naming one never gives more than the person has.
+export function callerFrom(value) {
+  if (value === undefined || value === null) return null;
+  return typeof value === "string" && /^AGT-[0-9A-Z-]+$/.test(value) && value !== "AGT-14-CRM" && value !== "AGT-00-ORCHESTRATOR" ? value : "";
+}
+
+export function withBudget(access, budgetLeft) {
+  if (!access.allowed || budgetLeft === null || budgetLeft === undefined) return access;
+  const limit = Math.min(access.limit, Number(budgetLeft));
+  return { allowed: limit > 0, limit };
 }
 
 export function canReach(schema, table, person) {
   const tab = tabForTable(schema, table);
   if (tab === null) return false;
+  if (person.scope && !person.scope.has(`${schema}.${table}`)) return false;
   return tab === "any" || person.isAdmin || person.tabs.includes(tab);
 }
 

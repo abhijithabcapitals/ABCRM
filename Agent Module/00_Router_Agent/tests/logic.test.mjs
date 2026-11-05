@@ -11,15 +11,15 @@ test("the fixed reply keeps the user's spelling", () => assert.equal(FIXED_REPLY
 test("constants", () => {
   assert.equal(NO_INFO, "NO_INFO");
   assert.equal(MAX_MESSAGE, 4000);
-  assert.deepEqual(Object.keys(ROUTES), ["AGT-08-SUPPORT", "AGT-05-BIZDEV", "AGT-11-CEO", "AGT-14-CRM"]);
   assert.equal(ROUTES["AGT-14-CRM"].fn, "crm-agent");
-  assert.equal(ROUTES["AGT-08-SUPPORT"].fn, "support-agent");
-  assert.equal(ROUTES["AGT-05-BIZDEV"].fn, "bd-agent");
+  assert.equal(ROUTES["AGT-08-SUPPORT"].fn, "agent-gateway");
+  assert.equal(ROUTES["AGT-05-BIZDEV"].fn, "agent-gateway");
+  assert.equal(ROUTES["AGT-00-ORCHESTRATOR"], undefined);
   assert.equal(ROUTES["AGT-11-CEO"].fn, "ceo-agent");
 });
 test("CRM agent is eligible", () => assert.deepEqual(eligibleAgents([{ id: "AGT-14-CRM" }]).map((a) => a.id), ["AGT-14-CRM"]));
 test("CRM request is router mode", () => { const m = [{ role: "user", content: "x" }]; assert.deepEqual(agentRequest("AGT-14-CRM", m), { messages: m, router: true }); });
-test("only agents with a route", () => assert.deepEqual(eligibleAgents([{ id: "AGT-13-EMAIL" }, { id: "AGT-08-SUPPORT" }]).map((a) => a.id), ["AGT-08-SUPPORT"]));
+test("only agents with a route", () => assert.deepEqual(eligibleAgents([{ id: "AGT-00-ORCHESTRATOR" }, { id: "AGT-08-SUPPORT" }]).map((a) => a.id), ["AGT-08-SUPPORT"]));
 test("eligible keeps order", () => assert.deepEqual(eligibleAgents([{ id: "AGT-11-CEO" }, { id: "AGT-08-SUPPORT" }]).map((a) => a.id), ["AGT-11-CEO", "AGT-08-SUPPORT"]));
 test("ranking keeps at most two", () => assert.deepEqual(parseRanking('["a","b","c"]', ["a", "b", "c"]), ["a", "b"]));
 test("ranking drops unknown ids", () => assert.deepEqual(parseRanking('["AGT-14-CRM","a"]', ["a"]), ["a"]));
@@ -45,8 +45,7 @@ test("any non-2xx is an error", () => {
   assert.deepEqual(readAgentReply(201, { reply: "hi" }), { answer: "hi" });
 });
 test("CEO request carries thread and key", () => assert.deepEqual(agentRequest("AGT-11-CEO", [], { threadId: "t", idempotencyKey: "k" }), { messages: [], threadId: "t", idempotencyKey: "k", router: true }));
-test("BD request is a chat action", () => assert.equal(agentRequest("AGT-05-BIZDEV", [], {}).action, "chat"));
-test("Support request has only messages and the flag", () => assert.deepEqual(agentRequest("AGT-08-SUPPORT", [], {}), { messages: [], router: true }));
+test("Support request names its agent for the gateway", () => assert.deepEqual(agentRequest("AGT-08-SUPPORT", [], {}), { agent_id: "AGT-08-SUPPORT", messages: [], router: true }));
 test("spending can use up credit", () => assert.equal(canAfford({ budget_left: null }, 1, 1), false));
 test("spending can use up the budget", () => assert.equal(canAfford({ budget_left: 0.5 }, 5, 0.5), false));
 test("no cap needs only credit", () => assert.equal(canAfford({ budget_left: null }, 1, 0.5), true));
@@ -73,5 +72,5 @@ const shared = [{ role: "user", content: "q1" }, { role: "assistant", content: "
 test("an agent gets only its own replies", () => assert.deepEqual(agentHistory(shared, "q3", "AGT-11-CEO").map((m) => m.content), ["q1", "q2", "from CEO", "q3"]));
 test("an agent with no replies gets only the questions", () => assert.deepEqual(agentHistory(shared, "q3", "AGT-08-SUPPORT").map((m) => m.role), ["user", "user", "user"]));
 test("history items hold only role and content", () => assert.deepEqual(Object.keys(agentHistory(shared, "q", "AGT-05-BIZDEV")[1]), ["role", "content"]));
-test("the CRM Agent gets more time", () => { assert.equal(agentTimeoutMs("AGT-14-CRM"), 120000); assert.equal(agentTimeoutMs("AGT-08-SUPPORT"), 70000); });
+test("agents that may ask the CRM Agent get more time", () => { assert.equal(agentTimeoutMs("AGT-14-CRM"), 120000); assert.equal(agentTimeoutMs("AGT-08-SUPPORT"), 120000); assert.equal(agentTimeoutMs("AGT-11-CEO"), 70000); });
 test("ranking uses the low-cost OpenRouter model", () => assert.equal(RANKING_MODEL, "deepseek/deepseek-v4.1-flash"));

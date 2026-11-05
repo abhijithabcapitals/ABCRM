@@ -12,11 +12,12 @@
 // Logs hold short reason codes only, never message text.
 //
 // Copy logic.js with this file. Deploy as "router-agent" with JWT verification on.
-// Secret: OPENROUTER_API_KEY, for ranking between agents.
+// Bruno's model, routing rules, on switch and API key come from its row in Settings > Agents (AGT-00-ORCHESTRATOR).
+// Secret: OPENROUTER_API_KEY, the shared key for ranking between agents. Bruno's own key from Settings wins over it.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
-  agentHistory, agentRequest, agentTimeoutMs, canAfford, eligibleAgents, fallbackAgents, FIXED_REPLY, MAX_MESSAGE, parseRanking,
+  agentHistory, agentKeyName, agentRequest, agentTimeoutMs, canAfford, eligibleAgents, fallbackAgents, FIXED_REPLY, MAX_MESSAGE, parseRanking,
   rankingFailureReason, RANKING_MODEL, rankingPrompt, readAgentReply, ROUTES,
 } from "./logic.js";
 
@@ -38,6 +39,7 @@ const note = (code: string) => console.log(`router-agent: ${code}`);
 
 type Agent = { id: string; name: string; role: string; budget_left: number | null };
 type Turn = { admin: SupabaseClient; uid: string; question: string };
+type Bruno = { enabled: boolean; provider: string; model: string; instructions: string; extra_content: string };
 
 async function recordUsage(admin: SupabaseClient, agentId: string, uid: string, cost: number) {
   const { error } = await admin.rpc("router_record_usage", { p_agent_id: agentId, p_profile: uid, p_cost: cost });
@@ -52,8 +54,11 @@ async function saveTurn({ admin, uid, question }: Turn, answer: string, agentId:
 }
 
 // Records the call in public.ai_usage (counts only, never content) and returns the ranked agent ids.
-async function rankAgents({ admin, uid, question }: Turn, agents: Agent[]) {
-  const apiKey = Deno.env.get("OPENROUTER_API_KEY");
+async function rankAgents({ admin, uid, question }: Turn, agents: Agent[], bruno: Bruno | null) {
+  const { data: ownKey } = await admin.rpc("credential_get", { p_name: agentKeyName(ORCHESTRATOR_ID) });
+  const apiKey = ownKey || Deno.env.get("OPENROUTER_API_KEY");
+  const model = bruno?.provider === "openrouter" && bruno.model ? bruno.model : RANKING_MODEL;
+  const rules = [bruno?.instructions, bruno?.extra_content].filter(Boolean).join("\n\n");
   if (!apiKey) {
     note("ranking_no_key");
     return { ids: [] as string[], cost: 0, failed: true };
@@ -62,12 +67,12 @@ async function rankAgents({ admin, uid, question }: Turn, agents: Agent[]) {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: RANKING_MODEL,
+      model,
       provider: { data_collection: "deny" },
       temperature: 0,
       max_tokens: 100,
       usage: { include: true },
-      messages: rankingPrompt(question, agents),
+      messages: rankingPrompt(question, agents, rules),
     }),
     signal: AbortSignal.timeout(RANKING_MS),
   });
@@ -75,7 +80,7 @@ async function rankAgents({ admin, uid, question }: Turn, agents: Agent[]) {
   const u = data?.usage;
   if (u) {
     const { error } = await admin.from("ai_usage").insert({
-      function_name: "router-agent", user_id: uid, model: RANKING_MODEL, prompt_tokens: u.prompt_tokens,
+      function_name: "router-agent", user_id: uid, model, prompt_tokens: u.prompt_tokens,
       completion_tokens: u.completion_tokens, reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null,
       cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null, cost_usd: u.cost ?? null,
     });
@@ -100,6 +105,11 @@ async function route(turn: Turn, authHeader: string) {
     return { reply: FIXED_REPLY, from: null };
   };
 
+  // A failed lookup keeps Bruno working on its defaults. Only a saved switch-off stops it.
+  const { data: bruno } = await admin.from("agents")
+    .select("enabled, provider, model, instructions, extra_content").eq("id", ORCHESTRATOR_ID).maybeSingle();
+  if (bruno?.enabled === false) return await fixed("bruno_off");
+
   const { data: ctx, error } = await admin.rpc("router_context", { p_profile: uid });
   if (error || !ctx) return await fixed("context_failed");
 
@@ -109,7 +119,7 @@ async function route(turn: Turn, authHeader: string) {
   let spent = 0;
   let order = [agents[0].id];
   if (agents.length > 1) {
-    const ranked = await rankAgents(turn, agents).catch(() => {
+    const ranked = await rankAgents(turn, agents, bruno).catch(() => {
       note("ranking_failed");
       return { ids: [] as string[], cost: 0, failed: true };
     });

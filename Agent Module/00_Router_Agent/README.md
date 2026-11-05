@@ -14,6 +14,21 @@ Design: `docs/2026-11-04-router-agent-design.md`. Plan: `docs/2026-11-04-router-
 | `supabase/router-agent/logic.js` | Routing rules, including `ROUTES`, the fixed list of callable agents |
 | `tests/` | `node --test "Agent Module/00_Router_Agent/tests/"` |
 
+## The chain
+
+1. A person asks Bruno. `router-agent` picks at most two sub agents, using Bruno's model and rules from Settings > Agents.
+2. The sub agent runs in `agent-gateway` from its row in Settings > Agents: role, instructions, extra content, knowledge, model and API key.
+3. For CRM data, the sub agent calls its one tool, `ask_crm_agent`. `crm-agent` answers with the person's own login, limited to the tables in that sub agent's Database access. It cannot change anything on this path.
+4. The sub agent replies, and Bruno returns that reply word for word, or `Opps! I dont Know`.
+
+The CEO Agent keeps its own function and does not read these settings. See its warning below.
+
+Check the chain with no live calls: `deno run -A --no-check chain.deno.ts` in `tests/`.
+
+### Release of the chain
+
+Each step needs approval. Apply `Database Module/AI Base/migrations/004_agent_gateway.sql`. Deploy `agent-gateway`, then `crm-agent`, then `router-agent`, with JWT verification on. Then merge to `main` and deploy per the CRM deploy steps. To undo, restore the previous `router-agent` and `crm-agent`, then run `rollback/004_agent_gateway_rollback.sql`.
+
 ## Who can use which agent
 
 Set in Settings > Agents. An agent is used only when it is switched on, the person is ticked, the person has credit left, the agent's budget (if set) is not used up, and the agent is in `ROUTES`. Today `ROUTES` holds Support, Business Development, CEO and CRM (`crm-agent`, which answers lead status questions with no AI model). Admins need ticks and credit too.

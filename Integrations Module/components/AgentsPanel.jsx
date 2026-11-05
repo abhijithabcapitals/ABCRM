@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CREDIT_STEP, HELP, MODELS, RUNTIME, agentKeyName, creditLeft, draftError, groupAgents, stepCredit, tableKey, tablesPayload } from "../logic/agents.js";
+import { AGENT_NOTES, CREDIT_STEP, HELP, MODELS, RUNTIME, agentKeyName, creditLeft, draftError, groupAgents, stepCredit, tableKey, tablesPayload } from "../logic/agents.js";
 
 // Settings > Agents: every agent's configuration, who may use it, and each person's monthly usage credit.
 // Saving runs nothing. The gateway enforces these settings once an agent is connected.
@@ -7,6 +7,27 @@ const inputStyle = { width: "100%", boxSizing: "border-box", padding: "7px 10px"
 const boxStyle = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 };
 const usd = (n) => `$${Number(n || 0).toFixed(2)}`;
 const person = (p) => p.full_name || p.email || "Unnamed";
+
+// OpenRouter's public model list, no key needed, loaded once. If it fails the field still takes a typed name.
+let openRouterModels = null;
+function useOpenRouterModels(wanted) {
+  const [models, setModels] = useState(openRouterModels || []);
+  useEffect(() => {
+    if (!wanted || openRouterModels) return undefined;
+    let live = true;
+    fetch("https://openrouter.ai/api/v1/models")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        const list = (body?.data || []).filter((m) => m?.id).map((m) => ({ id: m.id, note: m.name || "" }));
+        if (!list.length) return;
+        openRouterModels = list;
+        if (live) setModels(list);
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [wanted]);
+  return models;
+}
 
 function Help({ text, label }) {
   const [open, setOpen] = useState(false);
@@ -180,6 +201,8 @@ function AgentForm({ agent, data, supabase, onSaved, onChanged, onDirty, onError
   const edit = (patch) => { setDraft((d) => ({ ...d, ...patch })); onDirty(); };
   const toggle = (set, setter, id) => { const next = new Set(set); if (next.has(id)) next.delete(id); else next.add(id); setter(next); onDirty(); };
   const runtime = RUNTIME[agent.runtime] || RUNTIME.not_connected;
+  const liveModels = useOpenRouterModels(draft.provider === "openrouter");
+  const modelChoices = draft.provider === "openrouter" && liveModels.length ? liveModels : (MODELS[draft.provider] || []);
   const shownMembers = data.members.filter((m) => person(m).toLowerCase().includes(userQuery.trim().toLowerCase()) || (m.email || "").toLowerCase().includes(userQuery.trim().toLowerCase()));
 
   async function save() {
@@ -201,7 +224,7 @@ function AgentForm({ agent, data, supabase, onSaved, onChanged, onDirty, onError
 
   return (
     <div style={{ padding: "4px 16px 16px" }}>
-      <div style={{ fontSize: 12.5, padding: "8px 10px", background: runtime.bg, color: runtime.color, borderRadius: 6, marginBottom: 16 }}>{runtime.note}</div>
+      <div style={{ fontSize: 12.5, padding: "8px 10px", background: runtime.bg, color: runtime.color, borderRadius: 6, marginBottom: 16 }}>{runtime.note}{AGENT_NOTES[agent.id] ? ` ${AGENT_NOTES[agent.id]}` : ""}</div>
 
       <Field label="Enabled" help={HELP.enabled}>
         <label style={{ fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={!!draft.enabled} onChange={(e) => edit({ enabled: e.target.checked })} /> This agent may run</label>
@@ -233,7 +256,7 @@ function AgentForm({ agent, data, supabase, onSaved, onChanged, onDirty, onError
       </Field>
       <Field label="Model" help={HELP.model}>
         <input aria-label="Model" list={`models-${agent.id}`} value={draft.model} onChange={(e) => edit({ model: e.target.value })} style={inputStyle} />
-        <datalist id={`models-${agent.id}`}>{(MODELS[draft.provider] || []).map((m) => <option key={m.id} value={m.id}>{m.note}</option>)}</datalist>
+        <datalist id={`models-${agent.id}`}>{modelChoices.map((m) => <option key={m.id} value={m.id}>{m.note}</option>)}</datalist>
       </Field>
       <Field label="API key" help={HELP.api_key}>
         <ApiKeyField agent={agent} saved={data.savedKeys.has(agentKeyName(agent.id))} supabase={supabase} onChanged={onChanged} onError={onError} />

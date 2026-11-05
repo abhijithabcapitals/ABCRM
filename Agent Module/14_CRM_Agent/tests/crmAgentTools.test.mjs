@@ -212,9 +212,9 @@ test("list_my_tables returns only reachable tables", async () => {
 const src = () => read("supabase/crm-agent/index.ts");
 test("data calls use the person's login", () => assert.match(src(), /Authorization: authHeader/));
 test("the key comes from the OpenRouter secret", () => assert.match(src(), /Deno\.env\.get\("OPENROUTER_API_KEY"\)/));
-test("the agent uses its read-only switch", () => assert.match(src(), /allowChanges: !READ_ONLY/));
+test("the agent uses its read-only switch", () => { assert.match(src(), /readOnly = READ_ONLY \|\| !!caller/); assert.match(src(), /allowChanges: !readOnly/); });
 test("providers may not keep prompts", () => assert.match(src(), /data_collection: "deny"/));
-test("the service role is never used for data", () => assert.doesNotMatch(src(), /admin\s*\.\s*(schema\(|from\(\s*"(?!agents"|ai_usage"))/));
+test("the service role is never used for data", () => assert.doesNotMatch(src(), /admin\s*\.\s*(schema\(|from\(\s*"(?!agents"|ai_usage"|agent_table_access"))/));
 test("rounds are capped", () => assert.match(src(), /MAX_ROUNDS/));
 test("a person must be ticked before any Claude call", () => assert.match(src(), /router_context[\s\S]*accessFrom[\s\S]*403[\s\S]*fetch\(OPENROUTER_URL/));
 test("the agent records its own usage on every exit", () => { assert.match(src(), /router_record_usage/); assert.match(src(), /usage_recorded: true/); assert.match(src(), /finally/); });

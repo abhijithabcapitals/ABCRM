@@ -8,7 +8,7 @@ The interface between CRM users and the other agents. See `README.md`.
 - When no agent gives information, the reply is exactly `Opps! I dont Know`. Keep the user's spelling.
 - Access is decided on the server. The browser sends only the message and can never name an agent.
 - Agents are called with the person's own login. The service role is used only for the `router_*` functions.
-- `ROUTES` in `supabase/router-agent/logic.js` is the fixed list of callable functions. Never build a function address from data. To connect another agent, add it there and give its function a `router: true` mode that replies `NO_INFO` and returns `cost_usd`.
+- `ROUTES` in `supabase/router-agent/logic.js` is the fixed list of callable functions. Never build a function address from data. To connect another agent, add it there with `fn: GATEWAY` and set its row's runtime to `gateway`. Settings > Agents then drives it. Its data comes only by asking the CRM Agent.
 - Never more than two agents per message.
 - Chats are private. They live in schema `router`, which the audit job does not cover and Settings > Agents cannot offer. Do not move them to `public`.
 - Logs hold reason codes only, never message text.
