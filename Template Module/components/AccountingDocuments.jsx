@@ -2,13 +2,13 @@
 // make the agreement, edit, approve and record the signed copy. After every action the list is read again from the server.
 import { useEffect, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FilePick, Modal, Panel, fmtDate, fmtDateTime, today, useLoad } from "@banking/components/shared";
-import { listDocuments, openStored, updateMail } from "../services/hubApi";
-import { acceptOption, canApprove as canApproveApi, openWord, recordSigned, sendDoc } from "../services/accountingApi";
+import { openStored } from "../services/hubApi";
+import { acceptOption, canApprove as canApproveApi, listAccountingDocuments, openWord, recordSigned, sendDoc, updateAccountingMail } from "../services/accountingApi";
 import { accountingDeps, generateGuard } from "../services/accountingDeps";
 import { approveAgreement, editAgreement, generateAgreement, retryDocument, saveToOneDrive } from "../services/accountingGenerate";
 import { BASES, isAccountingAgreement, isAccountingQuote, registerLabel, totalsByBasis } from "../logic/accountingQuote";
 import { agreementFromQuote } from "../logic/accountingAgreement";
-import { docActions, docStatus } from "../logic/accountingUi";
+import { agreementUnder, docActions, docStatus, rejectedAgreementNote } from "../logic/accountingUi";
 import AccountingAgreementForm from "./AccountingAgreementForm";
 
 const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -71,7 +71,7 @@ function RecordSigned({ doc, onSubmit, onClose }) {
 }
 
 export default function AccountingDocuments({ settings, packages, reloadKey }) {
-  const docs = useLoad(() => listDocuments("Accounting"), []);
+  const docs = useLoad(listAccountingDocuments, []);
   const approver = useLoad(canApproveApi, []);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
@@ -83,7 +83,8 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
   const all = docs.data || [];
   const rows = all.filter((d) => isAccountingQuote(d) || isAccountingAgreement(d));
   const mailOf = (d) => all.find((x) => x.doc_type === "mail" && x.parent_id === d.id);
-  const agreementOf = (q) => all.find((x) => isAccountingAgreement(x) && x.parent_id === q.id && x.status !== "rejected");
+  // A rejected agreement still blocks a new one (one letter per quote); the row says so instead of offering Agreement.
+  const agreementOf = (q) => agreementUnder(all, q.id);
   const deps = () => accountingDeps(settings);
 
   // Runs one action. Nothing else starts while it runs; the list is read again afterwards.
@@ -147,18 +148,20 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
 
   const openMail = (d) => { const m = mailOf(d); if (m) setMail({ id: m.id, subject: m.mail_subject || "", body: m.mail_body || "", docId: d.id }); };
   const mailDoc = mail ? all.find((d) => d.id === mail.docId) : null;
-  const saveDraft = () => run("mail-save", async () => { await updateMail(mail.id, mail.subject, mail.body); setNote({ ok: true, text: "Mail changes saved." }); });
+  const saveDraft = () => run("mail-save", async () => { await updateAccountingMail(mail.id, mail.subject, mail.body); setNote({ ok: true, text: "Mail changes saved." }); });
   // The recipient is the document's contact email; it is shown and confirmed before anything is sent.
   const send = (d) => {
     const resend = !!d.mail_sent_at;
     const to = d.contact_email;
     if (!to) { setError("This document has no contact email."); return; }
     if (!window.confirm(`${resend ? "Send again: " : ""}Send the PDF of ${d.document_number} to ${to}?`)) return;
-    run("send", async () => { await updateMail(mail.id, mail.subject, mail.body); await sendDoc(d.id, resend); setNote({ ok: true, text: `${d.document_number} sent to ${to}.` }); });
+    run("send", async () => { await updateAccountingMail(mail.id, mail.subject, mail.body); await sendDoc(d.id, resend); setNote({ ok: true, text: `${d.document_number} sent to ${to}.` }); });
   };
 
   const actionsCell = (d) => {
-    const a = docActions(d, { canApprove: approver.data === true, hasAgreement: !isAccountingAgreement(d) && !!agreementOf(d), busy: !!busy });
+    const under = isAccountingAgreement(d) ? null : agreementOf(d);
+    const a = docActions(d, { canApprove: approver.data === true, hasAgreement: !!under, busy: !!busy });
+    const rejected = rejectedAgreementNote(under);
     const off = a.busy;
     const key = (k) => `${k}-${d.id}`;
     return (
@@ -172,6 +175,7 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
         {a.approve && <Button variant="primary" disabled={off} busy={busy === key("approve")} onClick={() => run(key("approve"), async () => report(await approveAgreement(d, deps()), "Approval"))}>Approve</Button>}
         {a.retry && <Button disabled={off} busy={busy === key("retry")} onClick={() => run(key("retry"), async () => report(await retryDocument(d, deps(), { mail: !mailOf(d) }), "Files rebuilt for"))}>Retry</Button>}
         {a.recordSigned && !d.signed_path && <Button disabled={off} onClick={() => setDialog({ kind: "signed", doc: d })}>Record signed</Button>}
+        {rejected && <span className="bk-muted">{rejected}</span>}
       </span>
     );
   };

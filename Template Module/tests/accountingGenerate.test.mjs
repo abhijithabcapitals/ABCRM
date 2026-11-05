@@ -30,7 +30,7 @@ function fakes(over = {}) {
   };
   const base = {
     check: null, create: quoteDoc, loadTemplate: "TPL", loadSignature: sig, render: "WORD", toPdf: "PDF",
-    upload: (doc, blob, ext) => `Accounting/${doc.id}/x.${ext}`, attach: (id) => ({ ...quoteDoc, id, storage_path: "a.pdf", word_path: "a.docx" }),
+    upload: (doc, blob, ext) => `Accounting/${doc.id}/x.${ext}`, remove: { ok: 1 }, attach: (id) => ({ ...quoteDoc, id, storage_path: "a.pdf", word_path: "a.docx" }),
     approve: (id) => ({ ...agrDoc, id, approved_at: "now" }), update: { ...agrDoc }, saveLocal: "C:\\OneDrive\\Proposals", markSaved: { ok: 1 }, createMail: { id: "m1" },
   };
   const deps = { settings: { accounting_proposal_defaults: {}, company: {} } };
@@ -147,6 +147,26 @@ test("approve: failed approve returns error and keeps the draft, no local copy",
   assert.deepEqual(r, { error: "Agreement changed" });
   assert.equal(names(calls).includes("saveLocal"), false);
   assert.equal(names(calls).includes("attach"), false);
+});
+
+test("approve: a refused approval removes both signed uploads", async () => {
+  const { calls, deps } = fakes({ approve: new Error("Agreement changed") });
+  await approveAgreement(agrDoc, deps);
+  assert.deepEqual(names(calls), ["loadTemplate", "loadSignature", "render", "toPdf", "upload", "upload", "approve", "remove"]);
+  assert.deepEqual(calls.find((c) => c.name === "remove").args, [["Accounting/d2/x.pdf", "Accounting/d2/x.docx"]]);
+});
+
+test("approve: a failed removal never masks the refusal", async () => {
+  const thrown = fakes({ approve: new Error("Agreement changed"), remove: new Error("storage down") });
+  assert.deepEqual(await approveAgreement(agrDoc, thrown.deps), { error: "Agreement changed" });
+  const rejected = fakes({ approve: new Error("Agreement changed"), remove: () => Promise.reject(new Error("storage down")) });
+  assert.deepEqual(await approveAgreement(agrDoc, rejected.deps), { error: "Agreement changed" });
+});
+
+test("approve: a successful approval removes nothing", async () => {
+  const { calls, deps } = fakes();
+  await approveAgreement(agrDoc, deps);
+  assert.equal(names(calls).includes("remove"), false);
 });
 
 test("edit: update then rebuild unsigned then attach", async () => {

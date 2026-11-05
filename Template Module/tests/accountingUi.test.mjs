@@ -72,3 +72,32 @@ test("edit is hidden once the agreement is signed", () => {
   assert.equal(docActions({ library_template: "AB Capital/Accounting Agreement", storage_path: "p" }).edit, true);
   assert.equal(docActions({ library_template: "AB Capital/Accounting Agreement", storage_path: "p", signed_at: "2026-11-05" }).edit, false);
 });
+
+import { agreementUnder, rejectedAgreementNote } from "../logic/accountingUi.js";
+import { readFileSync } from "node:fs";
+test("a rejected agreement still counts under its quote and explains why no new one is offered", () => {
+  const A = "AB Capital/Accounting Agreement";
+  const rej = { id: "a1", parent_id: "q1", library_template: A, status: "rejected", document_number: "ABC/2026/11/ACE001" };
+  const live = { id: "a2", parent_id: "q1", library_template: A, status: "issued", document_number: "ABC/2026/11/ACE002" };
+  assert.equal(agreementUnder([rej], "q1"), rej);
+  assert.equal(agreementUnder([rej, live], "q1"), live);
+  assert.equal(agreementUnder([rej], "q2"), null);
+  assert.equal(agreementUnder([{ ...rej, library_template: null, doc_type: "letter" }], "q1"), null);
+  assert.equal(rejectedAgreementNote(rej), "Agreement ABC/2026/11/ACE001 was rejected. Ask an admin to remove it before making a new one.");
+  assert.equal(rejectedAgreementNote(live), null);
+  assert.equal(rejectedAgreementNote(null), null);
+  const accepted = { library_template: "AB Capital/Accounting Quote", storage_path: "p", field_values: { quote: { accepted_option: 0 } } };
+  assert.equal(docActions(accepted, { hasAgreement: !!agreementUnder([rej], "q1") }).makeAgreement, false);
+});
+
+test("the Accounting screen reads its own list and saves mail through hub_acct_mail_update", () => {
+  const acc = readFileSync(new URL("../components/AccountingDocuments.jsx", import.meta.url), "utf8");
+  assert.match(acc, /listAccountingDocuments/);
+  assert.doesNotMatch(acc, /listDocuments\(/);
+  assert.doesNotMatch(acc, /\bupdateMail\(/);
+  assert.match(acc, /updateAccountingMail\(/);
+  const api = readFileSync(new URL("../services/accountingApi.js", import.meta.url), "utf8");
+  assert.match(api, /hub_acct_mail_update/);
+  const hub = readFileSync(new URL("../services/hubApi.js", import.meta.url), "utf8");
+  assert.match(hub, /listDocuments = async \(department\) => \{\r?\n  let q = supabase\.from\("hub_documents"\)\.select\("\*"\)\.neq\("doc_type", "library"\)\.order\("created_at", \{ ascending: false \}\)\.limit\(500\);/);
+});

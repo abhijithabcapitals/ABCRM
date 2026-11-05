@@ -2,6 +2,7 @@
 import { supabase } from "@app/supabase";
 import { BUCKET, CLIENT_MODULE_URL, check, openStored } from "./hubApi";
 import { fileNameFor } from "../logic/serviceDocs";
+import { ACCOUNTING_TEMPLATES, loadAccountingDocs } from "./accountingList.js";
 
 export const loadPackages = async () => check(await supabase.from("hub_accounting_packages").select("*").order("name"));
 export const savePackage = async (p) => check(await supabase.rpc("hub_acct_package_save", { p }));
@@ -15,6 +16,25 @@ export const approveDoc = async (id, pdf, word, seen) => check(await supabase.rp
 export const attachDoc = async (id, pdf, word) => check(await supabase.rpc("hub_acct_attach", { p_id: id, p_pdf: pdf, p_word: word }));
 export const markSaved = async (id, path) => check(await supabase.rpc("hub_acct_saved", { p_id: id, p_path: path }));
 export const canApprove = async () => check(await supabase.rpc("hub_acct_can_approve"));
+// The mail draft of an Accounting quote or agreement; any staff member may change it. Raises when the draft is not found.
+export const updateAccountingMail = async (id, subject, body) => check(await supabase.rpc("hub_acct_mail_update", { p_id: id, p_subject: subject, p_body: body }));
+
+// Removes uploaded files, for example signed files whose approval was refused.
+export async function removeDocs(paths) {
+  const list = (paths || []).filter(Boolean);
+  if (!list.length) return;
+  const { error } = await supabase.storage.from(BUCKET).remove(list);
+  if (error) throw new Error(error.message);
+}
+
+// The Accounting screen's own list: every quote and agreement made here and their mail drafts, filtered on the server.
+// The old desk list (listDocuments, 500 rows) stays as it is.
+export const listAccountingDocuments = () => loadAccountingDocs({
+  readDocs: async (from, to) => check(await supabase.from("hub_documents").select("*").in("library_template", ACCOUNTING_TEMPLATES)
+    .order("created_at", { ascending: false }).order("id").range(from, to)),
+  readMail: async (ids, from, to) => check(await supabase.from("hub_documents").select("*").eq("doc_type", "mail").in("parent_id", ids)
+    .order("created_at", { ascending: false }).order("id").range(from, to)),
+});
 
 // The PDF is stored under Accounting/<id>/<uuid>.pdf and the Word file beside it. Returns the storage path.
 export async function uploadDoc(doc, blob, ext) {

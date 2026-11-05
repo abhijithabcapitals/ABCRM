@@ -1,6 +1,6 @@
 // Makes, approves, edits and retries the Accounting quote and agreement files. Everything that touches the server or the browser is passed in as deps:
 // { settings, check(kind, a, b), create(p), loadTemplate(kind), loadSignature(), render(buffer, context, signature), toPdf(wordBlob),
-//   upload(doc, blob, ext), attach(id, pdf, word), approve(id, pdf, word, seen), update(id, agreement), saveLocal(doc, wordBlob, pdfBlob),
+//   upload(doc, blob, ext), remove(paths), attach(id, pdf, word), approve(id, pdf, word, seen), update(id, agreement), saveLocal(doc, wordBlob, pdfBlob),
 //   markSaved(id, path), createMail(doc, { subject, body }), loadBlobs(doc) for Save now }.
 // A document that cannot render uses no number. A failure after the number keeps the row and Ref, and Retry rebuilds from field_values.
 // Only approveAgreement loads the signature image. Nothing here adds one option or fee basis to another.
@@ -128,6 +128,8 @@ export async function approveAgreement(doc, deps) {
   try {
     approved = await deps.approve(doc.id, files.pdfPath, files.wordPath, doc.agreement_changed_at);
   } catch (e) {
+    // The signed files were uploaded for an approval that did not happen: remove them, best effort, and report the refusal itself.
+    try { await deps.remove?.([files.pdfPath, files.wordPath]); } catch { /* the refusal below matters more than the leftover files */ }
     return { error: e.message };
   }
   const row = approved && typeof approved === "object" ? approved : doc;

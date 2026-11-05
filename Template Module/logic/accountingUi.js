@@ -50,3 +50,14 @@ export function docStatus(doc) {
   if (Number.isInteger(doc.field_values?.quote?.accepted_option)) return { label: "Accepted", tone: "good" };
   return { label: "Issued", tone: "plain" };
 }
+
+// The agreement under a quote. A live one comes first; a rejected one still counts, because Template Hub keeps one letter per quote
+// and the server refuses a new agreement until an admin removes the rejected one.
+export function agreementUnder(all, quoteId) {
+  const mine = (all || []).filter((x) => isAccountingAgreement(x) && x.parent_id === quoteId);
+  return mine.find((x) => x.status !== "rejected") || mine[0] || null;
+}
+
+// What the quote row says instead of offering a new agreement, or null when the agreement is not rejected.
+export const rejectedAgreementNote = (agreement) =>
+  (agreement && agreement.status === "rejected" ? `Agreement ${agreement.document_number} was rejected. Ask an admin to remove it before making a new one.` : null);

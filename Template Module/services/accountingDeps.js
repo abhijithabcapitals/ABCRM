@@ -2,7 +2,7 @@
 // One shared guard covers every generate call on screen, so a double click takes one number.
 import { supabase } from "@app/supabase";
 import { BUCKET, createDocument, storedBlob } from "./hubApi";
-import { approveDoc, attachDoc, createAgreement, createQuote, markSaved, saveFolder, updateAgreement, uploadDoc } from "./accountingApi";
+import { approveDoc, attachDoc, createAgreement, createQuote, markSaved, removeDocs, saveFolder, updateAgreement, uploadDoc } from "./accountingApi";
 import { checkQuote } from "../logic/accountingQuote.js";
 import { mailRowLines } from "../logic/accountingUi.js";
 import { checkAgreement } from "../logic/accountingAgreement.js";
@@ -58,6 +58,7 @@ export function accountingDeps(settings) {
     render,
     toPdf,
     upload: uploadDoc,
+    remove: removeDocs,
     attach: attachDoc,
     approve: approveDoc,
     update: updateAgreement,
