@@ -25,7 +25,7 @@ Same pattern as the Business Development Module. The Main Module imports this fo
 | `logic/pricing.js` | Live quotation preview; the database recalculates on save |
 | `logic/documents.js` | Quotation, letter, receipt, report output |
 | `services/bankingApi.js` | Supabase access, private file storage, Client Master lookup |
-| `templates/` | Word templates used by the CRM. Master copies: `Resources/Banking`. Rebuild: `scripts/build_templates.py` |
+| `templates/` | Word templates used by the CRM. Master copies: `Resources/Banking`. Quotation and engagement letter: `Template Module/scripts/build_ab_capital_templates.py`. Receipt: `scripts/build_templates.py` |
 | `tests/` | `node --test "Banking Module/tests/"` |
 | `docs/USER_MANUAL.md` | Staff guide |
 

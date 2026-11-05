@@ -1,4 +1,4 @@
-import { DEFAULT_USD_RATE, fmtMoney, fmtUsd, fmtDate, today } from "./helpers";
+import { DEFAULT_USD_RATE, fmtMoney, fmtUsd, fmtDate, today } from "./helpers.js";
 
 // Build the docxtemplater context from one record (form values or an Excel row).
 // extraRows = ad-hoc line items added at generation time: [{ label, amount, remarks }].

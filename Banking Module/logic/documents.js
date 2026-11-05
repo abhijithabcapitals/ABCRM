@@ -19,11 +19,11 @@ export function quoteMerge(q, client, c, company, preparedBy) {
   return {
     company_name: co.name, company_short: co.short_name, company_website: co.website, company_email: co.email, company_mobile: co.mobile,
     quotation_number: `${q.quotation_number}${q.version > 1 ? ` v${q.version}` : ""}`, status: q.status, quotation_date: dmy(q.quotation_date), valid_until: dmy(q.valid_until), prepared_by: preparedBy,
-    client_name: client.display_name, case_ref: c.case_ref, bank: q.banking_partners?.bank_name || "", scheme: q.banking_schemes?.scheme_name || "Not specified",
+    client_name: client.display_name, client_address: client.registered_address || "", case_ref: c.case_ref, bank: q.banking_partners?.bank_name || "", scheme: q.banking_schemes?.scheme_name || "Not specified",
     lines: charged.map((i, n) => ({ no: n + 1, category: i.item_type === "Bank Fee" ? `Bank fee, payable to the bank${i.collected_through_ab ? ", collected through AB Capital Services FZE" : ""}` : i.item_type === "Service Fee" ? "AB Capital Services FZE service fee" : "Supplementary service", description: i.description, amount: plain(i.amount), raw: i.amount })),
     has_discount: discounts.length > 0, discount: plain(q.discount_total), has_direct: direct.length > 0,
     direct_lines: direct.map((i) => ({ description: i.description, amount: plain(i.amount) })),
-    vat_statement: vatLine(q.vat_mode, q.vat_rate), has_vat: q.vat_mode !== "none", vat: plain(q.vat_amount),
+    vat_statement: vatLine(q.vat_mode, q.vat_rate), has_vat: q.vat_mode !== "none", vat_label: q.vat_mode === "inclusive" ? "VAT included" : "VAT", vat: plain(q.vat_amount),
     total_plain: plain(q.total_amount),
     has_memo: q.initial_deposit_memo != null || q.minimum_balance_memo != null, deposit: q.initial_deposit_memo != null ? plain(q.initial_deposit_memo) : "–", min_balance: q.minimum_balance_memo != null ? plain(q.minimum_balance_memo) : "–",
     payment_terms: q.payment_terms || "As agreed.", remarks: q.remarks || "",
@@ -112,8 +112,41 @@ async function renderDocx(templateFile, data) {
 const flatBank = (m) => ({ ...m, ba_name: m.bank_details.account_name, ba_bank: m.bank_details.bank, ba_no: m.bank_details.account_no, ba_iban: m.bank_details.iban, ba_swift: m.bank_details.swift, ba_ccy: m.bank_details.currency });
 const safe = (s) => String(s || "").replace(/[^A-Za-z0-9 _-]+/g, "").trim();
 export const documentFileName = (number, client) => `${String(number).replace(/[/\\\\]+/g, "-")} ${safe(client)}.docx`;
-export async function quoteDocx(m) { return { blob: await renderDocx("Quotation_Template.docx", flatBank(m)), fileName: documentFileName(m.quotation_number, m.client_name) }; }
-export async function letterDocx(l) { const m = letterMerge(l); const number = l.version > 1 ? `${m.letter_number} v${l.version}` : m.letter_number; return { blob: await renderDocx("Engagement_Letter_Template.docx", flatBank(m)), fileName: documentFileName(number, m.client_name) }; }
+// The AB Capital design has one set of sections, so Business Banking's own details go into them and nothing it printed is lost.
+const textOf = (parts, sep = "\n") => parts.filter(Boolean).join(sep);
+const bullets = (items) => (items || []).filter(Boolean).map((t) => `• ${t}`).join("\n");
+export function designQuote(m) {
+  return {
+    ...m, document_number: m.quotation_number, document_date: m.quotation_date, client_address: m.client_address || "", intro: "",
+    understanding: `We understand that you require business banking assistance with ${m.bank || "a bank"}, under the scheme ${m.scheme}. Case reference: ${m.case_ref}.`,
+    scope_text: bullets(m.lines.map((l) => l.description)),
+    lines: [...m.lines.map((l) => ({ description: l.category ? `${l.description} (${l.category})` : l.description, amount: l.amount })),
+      ...(m.has_discount ? [{ description: "Discount", amount: `-${m.discount}` }] : [])],
+    total: m.total_plain,
+    payment_text: textOf([m.payment_terms, m.vat_statement]),
+    additional: textOf([
+      m.has_direct ? `Payable directly to the bank:\n${m.direct_lines.map((d) => `• ${d.description}: AED ${d.amount}`).join("\n")}` : "",
+      m.has_memo ? `For your information, not part of our fees: initial deposit ${m.deposit}, minimum balance ${m.min_balance}.` : "",
+      m.remarks, m.valid_until ? `This quotation is valid until ${m.valid_until}.` : "", m.prepared_by ? `Prepared by ${m.prepared_by}.` : "",
+    ]),
+  };
+}
+export function designLetter(m) {
+  const other = [];
+  if (m.ab_responsibilities?.length) other.push(`Our responsibilities:\n${bullets(m.ab_responsibilities.map((x) => x.text))}`);
+  if (m.client_responsibilities?.length) other.push(`Your responsibilities:\n${bullets(m.client_responsibilities.map((x) => x.text))}`);
+  if (m.limitations) other.push(`Limitations: ${m.limitations}`);
+  other.push(textOf([`This letter follows quotation ${m.quotation_number}.`, m.scheme ? `Scheme: ${m.scheme}.` : "", m.case_ref ? `Case reference: ${m.case_ref}.` : ""], " "));
+  return {
+    ...m, document_number: m.letter_number, document_date: m.letter_date, contact_name: m.contact_name || "",
+    scope_text: textOf([m.scope_title, bullets(m.scope.map((x) => x.text))]),
+    lines: m.fees.map((f) => ({ description: f.description, amount: f.amount })), has_vat: false,
+    payment_text: bullets(m.payment_terms.map((x) => x.text)),
+    other_terms: other.join("\n\n"),
+  };
+}
+export async function quoteDocx(m) { return { blob: await renderDocx("Quotation_Template.docx", designQuote(flatBank(m))), fileName: documentFileName(m.quotation_number, m.client_name) }; }
+export async function letterDocx(l) { const m = letterMerge(l); const number = l.version > 1 ? `${m.letter_number} v${l.version}` : m.letter_number; return { blob: await renderDocx("Engagement_Letter_Template.docx", designLetter(flatBank(m))), fileName: documentFileName(number, m.client_name) }; }
 export function receiptMerge(p, client, c, company) {
   const co = company || FALLBACK_COMPANY;
   return { company_name: co.name, company_short: co.short_name, company_website: co.website, company_email: co.email, company_mobile: co.mobile, receipt_number: p.banking_receipts?.receipt_number, payment_date: dmy(p.payment_date), client_name: client.display_name, case_ref: c.case_ref, amount: money(p.amount), method: p.payment_method || "", reference: p.transaction_reference || "", payment_ref: p.payment_ref, description: p.description || "" };

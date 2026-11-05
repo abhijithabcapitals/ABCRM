@@ -9,12 +9,6 @@ const TEMPLATES = [
   ["Service_Engagement_Template.docx", "Service Engagement Letter", new URL("../templates/Service_Engagement_Template.docx", import.meta.url).href],
   ["Quotation_Template.docx", "Business Banking Quotation", new URL("../../Banking Module/templates/Quotation_Template.docx", import.meta.url).href],
   ["Engagement_Letter_Template.docx", "Business Banking Engagement Letter", new URL("../../Banking Module/templates/Engagement_Letter_Template.docx", import.meta.url).href],
-  // Business Setup quotes. They hold prices, so they are uploaded here and have no built-in copy.
-  ["IFZA.docx", "Business Setup Quote: IFZA", null],
-  ["Rakez.docx", "Business Setup Quote: RAKEZ", null],
-  ["SHAMS.docx", "Business Setup Quote: SHAMS", null],
-  ["Mainland.docx", "Business Setup Quote: Dubai Mainland", null],
-  ["Liquidation.docx", "Business Setup Quote: Liquidation", null],
   ["Fee_Receipt_Voucher_Template.docx", "Fee Receipt Voucher", new URL("../../Banking Module/templates/Fee_Receipt_Voucher_Template.docx", import.meta.url).href],
 ];
 
