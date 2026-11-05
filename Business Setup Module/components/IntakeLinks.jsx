@@ -1,11 +1,12 @@
-// The Referral link button and its panel: any member of staff generates a link for potential clients. Each lead from it is marked with their name.
-// A link never expires. Only Revoke stops it. No Business Setup right is needed, so this works anywhere in the CRM.
+// The Referral link section of the user's Profile: any member of staff generates a link for potential clients. Each lead from it is marked with their name.
+// A link never expires. Only Revoke stops it. No Business Setup right is needed.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, Modal, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import "@banking/components/banking.css";
+import { Badge, Button, DataTable, ErrorNote, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import { intakeUrl } from "../services/intakeApi";
 
-function Panel({ onClose }) {
+export default function IntakeLinks() {
   const list = useLoad(() => rpc("business_setup_intake_link_list"), []);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -20,7 +21,7 @@ function Panel({ onClose }) {
     try { await navigator.clipboard.writeText(intakeUrl(l.token)); setCopied(l.id); } catch { setError("Copy was blocked: select the link and copy it."); }
   };
   return (
-    <Modal wide title="Referral link" onClose={onClose}>
+    <div className="bk-root">
       <p className="bk-note">Share this link with a potential client. They fill the form with no login, and the lead is marked with your name. It keeps working until you revoke it.</p>
       <ErrorNote message={error || list.error} onClose={error ? () => setError(null) : undefined} />
       <div className="bk-actions bk-mb"><Button variant="primary" busy={busy} onClick={() => run(() => rpc("business_setup_intake_link_new"))}>Generate link</Button></div>
@@ -39,14 +40,6 @@ function Panel({ onClose }) {
           ) },
         ]} />
       )}
-    </Modal>
+    </div>
   );
-}
-
-export default function IntakeLinks() {
-  const [open, setOpen] = useState(false);
-  return <>
-    <Button onClick={() => setOpen(true)}>Referral link</Button>
-    {open && <Panel onClose={() => setOpen(false)} />}
-  </>;
 }

@@ -333,7 +333,7 @@ Settled by the user on 2026-11-05: VAT of 5% goes on top of every quoted price, 
 
 These replace the matching parts of sections 4 and 5.
 
-- A **Referral link** button opens the link panel on All Leads, Client Onboarding and All Clients. It's a button beside the page title, so it works the same on all three.
+- The **Referral link** section is on the user's Profile, and only there (the user's decision, 2026-11-05).
 - Any signed-in member of staff can generate a link, not only holders of `setup.leads.manage`. A holder of `setup.cases.approve` sees and can revoke everyone's links, but only the owner sees a link's address.
 - A link has no expiry and any number of clients can use it. Only a manual revoke stops it.
 - All Clients has a **Referred by** column, listing everyone who referred that client, read through `business_setup_referrers` rather than by changing `client_base_list`.

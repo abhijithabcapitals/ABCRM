@@ -5,7 +5,6 @@ import { useRef, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { openStored } from "@template-hub/services/hubApi";
 import { LostDialog, ReassignActions } from "./CaseActions";
-import IntakeLinks from "./IntakeLinks";
 import { useSetup } from "./SetupContext";
 import Documents from "./Documents";
 import { Review } from "./Onboarding";
@@ -34,7 +33,7 @@ export default function ClientOnboarding() {
   }
   return (
     <div>
-      <PageHead title="Client Onboarding" sub="Fields, documents, quote, login, acceptance, letter and invoice for each case. A case moves to Pipeline when all are met. A payment blocks nothing."><IntakeLinks /></PageHead>
+      <PageHead title="Client Onboarding" sub="Fields, documents, quote, login, acceptance, letter and invoice for each case. A case moves to Pipeline when all are met. A payment blocks nothing." />
       <div className="bk-tabs" role="tablist" aria-label="Client Onboarding">
         {[["cases", "Cases"], ["register", "Document register"]].map(([k, label]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}
       </div>

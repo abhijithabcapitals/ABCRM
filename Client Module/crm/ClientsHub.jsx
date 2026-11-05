@@ -9,7 +9,6 @@ import ClientComplianceItems from "./ClientComplianceItems";
 import ClientInputs from "./ClientInputs";
 import { findListedClient } from "./masterLogic";
 import ClientPortalAdmin, { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
-import IntakeLinks from "@business-setup/components/IntakeLinks";
 
 // The Client Module running on this PC, shown in a frame.
 const LocalClientModule = lazy(() => import("@app/components/Clients"));
@@ -64,7 +63,7 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
   const count = (l) => rows.filter((c) => (c.lines || []).includes(l)).length;
   return (
     <div className="bk-root">
-      <PageHead title="All Clients" sub="Every converted client across the business."><IntakeLinks /></PageHead>
+      <PageHead title="All Clients" sub="Every converted client across the business." />
       <div className="bk-tabs" role="tablist" aria-label="Business line">
         {[["", "All", rows.length], ...LINES.map((l) => [l, l, count(l)])].map(([k, label, n]) => <button type="button" role="tab" aria-selected={line === k} key={label} className={line === k ? "active" : ""} onClick={() => setLine(k)}>{label} <span className="bk-tab-count">{n}</span></button>)}
       </div>

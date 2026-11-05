@@ -60,7 +60,7 @@ test("leads_sections: three headed sections render in order, the first expanded"
   const open = [...out.matchAll(/aria-expanded="(true|false)"/g)].map((m) => m[1]);
   assert.deepEqual(open, ["true", "false", "false"]);
   assert.match(out, /New lead/);
-  assert.match(out, /Referral link/);
+  assert.doesNotMatch(out, /Referral link/);   // it lives on the user's Profile
 });
 
 test("assign_button: shown only on unowned rows; owned rows show the owner and the move button", { skip }, async () => {

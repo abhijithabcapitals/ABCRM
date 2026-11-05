@@ -9,7 +9,6 @@ import { caseList, caseMoveToOnboarding, caseNew, caseTake, listForms, reassignR
 import { caseWorkspace } from "../logic/caseWorkspace";
 import { ageDays, duplicateClient, leadActions } from "../logic/leads";
 import { STAGE_TONE } from "../logic/statuses";
-import IntakeLinks from "./IntakeLinks";
 import IntakeDetail from "./IntakeDetail";
 
 const SECTIONS = [["assigned", "Assigned to me", true], ["leads", "All Leads", false], ["inputs", "Client Inputs pending review", false]];
@@ -39,7 +38,6 @@ export default function AllLeads() {
   return (
     <div>
       <PageHead title="All Leads" sub="Cases before Client Onboarding. A lead has no owner until someone takes it.">
-        <IntakeLinks />
         {can("setup.leads.manage") && <Button variant="primary" onClick={() => setDialog({ kind: "new" })}>New lead</Button>}
       </PageHead>
       <ErrorNote message={notice} onClose={notice ? () => setNotice(null) : undefined} />

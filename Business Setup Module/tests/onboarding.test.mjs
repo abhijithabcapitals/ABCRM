@@ -151,5 +151,7 @@ test("referral link: the public page comes first, holds no staff code, and has o
   assert.doesNotMatch(fn, /createSignedUrl\(|\.download\(/);   // nothing is read back
   assert.match(fn, /String\(body\.website \|\| ""\)\) return json\(\{ ok: true \}\)/);   // the trap stores nothing
   assert.doesNotMatch(fn, /console\.[a-z]+\([^)]*(token|answers)/);
-  for (const f of ["../components/AllLeads.jsx", "../components/ClientOnboarding.jsx", "../../Client Module/crm/ClientsHub.jsx"]) assert.match(read(f), /<IntakeLinks \/>/, f);
+  // The link lives on the user's Profile, and only there.
+  assert.match(read("../../Main Module/src/components/Profile.jsx"), /<IntakeLinks \/>/);
+  for (const f of ["../components/AllLeads.jsx", "../components/ClientOnboarding.jsx", "../../Client Module/crm/ClientsHub.jsx"]) assert.doesNotMatch(read(f), /IntakeLinks/, f);
 });
