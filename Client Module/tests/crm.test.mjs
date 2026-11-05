@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { compliance, vatPeriodEndMonths } from "../crm/taxLogic.js";
-import { NA, NP, VR_SUFFIX, complete, fillFromClient, fillFromDocuments, listFromCell, listToCell, FIELDS, parseUaeDate } from "../crm/masterLogic.js";
+import { NA, NP, VR_SUFFIX, complete, fillFromClient, fillFromDocuments, listFromCell, listToCell, FIELDS, parseUaeDate, findListedClient } from "../crm/masterLogic.js";
 import { applyClient, clientKeyOf, findClient } from "../../Banking Module/logic/clientLookup.js";
 
 const TODAY = new Date(Date.UTC(2026, 9, 29));
@@ -138,4 +138,12 @@ test("template fields are matched to client details", () => {
   assert.equal(clientKeyOf({ key: "mobile", label: "Mobile" }), "phone");
   assert.equal(clientKeyOf({ key: "visa_fee", label: "Visa", fee: true }), null);
   assert.equal(clientKeyOf({ key: "freezone", label: "Freezone" }), null);
+});
+
+test("a client opened from a notification is found by master id or list id, otherwise not at all", () => {
+  const rows = [{ id: "u1", client_master_id: "CL000001" }, { id: "u2", client_master_id: null }];
+  assert.equal(findListedClient(rows, "CL000001").id, "u1");
+  assert.equal(findListedClient(rows, "u2").id, "u2");
+  assert.equal(findListedClient(rows, "CL999999"), null);
+  assert.equal(findListedClient(null, "CL000001"), null);
 });

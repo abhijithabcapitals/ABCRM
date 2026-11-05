@@ -1,11 +1,12 @@
 // The CRM's Clients page: all converted clients across business lines, the Client Master,
 // documents sent through the portal (Client Inputs) and, for admins only, the Client Portal.
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import ClientMaster from "./ClientMaster";
 import ClientInputs from "./ClientInputs";
+import { findListedClient } from "./masterLogic";
 import ClientPortalAdmin, { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
 
 // The Client Module running on this PC, shown in a frame.
@@ -37,14 +38,24 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
   const list = useLoad(() => rpc("client_base_list"), []);
   const [line, setLine] = useState("");
   const [open, setOpen] = useState(null);
+  const [notListed, setNotListed] = useState(false);
+  const panel = useRef(null);
+  const scrollToPanel = useRef(false);
   const rows = list.data || [];
-  // Opened from a notification: show that client's detail once the list has loaded. Not in the list: do nothing.
+  // Opened from a notification: show that client's detail once the list has loaded, or say it is not in the list.
   useEffect(() => {
     if (!openClientId || !list.data) return;
-    const hit = list.data.find((c) => c.client_master_id === openClientId || c.id === openClientId);
+    const hit = findListedClient(list.data, openClientId);
+    scrollToPanel.current = Boolean(hit);
     if (hit) setOpen(hit);
+    setNotListed(!hit);
     onClientShown?.();
   }, [openClientId, list.data]);
+  useEffect(() => {
+    if (!open || !scrollToPanel.current) return;
+    scrollToPanel.current = false;
+    panel.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [open]);
   const shown = rows.filter((c) => !line || (c.lines || []).includes(line));
   const count = (l) => rows.filter((c) => (c.lines || []).includes(l)).length;
   return (
@@ -54,6 +65,7 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
         {[["", "All", rows.length], ...LINES.map((l) => [l, l, count(l)])].map(([k, label, n]) => <button type="button" role="tab" aria-selected={line === k} key={label} className={line === k ? "active" : ""} onClick={() => setLine(k)}>{label} <span className="bk-tab-count">{n}</span></button>)}
       </div>
       <ErrorNote message={list.error} />
+      {notListed && !open && <ErrorNote message="That client is not in the All Clients list, so it cannot be opened here." />}
       {list.loading && !list.data ? <Spinner /> : (
         <DataTable search="Search name, licence, email, phone…" rows={shown} onRow={(c) => setOpen(open?.id === c.id ? null : c)} empty={line && line !== "Business Banking" ? `No ${line} clients yet.` : "No converted clients yet."} columns={[
           { key: "display_name", label: "Client" },
@@ -68,10 +80,12 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
         ]} />
       )}
       {open && (
+        <div ref={panel}>
         <Panel title={open.display_name} sub="Key details from KYC and the lead.">
           <KeyVals items={[["Legal name", open.legal_name], ["Trade name", open.trade_name], ["Type", open.client_type], ["Legal structure", open.legal_structure], ["Business activity", open.business_activity], ["Issuing authority", open.issuing_authority], ["Licence", open.license_number], ["Licence expiry", fmtDate(open.license_expiry_date)], ["VAT TRN", open.vat_trn], ["Address", open.registered_address], ["Contact", open.contact_person], ["Nationality", open.nationality], ["Phone", open.phone], ["Email", open.email], ["KYC complete", open.kyc_percent != null ? `${open.kyc_percent}%` : null], ["Engagements", open.engagements]]} />
           {isAdmin && !open.setup_only && <ClientAccess bankingClientId={open.id} />}
         </Panel>
+        </div>
       )}
     </div>
   );

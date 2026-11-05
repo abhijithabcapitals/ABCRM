@@ -5,7 +5,7 @@ import Login from "./components/Login";
 import { BrandFooter } from "./components/Brand";
 import NewsTicker from "./components/NewsTicker";
 import { setUsageUser } from "./jsx/selectUsage";
-import { initialView, resolveView } from "./tabs";
+import { canOpenClients, initialView, resolveView } from "./tabs";
 import { flushAuditEvents, recordPage, startAuditEvents } from "./auditEvents";
 import { GlobalAttention } from "@banking/components/Attention";
 import ReadingWidget from "@banking/components/ReadingWidget";
@@ -547,7 +547,7 @@ export default function App() {
             onBack={() => { setView("tasks"); setActiveWhiteboard(null); }}
           />
         )}
-        {view === "mytasks" && <MyTasks profile={profile} openAlertId={openAlertId} onAlertShown={() => setOpenAlertId(null)} onOpenClient={(id) => { setOpenClientId(id); setView("clients"); }} />}
+        {view === "mytasks" && <MyTasks profile={profile} openAlertId={openAlertId} onAlertShown={() => setOpenAlertId(null)} onOpenClient={canOpenClients(profile?.role === "admin", tabs) ? (id) => { setOpenClientId(id); setView("clients"); } : undefined} />}
         {view === "quotations" && <TemplateHub profile={profile} canArdentax={profile?.role === "admin" || (tabs || []).includes("ardentax")} />}
         {view === "clients" && <ClientsHub profile={profile} openClientId={openClientId} onClientShown={() => setOpenClientId(null)} />}
         {view === "business-development" && <BusinessDevelopment profile={profile} />}

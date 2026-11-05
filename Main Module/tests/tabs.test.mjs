@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { barId, dropSide, isTabBar } from "../src/jsx/DragTabs.js";
-import { GRANTABLE_TABS, initialView, moveTab, orderTabs, readTabOrder, resolveView, startView, toggleAllTabs } from "../src/tabs.js";
+import { GRANTABLE_TABS, canOpenClients, initialView, moveTab, orderTabs, readTabOrder, resolveView, startView, toggleAllTabs } from "../src/tabs.js";
 
 const every = GRANTABLE_TABS.map((t) => t.key);
 
@@ -80,3 +80,10 @@ test("a saved Email Agent page is retired", () => assert.equal(startView("", "em
 test("an Email Agent address is retired", () => assert.equal(startView("?view=email-agent", "hr"), null));
 test("other saved pages still open", () => assert.equal(startView("", "hr"), "hr"));
 test("the address still wins", () => assert.equal(startView("?view=messenger", "hr"), "messenger"));
+
+test("Open Client is offered to admins and to holders of the clients tab only", () => {
+  assert.equal(canOpenClients(true, null), true);
+  assert.equal(canOpenClients(false, ["mytasks", "clients"]), true);
+  assert.equal(canOpenClients(false, ["mytasks"]), false);
+  assert.equal(canOpenClients(false, null), false);
+});

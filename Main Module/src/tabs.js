@@ -37,6 +37,9 @@ export function resolveView(requested, isAdmin, tabs) {
   return (tabs || []).find((t) => t !== "spaces" && t !== "ardentax") || "profile";
 }
 
+// Only someone who can reach the Clients page is offered a shortcut to it.
+export const canOpenClients = (isAdmin, tabs) => Boolean(isAdmin) || (tabs || []).includes("clients");
+
 // The page asked for in the address (a link can open ?view=settings), else the saved one.
 // A retired page falls through to the default.
 const RETIRED_VIEWS = new Set(["email-agent"]);
