@@ -32,12 +32,12 @@ test("files go to their department's folder", () => {
 });
 test("quotation template renders every line", () => {
   const t = render("Service_Quotation_Template.docx", quoteData(doc, company));
-  for (const s of ["Dubai Road", "L77", "0501", "a@b.c", "ABC/2026/11/TCQ001", "Client LLC", "VAT Return Filing", "1,500", "inclusive", "16/11/2026"]) assert.ok(t.includes(s), s);
+  for (const s of ["Dubai Road", "ABC/2026/11/TCQ001", "Client LLC", "VAT Return Filing", "1,500", "16/11/2026", "We understand that you require"]) assert.ok(t.includes(s), s);
   assert.ok(!/\{[#/]?\w+\}/.test(t));
 });
 test("letter carries services, terms and the category's limitation", () => {
   const t = render("Service_Engagement_Template.docx", letterData(doc, company, { fee_intro: "Fees", payment_terms: ["{{vat_statement}}"], ab_responsibilities: ["Do"], client_responsibilities: ["Give"], limitations: "General", reps: "FATF" }, ["Audit signed by licensed auditors."]));
-  for (const s of ["VAT Registration and VAT Return Filing", "inclusive of applicable UAE VAT", "General Audit signed by licensed auditors.", "FATF", "Client Signature"]) assert.ok(t.includes(s), s);
+  for (const s of ["VAT Registration and VAT Return Filing", "inclusive of applicable UAE VAT", "General Audit signed by licensed auditors.", "FATF", "Accepted By", "Our responsibilities", "ABC/2026/11/TCQ001"]) assert.ok(t.includes(s), s);
   assert.ok(!/\{[#/]?\w+\}/.test(t));
 });
 test("mail drafts address the contact and fit the document", () => {
@@ -88,4 +88,18 @@ test("ArdentTax shows on the numbering page, not among the Service Desk departme
 test("ArdentTax files stay in the CRM, so they never wait for a PC copy", () => {
   assert.equal(needsPcCopy({ storage_path: "a", local_path: null, source: "ardentax" }), false);
   assert.equal(needsPcCopy({ storage_path: "a", local_path: null, source: "hub" }), true);
+});
+test("quotation prints the saved payment terms, the bank details and any notes", () => {
+  const t = render("Service_Quotation_Template.docx", quoteData({ ...doc, notes: "Note here" }, { ...company, bank: { account_name: "Acct", iban: "IBAN-1" } }, { payment_terms: ["Pay first. {{vat_statement}}"] }));
+  for (const s of ["Pay first.", "inclusive of applicable UAE VAT", "Acct", "IBAN-1", "Note here", "valid until 16/11/2026"]) assert.ok(t.includes(s), s);
+});
+test("the VAT row shows only when VAT applies", () => {
+  assert.ok(render("Service_Quotation_Template.docx", quoteData(doc, company)).includes("VAT"));
+  const none = render("Service_Quotation_Template.docx", quoteData({ ...doc, services: ["Audit"], lines: [{ description: "Audit", amount: 100 }], vat_mode: "none" }, company));
+  assert.ok(!/\bVAT\b/.test(none));
+});
+test("a document's own wording replaces the default", () => {
+  const t = render("Service_Quotation_Template.docx", quoteData({ ...doc, field_values: { sections: { intro: "Hello intro", scope: "Own scope", payment: "Own payment" } } }, company, { payment_terms: ["Saved terms"] }));
+  for (const s of ["Hello intro", "Own scope", "Own payment"]) assert.ok(t.includes(s), s);
+  assert.ok(!t.includes("Saved terms"));
 });

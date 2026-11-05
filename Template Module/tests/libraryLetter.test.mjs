@@ -110,6 +110,6 @@ test("the built-in engagement letter renders with this data and prints what was 
   const doc = new Docxtemplater(new PizZip(readFileSync(file)), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
   doc.render(letterContext({ document_number: "ABC/2026/11/BSE005", client_name: "Sample Client", contact_name: "Sam", license_number: "L-1", services: ["Formation"], lines: [{ description: "Formation", amount: 1000 }], total_amount: 1000, vat_mode: "none", vat_rate: 0 }, settings.company, terms, "2026-11-05"));
   const text = doc.getZip().file("word/document.xml").asText().replace(/<[^>]+>/g, "");
-  for (const want of ["ABC/2026/11/BSE005", "05/11/2026", "Sample Client", "L-1", "Formation", "plus applicable taxes"]) assert.ok(text.includes(want), want);
+  for (const want of ["ABC/2026/11/BSE005", "05/11/2026", "Sample Client", "Sam", "Formation", "plus applicable taxes"]) assert.ok(text.includes(want), want);
   assert.ok(!/\{[a-z_#/]+\}/.test(text), "no tag left");
 });

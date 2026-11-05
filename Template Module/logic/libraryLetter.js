@@ -33,5 +33,6 @@ export function letterContext(doc, company, terms, date) {
   const data = letterData(doc, company, terms, []);
   const none = vatStatement("none");
   const payment = (data.payment_terms || []).map((p) => ({ ...p, text: p.text.split(none).join(TAX_NOTE) }));
-  return { ...data, payment_terms: payment, vat_statement: TAX_NOTE, document_number: doc.document_number || "", document_date: displayDate(date) };
+  const paymentText = data.payment_text.split(none).join(TAX_NOTE);
+  return { ...data, payment_terms: payment, payment_text: paymentText, vat_statement: TAX_NOTE, document_number: doc.document_number || "", document_date: displayDate(date) };
 }

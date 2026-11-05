@@ -54,17 +54,43 @@ function common(doc, company) {
   };
 }
 
-export const quoteData = (doc, company) => ({ ...common(doc, company), valid_until: dmy(doc.valid_until), has_vat: doc.vat_mode !== "none", vat: plain(doc.vat_amount) });
+// The sections of the two AB Capital designs. A document can carry its own wording in field_values.sections;
+// otherwise the text comes from its services and the saved terms.
+const bullets = (items) => (items || []).filter(Boolean).map((t) => `• ${t}`).join("\n");
+const paymentText = (doc, t) => (t?.payment_terms || []).map((text) => String(text).replace("{{vat_statement}}", vatStatement(doc.vat_mode, doc.vat_rate))).join("\n");
+const wording = (doc, key, fallback) => { const own = doc.field_values?.sections?.[key]; return own !== undefined && own !== null ? own : fallback; };
+const understandingOf = (doc) => `We understand that you require the following: ${listWords(doc.services || [])}.`;
+
+export function quoteData(doc, company, terms) {
+  const validity = doc.valid_until ? `This quotation is valid until ${dmy(doc.valid_until)}.` : "";
+  return {
+    ...common(doc, company), valid_until: dmy(doc.valid_until), has_vat: doc.vat_mode !== "none", vat: plain(doc.vat_amount),
+    intro: wording(doc, "intro", ""), understanding: wording(doc, "understanding", understandingOf(doc)), scope_text: wording(doc, "scope", bullets(doc.services)),
+    payment_text: wording(doc, "payment", paymentText(doc, terms)),
+    additional: [wording(doc, "additional", doc.notes || ""), validity].filter(Boolean).join("\n"),
+  };
+}
+
+function otherTerms(t, limitations) {
+  const parts = [];
+  if (t.ab_responsibilities?.length) parts.push(`Our responsibilities:\n${bullets(t.ab_responsibilities)}`);
+  if (t.client_responsibilities?.length) parts.push(`Your responsibilities:\n${bullets(t.client_responsibilities)}`);
+  const limits = [t.limitations, ...limitations].filter(Boolean).join(" ");
+  if (limits) parts.push(`Limitations: ${limits}`);
+  return parts.join("\n\n");
+}
 
 export function letterData(doc, company, terms, limitations = []) {
   const t = terms || {};
   const lines = (a) => (a || []).map((text) => ({ text: String(text).replace("{{vat_statement}}", vatStatement(doc.vat_mode, doc.vat_rate)) }));
   return {
     ...common(doc, company),
-    understanding: `We understand that you require the following: ${listWords(doc.services || [])}.`,
+    understanding: wording(doc, "understanding", understandingOf(doc)), scope_text: wording(doc, "scope", bullets(doc.services)),
+    has_vat: doc.vat_mode !== "none", vat: plain(doc.vat_amount), payment_text: wording(doc, "payment", paymentText(doc, t)),
+    other_terms: wording(doc, "other", otherTerms(t, limitations)),
     scope: (doc.services || []).map((text) => ({ text })),
-    fee_intro: t.fee_intro || "", payment_terms: lines(t.payment_terms), ab_responsibilities: lines(t.ab_responsibilities), client_responsibilities: lines(t.client_responsibilities),
-    limitations: [t.limitations, ...limitations].filter(Boolean).join(" "), reps: t.reps || "",
+    fee_intro: wording(doc, "fee_intro", t.fee_intro || ""), payment_terms: lines(t.payment_terms), ab_responsibilities: lines(t.ab_responsibilities), client_responsibilities: lines(t.client_responsibilities),
+    limitations: [t.limitations, ...limitations].filter(Boolean).join(" "), reps: wording(doc, "reps", t.reps || ""),
   };
 }
 

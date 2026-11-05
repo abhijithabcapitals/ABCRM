@@ -2,8 +2,7 @@
 import { createDocument, loadCatalogue, loadHubSettings, renderTemplate, saveFile } from "@template-hub/services/hubApi";
 import { fileNameFor, folderKind, letterData, mailDraft, quoteData } from "@template-hub/logic/serviceDocs";
 import { receiptDocx } from "@banking/logic/documents";
-import { listQuoteTemplates, storeReceipt, usdRate } from "./businessSetupApi";
-import { quoteContext } from "../logic/quoteData";
+import { storeReceipt } from "./businessSetupApi";
 
 const download = async (blob, name) => { const { saveAs } = await import("file-saver"); saveAs(blob, name); };
 
@@ -15,13 +14,11 @@ async function fileWithMail(doc, type, blob) {
 }
 
 // The service template holds the company's letterhead text; the zone templates carry their own wording and USD columns.
-export async function fileQuote(doc, activity) {
+export async function fileQuote(doc) {
   if (doc.library_template) throw new Error("This document came from Company Library. Use Retry there.");
-  const [settings, templates, rate] = await Promise.all([loadHubSettings(), listQuoteTemplates(), usdRate()]);
-  const tpl = templates.find((t) => t.key === doc.template_key) || templates.find((t) => t.key === "service");
-  const generic = tpl.key === "service";
-  const data = generic ? quoteData(doc, settings.company) : quoteContext({ ...doc, business_activity: activity || doc.notes || "" }, tpl, rate);
-  const blob = await renderTemplate(tpl.storage_file, data, { builtIn: generic });
+  const settings = await loadHubSettings();
+  // Every AB Capital quote uses the same design. The zone stays as a label on the quote.
+  const blob = await renderTemplate("Service_Quotation_Template.docx", quoteData(doc, settings.company, settings.engagement_terms));
   const saved = await fileWithMail(doc, "quote", blob);
   const draft = mailDraft({ type: "quote", client: doc.client_name, contact: doc.contact_name, services: doc.services, number: doc.document_number, total: doc.total_amount, validUntil: doc.valid_until, company: settings.company });
   await createDocument({ doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email, lines: doc.lines, mail_subject: draft.subject, mail_body: draft.body }).catch(() => null);

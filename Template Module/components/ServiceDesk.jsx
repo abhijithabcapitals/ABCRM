@@ -59,7 +59,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const finish = async (doc, type) => {
     const company = settings.data?.company;
     const limitations = [...new Set((catalogue.data || []).filter((c) => c.service_items.some((x) => doc.services.includes(x.name))).map((c) => c.limitation).filter(Boolean))];
-    const data = type === "quote" ? quoteData(doc, company) : letterData(doc, company, settings.data?.engagement_terms, limitations);
+    const data = type === "quote" ? quoteData(doc, company, settings.data?.engagement_terms) : letterData(doc, company, settings.data?.engagement_terms, limitations);
     const blob = await renderTemplate(type === "quote" ? "Service_Quotation_Template.docx" : "Service_Engagement_Template.docx", data);
     const fileName = fileNameFor(doc.document_number, doc.client_name);
     const saved = await saveFile(doc, folderKind(doc.department, type), blob, fileName);
