@@ -185,7 +185,7 @@ export default function JobWorkspace({ jobId, profile, onClose }) {
       {modal === "client" && (
         <FormModal title="Link client" initial={{ client: match && Number(match.rank) === 1 ? String(match.ref) : "" }} onClose={() => setModal(null)}
           note={master.length ? "Choose the Client Master record for this job." : "No Client Master records found. Add the client in Client Master first."}
-          fields={[{ name: "client", label: "Client Master record", type: "select", required: true, options: master.map((c) => ({ value: String(c.ref), label: c.name })) }]}
+          fields={[{ name: "client", label: "Client Master record", type: "clientCode", required: true, clients: master }]}
           onSubmit={async (v) => { await linkClient(job.id, v.client); await loaded.reload(); }} />
       )}
       {modal === "batch" && (

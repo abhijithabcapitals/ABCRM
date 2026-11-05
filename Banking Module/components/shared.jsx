@@ -1,6 +1,7 @@
 import { ErrorNote } from "./Attention";
 import { ClientLists, listIdFor, useClientLookup } from "./ClientLookup";
-import { applyClient } from "../logic/clientLookup";
+import { applyClient, pickClient } from "../logic/clientLookup";
+import ClientPicker from "./ClientPicker";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 export const BankingContext = createContext(null);
@@ -75,6 +76,7 @@ export function Field({ field, value, onChange }) {
   const common = { id, value: value ?? "", onChange: (e) => onChange(e.target.value), required: field.required, list: field.clientKey ? listIdFor(field.clientKey) : undefined };
   let input;
   switch (field.type) {
+    case "clientCode": input = <ClientPicker mode="code" id={id} value={value} clients={field.clients} required={field.required} onChange={(v) => onChange(v)} />; break;
     case "textarea": input = <textarea rows={field.rows || 3} {...common} />; break;
     case "number": input = <input type="number" step="any" {...common} />; break;
     case "password": input = <input type="password" autoComplete="off" {...common} />; break;
@@ -99,7 +101,7 @@ export function Field({ field, value, onChange }) {
       );
       break;
     case "list": input = <input type="text" {...common} value={Array.isArray(value) ? value.join(", ") : value ?? ""} onChange={(e) => onChange(e.target.value)} />; break;
-    default: input = <input type="text" {...common} />;
+    default: input = field.clientKey === "name" ? <ClientPicker id={id} value={value} clients={field.clients} required={field.required} onChange={onChange} /> : <input type="text" {...common} />;
   }
   return (
     <div className={`bk-field ${field.full ? "bk-full" : ""}`}>
@@ -127,7 +129,7 @@ export const cleanValues = (fields, values) => {
 export function FormGrid({ fields, values, setValues }) {
   const map = Object.fromEntries(fields.filter((f) => f.clientKey).map((f) => [f.name, f.clientKey]));
   const clients = useClientLookup(Object.keys(map).length > 0);
-  return <div className="bk-grid"><ClientLists clients={clients} keys={Object.values(map)} />{fields.map((f) => <Field key={f.name} field={f} value={values[f.name]} onChange={(v) => setValues((s) => (map[f.name] ? applyClient(s, map, f.name, v, clients) : { ...s, [f.name]: v }))} />)}</div>;
+  return <div className="bk-grid"><ClientLists clients={clients} keys={Object.values(map)} />{fields.map((f) => <Field key={f.name} field={f.clientKey === "name" ? { ...f, clients } : f} value={values[f.name]} onChange={(v, picked) => setValues((s) => (picked ? pickClient(s, map, f.name, picked, clients) : map[f.name] ? applyClient(s, map, f.name, v, clients) : { ...s, [f.name]: v }))} />)}</div>;
 }
 
 export function FormModal({ title, fields, initial, onSubmit, onClose, submitLabel = "Save", wide, note }) {
