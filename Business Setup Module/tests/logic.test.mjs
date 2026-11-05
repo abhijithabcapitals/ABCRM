@@ -183,10 +183,11 @@ test("the Clients list and the Overview work out the KYC label with one rule", (
   assert.doesNotMatch(rd("../components/Clients.jsx"), /kyc_state === "Done"/);
 });
 
-test("the Business Setup quote screen no longer shows the Zoho panel; Banking keeps it", () => {
+test("the old Zoho placeholder panel has left the Business Setup quote screen; main's ZohoPanel replaces it in both modules", () => {
   const rd = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
   assert.doesNotMatch(rd("../components/workspace/Quotes.jsx"), /ZohoInvoicePanel/);
-  assert.match(rd("../../Banking Module/components/BankProcess.jsx"), /<ZohoInvoicePanel \/>/);
+  assert.match(rd("../components/workspace/Quotes.jsx"), /<ZohoPanel /);
+  assert.match(rd("../../Banking Module/components/BankProcess.jsx"), /<ZohoPanel /);
 });
 
 test("invoices are recorded through the database function, with the file under the client's invoice folder", () => {
