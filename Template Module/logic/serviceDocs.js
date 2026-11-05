@@ -1,4 +1,5 @@
 // Quotation, engagement letter and mail draft content for any service. Pure, so it is tested.
+import { lineTotals } from "../../Business Setup Module/logic/lines.js";
 // The database recalculates totals when a document is created, and its figures are the ones stored.
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -33,6 +34,11 @@ export function serviceTotals(lines, mode = "inclusive", rate = 5) {
   return { net, vat: 0, total: round2(net) };
 }
 
+// Business Setup quotes are always exclusive, VAT worked out line by line on the server: the desk offers no choice and shows the same totals.
+export const fixedVat = (dept) => dept === "Business Setup";
+export const deskVatMode = (dept, mode) => (fixedVat(dept) ? "exclusive" : mode);
+export const deskTotals = (dept, lines, mode) => (fixedVat(dept) ? lineTotals(lines) : serviceTotals(lines, mode, 5));
+
 export const vatStatement = (mode, rate) => (mode === "inclusive" ? "The fees are inclusive of applicable UAE VAT." : mode === "exclusive" ? `UAE VAT at ${rate}% is added to the fees.` : "No VAT has been charged.");
 
 const safe = (s) => String(s || "").replace(/[^A-Za-z0-9 _-]+/g, "").trim();
@@ -62,7 +68,8 @@ export function letterData(doc, company, terms, limitations = []) {
   return {
     ...common(doc, company),
     understanding: `We understand that you require the following: ${listWords(doc.services || [])}.`,
-    scope: (doc.services || []).map((text) => ({ text })),
+    // A Business Setup line prints its scope of work, or its name when it has none. Other departments list their services.
+    scope: doc.department === "Business Setup" && (doc.lines || []).length ? doc.lines.map((l) => ({ text: l.scope || l.description || l.service_name || "" })) : (doc.services || []).map((text) => ({ text })),
     fee_intro: t.fee_intro || "", payment_terms: lines(t.payment_terms), ab_responsibilities: lines(t.ab_responsibilities), client_responsibilities: lines(t.client_responsibilities),
     limitations: [t.limitations, ...limitations].filter(Boolean).join(" "), reps: t.reps || "",
   };

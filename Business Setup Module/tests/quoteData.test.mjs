@@ -102,8 +102,8 @@ test("the built-in letter shows net, VAT and total with line VAT", () => {
   assert.match(t, /Net amount\s*1,500/); assert.match(t, /Total\s*1,550/);
 });
 
-test("an older quote (VAT inside the fee, or none) shows the sum of its lines as the net and no per-line VAT", () => {
+test("an older inclusive quote shows the total less its VAT as the net, and no per-line VAT", () => {
   const old = quoteContext({ ...base, vat_mode: "inclusive", lines: [{ service_name: "A", amount: 1000 }, { service_name: "B", amount: 500 }], vat_amount: 71.43, total_amount: 1500 }, ifza, 3.6725);
-  assert.equal(old.net, "1,500"); assert.equal(old.vat, "71.43"); assert.equal(old.total, "1,500");
+  assert.equal(old.net, "1,428.57"); assert.equal(old.vat, "71.43"); assert.equal(old.total, "1,500");
   assert.deepEqual(old.items.map((i) => [i.vat, i.vat_rate]), [["", null], ["", null]]);
 });

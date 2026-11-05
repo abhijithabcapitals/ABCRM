@@ -3,10 +3,7 @@ import { createDocument, loadCatalogue, loadHubSettings, renderTemplate, saveFil
 import { fileNameFor, folderKind, letterData, mailDraft, quoteData } from "@template-hub/logic/serviceDocs";
 import { receiptDocx } from "@banking/logic/documents";
 import { listQuoteTemplates, storeReceipt, usdRate } from "./businessSetupApi";
-import { lineVatData, quoteContext } from "../logic/quoteData";
-
-// A Business Setup quote issued with line VAT (always exclusive, from 015) shows net, VAT and total. Older quotes keep their old wording.
-const withLineVat = (doc, data) => (doc.vat_mode === "exclusive" ? { ...data, ...lineVatData(doc) } : data);
+import { quoteContext, withLineVat } from "../logic/quoteData";
 
 const download = async (blob, name) => { const { saveAs } = await import("file-saver"); saveAs(blob, name); };
 

@@ -355,3 +355,18 @@ Deno.test("a quote with another VAT rate, or no readable rate, uses the existing
   assertEquals(canCreate(fromJob(jobRow({ quote_id: "q1" }), { vat_mode: "exclusive", vat_rate: 7 }), "invoice"), other);
   assertEquals(canCreate(fromJob(jobRow({ quote_id: "q1" }), { vat_mode: "exclusive", vat_rate: null }), "invoice"), other);
 });
+
+Deno.test("a Business Setup line at 0% VAT goes to Zoho without the tax; a line at 5% or with no rate keeps it", () => {
+  const row = hubRow({ vat_mode: "exclusive", lines: [{ description: "Zero", amount: 100, vat_rate: 0 }, { description: "Five", amount: 200, vat_rate: 5 }, { description: "None", amount: 300 }] });
+  const src = fromHub(row);
+  assertEquals(src.lines.map((l) => l.taxable), [false, true, true]);
+  const b = toZohoBody(src, "c", "tax", "2026-11-04") as any;
+  assertEquals(b.line_items.map((l: any) => l.tax_id ?? null), [null, "tax", "tax"]);
+});
+
+Deno.test("another department's None quote still sends no tax, and its lines stay taxable when mode is inclusive", () => {
+  const none = toZohoBody(fromHub(hubRow({ department: "Accounting", vat_mode: "none", lines: [{ description: "A", amount: 100 }] })), "c", "tax", "2026-11-04") as any;
+  assertEquals(none.line_items[0].tax_id, undefined);
+  const inc = toZohoBody(fromHub(hubRow({ department: "Accounting", vat_mode: "inclusive", lines: [{ description: "A", amount: 105 }] })), "c", "tax", "2026-11-04") as any;
+  assertEquals(inc.line_items[0].tax_id, "tax");
+});

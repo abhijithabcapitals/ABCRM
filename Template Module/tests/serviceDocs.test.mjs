@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { DEPARTMENTS, NUMBERING_DEPARTMENTS, addLine, checkReady, fileNameFor, folderKind, letterData, listWords, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs.js";
+import { DEPARTMENTS, NUMBERING_DEPARTMENTS, addLine, checkReady, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, listWords, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const render = (file, data) => {
@@ -86,4 +86,30 @@ test("ArdentTax shows on the numbering page, not among the Service Desk departme
 test("ArdentTax files stay in the CRM, so they never wait for a PC copy", () => {
   assert.equal(needsPcCopy({ storage_path: "a", local_path: null, source: "ardentax" }), false);
   assert.equal(needsPcCopy({ storage_path: "a", local_path: null, source: "hub" }), true);
+});
+
+test("Business Setup on the desk has no VAT choice and exclusive totals; other departments keep theirs", () => {
+  assert.equal(fixedVat("Business Setup"), true); assert.equal(fixedVat("Accounting"), false);
+  assert.equal(deskVatMode("Business Setup", "inclusive"), "exclusive"); assert.equal(deskVatMode("Accounting", "inclusive"), "inclusive"); assert.equal(deskVatMode("Tax Compliance", "none"), "none");
+  const totals = deskTotals("Business Setup", [{ amount: 0.1 }, { amount: 0.1 }], "inclusive");
+  assert.deepEqual(totals, { net: 0.2, vat: 0.02, total: 0.22 });   // per line, as the server rounds
+  assert.deepEqual(deskTotals("Accounting", [{ amount: 105 }], "inclusive"), serviceTotals([{ amount: 105 }], "inclusive", 5));
+  const desk = readFileSync(fileURLToPath(new URL("../components/ServiceDesk.jsx", import.meta.url)), "utf8");
+  assert.match(desk, /!fixedVat\(dept\) && <div className="bk-field"><label htmlFor="d-vat">/);
+  assert.match(desk, /withLineVat\(doc, /); assert.match(desk, /vat_mode: deskVatMode\(dept, form\.vat_mode\)/);
+});
+
+test("the letter's scope prints each Business Setup line's scope, falling back to its name; other departments are unchanged", () => {
+  const doc = { client_name: "X", department: "Business Setup", services: ["Visa", "Licence"], lines: [{ description: "Visa", amount: 1, scope: "Two investor visas" }, { description: "Licence", amount: 1, scope: "" }] };
+  assert.deepEqual(letterData(doc, {}, {}).scope, [{ text: "Two investor visas" }, { text: "Licence" }]);
+  const other = { ...doc, department: "Accounting" };
+  assert.deepEqual(letterData(other, {}, {}).scope, [{ text: "Visa" }, { text: "Licence" }]);
+});
+
+test("the Word quote prints a line's scope beside it only when given", () => {
+  const base = { ...quoteData({ client_name: "X", document_number: "N", services: ["Visa"], lines: [], vat_mode: "exclusive", total_amount: 105, vat_amount: 5 }, {}) };
+  const withScope = render("Service_Quotation_Template.docx", { ...base, lines: [{ no: 1, description: "Visa", amount: "100", scope_note: "Two investor visas" }] });
+  assert.match(withScope, /Visa/); assert.match(withScope, /Two investor visas/);
+  const none = render("Service_Quotation_Template.docx", { ...base, lines: [{ no: 1, description: "Visa", amount: "100" }] });
+  assert.match(none, /Visa/); assert.doesNotMatch(none, /Visa\s*:/);
 });

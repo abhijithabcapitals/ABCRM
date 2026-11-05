@@ -66,7 +66,8 @@ export function fromHub(row: Record<string, any>): Source {
     lines: lines.map((l: any) => ({
       name: String(l?.service_name || l?.description || "Service"),
       amount: num(l?.amount),
-      taxable: true,
+      // A Business Setup line carries its own rate. Other departments' lines have none and stay taxable, with the quote's VAT mode deciding.
+      taxable: Number(l?.vat_rate ?? 5) !== 0,
     })),
     unreadable: lines.some((l: any) => !readable(l?.amount)),
   };

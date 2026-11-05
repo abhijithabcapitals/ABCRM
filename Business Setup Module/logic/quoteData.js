@@ -20,14 +20,15 @@ export function quoteContext(quote, template, usdRate) {
     amount: aed(l.amount),
     amount_usd: usd(l.amount, rate),
     remarks: l.remarks || "",
+    scope: l.scope || l.service_name || l.description || "",
     // A line's own VAT is known only for a quote issued with line VAT (exclusive); older quotes had VAT inside the fee or none.
     vat: exclusive ? aed(Math.floor((Math.round(Number(l.amount || 0) * 100) * Number(l.vat_rate ?? 5) + 50) / 100) / 100) : "",
     vat_rate: exclusive ? Number(l.vat_rate ?? 5) : null,
   }));
   const vat = Number(quote.vat_amount || 0);
   const totalAmount = Number(quote.total_amount || 0);
-  // Exclusive: the total is net plus VAT. Any other mode: the lines already add up to the total, so the net is their sum.
-  const netAmount = exclusive ? totalAmount - vat : lines.reduce((n, l) => n + Number(l.amount || 0), 0);
+  // Exclusive, and an old inclusive quote whose VAT sits inside the fee: net is the total less the VAT. No VAT: the lines already add up to the total.
+  const netAmount = exclusive || quote.vat_mode === "inclusive" ? totalAmount - vat : lines.reduce((n, l) => n + Number(l.amount || 0), 0);
   return {
     template: template?.key || null,
     date: quote.created_at ? dubaiDate(quote.created_at) : dubaiDate(new Date().toISOString()),
@@ -53,6 +54,10 @@ export function lineVatData(doc) {
     show_breakdown: true, has_vat: false,
     net: plain(total - vat), vat: plain(vat), total: plain(total),
     vat_statement: "UAE VAT at 5% is added to each fee. A fee marked 0% VAT carries none.",
-    lines: (doc.lines || []).map((l, i) => ({ no: i + 1, description: `${l.description || l.service_name || ""}${Number(l.vat_rate ?? 5) === 0 ? " (0% VAT)" : ""}`, amount: plain(l.amount) })),
+    lines: (doc.lines || []).map((l, i) => ({ no: i + 1, description: `${l.description || l.service_name || ""}${Number(l.vat_rate ?? 5) === 0 ? " (0% VAT)" : ""}`, amount: plain(l.amount),
+      scope: l.scope || l.description || l.service_name || "", scope_note: l.scope || "" })),
   };
 }
+
+// A Business Setup quote issued with line VAT (always exclusive, from 015) shows net, VAT and total. Older quotes keep their old wording.
+export const withLineVat = (doc, data) => (doc.vat_mode === "exclusive" ? { ...data, ...lineVatData(doc) } : data);

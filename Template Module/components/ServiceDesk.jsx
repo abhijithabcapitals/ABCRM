@@ -7,7 +7,8 @@ import { createDocument, listDocuments, loadCatalogue, loadHubSettings, openInFo
 import { ClientLists, listIdFor, useClientLookup } from "@banking/components/ClientLookup";
 import { applyClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
-import { addLine, checkReady, DEPARTMENTS, fileNameFor, folderKind, letterData, mailDraft, quoteData, serviceTotals } from "../logic/serviceDocs";
+import { withLineVat } from "@business-setup/logic/quoteData";
+import { addLine, checkReady, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
 
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
 const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
@@ -43,7 +44,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const mailButton = (d) => (mailOf(d) ? <button type="button" className={`bk-mail-icon${mail?.id === mailOf(d).id ? " active" : ""}`} title={`Draft mail for ${d.document_number}`} aria-label={`Open draft mail for ${d.document_number}`} onClick={() => openMail(d)}><MailIcon /></button> : null);
 
   const categories = useMemo(() => (catalogue.data || []).filter((c) => c.department === dept), [catalogue.data, dept]);
-  const totals = serviceTotals(lines, form.vat_mode, 5);
+  const totals = deskTotals(dept, lines, form.vat_mode);
   // Choosing or typing a detail of a known client fills the rest; everything stays editable.
   const set = (k) => (e) => { const v = e.target.value; setForm((f) => (CLIENT_MAP[k] ? applyClient(f, CLIENT_MAP, k, v, clients) : { ...f, [k]: v })); };
   const chooseDept = (d) => { setDept(d); setLines([]); setService(""); setFee(""); setMail(null); };
@@ -53,13 +54,14 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
     setError(null); setLines(r.lines); setService(""); setFee("");
   };
 
-  const payload = (doc_type, extra = {}) => ({ doc_type, department: dept, client_name: form.client, contact_name: form.contact || null, contact_email: form.email || null, contact_phone: form.phone || null, client_address: form.address || null, license_number: form.license || null, vat_trn: form.trn || null, services: lines.map((l) => l.description), lines, vat_mode: form.vat_mode, vat_rate: 5, valid_until: form.valid_until || null, notes: form.notes || null, ...extra });
+  const payload = (doc_type, extra = {}) => ({ doc_type, department: dept, client_name: form.client, contact_name: form.contact || null, contact_email: form.email || null, contact_phone: form.phone || null, client_address: form.address || null, license_number: form.license || null, vat_trn: form.trn || null, services: lines.map((l) => l.description), lines, vat_mode: deskVatMode(dept, form.vat_mode), vat_rate: 5, valid_until: form.valid_until || null, notes: form.notes || null, ...extra });
 
   // Files a generated document and keeps its mail draft beside it.
   const finish = async (doc, type) => {
     const company = settings.data?.company;
     const limitations = [...new Set((catalogue.data || []).filter((c) => c.service_items.some((x) => doc.services.includes(x.name))).map((c) => c.limitation).filter(Boolean))];
-    const data = type === "quote" ? quoteData(doc, company) : letterData(doc, company, settings.data?.engagement_terms, limitations);
+    const base = type === "quote" ? quoteData(doc, company) : letterData(doc, company, settings.data?.engagement_terms, limitations);
+    const data = doc.department === "Business Setup" ? withLineVat(doc, base) : base;
     const blob = await renderTemplate(type === "quote" ? "Service_Quotation_Template.docx" : "Service_Engagement_Template.docx", data);
     const fileName = fileNameFor(doc.document_number, doc.client_name);
     const saved = await saveFile(doc, folderKind(doc.department, type), blob, fileName);
@@ -155,11 +157,11 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
           </div>
         )}
         <div className="bk-grid bk-mt">
-          <div className="bk-field"><label htmlFor="d-vat">VAT treatment</label><select id="d-vat" value={form.vat_mode} onChange={set("vat_mode")}><option value="inclusive">Fees include VAT</option><option value="exclusive">VAT added on top</option><option value="none">No VAT</option></select></div>
+          {!fixedVat(dept) && <div className="bk-field"><label htmlFor="d-vat">VAT treatment</label><select id="d-vat" value={form.vat_mode} onChange={set("vat_mode")}><option value="inclusive">Fees include VAT</option><option value="exclusive">VAT added on top</option><option value="none">No VAT</option></select></div>}
           <div className="bk-field"><label htmlFor="d-valid">Quotation valid until</label><input id="d-valid" type="date" value={form.valid_until} onChange={set("valid_until")} /></div>
           <div className="bk-field bk-full"><label htmlFor="d-notes">Notes on the quotation</label><textarea id="d-notes" rows={2} value={form.notes} onChange={set("notes")} /></div>
         </div>
-        {lines.length > 0 && <p className="bk-desk-total">Total <strong>AED {totals.total.toLocaleString("en-AE", { maximumFractionDigits: 2 })}</strong>{form.vat_mode !== "none" && <small className="bk-muted"> (VAT {totals.vat.toLocaleString("en-AE", { maximumFractionDigits: 2 })})</small>}</p>}
+        {lines.length > 0 && <p className="bk-desk-total">Total <strong>AED {totals.total.toLocaleString("en-AE", { maximumFractionDigits: 2 })}</strong>{deskVatMode(dept, form.vat_mode) !== "none" && <small className="bk-muted"> (VAT {totals.vat.toLocaleString("en-AE", { maximumFractionDigits: 2 })})</small>}</p>}
       </Panel>
       <Panel title="3. Generate" sub="The engagement letter is the next step after the quote.">
         <div className="bk-actions">
