@@ -29,7 +29,7 @@ export function feeWording(service, startMonth) {
 export function scopeSentence(names) {
   const n = filled(names);
   const list = n.length <= 1 ? n.join("") : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`;
-  return `The Company shall provide the services relating to ${list}.`;
+  return `Based on the requirement discussed, we will be providing the services mentioned under "Schedule 1: Scope of Services" relating to ${list}.`;
 }
 
 // Draft agreement from the accepted option of a quote. Throws when no option is accepted.
@@ -77,7 +77,7 @@ export function agreementContext(doc, settings, signed) {
     notices_email: a.notices_email || "", ab_notices_email: AB_NOTICES_EMAIL,
     scope_sentence: a.scope_sentence || "", schedule1: a.schedule1 || [], schedule2: a.schedule2 || [],
     scope_notes: filled(a.scope_notes), billing_notes,
-    period_text: `This Agreement is effective for ${a.effective_months} months from the date of signing. Either party may end it by giving ${a.notice_days} days' written notice.`,
+    period_text: `This Agreement shall remain effective for ${a.effective_months} months from the date of acceptance. It may be extended further with mutual written agreement. Either Party may terminate the Agreement by giving ${a.notice_days} days' prior written notice. No penalties or additional fees shall apply upon termination; however, any outstanding fees for services rendered or in progress shall be payable in full.`,
     effective_months: a.effective_months, notice_days: a.notice_days,
     contact: { name: "", phone: "", email: "", website: "", ...(defs.contact || {}) },
     bank: { account_name: "", bank: "", account_no: "", iban: "", swift: "", currency: "", ...(settings?.company?.bank || {}) },

@@ -28,6 +28,7 @@ test("feeWording per basis", () => {
 });
 
 test("scopeSentence", () => {
+  assert.ok(scopeSentence(["A"]).startsWith('Based on the requirement discussed, we will be providing the services mentioned under "Schedule 1: Scope of Services" relating to '));
   assert.match(scopeSentence(["Accounting and Book-Keeping"]), /relating to Accounting and Book-Keeping\.$/);
   assert.match(scopeSentence(["A", "B", "C"]), /relating to A, B and C\.$/);
   assert.match(scopeSentence(["A", "B"]), /relating to A and B\.$/);
@@ -64,6 +65,11 @@ test("checkAgreement names each gap", () => {
   assert.match(checkAgreement({ ...good(), notices_email: "bad" }), /email/i);
   assert.match(checkAgreement({ ...good(), schedule1: [], schedule2: [] }), /schedule/i);
   assert.match(checkAgreement({ ...good(), effective_months: 0 }), /months/i);
+});
+
+test("period text full wording", () => {
+  const doc = { created_at: "2026-11-05T10:00:00Z", field_values: { agreement: good() } };
+  assert.equal(agreementContext(doc, {}, false).period_text, "This Agreement shall remain effective for 12 months from the date of acceptance. It may be extended further with mutual written agreement. Either Party may terminate the Agreement by giving 30 days' prior written notice. No penalties or additional fees shall apply upon termination; however, any outstanding fees for services rendered or in progress shall be payable in full.");
 });
 
 test("agreementContext", () => {
