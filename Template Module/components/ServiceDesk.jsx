@@ -11,7 +11,7 @@ import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
 import { withLineVat } from "@business-setup/logic/quoteData";
 import AccountingDesk from "./AccountingDesk";
-import { addLine, checkReady, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
+import { addLine, checkReady, oldDeskRows, showAccountingDesk, showViewSwitch, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
 
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
 const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
@@ -36,7 +36,7 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const [note, setNote] = useState(null);
   const [mail, setMail] = useState(null);
   const [view, setView] = useState("quote"); // Accounting only: the new Quote or the Old Quotation form
-  const docs = useLoad(() => listDocuments(department || null), [department]);
+  const docs = useLoad(async () => oldDeskRows(await listDocuments(department || null)), [department]);
   const mailPanel = useRef(null);
   useEffect(() => { if (mail) mailPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); }, [mail?.id]);
 
@@ -133,8 +133,8 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
 
   const deptTabs = !department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>;
   // The switch is for Accounting only, and not inside a job, which passes onDocument and keeps the old form.
-  const viewTabs = dept === "Accounting" && !onDocument && <div className="bk-tabs" role="tablist" aria-label="Quotation format">{[["quote", "Quote"], ["old", "Old Quotation"]].map(([k, l]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{l}</button>)}</div>;
-  if (viewTabs && view === "quote") return <div>{deptTabs}{viewTabs}<AccountingDesk profile={profile} /></div>;
+  const viewTabs = showViewSwitch({ department: dept, onDocument }) && <div className="bk-tabs" role="tablist" aria-label="Quotation format">{[["quote", "Quote"], ["old", "Old Quotation"]].map(([k, l]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{l}</button>)}</div>;
+  if (showAccountingDesk({ department: dept, onDocument, mode: view })) return <div>{deptTabs}{viewTabs}<AccountingDesk profile={profile} /></div>;
   if (catalogue.loading && !catalogue.data) return <Spinner />;
   return (
     <div>
