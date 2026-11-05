@@ -72,6 +72,11 @@ async def verify_remote_document_access(settings: Settings, token: str) -> str:
 
 CLIENT_FILE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".eml", ".msg"}
 MAX_CLIENT_FILE = 25 * 1024 * 1024
+
+
+def clean_name(s: str) -> str:
+    """Makes text safe as one file or folder name: path and reserved characters become '-'."""
+    return re.sub(r'[<>:"/\\|?*\[\]\x00-\x1f]+', "-", s).strip(" .")
 CLIENT_SUBFOLDERS = {"Trade Licence": "Company Documents", "MOA / AOA": "Company Documents", "VAT Document": "Company Documents",
                      "Corporate Tax Document": "Company Documents", "Passport / ID": "KYC", "Bank Statement": "Bank Statements"}
 
@@ -139,7 +144,7 @@ def create_app(settings: Settings) -> FastAPI:
         if host not in LOCAL_HOSTS:  # blocks DNS-rebinding pages from reaching the API
             return JSONResponse({"error": "Local access only."}, status_code=403)
         # The CRM's Business Banking page reads documents and looks up clients here; only listed origins may.
-        shared = origin in settings.embed_origins and path.startswith(("/api/batches", "/api/clients", "/api/generated"))
+        shared = origin in settings.embed_origins and path.startswith(("/api/batches", "/api/clients", "/api/generated", "/api/proposal-folder"))
         if request.method == "OPTIONS" and shared:
             response = Response(status_code=204)
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE"
@@ -286,9 +291,7 @@ def create_app(settings: Settings) -> FastAPI:
     # ---- a client document validated in the CRM: into that client's folder, never overwrites ----
     @app.post("/api/clients-folder")
     def save_client_document(file: UploadFile = File(...), client: str = Form(...), client_id: str = Form(""), doc_type: str = Form("Other")):
-        def clean(s: str) -> str:
-            return re.sub(r'[<>:"/\\|?*\[\]\x00-\x1f]+', "-", s).strip(" .")
-        name, client_name, cid = clean(Path(file.filename or "document").name), clean(client), clean(client_id)
+        name, client_name, cid = clean_name(Path(file.filename or "document").name), clean_name(client), clean_name(client_id)
         if not client_name or Path(name).suffix.lower() not in CLIENT_FILE_TYPES:
             return JSONResponse({"error": "That client or file type cannot be saved."}, status_code=400)
         data = file.file.read(MAX_CLIENT_FILE + 1)
@@ -306,6 +309,35 @@ def create_app(settings: Settings) -> FastAPI:
             n += 1
         target.write_bytes(data)
         return {"path": str(target)}
+
+    # ---- a proposal (Word + PDF) into the client's synced OneDrive folder; both files or neither ----
+    @app.post("/api/proposal-folder")
+    def save_proposal(word: UploadFile = File(...), pdf: UploadFile = File(...), client: str = Form(...), client_id: str = Form("")):
+        if settings.proposal_root is None:
+            return JSONResponse({"error": "Proposal folder is not set up on this PC."}, status_code=503)
+        client_name, cid = clean_name(client), clean_name(client_id)
+        if not client_name:
+            return JSONResponse({"error": "That client cannot be saved."}, status_code=400)
+        items = []
+        for upload, ext in ((word, ".docx"), (pdf, ".pdf")):
+            name = clean_name(Path((upload.filename or "").replace("\\", "/")).name)
+            if Path(name).suffix.lower() != ext:
+                return JSONResponse({"error": f"The {ext} file is missing or the wrong type."}, status_code=400)
+            data = upload.file.read(MAX_CLIENT_FILE + 1)
+            if len(data) > MAX_CLIENT_FILE:
+                return JSONResponse({"error": "Files must be under 25 MB."}, status_code=400)
+            items.append((name, data))
+        folder = settings.proposal_root / "Business Setup" / (f"{client_name} - {cid}" if cid else client_name) / "Proposals"
+        folder.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for name, data in items:
+            target, n = folder / name, 2
+            while target.exists():
+                target = folder / f"{Path(name).stem} ({n}){Path(name).suffix}"
+                n += 1
+            target.write_bytes(data)
+            saved.append(target.name)
+        return {"path": str(folder), "word": saved[0], "pdf": saved[1]}
 
     # Opens Explorer on a generated document. Only existing files inside the configured folders.
     @app.post("/api/generated-open")

@@ -25,6 +25,7 @@ class Settings:
     service_folders: dict[str, str] = field(default_factory=dict)
     embed_origins: list[str] = field(default_factory=list)  # CRM pages allowed to show this module in a frame
     generated_folders: dict[str, Path] = field(default_factory=dict)  # kind -> folder for CRM-generated documents
+    proposal_root: Path | None = None  # synced OneDrive folder that receives CRM proposals
     remote_mode: bool = False
     allowed_hosts: list[str] = field(default_factory=list)
     supabase_url: str = ""
@@ -54,6 +55,7 @@ class Settings:
             service_folders=dict(raw.get("serviceFolders", {})),
             embed_origins=[str(o).rstrip("/") for o in raw.get("embedOrigins", [])],
             generated_folders={k: resolve(v) for k, v in raw.get("generatedFolders", {}).items()},
+            proposal_root=resolve(raw["proposalRoot"]) if raw.get("proposalRoot") else None,
             remote_mode=bool(raw.get("remoteMode", False)),
             allowed_hosts=[str(h).strip().lower() for h in raw.get("allowedHosts", []) if str(h).strip()],
             supabase_url=os.environ.get("SUPABASE_URL", "").rstrip("/"),
