@@ -67,14 +67,18 @@ language sql stable security definer set search_path = public, pg_temp as $$
     and coalesce(k.client_status, '') !~* 'liquidated|cancel|rejected'
 $$;
 
+-- assignee_ids has no foreign key, so it can hold a deleted profile. Only ids that still exist count, in their order.
 create or replace function public.alert_rule_job_due() returns setof public.alert_candidate
 language sql stable security definer set search_path = public, pg_temp as $$
   select 'job:' || j.id || ':' || coalesce(j.due_date::text, ''), j.client_id,
          concat_ws(' - ', j.service_name, j.client_name), coalesce(j.service_department, 'Accounting'), j.due_date,
-         coalesce(j.assignee_ids[1], alert_owner(j.client_id, coalesce(j.service_department, 'Accounting'))),
-         case when cardinality(j.assignee_ids) > 1 then j.assignee_ids[2:] end,
+         coalesce(v.ids[1], alert_owner(j.client_id, coalesce(j.service_department, 'Accounting'))),
+         case when cardinality(v.ids) > 1 then v.ids[2:] end,
          'accounting_job_list', j.id::text, null::uuid, null::text
   from accounting_job_list j
+  cross join lateral (
+    select array(select u.uid from unnest(j.assignee_ids) with ordinality as u(uid, ord)
+                 join profiles p on p.id = u.uid order by u.ord) as ids) v
   where coalesce(j.work_status, '') not in ('Completed', 'Client Cancelled')
 $$;
 

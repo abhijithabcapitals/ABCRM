@@ -92,7 +92,7 @@ create table if not exists public.alert_events (
 );
 create index if not exists alert_events_alert_idx on public.alert_events (alert_id, created_at);
 create or replace function public.alert_events_append_only() returns trigger
-language plpgsql as $$ begin raise exception 'alert_events is append-only'; end $$;
+language plpgsql set search_path = public, pg_temp as $$ begin raise exception 'alert_events is append-only'; end $$;
 drop trigger if exists alert_events_no_change on public.alert_events;
 create trigger alert_events_no_change before update or delete on public.alert_events
   for each row execute function public.alert_events_append_only();
@@ -231,7 +231,9 @@ begin
 
   if v_a.status in ('Resolved', 'Dismissed') then
     if v_a.resolved_by_system then
-      update alerts set status = 'Open', resolved_at = null, resolved_by = null, resolved_by_system = false, updated_at = now() where id = v_a.id;
+      update alerts set status = 'Open', subject = p_subject, description = p_description, due_date = p_due, current_step = p_step, priority = v_prio,
+             resolution_note = null, resolved_at = null, resolved_by = null, resolved_by_system = false, updated_at = now()
+      where id = v_a.id;
       insert into alert_events (alert_id, event, detail) values (v_a.id, 'reopened', jsonb_build_object('step', p_step));
       return v_a.id;
     end if;
@@ -239,7 +241,7 @@ begin
   end if;
 
   if v_a.current_step is not distinct from p_step then
-    update alerts set subject = p_subject, due_date = p_due, updated_at = now() where id = v_a.id;   -- refresh only, no bell
+    update alerts set subject = p_subject, description = p_description, due_date = p_due, updated_at = now() where id = v_a.id;   -- refresh only, no bell
     return v_a.id;
   end if;
 
@@ -247,6 +249,7 @@ begin
   update alerts set
     current_step = p_step,
     subject = p_subject,
+    description = p_description,
     due_date = p_due,
     priority = case when array_position(array['Normal', 'Medium', 'High', 'Critical'], v_prio)
                         > array_position(array['Normal', 'Medium', 'High', 'Critical'], v_a.priority) then v_prio else v_a.priority end,

@@ -227,6 +227,53 @@ update alert_rules set enabled = false where code = 'no_function';
 select alert_scan() as scanned \gset
 select t.ok('a disabled rule is not scanned and the scan is Ok again', (select status = 'Ok' and not rule_counts ? 'no_function' from alert_scan_log order by id desc limit 1));
 
+-- A refresh brings the description up to date: a visa that moves to status X, with no bell
+insert into business_setup_visas (client_id, person_name, expiry_date, status) values ('CV', 'Turning X', :'today'::date + 20, 'Active');
+select alert_scan() as scanned \gset
+select id as tx from alerts where subject like 'Turning X%' \gset
+select count(*) as tx_bells from notifications where link_scope->>'alert_id' = :'tx' \gset
+select t.ok('active visa has no description', (select description is null from alerts where id = :'tx'));
+update business_setup_visas set status = 'X' where person_name = 'Turning X';
+select alert_scan() as scanned \gset
+select t.ok('visa moved to X: description refreshed, same row, no bell', (select description = 'Pending follow-up' and status = 'Open' from alerts where id = :'tx')
+  and (select count(*) = :tx_bells from notifications where link_scope->>'alert_id' = :'tx'));
+update business_setup_visas set status = 'Active' where person_name = 'Turning X';
+select alert_scan() as scanned \gset
+select t.ok('visa moved back: description cleared', (select description is null from alerts where id = :'tx'));
+
+-- A system reopen refreshes the row and clears every trace of the close
+select alert_raise('r', 'reopen-1', 'CS', 'Old subject', 'Accounting', :'today'::date + 9, 5, 'Medium', null, 't', 'i', null, 'Old description') as ro \gset
+update alerts set status = 'Resolved', resolved_at = now(), resolved_by = null, resolved_by_system = true, resolution_note = 'Date changed or no longer applies' where id = :'ro';
+select t.ok('system reopen returns the row', alert_raise('r', 'reopen-1', 'CS', 'New subject', 'Accounting', :'today'::date + 8, 2, 'High', null, 't', 'i', null, 'New description') = :'ro');
+select t.ok('system reopen refreshes subject, due date, step, priority and description, and clears the close',
+  (select status = 'Open' and subject = 'New subject' and due_date = :'today'::date + 8 and current_step = 2 and priority = 'High' and description = 'New description'
+     and resolution_note is null and resolved_at is null and resolved_by is null and not resolved_by_system from alerts where id = :'ro'));
+
+-- A person's close survives the scan: a dismissal, and a resolver whose profile has since been deleted
+insert into profiles values ('00000000-0000-0000-0000-0000000000e9', 'Soon Gone', 'e9@x', 'member');
+insert into business_setup_visas (client_id, person_name, expiry_date, status) values
+  ('CV', 'Dismissed Person', :'today'::date + 20, 'Active'), ('CV', 'Gone Resolver Person', :'today'::date + 20, 'Active');
+select alert_scan() as scanned \gset
+update alerts set status = 'Dismissed', resolved_at = now(), resolved_by = '00000000-0000-0000-0000-0000000000c1' where subject like 'Dismissed Person%';
+update alerts set status = 'Resolved', resolved_at = now(), resolved_by = '00000000-0000-0000-0000-0000000000e9' where subject like 'Gone Resolver Person%';
+delete from profiles where id = '00000000-0000-0000-0000-0000000000e9';
+select t.ok('deleting the resolver clears resolved_by', (select resolved_by is null and not resolved_by_system from alerts where subject like 'Gone Resolver Person%'));
+select alert_scan() as scanned \gset
+select t.ok('a Dismissed row stays put on re-scan', (select count(*) = 1 and bool_and(status = 'Dismissed' and resolved_by = '00000000-0000-0000-0000-0000000000c1') from alerts where subject like 'Dismissed Person%'));
+select t.ok('a row closed by a since-deleted person stays closed on re-scan', (select count(*) = 1 and bool_and(status = 'Resolved') from alerts where subject like 'Gone Resolver Person%'));
+
+-- A deleted profile left in assignee_ids must not fail the rule: the foreign keys would refuse it.
+insert into accounting_job_list (client_id, client_name, service_name, service_department, due_date, assignee_ids, work_status) values
+  ('CS', 'Service LLC', 'Job stale first', 'Accounting', :'today'::date, array['ffffffff-ffff-ffff-ffff-ffffffffffff', '00000000-0000-0000-0000-0000000000c2']::uuid[], 'In progress'),
+  ('CS', 'Service LLC', 'Job stale extra', 'Accounting', :'today'::date, array['00000000-0000-0000-0000-0000000000c1', 'ffffffff-ffff-ffff-ffff-ffffffffffff']::uuid[], 'In progress'),
+  ('CS', 'Service LLC', 'Job stale only', 'Accounting', :'today'::date, array['ffffffff-ffff-ffff-ffff-ffffffffffff']::uuid[], 'In progress');
+select alert_scan() as scanned \gset
+select t.ok('stale assignee ids: the scan is Ok and every job raises', (select status = 'Ok' and rule_counts->'job_due'->>'error' is null from alert_scan_log order by id desc limit 1)
+  and (select count(*) = 3 from alerts where subject like 'Job stale%'));
+select t.ok('stale first id: the next real assignee is assigned, alone', (select assigned_to = '00000000-0000-0000-0000-0000000000c2' and (select count(*) = 1 from alert_recipients r where r.alert_id = a.id) from alerts a where subject like 'Job stale first%'));
+select t.ok('stale extra id: only real people are recipients', (select assigned_to = '00000000-0000-0000-0000-0000000000c1' and (select count(*) = 1 from alert_recipients r where r.alert_id = a.id) from alerts a where subject like 'Job stale extra%'));
+select t.ok('only a stale id: falls back to the client owner', (select assigned_to = '00000000-0000-0000-0000-0000000000c2' from alerts where subject like 'Job stale only%'));
+
 -- Grants
 select t.ok('postgres and service_role can run alert_scan', has_function_privilege('postgres', 'alert_scan()', 'execute') and has_function_privilege('service_role', 'alert_scan()', 'execute'));
 select t.ok('authenticated and anon cannot run alert_scan', not has_function_privilege('authenticated', 'alert_scan()', 'execute') and not has_function_privilege('anon', 'alert_scan()', 'execute'));

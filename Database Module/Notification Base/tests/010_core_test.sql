@@ -168,6 +168,9 @@ select t.ok('authenticated runs exactly the three client owner functions outside
 select t.ok('anon and public run no client owner function', (select count(*) = 3 and bool_and(not has_function_privilege('anon', p.oid, 'execute')
   and not exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE'))
   from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'client\_owner%'));
+select t.ok('every alert and client owner function pins its search_path',
+  (select count(*) = 0 from pg_proc p where pronamespace = 'public'::regnamespace and (proname like 'alert\_%' or proname like 'client\_owner%')
+   and not coalesce('search_path=public, pg_temp' = any (p.proconfig), false)));
 select t.ok('there are alert functions to check', (select count(*) >= 9 from pg_proc where pronamespace = 'public'::regnamespace and proname like 'alert\_%'));
 select t.ok('anon runs no alert function', (select count(*) = 0 from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%' and has_function_privilege('anon', p.oid, 'execute')));
 select t.ok('public runs no alert function', (select count(*) = 0 from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_%'
