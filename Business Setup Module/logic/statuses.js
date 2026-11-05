@@ -12,3 +12,6 @@ export function zohoProps(status, { quotes, held, ready, invoiceRight, known = t
     canCreate: { estimate: !!quotes && open, invoice: status === "accepted" && !!ready && !held && !!invoiceRight },
   };
 }
+
+// Badge tone of a case stage.
+export const STAGE_TONE = { Lost: "bad", Lead: "warn", Review: "warn", Onboarding: "warn", Completion: "warn", "With Accounts": "warn", Completed: "good", Cancelled: "bad" };

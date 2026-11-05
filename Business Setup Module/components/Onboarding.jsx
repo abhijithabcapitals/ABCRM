@@ -30,7 +30,7 @@ export default function Onboarding() {
   );
 }
 
-function Review({ id, onBack }) {
+export function Review({ id, onBack }) {
   const f = useLoad(() => formDetail(id), [id]);
   const { error, setError, busy, act } = useAction(f.reload);
   const [dialog, setDialog] = useState(null);

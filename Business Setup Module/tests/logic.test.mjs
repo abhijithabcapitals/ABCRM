@@ -8,6 +8,8 @@ import { buildLines, lineTotals, lineError, withRates } from "../logic/lines.js"
 import { balance, canStart, canComplete, isRegistration } from "../logic/balances.js";
 import { SERVICE_STATUSES, zohoProps } from "../logic/statuses.js";
 import { contactChoice } from "../logic/contact.js";
+import { NAV, stageTab, pageKey } from "../logic/nav.js";
+import { ageDays, duplicateClient, leadActions } from "../logic/leads.js";
 
 test("a past date asks staff to check it, because imported dates may be stale", () => {
   assert.equal(expiryNote({ state: "Past date" }), "Check this date");
@@ -198,13 +200,13 @@ test("invoices are recorded through the database function, with the file under t
   assert.match(rd("../components/DocumentationPage.jsx"), /<Invoices caseId=\{c\.id\}/);
 });
 
-test("pages use the decided rules: superseded is not live, Share link needs the login right, Mark lost on Documentation and Cases", () => {
+test("pages use the decided rules: superseded is not live, Move needs the owner or the approve right, Mark lost on Documentation and All Leads", () => {
   const rd = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
   assert.match(rd("../components/workspace/Quotes.jsx"), /\["rejected", "superseded"\]/);
-  assert.match(rd("../logic/leads.js"), /setup\.portal\.manage/);
-  assert.match(rd("../components/Leads.jsx"), /A manager issues the login\./);
-  for (const f of ["DocumentationPage", "Cases", "Leads"]) assert.match(rd(`../components/${f}.jsx`), /LostDialog/);
-  for (const f of ["DocumentationPage", "Cases", "Leads"]) assert.match(rd(`../components/${f}.jsx`), /ReassignActions/);
+  assert.match(rd("../logic/leads.js"), /setup\.cases\.approve/);
+  assert.doesNotMatch(rd("../components/AllLeads.jsx"), /A manager issues the login|ShareLink/);
+  for (const f of ["DocumentationPage", "AllLeads"]) assert.match(rd(`../components/${f}.jsx`), /LostDialog/);
+  for (const f of ["DocumentationPage", "Cases", "AllLeads"]) assert.match(rd(`../components/${f}.jsx`), /ReassignActions/);
   assert.match(rd("../components/DocumentationPage.jsx"), /caseLinkClient/);
 });
 
@@ -284,4 +286,39 @@ test("revising a quote whose lines included VAT says that VAT is now added on to
 test("the fee master shows and saves is_service", () => {
   const src = readFileSync(fileURLToPath(new URL("../components/FeeMaster.jsx", import.meta.url)), "utf8");
   assert.match(src, /name: "is_service"[^}]*type: "bool"/); assert.match(src, /is_service: true/); assert.match(src, /key: "is_service"/);
+});
+
+test("nav_order: the nine keys and labels of the client flow", () => {
+  assert.deepEqual(NAV.map(([k]) => k), ["dashboard", "leads", "onboarding", "pipeline", "completion", "clients", "services", "tasks", "settings"]);
+  assert.deepEqual(NAV.map(([, l]) => l), ["Dashboard", "All Leads", "Client Onboarding", "Pipeline", "Completion", "Clients", "Services & Fees", "Tasks", "⚙ Settings"]);
+});
+
+test("each stage opens its own tab, and old page keys map to the new ones", () => {
+  assert.deepEqual(["Lead", "Review", "Lost", "Onboarding", "Pipeline", "Completion", "With Accounts"].map(stageTab), ["leads", "leads", "leads", "onboarding", "pipeline", "completion", "completion"]);
+  assert.deepEqual(["Completed", "Cancelled"].map(stageTab), ["clients", "clients"]);
+  assert.deepEqual(["review", "documentation", "cases", "leads", "clients", "dashboard"].map(pageKey), ["leads", "onboarding", "pipeline", "leads", "clients", "dashboard"]);
+  assert.ok(NAV.some(([k]) => k === stageTab("anything else")));
+});
+
+test("lead actions: Assign to me on unowned rows only, Move needs the owner or a manager", () => {
+  const sales = (p) => ["setup.access", "setup.leads.manage"].includes(p);
+  const boss = (p) => ["setup.access", "setup.leads.manage", "setup.cases.approve"].includes(p);
+  const unowned = { id: "c", stage: "Lead" };
+  assert.equal(leadActions(sales, unowned, "me").assign, true);
+  assert.equal(leadActions(sales, { ...unowned, owner_id: "me" }, "me").assign, false);
+  assert.equal(leadActions(sales, { ...unowned, owner_id: "other" }, "me").assign, false);
+  assert.equal(leadActions(sales, unowned, "me").move, false);
+  assert.equal(leadActions(sales, { ...unowned, owner_id: "me" }, "me").move, true);
+  assert.equal(leadActions(sales, { ...unowned, owner_id: "other" }, "me").move, false);
+  assert.equal(leadActions(boss, { ...unowned, owner_id: "other" }, "me").move, true);
+  assert.equal(leadActions(sales, { ...unowned, owner_id: "other" }, "me").reassign, false);
+  assert.equal(leadActions(sales, { ...unowned, owner_id: "me" }, "me").reassign, true);
+});
+
+test("a duplicate refusal names the existing client, and the age counts whole days", () => {
+  assert.deepEqual(duplicateClient("A client like this already exists: CL000012 Acme (same email). Link that client, or confirm this is a new one."), { id: "CL000012" });
+  assert.equal(duplicateClient("Something else"), null);
+  assert.equal(duplicateClient("A client already exists"), null);
+  assert.equal(ageDays("2026-11-01T10:00:00Z", new Date("2026-11-05T09:00:00Z")), 3);
+  assert.equal(ageDays(null, new Date()), null);
 });

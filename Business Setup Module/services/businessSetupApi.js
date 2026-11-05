@@ -96,6 +96,8 @@ export const caseTake = (id) => rpc("business_setup_case_take", { p_case: id });
 // The same checked step for Finance, on the payment right (no login is issued).
 export const caseLinkClientForPayment = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client_for_payment", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 export const caseLinkClient = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
+// The owner (or a manager) moves a Lead or Review case to Client Onboarding. The checked client step runs first; returns the client id.
+export const caseMoveToOnboarding = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_move_to_onboarding", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 export const caseShared = (id) => rpc("business_setup_case_shared", { p_case: id });
 export const caseLost = (id, reason) => rpc("business_setup_case_lost", { p_case: id, p_reason: reason });
 export const caseConfirm = (id) => rpc("business_setup_case_confirm", { p_case: id });

@@ -33,14 +33,14 @@ test("the Documentation page keeps the last known row of a case that left its li
   assert.deepEqual(caseRowFor(null, "c1", null, true), { row: { id: "c1" }, moved: false });
 });
 
-test("lead actions: Finance records a payment and gets no take, share or lost", () => {
+test("lead actions: Finance records a payment and gets no assign, move or lost", () => {
   const finance = (p) => ["setup.access", "setup.payments.manage"].includes(p);
   const open = { id: "c", stage: "Lead" };
-  assert.deepEqual(leadActions(finance, open, "me"), { pay: true, take: false, share: false, issuer: false, lost: false, reassign: false });
+  assert.deepEqual(leadActions(finance, open, "me"), { pay: true, assign: false, move: false, lost: false, reassign: false });
   const sales = (p) => ["setup.access", "setup.leads.manage"].includes(p);
-  assert.deepEqual(leadActions(sales, open, "me"), { pay: false, take: true, share: true, issuer: false, lost: true, reassign: false });
+  assert.deepEqual(leadActions(sales, open, "me"), { pay: false, assign: true, move: false, lost: true, reassign: false });
   assert.equal(leadActions(finance, { id: "c", stage: "Lost" }, "me").pay, false);
-  const leads = rd("components/Leads.jsx");
+  const leads = rd("components/AllLeads.jsx");
   assert.match(leads, /<Payments /); assert.match(leads, /Record payment/);
 });
 
