@@ -25,6 +25,17 @@ export async function uploadProposalFile(doc, blob, ext) {
   return path;
 }
 
+// Stores one logo or timeline image of an authority set under proposal-assets/ and returns its path. Only PNG and JPEG print in the Word file.
+export async function uploadProposalAsset(authorityKey, kind, file) {
+  const ext = file?.type === "image/png" ? "png" : file?.type === "image/jpeg" ? "jpg" : null;
+  if (!ext) throw new Error("The image must be a PNG or JPEG file.");
+  if (!/^[a-z0-9_-]+$/.test(authorityKey || "")) throw new Error("Save the set with a key of lower case letters, digits, - or _ first.");
+  const path = `proposal-assets/${authorityKey}/${kind}-${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
 // Images of a proposal's options by their storage path: { [path]: { bytes, type, width, height } }. One that cannot be read is left out.
 export async function loadProposalImages(proposal) {
   const paths = [...new Set((proposal?.options || []).flatMap((o) => [o.logo_path, o.timeline_path]).filter(Boolean))];

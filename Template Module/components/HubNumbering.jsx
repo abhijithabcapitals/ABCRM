@@ -6,6 +6,7 @@ import { numberingStatus, saveNumbering } from "../services/hubApi";
 import { NUMBERING_DEPARTMENTS } from "../logic/serviceDocs";
 import MasterTemplates from "./MasterTemplates";
 import LibrarySettings from "./LibrarySettings";
+import ProposalAuthorities from "./ProposalAuthorities";
 
 const KINDS = [["quote", "Quotations"], ["letter", "Engagement Letters"], ["document", "Documents"]];
 const RESTART = { never: "Never: runs on continuously", year: "Each year", month: "Each month" };

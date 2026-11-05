@@ -57,6 +57,13 @@ for t in "$HERE"/[01][0-9]0_*; do
   esac
 done
 
+# Optional, local only: the private proposal authority seed. Runs when PROPOSAL_SEED names an existing file; PROPOSAL_SEED_CHECK names a script that checks it
+# (it gets BIN and PORT). Without PROPOSAL_SEED nothing changes, so the committed run never depends on the private files.
+if [ -n "${PROPOSAL_SEED:-}" ] && [ -f "$PROPOSAL_SEED" ]; then
+  run_sql "$PROPOSAL_SEED"; run_sql "$PROPOSAL_SEED"; echo "ok   private proposal seed applies twice"
+  if [ -n "${PROPOSAL_SEED_CHECK:-}" ] && [ -f "$PROPOSAL_SEED_CHECK" ]; then BIN="$BIN" PORT="$PORT" bash "$PROPOSAL_SEED_CHECK" || { RC=1; echo "TESTS FAILED: proposal seed check"; }; fi
+fi
+
 # Rollback refuses while library documents exist unless forced, then restores what 004 changed.
 # Proposals: rollback removes every object and column, keeps the old quotes, and the migration applies again.
 QBEFORE="$("${PSQL[@]}" -At -c "select count(*) from hub_documents where doc_type = 'quote'")"
