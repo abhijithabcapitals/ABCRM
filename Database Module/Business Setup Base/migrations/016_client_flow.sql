@@ -971,3 +971,16 @@ begin
 end $$;
 revoke all on function public.business_setup_invoice_publish(jsonb) from public, anon, authenticated;
 grant execute on function public.business_setup_invoice_publish(jsonb) to service_role;
+
+-- ── Form list carries the case ───────────────────────────────────────
+-- Same as 009's, plus case_id, so a screen can open the form of one case when a client has more than one open case.
+create or replace function public.business_setup_form_list(p_status text default null) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  perform business_setup_require('setup.access');
+  return (select coalesce(jsonb_agg(jsonb_build_object('id', f.id, 'client_id', f.client_id, 'case_id', f.case_id, 'legal_name', m.legal_name, 'status', f.status, 'submitted_at', f.submitted_at,
+             'taken_by', case when f.taken_by is not null then business_setup_person_name(f.taken_by) end, 'return_note', f.return_note,
+             'missing', to_jsonb(business_setup_form_missing_items(f.id, true))) order by f.submitted_at nulls last, f.created_at), '[]'::jsonb)
+    from business_setup_onboarding_forms f join client_master m on m.client_id = f.client_id
+   where p_status is null or f.status = p_status);
+end $$;

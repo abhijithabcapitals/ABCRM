@@ -24,9 +24,9 @@ export default function AllLeads() {
   const me = profile?.id;
   const reloadAll = async () => { await Promise.all([...Object.values(lists), closed, forms].map((l) => l.reload())); };
   const onDialog = (kind, c) => setDialog({ kind, c });
-  // The form behind a row of Client Inputs: the case's client has a form that is submitted or in review.
+  // The form behind a row of Client Inputs: the case's own form, submitted or in review (a client can have more than one open case).
   const onReview = (c) => {
-    const f = (forms.data || []).find((x) => x.client_id === c.client_id && ["Submitted", "In review"].includes(x.status));
+    const f = (forms.data || []).find((x) => x.case_id === c.id && ["Submitted", "In review"].includes(x.status));
     if (!f) { setNotice(forms.error || `No submitted form was found for ${c.case_number}. Reload the page and try again.`); return; }
     setNotice(null); setReviewing(f.id);
   };
@@ -53,7 +53,7 @@ export default function AllLeads() {
                 {isOpen && <>
                   <ErrorNote message={l.error} />
                   {l.loading && !l.data ? <Spinner /> : (
-                    <LeadList rows={l.data || []} onDialog={onDialog} onChanged={reloadAll} onRow={key === "inputs" ? onReview : undefined}
+                    <LeadList rows={l.data || []} onDialog={onDialog} onChanged={reloadAll} onRow={key === "inputs" && can("setup.kyc.manage") ? onReview : undefined}
                       empty={key === "assigned" ? "Nothing is assigned to you." : key === "inputs" ? "No client input is waiting for review." : "No open leads."} />
                   )}
                 </>}

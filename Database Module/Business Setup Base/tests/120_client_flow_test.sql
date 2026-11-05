@@ -867,6 +867,9 @@ select public.bs_as('00000000-0000-0000-0000-00000000000a');
 select public.bs_check('dashboard_keys: a decided quote leaves awaiting_client', (public.business_setup_dashboard() ->> 'awaiting_client')::int = :n_wait);
 select public.bs_as(null);
 
+select public.bs_check('form_list: each row names its case', pg_get_functiondef('public.business_setup_form_list(text)'::regprocedure) like '%''case_id'', f.case_id%'
+  and not exists (select 1 from jsonb_array_elements(public.business_setup_form_list()) r where not (r ? 'case_id')));
+
 do $$
 declare f int; t int;
 begin

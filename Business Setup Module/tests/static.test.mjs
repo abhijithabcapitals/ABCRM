@@ -88,3 +88,11 @@ test("staff uploads for a form go under staff/<client_id>/ in the portal bucket"
   assert.match(api, /from\("client-portal"\)/);
 });
 
+
+test("the dashboard stage cards and the review link follow the tab and right rules", () => {
+  const dash = readFileSync(join(here, "components/Dashboard.jsx"), "utf8");
+  assert.match(dash, /goTo\(stageTab\(st\)\)/);
+  const leads = readFileSync(join(here, "components/AllLeads.jsx"), "utf8");
+  assert.match(leads, /x\.case_id === c\.id/);
+  assert.match(leads, /can\("setup\.kyc\.manage"\)/);
+});

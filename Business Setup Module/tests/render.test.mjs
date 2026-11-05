@@ -157,3 +157,9 @@ test("a lead's payment panel works in case mode for a client-less lead", { skip 
   const panel = await html("AllLeads.jsx", "LeadPayments", { c, onClose() {}, onChanged() {} });
   assert.match(panel, /Record payment/); assert.match(panel, /first creates the client from the lead details/);
 });
+
+test("dashboard: the pipeline figure sums the open stages, and each stage card opens its stage tab", { skip }, async () => {
+  const mod = await server.ssrLoadModule("/../Business Setup Module/components/Dashboard.jsx");
+  assert.equal(mod.pipelineTotal({ pipeline: { Lead: 2, Review: 1, Onboarding: 3, Pipeline: 4, Completion: 1, "With Accounts": 2 } }), 13);
+  assert.equal(mod.pipelineTotal({}), 0);
+});
