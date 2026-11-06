@@ -26,3 +26,4 @@ grant execute on function public.admin_is() to authenticated;
 
 create table if not exists public.client_master (client_id text primary key, legal_name text);
 create table if not exists public.hr_employees (employee_code text, full_name text, status text);
+alter table public.hr_employees add column if not exists exit_date date; -- HR Base 002

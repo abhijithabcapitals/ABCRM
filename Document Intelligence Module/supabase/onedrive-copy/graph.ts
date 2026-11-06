@@ -5,7 +5,7 @@ import { isRetryable, retryDelayMs } from "./msauth.ts";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const MAX_ATTEMPTS = 5;
-const DELTA_SELECT = "id,name,size,file,folder,parentReference,lastModifiedDateTime,deleted";
+const DELTA_SELECT = "id,name,size,file,folder,parentReference,lastModifiedDateTime,deleted,root";
 
 export type DriveItem = {
   id: string;
@@ -16,6 +16,7 @@ export type DriveItem = {
   parentReference?: { path?: string; id?: string };
   lastModifiedDateTime?: string;
   deleted?: object;
+  root?: object; // only on the drive root item
   remoteItem?: object;
   webUrl?: string;
 };
@@ -34,6 +35,15 @@ export class WriteGuardError extends Error {
   constructor(reason: string) {
     super(`write guard: ${reason}`);
     this.name = "WriteGuardError";
+  }
+}
+
+// A file (not a folder) already holds the name of a folder the target path needs. Only that row cannot be copied;
+// it is not a safety stop. The message carries no names.
+export class FolderBlockedError extends Error {
+  constructor() {
+    super("a file is in the way of a destination folder this path needs");
+    this.name = "FolderBlockedError";
   }
 }
 
@@ -139,10 +149,12 @@ export class Graph {
     return await this.json<DriveItem>("GET", this.itemUrl(itemId));
   }
 
-  // Each page carries nextLink (more pages follow) or deltaLink (the last page). Either one can be
-  // stored and passed back as `deltaLink` to resume: both are Graph URLs and are checked as such.
-  async *delta(itemId: string, deltaLink?: string): AsyncGenerator<{ items: DriveItem[]; deltaLink?: string; nextLink?: string }> {
-    let url = deltaLink ?? `${this.itemUrl(itemId)}/delta?$select=${DELTA_SELECT}`;
+  // Delta of the whole drive: OneDrive for Business supports delta only on the drive root, not on a folder. The
+  // caller keeps only the items below the source folder. Each page carries nextLink (more pages follow) or deltaLink
+  // (the last page). Either one can be stored and passed back as `deltaLink` to resume: both are Graph URLs and are
+  // checked as such. Delta on OneDrive for Business gives no parentReference.path: items are tracked by parent id.
+  async *delta(deltaLink?: string): AsyncGenerator<{ items: DriveItem[]; deltaLink?: string; nextLink?: string }> {
+    let url = deltaLink ?? `${this.drive}/root/delta?$select=${DELTA_SELECT}`;
     while (true) {
       const page = await this.json<{ value?: DriveItem[]; "@odata.nextLink"?: string; "@odata.deltaLink"?: string }>("GET", url);
       const next = page["@odata.nextLink"];
@@ -210,7 +222,7 @@ export class Graph {
         await res.body?.cancel();
         const existing = await this.json<DriveItem>("GET", `${this.itemUrl(parentId)}:/${encodeURIComponent(name)}`);
         if (existing.remoteItem) throw new WriteGuardError("existing destination entry is a shortcut or remote item");
-        if (!existing.folder) throw new WriteGuardError("existing destination entry is not a folder");
+        if (!existing.folder) throw new FolderBlockedError();
         id = existing.id;
       } else {
         id = (JSON.parse(await res.text()) as DriveItem).id;

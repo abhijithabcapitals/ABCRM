@@ -6,8 +6,11 @@
 -- plain immutable functions: a SET clause costs a settings save/restore on every call (about 2x slower over 170,000
 -- files). All execute for service_role only. Views: security_invoker, so the od_copy Row Level Security (admins and
 -- CEO read) applies to whoever reads them.
--- Rollback: drop view od_copy.failed_items; drop function od_copy.set_stage(text), od_copy.admin_approve(text,text);
--- alter table od_copy.settings drop column stage_before_pause; drop index od_copy.plan_duplicate_of_idx;
+-- Rollback: drop view od_copy.failed_items, od_copy.duplicate_groups; drop function od_copy.set_stage(text),
+-- od_copy.admin_approve(text,text), od_copy.try_lock(int), od_copy.unlock(uuid), od_copy.save_delta_link(uuid,text),
+-- od_copy.employee_match(text); alter table od_copy.settings drop column stage_before_pause, drop column running_until,
+-- drop column run_token; alter table od_copy.plan drop column area, drop column kind, drop column deferrals,
+-- drop column deferred_since; drop index od_copy.plan_duplicate_of_idx, od_copy.plan_area_idx;
 -- drop view od_copy.report, od_copy.item_map; drop function od_copy.build_plan(), od_copy.approve(text,text,text),
 -- od_copy.fit_path(text[],int), od_copy.folder_for(text), od_copy.employee_label(text), od_copy.clean_segment(text),
 -- od_copy.cap_segment(text,int), od_copy.legal_form(text), od_copy.normalize_name(text),
@@ -115,28 +118,39 @@ language sql stable security definer set search_path = '' as $$
     order by r.priority, r.pattern limit 1), 'OTHERS')
 $$;
 
--- '<Full Name> - <Code>' for an old employee folder: full name (case-insensitive) when exactly one employee has it,
--- else the first word when exactly one employee's first word matches and the folder is that one word, or every other
--- word of the folder is also in that employee's name (so 'Zed Other' never lands under 'Zed Testperson'), else null.
-create or replace function od_copy.employee_label(p text) returns text
+-- The employee of an old employee folder: label '<Full Name> - <Code>' and is_ex (status 'Left' or an exit date set,
+-- HR Base 002). Matched by full name (case-insensitive) when exactly one employee has it, else by the first word
+-- when exactly one employee's first word matches and the folder is that one word, or every other word of the folder
+-- is also in that employee's name (so 'Zed Other' never lands under 'Zed Testperson'); else both null.
+create or replace function od_copy.employee_match(p text, out label text, out is_ex boolean)
 language plpgsql stable security definer set search_path = '' as $$
 declare
   n int;
-  r text;
   w text[];
   en text;
 begin
-  if p is null or btrim(p) = '' then return null; end if;
-  select count(*), min(btrim(e.full_name) || ' - ' || e.employee_code) into n, r
+  if p is null or btrim(p) = '' then return; end if;
+  select count(*), min(btrim(e.full_name) || ' - ' || e.employee_code),
+         bool_or(lower(coalesce(e.status, '')) = 'left' or e.exit_date is not null)
+    into n, label, is_ex
   from public.hr_employees e where lower(btrim(e.full_name)) = lower(btrim(p));
-  if n = 1 then return r; elsif n > 1 then return null; end if;
+  if n = 1 then return; end if;
+  label := null; is_ex := null;
+  if n > 1 then return; end if;
   w := regexp_split_to_array(lower(btrim(p)), '\s+');
-  select count(*), min(btrim(e.full_name) || ' - ' || e.employee_code), min(lower(btrim(e.full_name))) into n, r, en
+  select count(*), min(btrim(e.full_name) || ' - ' || e.employee_code), min(lower(btrim(e.full_name))),
+         bool_or(lower(coalesce(e.status, '')) = 'left' or e.exit_date is not null)
+    into n, label, en, is_ex
   from public.hr_employees e where (regexp_split_to_array(lower(btrim(e.full_name)), '\s+'))[1] = w[1];
-  if n <> 1 then return null; end if;
-  if cardinality(w) = 1 or w[2:] <@ regexp_split_to_array(en, '\s+') then return r; end if;
-  return null;
+  if n = 1 and (cardinality(w) = 1 or w[2:] <@ regexp_split_to_array(en, '\s+')) then return; end if;
+  label := null; is_ex := null;
 end $$;
+
+-- '<Full Name> - <Code>' for an old employee folder (see employee_match), else null.
+create or replace function od_copy.employee_label(p text) returns text
+language sql stable security definer set search_path = '' as $$
+  select (od_copy.employee_match(p)).label
+$$;
 
 -- One row per old file: its area (longest matching area_rules prefix; root files -> '(root files)'; unknown top
 -- folders -> archive), the path segments below the area, and the old client or employee folder.
@@ -169,8 +183,18 @@ cross join lateral (select case when x.is_root then array[s.name]
 cross join lateral (select case when a.area = '3. Corporate Tax' then 2 else 1 end as ci) c
 where not s.is_folder;
 
+-- Stored per plan row by build_plan, so the report, approve() and failed_items never repeat the per-file area lookup.
+alter table od_copy.plan add column if not exists area text;
+alter table od_copy.plan add column if not exists kind text;
+create index if not exists plan_area_idx on od_copy.plan (area, status);
+-- Runs in a row that could not settle a copy (transient errors, hash not ready) and since when: the Edge Function
+-- moves a row to failed-for-review after 20 of them or 2 hours.
+alter table od_copy.plan add column if not exists deferrals int not null default 0;
+alter table od_copy.plan add column if not exists deferred_since timestamptz;
+
 -- Rebuild client_matches (keeping approved, rejected and manual rows) and every plan row still 'planned' or
--- 'skipped_duplicate'. Rows past planning (approved, copying, copied, verified, failed, rolled_back) are never changed.
+-- 'skipped_duplicate'. Rows past planning (approved, copying, copied, verified, failed, rolled_back) are never changed,
+-- except that a missing area/kind is filled in.
 create or replace function od_copy.build_plan() returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -214,8 +238,9 @@ begin
     select d.first_sub, od_copy.folder_for(d.first_sub) as folder
     from (select distinct i.first_sub from pg_temp.od_items i where i.kind = 'client' and i.first_sub is not null) d),
   el as (
-    select d.client_folder, od_copy.employee_label(d.client_folder) as label
-    from (select distinct i.client_folder from pg_temp.od_items i where i.kind = 'employees' and i.client_folder is not null) d),
+    select d.client_folder, x.label, x.is_ex
+    from (select distinct i.client_folder from pg_temp.od_items i where i.kind = 'employees' and i.client_folder is not null) d
+    cross join lateral od_copy.employee_match(d.client_folder) x),
   m as (
     select i.*, cm.client_id as mclient, cl.legal_name, coalesce(fo.folder, 'OTHERS') as folder,
       (i.kind = 'client' and cm.status in ('auto', 'approved') and cm.client_id is not null and cl.legal_name is not null) as matched,
@@ -225,7 +250,7 @@ begin
     left join public.client_master cl on cl.client_id = cm.client_id
     left join fo on i.kind = 'client' and fo.first_sub = i.first_sub),
   t as (
-    select m.item_id, m.path, m.parent_path, m.size, m.quickxor_hash, m.modified_at, m.matched,
+    select m.item_id, m.path, m.parent_path, m.size, m.quickxor_hash, m.modified_at, m.matched, m.area, m.kind,
       case when m.matched then m.mclient end as client_id,
       case when m.employment_list then 'HR' else m.department end as department,
       case
@@ -237,6 +262,7 @@ begin
         when m.kind = 'employees' then case
           when m.client_folder is null then array[m.department, '00 Unmatched'] || m.segs
           when lower(btrim(m.client_folder)) = 'ex employees' then array[m.department, '00 EX EMPLOYEES'] || m.sub_segs
+          when e.label is not null and e.is_ex then array[m.department, '00 EX EMPLOYEES', e.label, 'OTHERS'] || m.sub_segs
           when e.label is not null then array[m.department, e.label, 'OTHERS'] || m.sub_segs
           else array[m.department, '00 Unmatched'] || m.segs end
         else string_to_array(m.target_prefix, '/') || m.segs
@@ -249,6 +275,7 @@ begin
         when m.employment_list then 4
         when m.kind = 'employees' then case
           when m.client_folder is null or lower(btrim(m.client_folder)) = 'ex employees' then 2
+          when e.label is not null and e.is_ex then 4
           else 3 end
         else cardinality(string_to_array(m.target_prefix, '/'))
       end as protected
@@ -265,18 +292,27 @@ begin
                    t.matched desc, t.modified_at desc nulls last, length(t.parent_path), t.item_id)
       end as keeper
     from t left join od_copy.plan p on p.source_item_id = t.item_id)
-  insert into od_copy.plan as p (source_item_id, source_path, target_path, department, client_id, status, duplicate_of, updated_at)
+  insert into od_copy.plan as p (source_item_id, source_path, target_path, department, client_id, status, duplicate_of,
+    area, kind, updated_at)
   select k.item_id, k.path, od_copy.fit_path(k.parts, k.protected), k.department, k.client_id,
     case when k.keeper is null or k.keeper = k.item_id then 'planned' else 'skipped_duplicate' end,
     case when k.keeper <> k.item_id then k.keeper end,
+    k.area, k.kind,
     now()
   from k
   on conflict (source_item_id) do update set
     source_path = excluded.source_path, target_path = excluded.target_path, department = excluded.department,
-    client_id = excluded.client_id, status = excluded.status, duplicate_of = excluded.duplicate_of, updated_at = now()
+    client_id = excluded.client_id, status = excluded.status, duplicate_of = excluded.duplicate_of,
+    area = excluded.area, kind = excluded.kind, updated_at = now()
   where (p.status is null or p.status in ('planned', 'skipped_duplicate'))
-    and (p.source_path, p.target_path, p.department, p.client_id, p.status, p.duplicate_of)
-        is distinct from (excluded.source_path, excluded.target_path, excluded.department, excluded.client_id, excluded.status, excluded.duplicate_of);
+    and (p.source_path, p.target_path, p.department, p.client_id, p.status, p.duplicate_of, p.area, p.kind)
+        is distinct from (excluded.source_path, excluded.target_path, excluded.department, excluded.client_id, excluded.status,
+                          excluded.duplicate_of, excluded.area, excluded.kind);
+
+  -- Rows past planning made before area/kind were stored: fill them in once (their other columns stay as they are).
+  update od_copy.plan p set area = i.area, kind = i.kind
+  from pg_temp.od_items i
+  where i.item_id = p.source_item_id and (p.area is null or p.kind is null);
 
   select jsonb_build_object(
     'files', (select count(*) from od_copy.source_items s where not s.is_folder),
@@ -307,15 +343,14 @@ begin
   if p_scope = 'client' and p_client_id is null then
     raise exception 'approve: scope client needs p_client_id';
   end if;
+  -- Area and kind as stored by build_plan (no per-file area lookup).
   update od_copy.plan p set status = 'approved', updated_at = now()
-  from od_copy.item_map i
-  where i.item_id = p.source_item_id
-    and p.status = 'planned'
-    and (p_area is null or i.area = p_area)
+  where p.status = 'planned'
+    and (p_area is null or p.area = p_area)
     and case p_scope
-          when 'all' then i.kind <> 'client' or p.client_id is not null
+          when 'all' then coalesce(p.kind, '') <> 'client' or p.client_id is not null
           when 'client' then p.client_id = p_client_id
-          else i.kind = 'client' and p.client_id is null
+          else p.kind = 'client' and p.client_id is null
         end;
   get diagnostics n = row_count;
   insert into od_copy.operations (action, result, detail)
@@ -335,9 +370,13 @@ alter table od_copy.plan add column if not exists hash_checked boolean;
 -- by touching updated_at. Returns the plan columns plus the source file's size and quickXorHash (for verification).
 create index if not exists plan_claim_idx on od_copy.plan (status, attempts, source_item_id);
 
-create or replace function od_copy.claim(p_status text, p_limit int, p_lease_seconds int default 150)
+-- Also returns the source's modified time at listing (to tell a changed source from a bad copy) and the deferral
+-- counters. The return type changed, so the old function is dropped first.
+drop function if exists od_copy.claim(text, int, int);
+create function od_copy.claim(p_status text, p_limit int, p_lease_seconds int default 150)
 returns table (source_item_id text, source_path text, target_path text, department text, client_id text, status text,
-  dest_item_id text, monitor_url text, attempts int, error text, size bigint, quickxor_hash text)
+  dest_item_id text, monitor_url text, attempts int, error text, size bigint, quickxor_hash text,
+  modified_at timestamptz, deferrals int, deferred_since timestamptz)
 language plpgsql security definer set search_path = '' as $$
 #variable_conflict use_column
 declare
@@ -357,7 +396,7 @@ begin
     from c, od_copy.source_items s
     where p.source_item_id = c.id and s.item_id = p.source_item_id
     returning p.source_item_id, p.source_path, p.target_path, p.department, p.client_id, p.status,
-      p.dest_item_id, p.monitor_url, p.attempts, p.error, s.size, s.quickxor_hash;
+      p.dest_item_id, p.monitor_url, p.attempts, p.error, s.size, s.quickxor_hash, s.modified_at, p.deferrals, p.deferred_since;
   elsif p_status = 'copying' then
     return query
     with c as (
@@ -370,7 +409,7 @@ begin
     from c, od_copy.source_items s
     where p.source_item_id = c.id and s.item_id = p.source_item_id
     returning p.source_item_id, p.source_path, p.target_path, p.department, p.client_id, p.status,
-      p.dest_item_id, p.monitor_url, p.attempts, p.error, s.size, s.quickxor_hash;
+      p.dest_item_id, p.monitor_url, p.attempts, p.error, s.size, s.quickxor_hash, s.modified_at, p.deferrals, p.deferred_since;
   else
     raise exception 'od_copy.claim: status must be approved or copying, not %', p_status;
   end if;
@@ -401,29 +440,75 @@ language sql stable security definer set search_path = '' as $$
   limit greatest(coalesce(p_limit, 50), 0)
 $$;
 
--- One row per old area for the CRM screen.
+-- One row per old area for the CRM screen. Reads the area and kind build_plan stored on each plan row (one pass over
+-- plan, no per-file area lookup). planned_matched / planned_unmatched: what 'Approve matched and fixed' and
+-- 'Approve unmatched' would approve, with their size, for the panel's confirm dialog.
 create or replace view od_copy.report with (security_invoker = true) as
-select i.area,
+select coalesce(p.area, '(not planned yet)') as area,
   count(*) as files,
-  round(coalesce(sum(i.size), 0) / 1073741824.0, 3) as gb,
+  round(coalesce(sum(s.size), 0) / 1073741824.0, 3) as gb,
   count(*) filter (where p.status = 'skipped_duplicate') as duplicates,
   count(*) filter (where p.status = 'planned') as planned,
   count(*) filter (where p.status = 'approved') as approved,
   count(*) filter (where p.status = 'verified') as verified,
   count(*) filter (where p.status = 'failed') as failed,
-  count(*) filter (where p.status = 'verified' and p.hash_checked is false) as verified_size_only
-from od_copy.item_map i
-left join od_copy.plan p on p.source_item_id = i.item_id
-group by i.area;
+  count(*) filter (where p.status = 'verified' and p.hash_checked is false) as verified_size_only,
+  count(*) filter (where p.status = 'planned' and (coalesce(p.kind, '') <> 'client' or p.client_id is not null)) as planned_matched,
+  round(coalesce(sum(s.size) filter (where p.status = 'planned' and (coalesce(p.kind, '') <> 'client' or p.client_id is not null)), 0)
+    / 1073741824.0, 3) as planned_matched_gb,
+  count(*) filter (where p.status = 'planned' and p.kind = 'client' and p.client_id is null) as planned_unmatched,
+  round(coalesce(sum(s.size) filter (where p.status = 'planned' and p.kind = 'client' and p.client_id is null), 0)
+    / 1073741824.0, 3) as planned_unmatched_gb
+from od_copy.plan p
+join od_copy.source_items s on s.item_id = p.source_item_id
+group by coalesce(p.area, '(not planned yet)');
 
 -- CRM screen support (Task 5). Admins and the CEO only (od_copy.can_read()); the screen cannot reach approve() itself.
 alter table od_copy.settings add column if not exists stage_before_pause text;
 create index if not exists plan_duplicate_of_idx on od_copy.plan (duplicate_of) where duplicate_of is not null;
 
+-- Run lock: one Edge Function run at a time (cron posts every minute, a run takes up to 120 s). try_lock claims
+-- settings.running_until atomically and returns a token, or null while another run holds an unexpired lock. A run
+-- that dies keeps the lock only until running_until. save_delta_link writes only while the token still holds the
+-- lock, so a run that outlived its lock can never move the delta link backwards. Service role only.
+alter table od_copy.settings add column if not exists running_until timestamptz;
+alter table od_copy.settings add column if not exists run_token uuid;
+
+create or replace function od_copy.try_lock(p_seconds int default 150) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare
+  t uuid := gen_random_uuid();
+begin
+  update od_copy.settings
+     set running_until = clock_timestamp() + make_interval(secs => greatest(coalesce(p_seconds, 150), 1)), run_token = t
+   where id and (running_until is null or running_until < clock_timestamp());
+  if not found then return null; end if;
+  return t;
+end $$;
+
+create or replace function od_copy.unlock(p_token uuid) returns boolean
+language plpgsql security definer set search_path = '' as $$
+begin
+  update od_copy.settings set running_until = null, run_token = null where id and run_token = p_token;
+  return found;
+end $$;
+
+create or replace function od_copy.save_delta_link(p_token uuid, p_link text) returns boolean
+language plpgsql security definer set search_path = '' as $$
+begin
+  update od_copy.settings set delta_link = p_link
+   where id and run_token = p_token and running_until > clock_timestamp();
+  return found;
+end $$;
+
 -- Stage changes from the screen. 'resume' goes back to the stage that was paused. Every change is conditional on the
 -- stage it expects, so a stage the Edge Function moved meanwhile wins. Returns the new stage.
---   inventory: idle -> inventory | paused: inventory/plan/approved/copying -> paused (remembers where from)
---   resume: paused -> remembered stage | rollback: done/paused -> rollback, only with settings.rollback_scope set
+--   inventory: idle -> inventory
+--   paused: inventory/planning/plan/approved/copying -> paused (remembers where from); rollback -> paused stops a
+--     rollback and keeps the stage from before the rollback
+--   resume: paused -> remembered stage (also 'done' after a rollback)
+--   rollback: done/paused -> rollback, only with settings.rollback_scope set; remembers the stage before it (done, or
+--     what the pause remembered), so Resume works after the rollback pauses itself
 create or replace function od_copy.set_stage(p_stage text) returns text
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -437,14 +522,18 @@ begin
     update od_copy.settings set stage = 'inventory' where id and stage = 'idle' returning stage into new_stage;
   elsif p_stage = 'paused' then
     select stage into old_stage from od_copy.settings where id;
-    update od_copy.settings set stage = 'paused', stage_before_pause = old_stage
-      where id and stage = old_stage and stage in ('inventory', 'plan', 'approved', 'copying') returning stage into new_stage;
+    update od_copy.settings
+       set stage = 'paused', stage_before_pause = case when old_stage = 'rollback' then stage_before_pause else old_stage end
+     where id and stage = old_stage and stage in ('inventory', 'planning', 'plan', 'approved', 'copying', 'rollback')
+     returning stage into new_stage;
   elsif p_stage = 'resume' then
     update od_copy.settings set stage = stage_before_pause, stage_before_pause = null
-      where id and stage = 'paused' and stage_before_pause in ('inventory', 'plan', 'approved', 'copying') returning stage into new_stage;
+      where id and stage = 'paused' and stage_before_pause in ('inventory', 'planning', 'plan', 'approved', 'copying', 'done')
+      returning stage into new_stage;
   elsif p_stage = 'rollback' then
-    update od_copy.settings set stage = 'rollback', stage_before_pause = null
-      where id and stage in ('done', 'paused') and rollback_scope is not null returning stage into new_stage;
+    update od_copy.settings
+       set stage = 'rollback', stage_before_pause = case when stage = 'done' then 'done' else coalesce(stage_before_pause, 'done') end
+     where id and stage in ('done', 'paused') and rollback_scope is not null returning stage into new_stage;
   else
     raise exception 'set_stage: stage must be inventory, paused, resume or rollback, not %', coalesce(p_stage, 'null');
   end if;
@@ -456,9 +545,13 @@ begin
   return new_stage;
 end $$;
 
--- Approval from the screen: approve() for 'all' or 'unmatched' (never the single-client pilot), then plan -> approved
--- (or done -> approved when more is approved after a finished run). Returns the number of rows approved.
-create or replace function od_copy.admin_approve(p_scope text default 'all', p_area text default null)
+-- Approval from the screen, then plan -> approved (or done -> approved when more is approved after a finished run).
+--   admin_approve('client', '<client_id>'): the pilot, one client's planned rows.
+--   admin_approve('all' | 'unmatched', '<area>' or null): bulk, optionally one old area. Refused until at least one
+--     copy is verified, so a dry run cannot become a full copy before a pilot was checked.
+-- Returns the number of rows approved. The parameter was renamed (p_area -> p_value), so the old function is dropped.
+drop function if exists od_copy.admin_approve(text, text);
+create function od_copy.admin_approve(p_scope text default 'all', p_value text default null)
 returns int
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -467,10 +560,20 @@ begin
   if not od_copy.can_read() then
     raise exception 'Only admins and the CEO can approve the copy.' using errcode = '42501';
   end if;
-  if p_scope is null or p_scope not in ('all', 'unmatched') then
-    raise exception 'admin_approve: scope must be all or unmatched, not %', coalesce(p_scope, 'null');
+  if p_scope is null or p_scope not in ('all', 'unmatched', 'client') then
+    raise exception 'admin_approve: scope must be client, all or unmatched, not %', coalesce(p_scope, 'null');
   end if;
-  n := od_copy.approve(p_scope, p_area, null);
+  if p_scope = 'client' then
+    if p_value is null or btrim(p_value) = '' then
+      raise exception 'admin_approve: the client pilot needs a client id';
+    end if;
+    n := od_copy.approve('client', null, btrim(p_value));
+  else
+    if not exists (select 1 from od_copy.plan where status = 'verified') then
+      raise exception 'Copy one client first (pilot) and check it in OneDrive before approving in bulk.';
+    end if;
+    n := od_copy.approve(p_scope, p_value, null);
+  end if;
   if n > 0 then
     update od_copy.settings set stage = 'approved' where id and stage in ('plan', 'done');
   end if;
@@ -478,20 +581,34 @@ begin
 end $$;
 
 -- Rows that need a person (status failed). duplicates_not_copied: files skipped as duplicates of this one, so they
--- are not in the destination either until the keeper is fixed.
+-- are not in the destination either until the keeper is fixed. dest_item_id: a copy the job made but could not
+-- verify (mismatch, unsettled), to check in OneDrive before any retry.
 create or replace view od_copy.failed_items with (security_invoker = true) as
 select p.source_item_id,
   coalesce(p.source_path, p.target_path) as path,
   p.target_path, p.attempts, p.error, p.updated_at,
-  (select count(*) from od_copy.plan d where d.duplicate_of = p.source_item_id and d.status = 'skipped_duplicate') as duplicates_not_copied
+  (select count(*) from od_copy.plan d where d.duplicate_of = p.source_item_id and d.status = 'skipped_duplicate') as duplicates_not_copied,
+  p.dest_item_id,
+  p.area
 from od_copy.plan p
 where p.status = 'failed';
 
+-- Duplicate groups for the screen: the kept file and every skipped location (same size and quickXorHash).
+create or replace view od_copy.duplicate_groups with (security_invoker = true) as
+select k.source_item_id as keeper_id, k.source_path as keeper_path, k.status as keeper_status,
+  count(*) as copies_skipped,
+  array_agg(d.source_path order by d.source_path) as skipped_paths
+from od_copy.plan d
+join od_copy.plan k on k.source_item_id = d.duplicate_of
+where d.status = 'skipped_duplicate'
+group by k.source_item_id, k.source_path, k.status;
+
 do $$ declare f text; begin
   foreach f in array array['od_copy.normalize_name(text)', 'od_copy.legal_form(text)', 'od_copy.cap_segment(text,int)',
-    'od_copy.clean_segment(text)', 'od_copy.fit_path(text[],int)', 'od_copy.folder_for(text)', 'od_copy.employee_label(text)',
-    'od_copy.build_plan()', 'od_copy.approve(text,text,text)', 'od_copy.claim(text,int,int)',
-    'od_copy.rollback_candidates(text,text,text,int)'] loop
+    'od_copy.clean_segment(text)', 'od_copy.fit_path(text[],int)', 'od_copy.folder_for(text)', 'od_copy.employee_match(text)',
+    'od_copy.employee_label(text)', 'od_copy.build_plan()', 'od_copy.approve(text,text,text)', 'od_copy.claim(text,int,int)',
+    'od_copy.rollback_candidates(text,text,text,int)', 'od_copy.try_lock(int)', 'od_copy.unlock(uuid)',
+    'od_copy.save_delta_link(uuid,text)'] loop
     execute format('revoke all on function %s from public, anon, authenticated', f);
     execute format('grant execute on function %s to service_role', f);
   end loop;
@@ -502,10 +619,11 @@ revoke all on function od_copy.set_stage(text), od_copy.admin_approve(text, text
 grant execute on function od_copy.set_stage(text), od_copy.admin_approve(text, text) to authenticated, service_role;
 -- Ruling R13: the client profile box reads client_folders (department + web_url, no file content) for every signed-in
 -- CRM user. Everything else in od_copy stays admin/CEO only. Note: re-running 001 after 002 resets this policy; run 002 again.
+-- auth.uid() in a sub-select: evaluated once per query (initplan), not per row.
 drop policy if exists client_folders_read on od_copy.client_folders;
-create policy client_folders_read on od_copy.client_folders for select to authenticated using (auth.uid() is not null);
-revoke all on od_copy.failed_items from public, anon;
-grant select on od_copy.failed_items to authenticated, service_role;
+create policy client_folders_read on od_copy.client_folders for select to authenticated using ((select auth.uid()) is not null);
+revoke all on od_copy.failed_items, od_copy.duplicate_groups from public, anon;
+grant select on od_copy.failed_items, od_copy.duplicate_groups to authenticated, service_role;
 
 notify pgrst, 'reload schema';
 

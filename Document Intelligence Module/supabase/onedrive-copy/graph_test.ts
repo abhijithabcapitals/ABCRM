@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { Graph, GraphError, isUnderPath, pathSegments, WriteGuardError } from "./graph.ts";
+import { FolderBlockedError, Graph, GraphError, isUnderPath, pathSegments, WriteGuardError } from "./graph.ts";
 import { clearTokenCache, getToken, toB64 } from "./msauth.ts";
 
 // ---------- fake fetch ----------
@@ -123,9 +123,9 @@ Deno.test("isUnderPath respects segment boundaries and case", () => {
 });
 
 // ---------- delta ----------
-Deno.test("delta follows nextLink and yields the final deltaLink", async () => {
+Deno.test("delta lists the drive root (OneDrive for Business: delta only on the root), follows nextLink, yields the deltaLink", async () => {
   const { graph, calls } = mk((c) => {
-    if (c.url.includes("/items/SRC/delta?")) {
+    if (c.url.includes("/root/delta?")) {
       return json({ value: [{ id: "a", name: "a" }], "@odata.nextLink": "https://graph.microsoft.com/v1.0/next-page" });
     }
     if (c.url === "https://graph.microsoft.com/v1.0/next-page") {
@@ -134,7 +134,7 @@ Deno.test("delta follows nextLink and yields the final deltaLink", async () => {
     return json({}, 404);
   });
   const pages = [];
-  for await (const p of graph.delta("SRC")) pages.push(p);
+  for await (const p of graph.delta()) pages.push(p);
   assertEquals(pages.length, 2);
   assertEquals(pages[0].items.map((i) => i.id), ["a"]);
   assertEquals(pages[0].deltaLink, undefined);
@@ -143,18 +143,18 @@ Deno.test("delta follows nextLink and yields the final deltaLink", async () => {
   assertEquals(pages[1].deltaLink, "https://graph.microsoft.com/v1.0/delta-final");
   assertEquals(
     calls[0].url,
-    `${BASE}/items/SRC/delta?$select=id,name,size,file,folder,parentReference,lastModifiedDateTime,deleted`,
+    `${BASE}/root/delta?$select=id,name,size,file,folder,parentReference,lastModifiedDateTime,deleted,root`,
   );
   assertEquals(calls[0].headers.authorization, "Bearer TOKEN-XYZ");
 });
 
 Deno.test("delta resumes from a stored deltaLink and refuses foreign hosts", async () => {
   const { graph, calls } = mk(() => json({ value: [], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/d2" }));
-  for await (const _ of graph.delta("SRC", "https://graph.microsoft.com/v1.0/d1")) { /* drain */ }
+  for await (const _ of graph.delta("https://graph.microsoft.com/v1.0/d1")) { /* drain */ }
   assertEquals(calls[0].url, "https://graph.microsoft.com/v1.0/d1");
   const g2 = mk(() => json({}));
   await assertRejects(async () => {
-    for await (const _ of g2.graph.delta("SRC", "https://evil.example/steal")) { /* drain */ }
+    for await (const _ of g2.graph.delta("https://evil.example/steal")) { /* drain */ }
   });
   assertEquals(g2.calls.length, 0);
 });
@@ -194,6 +194,20 @@ Deno.test("ensureFolder reuses the existing folder on 409", async () => {
   });
   assertEquals(await graph.ensureFolder("Accounting"), "EXIST1");
   assertEquals(calls.map((c) => c.method), ["GET", "POST", "GET"]);
+});
+
+Deno.test("ensureFolder: a file in the way of a needed folder throws FolderBlockedError (not a guard stop), no names", async () => {
+  const { graph, calls } = mk((c) => {
+    if (c.method === "POST") return json({ error: { code: "nameAlreadyExists" } }, 409);
+    if (c.method === "GET" && c.url === `${BASE}/items/${ROOT_ID}:/Accounting`) {
+      return json({ id: "FILE1", name: "Accounting", file: {}, parentReference: { path: ROOT_PATH } });
+    }
+    return json({}, 404);
+  });
+  const e = await assertRejects(() => graph.ensureFolder("Accounting/Zeta Testco"), FolderBlockedError);
+  assert(!(e instanceof WriteGuardError));
+  assert(!String((e as Error).message).includes("Accounting"));
+  assertEquals(calls.filter((c) => c.method === "POST").length, 1, "nothing created below the blocked name");
 });
 
 Deno.test("ensureFolder rejects empty and dot segments before any request", async () => {

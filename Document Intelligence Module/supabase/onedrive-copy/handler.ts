@@ -1,9 +1,12 @@
 // Request handler for the onedrive-copy Edge Function. index.ts wires the real Db and Graph; tests
 // pass fakes. One run per POST: the stage in od_copy.settings decides the work; 120 s budget.
 
-import { type Db, errText, type GraphApi, runCopy, runInventory, runRollback, scopeFrom, type Settings } from "./stages.ts";
+import { type Db, errText, type GraphApi, runCopy, runInventory, runPlanning, runRollback, scopeFrom, type Settings } from "./stages.ts";
 
 export const RUN_BUDGET_MS = 120_000;
+// How long one run holds the run lock: the 120 s budget plus the tail of the last copy poll, under the 150 s
+// Edge Function limit. A run that dies keeps nobody out for longer than this.
+export const LOCK_SECONDS = 150;
 export const MAX_IN_FLIGHT = 4;
 
 export type HandlerDeps = {
@@ -33,16 +36,24 @@ export async function handle(req: Request, deps: HandlerDeps): Promise<Response>
   const now = deps.now ?? Date.now;
   const deadline = now() + RUN_BUDGET_MS;
   let db: Db | undefined;
+  let locked = false;
   let stage = "unknown";
   let result: Record<string, unknown>;
   let status = 200;
   try {
     db = deps.db();
+    // One run at a time (cron posts every minute; a run takes up to 120 s). A run without the lock does nothing and
+    // leaves the running run's result alone.
+    if (!(await db.tryLock(LOCK_SECONDS))) return json({ skipped: "locked" });
+    locked = true;
     const s = await db.getSettings();
     stage = s.stage;
     switch (s.stage) {
       case "inventory":
         result = await runInventory(await deps.graph(s), db, deadline, now);
+        break;
+      case "planning":
+        result = await runPlanning(db);
         break;
       case "approved":
       case "copying": {
@@ -60,12 +71,18 @@ export async function handle(req: Request, deps: HandlerDeps): Promise<Response>
     result = { error: errText(e) };
     status = 500;
   }
-  if (!db) return json(result, status);
+  if (!db || !locked) return json(result, status);
   try {
     await db.saveSettings({ last_run_at: new Date(now()).toISOString(), last_run_result: { stage, ...result } });
   } catch (e) {
     result = { ...result, error_saving_result: errText(e) };
     status = 500;
+  }
+  try {
+    await db.unlock();
+  } catch (e) {
+    // The lock runs out by itself after LOCK_SECONDS.
+    result = { ...result, error_unlocking: errText(e) };
   }
   return json(result, status);
 }

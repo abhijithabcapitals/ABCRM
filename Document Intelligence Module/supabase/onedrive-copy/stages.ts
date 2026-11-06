@@ -1,13 +1,14 @@
-// OneDrive copy stages: inventory (read-only delta of the source), copy + verify, rollback.
+// OneDrive copy stages: inventory (read-only delta of the drive, kept to the source folder), planning, copy + verify,
+// rollback.
 // Spec: Document Intelligence Module/docs/2026-11-06-onedrive-copy-design.md ("Stages").
 // All database access goes through Db and all OneDrive access through GraphApi, so the stages run
 // against fakes in stages_test.ts. Every OneDrive write is made by Graph, behind its write guard.
 
-import { type DriveItem, type Graph, GraphError, WriteGuardError } from "./graph.ts";
+import { type DriveItem, FolderBlockedError, type Graph, GraphError, WriteGuardError } from "./graph.ts";
 
 export type GraphApi = Pick<Graph, "delta" | "getItem" | "ensureFolder" | "startCopy" | "pollCopy" | "recycle">;
 
-export type Stage = "idle" | "inventory" | "plan" | "approved" | "copying" | "done" | "paused" | "rollback";
+export type Stage = "idle" | "inventory" | "planning" | "plan" | "approved" | "copying" | "done" | "paused" | "rollback";
 
 export type Settings = {
   drive_id: string | null;
@@ -45,8 +46,11 @@ export type PlanRow = {
   attempts: number;
   error: string | null;
   hash_checked?: boolean | null; // false: verified by size only (the source had no quickXorHash)
+  deferrals?: number; // runs in a row that could not settle this copy (transient errors, hash not ready yet)
+  deferred_since?: string | null; // when the first of those deferrals happened
   size: number;
   quickxor_hash: string | null;
+  modified_at?: string | null; // the source file's lastModifiedDateTime at listing time
 };
 
 export type Operation = {
@@ -63,6 +67,12 @@ export type ClientFolderRow = { client_id: string; department: string; dest_item
 export type RollbackScope = { area?: string; clientId?: string; all?: boolean };
 
 export interface Db {
+  // Run lock (od_copy.try_lock): true when this run now holds it for `seconds`. A run without it does nothing.
+  tryLock(seconds: number): Promise<boolean>;
+  // Releases the lock only if this run still holds it.
+  unlock(): Promise<void>;
+  // Saves the delta link only while this run still holds the lock, so a stale run never moves it backwards.
+  saveDeltaLink(link: string): Promise<boolean>;
   getSettings(): Promise<Settings>;
   saveSettings(p: Partial<Settings>): Promise<void>;
   // Stage change only from one of the expected stages, so a pause or rollback set meanwhile wins. True if changed.
@@ -79,12 +89,16 @@ export interface Db {
   // Plan rows still 'approved' or 'copying'.
   openCount(): Promise<number>;
   // Path below the source root of known source folders (for delta items that carry no path).
-  folderPaths(ids: string[]): Promise<Record<string, string>>;
+  folderPaths(ids: string[]): Promise<Record<string, string | null>>;
   // 'verified' rows with a dest_item_id inside the scope, ordered by source_item_id, after the cursor.
   rollbackCandidates(scope: RollbackScope, after: string | undefined, limit: number): Promise<PlanRow[]>;
 }
 
 export const MAX_ATTEMPTS = 5;
+// A copy that cannot be settled (transient errors, hash not ready) for more than this many runs, or for longer than
+// this, goes to failed-for-review so it stops holding an in-flight slot.
+export const MAX_DEFERRALS = 20;
+export const MAX_DEFER_MS = 2 * 3600_000;
 
 // Error text safe to store: no URLs, no bearer tokens, short.
 export function errText(e: unknown): string {
@@ -129,10 +143,13 @@ export type InventoryResult = {
   done: boolean;
   skipped: number; // outside the source folder
   unresolved: number; // parent never found: logged as 'inventory_unresolved', not stored
-  plan?: Record<string, number>;
   stage_changed?: string;
+  stopped?: string;
 };
 
+// Lists the whole drive (delta on the drive root: OneDrive for Business has no folder delta) and keeps only the items
+// below the source folder, with paths relative to it. On the last page the delta link is saved and the stage becomes
+// 'planning'; build_plan runs at the start of the next run (runPlanning), never at the end of a listing run.
 export async function runInventory(g: GraphApi, db: Db, deadline: number, now: () => number = Date.now): Promise<InventoryResult> {
   const s = await db.getSettings();
   if (!s.source_item_id) throw new Error("settings.source_item_id is not set");
@@ -141,10 +158,10 @@ export async function runInventory(g: GraphApi, db: Db, deadline: number, now: (
   if (!root.parentReference?.path) throw new Error("source folder has no path");
   const rootSegs = rawSegments(`${root.parentReference.path}/${encodeURIComponent(root.name)}`);
 
-  // Folder id -> path below the source root ("" = the root).
-  const folders = new Map<string, string>([[sourceId, ""]]);
+  // Folder id -> path below the source root ("" = the root); null = a folder outside the source.
+  const folders = new Map<string, string | null>([[sourceId, ""]]);
   const out: InventoryResult = { pages: 0, items: 0, done: false, skipped: 0, unresolved: 0 };
-  // Items whose parent is not known yet: carried to later pages, then resolved one by one.
+  // Items whose parent is not known yet: carried to later pages, then resolved through their parent folder.
   let carried: DriveItem[] = [];
 
   const underRoot = (path: string): string | null => {
@@ -154,10 +171,11 @@ export async function runInventory(g: GraphApi, db: Db, deadline: number, now: (
   };
   // Parent path below the source root; null when outside it; undefined when not yet known.
   const parentOf = (it: DriveItem): string | null | undefined => {
-    const p = it.parentReference?.path;
+    if (it.root || !it.parentReference) return null; // the drive root itself
+    const p = it.parentReference.path;
     if (p) return underRoot(p);
-    const pid = it.parentReference?.id;
-    return pid ? folders.get(pid) : undefined;
+    const pid = it.parentReference.id;
+    return pid ? folders.get(pid) : null;
   };
   const toRow = (it: DriveItem, parent: string): SourceRow => {
     if (it.folder) folders.set(it.id, parent ? `${parent}/${it.name}` : it.name);
@@ -170,6 +188,10 @@ export async function runInventory(g: GraphApi, db: Db, deadline: number, now: (
       modified_at: it.lastModifiedDateTime ?? null,
       is_folder: !!it.folder,
     };
+  };
+  const outside = (it: DriveItem) => {
+    out.skipped++;
+    if (it.folder) folders.set(it.id, null);
   };
 
   // Resolve in passes (a folder later in the list can be the parent of an earlier item); returns the rows and
@@ -192,7 +214,7 @@ export async function runInventory(g: GraphApi, db: Db, deadline: number, now: (
           continue;
         }
         progress = true;
-        if (parent === null) out.skipped++;
+        if (parent === null) outside(it);
         else rows.push(toRow(it, parent));
       }
       pending = left;
@@ -205,11 +227,29 @@ export async function runInventory(g: GraphApi, db: Db, deadline: number, now: (
     out.items += rows.length;
   };
 
-  // Before the delta link moves past them for good: ask Graph for each leftover item's own path; log what stays
-  // unknown (action 'inventory_unresolved').
+  // A folder's place from Graph (getItem gives parentReference.path): below the source, outside (null), or unknown.
+  const lookUp = async (id: string): Promise<string | null | undefined> => {
+    try {
+      const it = await g.getItem(id);
+      if (it.root) return null;
+      if (!it.parentReference?.path) return undefined;
+      return underRoot(`${it.parentReference.path}/${encodeURIComponent(it.name)}`);
+    } catch (e) {
+      if (isThrottle(e)) throw e;
+      return undefined;
+    }
+  };
+
+  // Before the delta link moves past them for good: look up each unknown parent folder once (many items share one),
+  // then, for items still unknown, the item itself; log what stays unknown (action 'inventory_unresolved').
   const settleCarried = async () => {
-    const rows: SourceRow[] = [];
-    for (const it of carried) {
+    for (const pid of new Set(carried.map((i) => i.parentReference?.id).filter((x): x is string => !!x))) {
+      if (folders.has(pid)) continue;
+      const path = await lookUp(pid);
+      if (path !== undefined) folders.set(pid, path);
+    }
+    const { rows, left } = await resolve(carried);
+    for (const it of left) {
       let parent: string | null | undefined;
       try {
         const full = await g.getItem(it.id);
@@ -218,7 +258,7 @@ export async function runInventory(g: GraphApi, db: Db, deadline: number, now: (
         if (isThrottle(e)) throw e;
         parent = undefined;
       }
-      if (parent === null) out.skipped++;
+      if (parent === null) outside(it);
       else if (parent !== undefined) rows.push(toRow(it, parent));
       else {
         out.unresolved++;
@@ -234,7 +274,13 @@ export async function runInventory(g: GraphApi, db: Db, deadline: number, now: (
     await store(rows);
   };
 
-  for await (const page of g.delta(sourceId, s.delta_link ?? undefined)) {
+  const saveLink = async (link: string): Promise<boolean> => {
+    if (await db.saveDeltaLink(link)) return true;
+    out.stopped = "run lock lost";
+    return false;
+  };
+
+  for await (const page of g.delta(s.delta_link ?? undefined)) {
     out.pages++;
     const items = page.items.filter((i) => i.id !== sourceId);
     const deleted = items.filter((i) => i.deleted).map((i) => i.id);
@@ -245,22 +291,32 @@ export async function runInventory(g: GraphApi, db: Db, deadline: number, now: (
 
     if (page.deltaLink) {
       await settleCarried();
-      await db.saveSettings({ delta_link: page.deltaLink });
-      out.plan = await db.buildPlan();
+      if (!(await saveLink(page.deltaLink))) return out;
       out.done = true;
-      if (!(await db.setStage("plan", ["inventory"]))) out.stage_changed = "stage was changed during the run; left as is";
+      if (!(await db.setStage("planning", ["inventory"]))) out.stage_changed = "stage was changed during the run; left as is";
       return out;
     }
     if (page.nextLink && now() >= deadline) {
       await settleCarried();
-      await db.saveSettings({ delta_link: page.nextLink });
+      await saveLink(page.nextLink);
       return out;
     }
     // Progress is saved every page so an interrupted run resumes from here, except while items are carried: then
     // the older link stays, so a crash lists those items again instead of losing them.
-    if (page.nextLink && carried.length === 0) await db.saveSettings({ delta_link: page.nextLink });
+    if (page.nextLink && carried.length === 0 && !(await saveLink(page.nextLink))) return out;
   }
   await settleCarried();
+  return out;
+}
+
+// ---------- planning ----------
+
+// Stage 'planning': the listing finished in the previous run. build_plan runs here, at the start of a run (the run
+// lock is held), then the stage becomes 'plan' unless someone changed it meanwhile.
+export async function runPlanning(db: Db): Promise<{ plan: Record<string, number>; stage_changed?: string }> {
+  const plan = await db.buildPlan();
+  const out: { plan: Record<string, number>; stage_changed?: string } = { plan };
+  if (!(await db.setStage("plan", ["planning"]))) out.stage_changed = "stage was changed during the run; left as is";
   return out;
 }
 
@@ -286,15 +342,16 @@ export async function runCopy(g: GraphApi, db: Db, deadline: number, maxInFlight
   const clientsDone = new Set<string>();
   let inFlight: PlanRow[] = [];
 
-  // A counted attempt (monitor said failed, verify mismatch, copy POST failed): retried until MAX_ATTEMPTS.
-  const fail = async (r: PlanRow, error: string, destId?: string) => {
+  // A counted attempt where no copy item is known to exist (monitor said failed, copy POST failed, start not
+  // recorded): retried after the back-off until MAX_ATTEMPTS. Never used once a copy's item id is known.
+  const fail = async (r: PlanRow, error: string) => {
     const attempts = r.attempts + 1;
     const status = attempts >= MAX_ATTEMPTS ? "failed" : "approved";
-    await db.update(r.source_item_id, { status, attempts, error, monitor_url: null, dest_item_id: null });
+    await db.update(r.source_item_id, { status, attempts, error, monitor_url: null, dest_item_id: null, deferrals: 0, deferred_since: null });
     await db.log({
       action: "copy",
       source_item_id: r.source_item_id,
-      dest_item_id: destId ?? null,
+      dest_item_id: null,
       result: status === "failed" ? "failed" : "retry",
       detail: { error, attempts },
     });
@@ -302,23 +359,62 @@ export async function runCopy(g: GraphApi, db: Db, deadline: number, maxInFlight
     out.failed++;
   };
 
+  // The state cannot be learned again (monitor gone, item not found, no item id, real mismatch, stuck too long):
+  // 'failed' for a person to check the destination. Not retried automatically, because a retry could make a second
+  // copy. The copy's item id, when known, stays in dest_item_id (and in operations) so review and rollback find it.
+  const review = async (r: PlanRow, error: string, destId?: string) => {
+    const dest = destId ?? r.dest_item_id;
+    await db.update(r.source_item_id, {
+      status: "failed",
+      error: `${error}; check the destination before retrying`,
+      monitor_url: null,
+      dest_item_id: dest,
+    });
+    await db.log({ action: "copy", source_item_id: r.source_item_id, dest_item_id: dest, result: "needs_review", detail: { error } });
+    tried.add(r.source_item_id);
+    out.failed++;
+  };
+
   // The copy may exist but cannot be checked now: keep it 'copying' with its monitor (and the new item's id when
-  // known) so a later run polls or verifies again. No new copy is started, so no untracked duplicate.
+  // known) so a later run polls or verifies again. No new copy is started, so no untracked duplicate. After
+  // MAX_DEFERRALS runs or MAX_DEFER_MS it goes to review instead, so it stops holding an in-flight slot.
   const defer = async (r: PlanRow, error: string, destId?: string) => {
     const dest = destId ?? r.dest_item_id;
-    await db.update(r.source_item_id, { status: "copying", monitor_url: r.monitor_url, dest_item_id: dest, error });
-    await db.log({ action: "copy", source_item_id: r.source_item_id, dest_item_id: dest, result: "deferred", detail: { error } });
+    const deferrals = (r.deferrals ?? 0) + 1;
+    const since = r.deferred_since ?? new Date(now()).toISOString();
+    if (deferrals > MAX_DEFERRALS || now() - Date.parse(since) > MAX_DEFER_MS) {
+      return await review(r, `copy still unsettled after ${deferrals - 1} runs (${error})`, dest ?? undefined);
+    }
+    await db.update(r.source_item_id, { status: "copying", monitor_url: r.monitor_url, dest_item_id: dest, error, deferrals, deferred_since: since });
+    await db.log({ action: "copy", source_item_id: r.source_item_id, dest_item_id: dest, result: "deferred", detail: { error, deferrals } });
     tried.add(r.source_item_id);
     out.deferred++;
   };
 
-  // The state cannot be learned again (monitor gone, item not found, no item id): 'failed' for a person to check
-  // the destination. Not retried automatically, because a retry could make a second copy.
-  const review = async (r: PlanRow, error: string, destId?: string) => {
-    await db.update(r.source_item_id, { status: "failed", error: `${error}; check the destination before retrying`, monitor_url: null });
-    await db.log({ action: "copy", source_item_id: r.source_item_id, dest_item_id: destId ?? r.dest_item_id, result: "needs_review", detail: { error } });
-    tried.add(r.source_item_id);
-    out.failed++;
+  // Size or hash of the copy differs from the listing. Re-read the source: changed since the listing (or gone) means
+  // the plan is stale; unchanged means the copy itself is wrong. Either way a person decides: no automatic re-copy.
+  const mismatch = async (r: PlanRow, destId: string) => {
+    let changed: boolean;
+    try {
+      const src = await g.getItem(r.source_item_id);
+      const modified = (x: string | null | undefined) => (x ? Date.parse(x) : NaN);
+      changed = src.size !== r.size || (src.file?.hashes?.quickXorHash ?? null) !== (r.quickxor_hash ?? null) ||
+        (!!r.modified_at && !!src.lastModifiedDateTime && modified(src.lastModifiedDateTime) !== modified(r.modified_at));
+    } catch (e) {
+      if (isThrottle(e) || e instanceof WriteGuardError) {
+        await db.update(r.source_item_id, { status: "copying", monitor_url: r.monitor_url, dest_item_id: destId });
+        throw e;
+      }
+      if (!(e instanceof GraphError && e.status === 404)) return await defer(r, `source unreadable: ${errText(e)}`, destId);
+      changed = true; // the source is gone
+    }
+    await review(
+      r,
+      changed
+        ? "verify mismatch: the source changed since the listing; list again, then retry by hand"
+        : "verify mismatch: the copy differs from the unchanged source",
+      destId,
+    );
   };
 
   const recordClientFolder = async (r: PlanRow) => {
@@ -354,11 +450,19 @@ export async function runCopy(g: GraphApi, db: Db, deadline: number, maxInFlight
     const hash = item.file?.hashes?.quickXorHash ?? null;
     // With a source hash the destination must carry the same hash; without one, size only (hash_checked = false).
     const hashChecked = !!r.quickxor_hash;
-    const hashOk = hashChecked ? hash === r.quickxor_hash : true;
-    if (!item.file || item.size !== r.size || !hashOk) {
-      return await fail(r, "verify mismatch: size or quickXorHash differs from the source", destId);
-    }
-    await db.update(r.source_item_id, { status: "verified", dest_item_id: destId, monitor_url: null, error: null, hash_checked: hashChecked });
+    if (!item.file) return await review(r, "copied item is not a file", destId);
+    // OneDrive fills in the hash of a new file a little later: not a failure, check again next run.
+    if (hashChecked && !hash) return await defer(r, "the copy has no quickXorHash yet", destId);
+    if (item.size !== r.size || (hashChecked && hash !== r.quickxor_hash)) return await mismatch(r, destId);
+    await db.update(r.source_item_id, {
+      status: "verified",
+      dest_item_id: destId,
+      monitor_url: null,
+      error: null,
+      hash_checked: hashChecked,
+      deferrals: 0,
+      deferred_since: null,
+    });
     await db.log({
       action: "copy",
       source_item_id: r.source_item_id,
@@ -439,8 +543,12 @@ export async function runCopy(g: GraphApi, db: Db, deadline: number, maxInFlight
         const cut = r.target_path.lastIndexOf("/");
         if (cut <= 0) throw new Error("target path has no folder");
         const parentId = await g.ensureFolder(r.target_path.slice(0, cut));
+        // A row a person set back to 'approved' may still name an earlier copy: keep it findable in operations.
+        if (r.dest_item_id) {
+          await db.log({ action: "copy", source_item_id: r.source_item_id, dest_item_id: r.dest_item_id, result: "earlier_copy" });
+        }
         const monitor = await g.startCopy(r.source_item_id, parentId, r.target_path.slice(cut + 1));
-        await db.update(r.source_item_id, { status: "copying", monitor_url: monitor, dest_item_id: null });
+        await db.update(r.source_item_id, { status: "copying", monitor_url: monitor, dest_item_id: null, deferrals: 0, deferred_since: null });
         inFlight.push({ ...r, status: "copying", monitor_url: monitor, dest_item_id: null });
         out.started++;
         startedNow++;
@@ -453,7 +561,10 @@ export async function runCopy(g: GraphApi, db: Db, deadline: number, maxInFlight
           out.stopped = stopReason(e);
           tried.delete(r.source_item_id);
           await db.update(r.source_item_id, { status: "approved", monitor_url: null });
-        } else await fail(r, errText(e));
+        } else if (e instanceof FolderBlockedError) {
+          // A file holds the name of a folder this row needs: only this row is affected; the run goes on.
+          await review(r, errText(e));
+        } else await fail(r, errText(e)); // includes a copy POST 502/504: retried after the back-off
       }
     }
     if (inFlight.length === 0 && startedNow === 0) break;

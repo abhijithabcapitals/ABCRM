@@ -19,7 +19,7 @@ create table if not exists od_copy.settings (
   drive_id text,
   source_item_id text,
   dest_item_id text,
-  stage text not null default 'idle' check (stage in ('idle','inventory','plan','approved','copying','done','paused','rollback')),
+  stage text not null default 'idle' check (stage in ('idle','inventory','planning','plan','approved','copying','done','paused','rollback')),
   delta_link text,
   batch_size int not null default 20,
   max_in_flight int not null default 4,
@@ -28,6 +28,10 @@ create table if not exists od_copy.settings (
   rollback_scope jsonb
 );
 alter table od_copy.settings add column if not exists rollback_scope jsonb;
+-- 'planning': the listing is complete; build_plan runs at the start of the next run.
+alter table od_copy.settings drop constraint if exists settings_stage_check;
+alter table od_copy.settings add constraint settings_stage_check
+  check (stage in ('idle','inventory','planning','plan','approved','copying','done','paused','rollback'));
 insert into od_copy.settings (id) values (true) on conflict do nothing;
 
 create table if not exists od_copy.source_items (
@@ -116,12 +120,13 @@ do $$ begin
   end if;
 end $$;
 
--- Row Level Security: select for admins and CEO, writes for service_role only.
+-- Row Level Security: select for admins and CEO, writes for service_role only. The check is wrapped in a sub-select
+-- so PostgreSQL evaluates it once per query (initplan), not once per row.
 do $$ declare t text; begin
   foreach t in array array['settings','source_items','area_rules','folder_rules','client_matches','plan','client_folders','operations'] loop
     execute format('alter table od_copy.%I enable row level security', t);
     execute format('drop policy if exists %I on od_copy.%I', t || '_read', t);
-    execute format('create policy %I on od_copy.%I for select to authenticated using (od_copy.can_read())', t || '_read', t);
+    execute format('create policy %I on od_copy.%I for select to authenticated using ((select od_copy.can_read()))', t || '_read', t);
     execute format('drop policy if exists %I on od_copy.%I', t || '_service', t);
     execute format('create policy %I on od_copy.%I for all to service_role using (true) with check (true)', t || '_service', t);
     execute format('revoke all on od_copy.%I from public, anon, authenticated', t);

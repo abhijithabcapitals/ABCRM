@@ -46,7 +46,7 @@ update od_copy.settings set stage = 'done', rollback_scope = '{"all": true}'::js
 set role authenticated;
 select set_config('test.uid', '00000000-0000-0000-0000-0000000000a1', false);
 select pg_temp.check('done -> rollback with a scope', od_copy.set_stage('rollback') = 'rollback' and pg_temp.stage() = 'rollback');
-select pg_temp.rejects('pause during rollback refused', $$select od_copy.set_stage('paused')$$);
+select pg_temp.check('pause stops a rollback', od_copy.set_stage('paused') = 'paused');
 reset role;
 update od_copy.settings set stage = 'paused', stage_before_pause = null;
 set role authenticated;
@@ -74,7 +74,7 @@ select pg_temp.check('failed_items counts skipped duplicates of a failed keeper'
 select pg_temp.check('failed_items shows the path and the error',
   (select path = 'Stage Test/a.pdf' and error = 'copy failed: invented' from od_copy.failed_items where source_item_id = 'st-1'));
 select pg_temp.rejects('admin_approve rejects a bad scope', $$select od_copy.admin_approve('everything')$$);
-select pg_temp.rejects('admin_approve cannot do the client pilot', $$select od_copy.admin_approve('client')$$);
+select pg_temp.rejects('admin_approve client pilot needs a client id', $$select od_copy.admin_approve('client')$$);
 reset role;
 update od_copy.settings set stage = 'plan', rollback_scope = null;
 set role authenticated;

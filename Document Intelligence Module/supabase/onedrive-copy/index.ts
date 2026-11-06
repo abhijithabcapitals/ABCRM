@@ -15,7 +15,7 @@ import type { ClientFolderRow, Db, Operation, PlanRow, RollbackScope, Settings, 
 const DEST_ROOT_PATH = "CRM AB CAPITAL";
 const CHUNK = 500;
 const ID_CHUNK = 100;
-const PLAN_COLUMNS = ["status", "dest_item_id", "monitor_url", "attempts", "error", "hash_checked"] as const;
+const PLAN_COLUMNS = ["status", "dest_item_id", "monitor_url", "attempts", "error", "hash_checked", "deferrals", "deferred_since"] as const;
 
 function env(name: string): string {
   const v = Deno.env.get(name);
@@ -37,8 +37,27 @@ function check<T>(r: { data: T; error: { message: string; code?: string } | null
 
 export class SupabaseDb implements Db {
   private readonly sb: SupabaseClient;
+  private lockToken: string | null = null;
   constructor(url: string, serviceKey: string, private readonly dbUrl: string) {
     this.sb = createClient(url, serviceKey, { db: { schema: "od_copy" }, auth: { persistSession: false, autoRefreshToken: false } });
+  }
+
+  // od_copy.try_lock claims settings.running_until atomically and returns a token (null while another run holds it).
+  async tryLock(seconds: number): Promise<boolean> {
+    const token = check(await this.sb.rpc("try_lock", { p_seconds: seconds }), "take run lock") as string | null;
+    this.lockToken = token ?? null;
+    return !!token;
+  }
+
+  async unlock(): Promise<void> {
+    if (!this.lockToken) return;
+    check(await this.sb.rpc("unlock", { p_token: this.lockToken }), "release run lock");
+    this.lockToken = null;
+  }
+
+  async saveDeltaLink(link: string): Promise<boolean> {
+    if (!this.lockToken) return false;
+    return check(await this.sb.rpc("save_delta_link", { p_token: this.lockToken, p_link: link }), "save delta link") === true;
   }
 
   async getSettings(): Promise<Settings> {
@@ -123,8 +142,8 @@ export class SupabaseDb implements Db {
     return r.count ?? 0;
   }
 
-  async folderPaths(ids: string[]): Promise<Record<string, string>> {
-    const out: Record<string, string> = {};
+  async folderPaths(ids: string[]): Promise<Record<string, string | null>> {
+    const out: Record<string, string | null> = {};
     for (const part of chunks(ids, ID_CHUNK)) {
       const rows = check(
         await this.sb.from("source_items").select("item_id,parent_path,name").in("item_id", part).eq("is_folder", true),
