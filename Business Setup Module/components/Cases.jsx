@@ -1,12 +1,17 @@
 // Pipeline: one row per case at Pipeline (later cases show under Completion and Clients). An unowned case can be taken; a manager can assign or reassign any open case.
-// A service's own detail stays on the client's Services tab for now.
+// Opening a case lists its services with progress and the tracker's actions; a service opens its own page with its checklist (022).
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, useAction, useLoad } from "@banking/components/shared";
+import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, useAction, useLoad } from "@banking/components/shared";
 import { ReassignActions } from "./CaseActions";
 import { useSetup } from "./SetupContext";
 import { caseAssign, caseList, caseTake, workspace } from "../services/businessSetupApi";
 import { caseWorkspace } from "../logic/caseWorkspace";
-import { STAGE_TONE, statusTone } from "../logic/statuses";
+import { STAGE_TONE } from "../logic/statuses";
+import { caseBalance, nextDue, progressLabel } from "../logic/progress";
+import Services from "./workspace/Services";
+import ServicePage from "./ServicePage";
+
+const money = (n) => (n == null ? "–" : Number(n).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 export default function Cases() {
   const { can, personOptions } = useSetup();
@@ -25,6 +30,10 @@ export default function Cases() {
           { key: "case_number", label: "Case" }, { key: "client_name", label: "Client", render: (c) => c.client_name || c.lead_name || "–" },
           { key: "stage", label: "Stage", render: (c) => <Badge tone={STAGE_TONE[c.stage]}>{c.stage}</Badge> },
           { key: "owner_name", label: "Owner", render: (c) => c.owner_name || "–" },
+          { key: "services", label: "Services", render: (c) => (c.services || []).map((s) => `${s.name} ${progressLabel(s)}`).join(", ") || "–" },
+          { key: "next_due", label: "Next due", render: (c) => fmtDate(nextDue(c)) },
+          { key: "holds", label: "Holds", render: (c) => { const n = (c.services || []).filter((s) => /^Waiting/.test(s.status)).length; return n ? <Badge tone="warn">{n} waiting</Badge> : ""; } },
+          { key: "balance", label: "Balance (AED)", right: true, render: (c) => money(caseBalance(c)) },
           { key: "x", label: "", render: (c) => (
             <span className="bk-actions bk-wrap" onClick={(e) => e.stopPropagation()}>
               <ReassignActions c={c} onChanged={list.reload} />
@@ -44,8 +53,11 @@ export default function Cases() {
 function CaseDetail({ c, onBack }) {
   const { goTo } = useSetup();
   const ws = useLoad(() => (c.client_id ? workspace(c.client_id) : Promise.resolve(null)), [c.client_id]);
+  const [service, setService] = useState(null);
   const w = ws.data ? caseWorkspace(ws.data, c.id) : null;
   const done = (w?.services || []).filter((s) => ["Completed", "Cancelled"].includes(s.status)).length;
+  const progress = Object.fromEntries((c.services || []).map((s) => [s.id, s.progress]));
+  if (service) return <ServicePage serviceId={service} clientId={c.client_id} onBack={() => { setService(null); ws.reload(); }} />;
   return (
     <div>
       <PageHead title={`${c.case_number || "Case"} · ${c.client_name || c.lead_name || ""}`} sub={`${c.stage || ""}${c.owner_name ? ` · ${c.owner_name}` : ""}`}>
@@ -54,9 +66,7 @@ function CaseDetail({ c, onBack }) {
       </PageHead>
       <ErrorNote message={ws.error} />
       <Panel title="Services" sub={w ? `${done} of ${w.services.length} closed` : undefined}>
-        {ws.loading && !w ? <Spinner /> : (
-          <DataTable rows={w?.services || []} empty="No services yet." columns={[{ key: "name", label: "Service" }, { key: "action", label: "Action" }, { key: "status", label: "Status", render: (s) => <Badge tone={statusTone(s.status)}>{s.status}</Badge> }]} />
-        )}
+        {ws.loading && !w ? <Spinner /> : w ? <Services w={w} clientId={c.client_id} reload={ws.reload} progress={progress} onOpen={(s) => setService(s.id)} /> : <p className="bk-muted">No services yet.</p>}
       </Panel>
     </div>
   );

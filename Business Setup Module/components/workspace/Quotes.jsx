@@ -134,7 +134,7 @@ function SignedCopy({ q, clientId, manage, after, setError }) {
     <div className="bk-mt">
       <strong>Signed copy</strong>
       <ErrorNote message={list.error || error} onClose={error ? () => setActionError(null) : undefined} />
-      {!rows.length && <p className="bk-note">None yet. The client can upload it in the portal, or add the signed file here.</p>}
+      {!rows.length && <p className="bk-note">None yet. The client can accept in the portal, or add a signed file here.</p>}
       <ul className="bk-list">{rows.map((s) => (
         <li key={s.id}>{s.source} · {fmtDate(s.created_at)} <Badge tone={s.status === "Confirmed" ? "good" : s.status === "Refused" ? "bad" : "warn"}>{s.status === "Uploaded" ? "Waiting for review" : s.status}</Badge>
           {s.note && <> · {s.note}</>} {s.storage_path && manage && <Button onClick={() => open(s)}>Open</Button>}

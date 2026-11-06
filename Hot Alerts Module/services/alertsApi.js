@@ -36,3 +36,31 @@ export const alertSetMode = (s, mode) => call(s, "alert_set_mode", { p_mode: mod
 export const alertScanNow = (s) => call(s, "alert_scan_now", {});
 export const alertRuleList = (s) => call(s, "alert_rule_list", {});
 export const alertManagerList = (s) => call(s, "alert_manager_list", {});
+
+// Compliance register (006). Rows carry `reference`: show it on the register screen and client detail only.
+export const clientComplianceList = (s, client = null, type = null, status = "Active", limit = 100, offset = 0) =>
+  call(s, "client_compliance_list", { p_client: client, p_type: type, p_status: status, p_limit: limit, p_offset: offset });
+export const clientComplianceSave = (s, p) => call(s, "client_compliance_save", { p });
+export const clientComplianceClose = (s, id, reason) => call(s, "client_compliance_close", { p_id: id, p_reason: reason });
+export const clientComplianceImport = (s, rows) => call(s, "client_compliance_import", { p_rows: rows });
+
+// Preferences (007): the signed-in person's own.
+export const alertPreferencesGet = (s) => call(s, "alert_preferences_get", {});
+export const alertPreferencesSave = (s, category, channel, enabled) => call(s, "alert_preferences_save", { p_category: category, p_channel: channel, p_enabled: enabled });
+export const alertCalendar = (s, from, to) => call(s, "alert_calendar", { p_from: from, p_to: to });
+
+// Regulatory Updates Centre (010).
+export const regulatoryList = (s, status = null, limit = 50, offset = 0) => call(s, "regulatory_list", { p_status: status, p_limit: limit, p_offset: offset });
+export const regulatoryDetail = (s, id) => call(s, "regulatory_detail", { p_id: id });
+export const regulatorySave = (s, p) => call(s, "regulatory_update_save", { p });
+export const regulatoryStartReview = (s, id) => call(s, "regulatory_start_review", { p_id: id });
+export const regulatoryProposeList = (s, id) => call(s, "regulatory_propose_list", { p_id: id });
+export const regulatoryDecideClient = (s, id, client, decision) => call(s, "regulatory_decide_client", { p_id: id, p_client: client, p_decision: decision });
+export const regulatoryVerify = (s, id) => call(s, "regulatory_verify", { p_id: id });
+export const regulatoryCreateTasks = (s, id) => call(s, "regulatory_create_tasks", { p_id: id });
+
+// Contact log, document requests and items logged by hand (011). These record what a person did: nothing is sent.
+export const clientContactLog = (s, p) => call(s, "client_contact_log", { p });
+export const clientDocumentRequest = (s, p) => call(s, "client_document_request", { p });
+export const alertManualTypes = (s) => call(s, "alert_manual_types", {});
+export const alertManualRaise = (s, type, client, detail, due) => call(s, "alert_manual_raise", { p_type: type, p_client: client, p_detail: detail || null, p_due: due || null });

@@ -1,5 +1,5 @@
 -- Undoes migrations/024_portal_file_names.sql. business_setup_portal_file goes back to 010 (every quote and letter named .docx) and
--- business_setup_portal_view to 018 (an undecided multi-option proposal is listed again, with Option 1's total). Both texts are copied
+-- business_setup_portal_view to 022 (an undecided multi-option proposal is listed again, with Option 1's total). Both texts are copied
 -- from those migrations unchanged, with their grants: service role only. No data is touched.
 begin;
 create or replace function public.business_setup_portal_file(p_account uuid, p_kind text, p_id uuid) returns jsonb
@@ -37,7 +37,8 @@ begin
   return jsonb_build_object(
     'form', business_setup_form_get(p_account),
     'details', client_portal_me(p_account) -> 'record',
-    'services', (select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'action', s.action, 'status', s.status, 'started_at', s.started_at,
+    'services', (select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'action', s.action, 'status', s.status, 'progress', business_setup_service_progress(s.id),
+             'items', (select coalesce(jsonb_agg(jsonb_build_object('label', x.label, 'status', x.status) order by x.sort_order), '[]'::jsonb) from business_setup_service_checkpoints x where x.service_id = s.id), 'started_at', s.started_at,
                     'completed_at', s.completed_at, 'expiry_date', s.expiry_date) order by s.created_at desc), '[]'::jsonb)
                    from business_setup_services s where s.client_id = v_client and not s.historical),
     'quotes', (select coalesce(jsonb_agg(jsonb_build_object('id', q.id, 'number', q.document_number, 'date', q.created_at::date, 'status', q.status, 'total', q.total_amount,

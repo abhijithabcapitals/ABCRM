@@ -55,7 +55,7 @@ export async function loadProposalImages(proposal) {
 }
 
 // Puts the Word and PDF into the proposal's office folder through the Client Module on this PC.
-// Returns the folder path, or null when the module is off or errors.
+// Returns the saved Word file's path, or null when the module is off or errors.
 export async function saveProposalFolder(doc, wordBlob, pdfBlob) {
   try {
     const name = fileNameFor(doc.document_number, doc.client_name);
@@ -64,6 +64,7 @@ export async function saveProposalFolder(doc, wordBlob, pdfBlob) {
     form.append("pdf", new File([pdfBlob], name.replace(/\.docx$/i, ".pdf"), { type: "application/pdf" }));
     form.append("client", doc.client_name || "");
     form.append("client_id", doc.client_id || "");
+    form.append("department", "Business Setup"); // the route is shared with Accounting, which is its default
     const res = await fetch(`${CLIENT_MODULE_URL}/api/proposal-folder`, { method: "POST", body: form, signal: AbortSignal.timeout(15000) });
     return res.ok ? (await res.json()).path || null : null;
   } catch { return null; }

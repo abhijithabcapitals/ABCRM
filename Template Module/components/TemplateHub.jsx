@@ -53,7 +53,7 @@ export default function TemplateHub({ profile, canArdentax = false }) {
         {tab === "vouchers" ? (
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><VoucherRegister /></div>
         ) : tab === "settings" ? (
-          <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><HubNumbering /></div>
+          <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><HubNumbering profile={profile} /></div>
         ) : tab === "services" ? (
           <div className="bk-root" style={{ overflowY: "auto", flex: 1 }}><ServiceDesk profile={profile} /></div>
         ) : tab === "company-templates" ? (

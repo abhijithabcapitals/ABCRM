@@ -76,6 +76,33 @@ case "$OUT" in "ok "*) ;; *) exit 1 ;; esac
 "${PSQL[@]}" -c "insert into public.notifications (user_id, type, title) select id, 'other', 'keep me' from public.profiles limit 1" || exit 1
 BEFORE="$("${PSQL[@]}" -t -A -c "select count(*) from public.notifications where type = 'alert_centre'")"
 [ "$BEFORE" -gt 0 ] || { echo "FAILED no alert_centre bell rows to roll back"; exit 1; }
+# 015 to 018 first (newest first), twice. Then prove it put back every function body and grant exactly: reapplying 001 to 014 must change nothing.
+SNAPSHOT="select md5(string_agg(p.oid::regprocedure::text || pg_get_functiondef(p.oid) || coalesce(p.proacl::text, ''), '|' order by p.oid::regprocedure::text)) || has_table_privilege('authenticated', 'public.client_compliance_items', 'select')::text from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prokind = 'f'"
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/015_018_rollback.sql" || { echo "FAILED rollback 015_018"; exit 1; }; done
+ROLLED="$("${PSQL[@]}" -t -A -c "$SNAPSHOT")"
+for f in "${MIGS[@]}"; do
+  case "$(basename "$f")" in 015_*|016_*|017_*|018_*) continue ;; esac
+  "${PSQL[@]}" -f "$f" >/dev/null 2>&1 || { echo "FAILED reapply of $f after rollback 015_018"; exit 1; }
+done
+FRESH="$("${PSQL[@]}" -t -A -c "$SNAPSHOT")"
+[ "$ROLLED" = "$FRESH" ] || { echo "FAILED rollback 015_018 did not restore the bodies of 001 to 014"; exit 1; }
+echo "ok rollback 015_018 restores every function body and grant exactly"
+# 006 to 009 next (newest migration first): they restore 004's read functions and drop what Phase 2 added. Twice, to prove it is safe.
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/014_rollback.sql" || { echo "FAILED rollback 014"; exit 1; }; done
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/011_013_rollback.sql" || { echo "FAILED rollback 011_013"; exit 1; }; done
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/010_rollback.sql" || { echo "FAILED rollback 010"; exit 1; }; done
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/006_009_rollback.sql" || { echo "FAILED rollback 006_009 pass $i"; exit 1; }; done
+OUT="$("${PSQL[@]}" -t -A -c "select case
+  when to_regclass('public.client_compliance_items') is not null then 'FAILED rollback 006_009 left the register table'
+  when (select count(*) from pg_proc p where pronamespace = 'public'::regnamespace and (proname like 'client\_compliance\_%' or proname like 'alert\_rule\_compliance\_%' or proname = 'alert_compliance_candidates')) > 0 then 'FAILED rollback 006_009 left functions'
+  when (select count(*) from public.alert_rules where code like 'compliance\_%') > 0 then 'FAILED rollback 006_009 left rules'
+  when (select count(*) from public.alerts where rule_code like 'compliance\_%') > 0 then 'FAILED rollback 006_009 left register alerts'
+  when pg_get_functiondef('public.alert_my_access'::regproc) like '%can_register%' then 'FAILED rollback 006_009 left the new alert_my_access'
+  when pg_get_functiondef('public.alert_tiles(text,text)'::regprocedure) like '%compliance%' or pg_get_functiondef('public.alert_management_summary'::regproc) like '%compliance%' then 'FAILED rollback 006_009 left the widened renewals filter'
+  when not has_function_privilege('authenticated', 'public.alert_tiles(text,text)'::regprocedure, 'execute') then 'FAILED rollback 006_009 lost a grant'
+  else 'ok rollback 006_009 clean, twice, 004 bodies restored' end")"
+echo "$OUT"
+case "$OUT" in "ok "*) ;; *) exit 1 ;; esac
 # 005 puts my_tabs back first: 001 to 004 do not own that function.
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/005_rollback.sql" || { echo "FAILED rollback 005"; exit 1; }; done
 OUT="$("${PSQL[@]}" -t -A -c "select case when pg_get_functiondef('public.my_tabs'::regproc) not like '%mytasks%' then 'ok rollback 005 restores my_tabs' else 'FAILED rollback 005 left mytasks' end")"

@@ -9,13 +9,23 @@ import AccountsTab from "./AccountsTab";
 import DocumentsTab from "./DocumentsTab";
 import InformationTab from "./InformationTab";
 import SetupView from "./SetupView";
+import TermsGate from "./TermsGate";
 
 // Kept here because Client Inputs imports it from this file.
 export { fmtSize } from "./format";
 
 const TABS = [["services", "Services"], ["accounts", "Accounts"], ["documents", "Documents"], ["information", "My Information"]];
 
+// The Terms come first: nothing else loads until this login has agreed. An admin's read-only preview skips them.
 export default function ClientPortal({ api = portalApi, readOnly }) {
+  const terms = useLoad(() => (readOnly ? Promise.resolve({ required: false }) : api.terms()), [api, readOnly]);
+  if (terms.error) return <div className="bk-root"><ErrorNote message={terms.error} /><div className="bk-actions"><Button onClick={() => terms.reload()}>Try again</Button> <Button onClick={() => api.logout()}>Sign out</Button></div></div>;
+  if (!terms.data) return <div className="bk-root"><Spinner /></div>;
+  if (terms.data.required) return <TermsGate terms={terms.data} api={api} onAgreed={terms.reload} />;
+  return <PortalScreen api={api} readOnly={readOnly} />;
+}
+
+function PortalScreen({ api, readOnly }) {
   const me = useLoad(() => api.load(), [api]);
   const [tab, setTab] = useState("services");
   const props = { me: me.data, api, readOnly, reload: me.reload };

@@ -342,107 +342,161 @@ def test_validated_client_document_goes_to_the_clients_folder(tmp_path):
     assert post("New Co", "", "Other", "a.exe").status_code == 400
 
 
-# ---- proposals saved into the synced OneDrive folder ----
+# ---- Accounting proposals into the client's synced OneDrive folder ----
+def _proposal_app(tmp_path, root=True):
+    crm = PROPOSAL_CRM
+    s = Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", embed_origins=[crm], proposal_root=(tmp_path / "od") if root else None)
+    if root:
+        (tmp_path / "od").mkdir()
+    return TestClient(create_app(s)), tmp_path / "od", crm
+
+
 PROPOSAL_CRM = "https://crm.example"
 
 
-def proposal_app(tmp_path, **kw):
-    root = tmp_path / "OneDrive"
-    s = Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", proposal_root=root, embed_origins=[PROPOSAL_CRM], **kw)
-    return TestClient(create_app(s)), root
-
-
-def post_proposal(c, client="Acme", cid="CL000001", word=("p.docx", b"w"), pdf=("p.pdf", b"%PDF"), headers=None):
-    # The CRM's origin by default: the route refuses any other.
-    return c.post("/api/proposal-folder", data={"client": client, "client_id": cid}, files={"word": word, "pdf": pdf}, headers={"Origin": PROPOSAL_CRM} if headers is None else headers)
+def _proposal_post(c, client="Acme", cid="CL000001", dept="Accounting", word=("p.docx", b"w"), pdf=("p.pdf", b"p"), headers=None):
+    # The CRM's origin by default: the route refuses a missing or other Origin.
+    return c.post("/api/proposal-folder", data={"client": client, "client_id": cid, "department": dept},
+                  files={"word": word, "pdf": pdf}, headers={"Origin": PROPOSAL_CRM} if headers is None else headers)
 
 
 def test_proposal_folder_saves_both(tmp_path):
-    c, root = proposal_app(tmp_path)
-    r = post_proposal(c)
-    folder = root / "Business Setup" / "Acme - CL000001" / "Proposals"
+    c, root, _ = _proposal_app(tmp_path)
+    r = _proposal_post(c)
+    folder = root / "Accounting" / "Acme - CL000001" / "Proposals"
     assert r.status_code == 200
-    assert r.json() == {"path": str(folder), "word": "p.docx", "pdf": "p.pdf"}
-    assert (folder / "p.docx").read_bytes() == b"w" and (folder / "p.pdf").read_bytes() == b"%PDF"
+    assert r.json() == {"path": str(folder / "p.docx"), "word": str(folder / "p.docx"), "pdf": str(folder / "p.pdf")}
+    assert (folder / "p.docx").read_bytes() == b"w" and (folder / "p.pdf").read_bytes() == b"p"
 
 
 def test_proposal_folder_no_code(tmp_path):
-    c, root = proposal_app(tmp_path)
-    r = post_proposal(c, cid="")
-    assert r.json()["path"] == str(root / "Business Setup" / "Acme" / "Proposals")
+    c, root, _ = _proposal_app(tmp_path)
+    assert _proposal_post(c, cid="").status_code == 200
+    assert (root / "Accounting" / "Acme" / "Proposals" / "p.docx").exists()
+
+
+def test_proposal_folder_no_overwrite(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    _proposal_post(c)
+    r = _proposal_post(c).json()
+    assert r["word"].endswith("p (2).docx") and r["pdf"].endswith("p (2).pdf")
+
+
+def test_proposal_folder_cleans_names(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    r = _proposal_post(c, client=r"A/B: ..\..\x", cid=r"..\..", word=("../../e.docx", b"w"), pdf=(r"..\..\e.pdf", b"p"))
+    assert r.status_code == 200
+    for key in ("word", "pdf"):
+        assert Path(r.json()[key]).resolve().is_relative_to(root.resolve())
+    assert not (tmp_path / "e.docx").exists()
+    assert _proposal_post(c, client="..").status_code == 400
+
+
+def test_proposal_folder_types(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    assert _proposal_post(c, word=("p.pdf", b"w")).status_code == 400
+    assert _proposal_post(c, pdf=("p.docx", b"p")).status_code == 400
+    assert _proposal_post(c, pdf=("p.exe", b"p")).status_code == 400
+    assert list(root.iterdir()) == []
+
+
+def test_proposal_folder_size(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    big = b"x" * (25 * 1024 * 1024 + 1)
+    assert _proposal_post(c, pdf=("p.pdf", big)).status_code == 400
+    assert _proposal_post(c, word=("p.docx", big)).status_code == 400
+    assert list(root.iterdir()) == []
+
+
+def test_proposal_folder_department(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    assert _proposal_post(c, dept="Tax").status_code == 400
+    assert list(root.iterdir()) == []
+
+
+def test_proposal_folder_no_root_is_503(tmp_path):
+    c, _, _ = _proposal_app(tmp_path, root=False)
+    assert _proposal_post(c).status_code == 503
+
+
+def test_proposal_folder_cors(tmp_path):
+    c, root, crm = _proposal_app(tmp_path)
+    ok = _proposal_post(c, headers={"Origin": crm})
+    assert ok.headers["access-control-allow-origin"] == crm
+    pre = c.options("/api/proposal-folder", headers={"Origin": crm, "Access-Control-Request-Method": "POST"})
+    assert pre.status_code == 204 and pre.headers["access-control-allow-origin"] == crm
+    other = _proposal_post(c, headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in other.headers
+
+
+def test_proposal_folder_reserved_names(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    assert _proposal_post(c, client="CON").status_code == 400
+    assert _proposal_post(c, client="nul.txt").status_code == 400
+    assert _proposal_post(c, word=("NUL.docx", b"w")).status_code == 400
+    assert _proposal_post(c, pdf=("com1.pdf", b"p")).status_code == 400
+    assert _proposal_post(c, word=("lpt1.docx", b"w")).status_code == 400
+    assert list(root.iterdir()) == []
+
+
+def test_proposal_folder_missing_root_creates_nothing(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    root.rmdir()
+    r = _proposal_post(c)
+    assert r.status_code == 503 and "proposalRoot" in r.json()["error"]
+    assert not root.exists()
+
+
+def test_proposal_folder_refuses_foreign_origin(tmp_path):
+    c, root, crm = _proposal_app(tmp_path)
+    r = _proposal_post(c, headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403 and list(root.iterdir()) == []
+    assert _proposal_post(c, headers={"Origin": crm}).status_code == 200
+    assert _proposal_post(c).status_code == 200  # no Origin header: local tools
+
+
+# ---- Business Setup proposals share the route, under their own top folder ----
+def test_proposal_folder_business_setup(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    r = _proposal_post(c, dept="Business Setup")
+    folder = root / "Business Setup" / "Acme - CL000001" / "Proposals"
+    assert r.status_code == 200
+    assert r.json() == {"path": str(folder / "p.docx"), "word": str(folder / "p.docx"), "pdf": str(folder / "p.pdf")}
+    assert (folder / "p.docx").read_bytes() == b"w" and (folder / "p.pdf").read_bytes() == b"p"
+    assert not (root / "Accounting").exists()
 
 
 def test_proposal_folder_keeps_arabic_names(tmp_path):
-    c, root = proposal_app(tmp_path)
-    r = post_proposal(c, client="شركة النور", word=("عرض.docx", b"w"))
+    c, root, _ = _proposal_app(tmp_path)
+    r = _proposal_post(c, client="شركة النور", dept="Business Setup", word=("عرض.docx", b"w"))
     assert r.status_code == 200
     assert (root / "Business Setup" / "شركة النور - CL000001" / "Proposals" / "عرض.docx").exists()
 
 
 def test_proposal_folder_blank_name_writes_nothing(tmp_path):
-    c, root = proposal_app(tmp_path)
-    assert post_proposal(c, client=" .. ", cid="").status_code == 400
-    assert not root.exists()
+    c, root, _ = _proposal_app(tmp_path)
+    assert _proposal_post(c, client=" .. ", cid="", dept="Business Setup").status_code == 400
+    assert list(root.iterdir()) == []
 
 
-def test_proposal_folder_no_overwrite(tmp_path):
-    c, root = proposal_app(tmp_path)
-    post_proposal(c)
-    r = post_proposal(c)
-    assert r.json()["word"] == "p (2).docx" and r.json()["pdf"] == "p (2).pdf"
-    assert len(list((root / "Business Setup" / "Acme - CL000001" / "Proposals").iterdir())) == 4
-
-
-def test_proposal_folder_cleans_names(tmp_path):
-    c, root = proposal_app(tmp_path)
-    r = post_proposal(c, client=r"A/B: ..\..\x", word=("../../evil.docx", b"w"), pdf=(r"..\..\evil.pdf", b"x"))
-    assert r.status_code == 200
-    folder = Path(r.json()["path"])
-    assert folder.resolve().is_relative_to(root.resolve())
-    assert folder.parent.parent == root / "Business Setup"
-    assert sorted(p.name for p in folder.iterdir()) == ["evil.docx", "evil.pdf"]
-    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == []
-
-
-def test_proposal_folder_types(tmp_path):
-    c, root = proposal_app(tmp_path)
-    assert post_proposal(c, word=("p.pdf", b"w")).status_code == 400
-    assert post_proposal(c, pdf=("p.docx", b"x")).status_code == 400
-    assert not root.exists()
-
-
-def test_proposal_folder_size(tmp_path):
-    c, root = proposal_app(tmp_path)
+def test_proposal_folder_size_writes_neither(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
     big = b"x" * (25 * 1024 * 1024 + 1)
-    assert post_proposal(c, pdf=("p.pdf", big)).status_code == 400
-    assert not root.exists()  # the good Word file was not written either
-
-
-def test_proposal_folder_not_configured(tmp_path):
-    c = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", proposal_root=None, embed_origins=[PROPOSAL_CRM])))
-    assert post_proposal(c).status_code == 503
-
-
-def test_proposal_folder_cors(tmp_path):
-    c, _ = proposal_app(tmp_path)
-    ok = post_proposal(c, headers={"Origin": PROPOSAL_CRM})
-    assert ok.headers["access-control-allow-origin"] == PROPOSAL_CRM
-    pre = c.options("/api/proposal-folder", headers={"Origin": PROPOSAL_CRM, "Access-Control-Request-Method": "POST"})
-    assert pre.status_code == 204 and pre.headers["access-control-allow-origin"] == PROPOSAL_CRM
-    bad = post_proposal(c, headers={"Origin": "https://evil.example"})
-    assert "access-control-allow-origin" not in bad.headers
+    assert _proposal_post(c, dept="Business Setup", pdf=("p.pdf", big)).status_code == 400
+    assert list(root.iterdir()) == []  # the good Word file was not written either
 
 
 def test_proposal_folder_refuses_other_or_missing_origin(tmp_path):
-    c, root = proposal_app(tmp_path)
-    assert post_proposal(c, headers={"Origin": "https://evil.example"}).status_code == 403
-    assert post_proposal(c, headers={}).status_code == 403
-    assert not root.exists()  # nothing was written
-    ok = post_proposal(c, headers={"Origin": PROPOSAL_CRM})
+    c, root, _ = _proposal_app(tmp_path)
+    for dept in ("Accounting", "Business Setup"):
+        assert _proposal_post(c, dept=dept, headers={"Origin": "https://evil.example"}).status_code == 403
+        assert _proposal_post(c, dept=dept, headers={}).status_code == 403
+    assert list(root.iterdir()) == []  # nothing was written
+    ok = _proposal_post(c, dept="Business Setup")
     assert ok.status_code == 200 and (root / "Business Setup" / "Acme - CL000001" / "Proposals" / "p.pdf").exists()
 
 
 def test_clients_folder_keeps_its_origin_rule(tmp_path):
     # Only /api/proposal-folder gained the Origin refusal: other routes answer a request without Origin as before.
-    c, _ = proposal_app(tmp_path)
+    c, _, _ = _proposal_app(tmp_path)
     assert c.post("/api/clients-folder", json={}).status_code != 403

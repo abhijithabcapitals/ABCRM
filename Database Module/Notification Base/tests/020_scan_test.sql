@@ -25,7 +25,7 @@ select t.ok('seven rules seeded', (select count(*) = 7 from alert_rules where co
 select t.ok('crm_task_due has null department', (select department is null from alert_rules where code = 'crm_task_due'));
 select t.ok('departments as specified', (select string_agg(code || '=' || coalesce(department, '-'), ',' order by code) =
   'banking_task_due=Business Banking,crm_task_due=-,job_due=Accounting,licence_expiry=Business Setup,service_due=Business Setup,setup_task_due=Business Setup,visa_expiry=Business Setup'
-  from alert_rules where code <> 'r'));
+  from alert_rules where code in ('licence_expiry','visa_expiry','job_due','service_due','setup_task_due','banking_task_due','crm_task_due')));
 select t.ok('titles and actions as ruled', (select
   (select title_template = 'Licence expiry: {subject}' and action_template = 'Confirm the licence date, then start the renewal.' from alert_rules where code = 'licence_expiry')
   and (select title_template = 'Visa expiry: {subject}' and action_template = 'Confirm the visa date, then start the renewal or cancellation.' from alert_rules where code = 'visa_expiry')
@@ -37,6 +37,7 @@ select t.ok('stored priorities are valid', (select bool_and(s->>'priority' in ('
 -- Reapply keeps edited steps
 update alert_rules set steps = '[{"days":5,"priority":"Normal"}]' where code = 'job_due';
 \ir ../migrations/002_alert_scan.sql
+\ir reapply_review_fixes.sql
 select t.ok('reapply keeps edited steps', (select steps = '[{"days":5,"priority":"Normal"}]'::jsonb from alert_rules where code = 'job_due'));
 update alert_rules set steps = :'task' where code = 'job_due';
 
@@ -216,6 +217,7 @@ select t.ok('broken rule logged, other rules still ran, scan Failed', (select st
 select t.ok('broken rule closes nothing', (select count(*) = :banking_open from alerts where rule_code = 'banking_task_due' and status = 'Open') and :banking_open = 5);
 select set_config('test.break_rule', '', false);
 \ir ../migrations/002_alert_scan.sql
+\ir reapply_review_fixes.sql
 select alert_scan() as scanned \gset
 select t.ok('after restoring the rule the scan is Ok again', (select status = 'Ok' and rule_counts->'banking_task_due'->>'error' is null from alert_scan_log order by id desc limit 1));
 
@@ -279,7 +281,8 @@ select t.ok('postgres and service_role can run alert_scan', has_function_privile
 select t.ok('authenticated and anon cannot run alert_scan', not has_function_privilege('authenticated', 'alert_scan()', 'execute') and not has_function_privilege('anon', 'alert_scan()', 'execute'));
 select t.ok('public cannot run alert_scan', (select count(*) = 0 from pg_proc p where p.oid = 'alert_scan()'::regprocedure
   and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')));
-select t.ok('rule functions are not browser-callable', (select count(*) = 7 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
+-- 7 from 002, 9 from 006, 5 from 011, 9 from 012, 4 from 013
+select t.ok('rule functions are not browser-callable', (select count(*) = 34 and bool_and(not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute'))
   from pg_proc p where pronamespace = 'public'::regnamespace and proname like 'alert\_rule\_%' and proname not in ('alert_rule_save', 'alert_rule_list')));
 select t.ok('alert_scan is scheduled daily at 02:00', (select count(*) = 1 and bool_and(schedule = '0 2 * * *' and command = 'select public.alert_scan()') from cron.job where jobname = 'alert-scan'));
 

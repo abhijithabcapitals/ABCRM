@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Business Setup Base - Portal file names follow the stored file          024
 -- =====================================================================
--- Re-runnable. Runs after 018. It also replaces business_setup_portal_view (below the file function) so an undecided multi-option
+-- Re-runnable. Runs after 022 (023 is kept for bd_transfer). It also replaces business_setup_portal_view (below the file function) so an undecided multi-option
 -- Business Formation Proposal is not listed to the client: its total would be Option 1's only. It reaches the client as a mailed PDF. A Business Formation Proposal and its letter are stored as PDF (hub_documents.storage_path), but
 -- business_setup_portal_file named every quote and letter ".docx". The download name now takes the stored file's own extension
 -- (.pdf stays .pdf; anything else keeps .docx as before). Nothing else about the function changes.
@@ -36,7 +36,7 @@ end $$;
 revoke all on function public.business_setup_portal_file(uuid, text, uuid) from public, anon, authenticated;
 grant execute on function public.business_setup_portal_file(uuid, text, uuid) to service_role;
 
--- The portal view as 018 defines it; the only change is the undecided-proposal condition on 'quotes'.
+-- The portal view as 022 defines it (service progress and checkpoints); the only change is the undecided-proposal condition on 'quotes'.
 create or replace function public.business_setup_portal_view(p_account uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare v_client text := business_setup_portal_client(p_account);
@@ -44,7 +44,8 @@ begin
   return jsonb_build_object(
     'form', business_setup_form_get(p_account),
     'details', client_portal_me(p_account) -> 'record',
-    'services', (select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'action', s.action, 'status', s.status, 'started_at', s.started_at,
+    'services', (select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'action', s.action, 'status', s.status, 'progress', business_setup_service_progress(s.id),
+             'items', (select coalesce(jsonb_agg(jsonb_build_object('label', x.label, 'status', x.status) order by x.sort_order), '[]'::jsonb) from business_setup_service_checkpoints x where x.service_id = s.id), 'started_at', s.started_at,
                     'completed_at', s.completed_at, 'expiry_date', s.expiry_date) order by s.created_at desc), '[]'::jsonb)
                    from business_setup_services s where s.client_id = v_client and not s.historical),
     'quotes', (select coalesce(jsonb_agg(jsonb_build_object('id', q.id, 'number', q.document_number, 'date', q.created_at::date, 'status', q.status, 'total', q.total_amount,

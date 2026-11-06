@@ -1,7 +1,7 @@
 // "I have paid" on one invoice: amount, date, reference and an optional proof of payment (PDF, JPG or PNG, up to 10 MB).
 // A claim changes no balance. Staff check it, then it shows as Confirmed with a receipt, or Refused with a note.
 import { useRef, useState } from "react";
-import { Button, ErrorNote, Panel } from "@banking/components/shared";
+import { Button, ErrorNote, Modal } from "@banking/components/shared";
 import { claimProblem, proofProblem } from "../logic/decisions";
 
 const dubaiToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
@@ -35,7 +35,8 @@ export default function ClaimForm({ invoice, api, onDone, onFail, onCancel }) {
     setBusy(false);
   };
   return (
-    <Panel title={`I have paid: invoice ${invoice.number}`} sub="Tell us about your payment. We check it against our bank before it shows as received.">
+    <Modal title={`I have paid: invoice ${invoice.number}`} onClose={onCancel}>
+      <p className="bk-note">Tell us about your payment. We check it against our bank before it shows as received.</p>
       <ErrorNote message={error} onClose={() => setError(null)} />
       <div className="bk-grid">
         <div className="bk-field"><label htmlFor="pt-claim-amount">Amount paid (AED) <em>*</em></label><input id="pt-claim-amount" inputMode="decimal" value={v.amount} onChange={(e) => set("amount", e.target.value)} /></div>
@@ -51,6 +52,6 @@ export default function ClaimForm({ invoice, api, onDone, onFail, onCancel }) {
         <Button onClick={onCancel} disabled={busy}>Cancel</Button>
         <Button variant="primary" busy={busy} onClick={send}>Send payment details</Button>
       </div>
-    </Panel>
+    </Modal>
   );
 }

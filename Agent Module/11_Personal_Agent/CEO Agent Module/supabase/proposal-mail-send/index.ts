@@ -74,9 +74,11 @@ Deno.serve(async (req) => {
     const { messageId, raw } = buildMail({ from: mailbox.address, fromName: SENDER_NAME, to, cc: [], subject: draft!.mail_subject, text: body, html: htmlBody(body, ""), inline: [], attachments });
 
     // Claim the send atomically, so a double click cannot mail twice. Everything that can fail has already run.
-    const { staleBefore, requireUnsent } = claimFilter(new Date(), { resend: !!resend });
-    let claim = admin.from("hub_documents").update({ mail_sending_at: new Date().toISOString() }).eq("id", doc.id)
-      .or(`mail_sending_at.is.null,mail_sending_at.lt.${staleBefore}`);
+    // mail_claimed_at is Template Hub 008's claim column, shared with the Accounting send; each send claims only its own rows.
+    const claimedAt = new Date();
+    const { staleBefore, requireUnsent } = claimFilter(claimedAt, { resend: !!resend });
+    let claim = admin.from("hub_documents").update({ mail_claimed_at: claimedAt.toISOString() }).eq("id", doc.id)
+      .or(`mail_claimed_at.is.null,mail_claimed_at.lt.${staleBefore}`);
     if (requireUnsent) claim = claim.is("mail_sent_at", null);
     const { data: claimed, error: claimError } = await claim.select("id");
     if (claimError) throw new Error(claimError.message);
@@ -85,13 +87,13 @@ Deno.serve(async (req) => {
     try {
       await new SmtpClient(mailbox.smtp_host, mailbox.smtp_port || 465).send(login.user, login.pass, mailbox.address, to, raw);
     } catch (e) {
-      await admin.from("hub_documents").update({ mail_sending_at: null }).eq("id", doc.id);
+      await admin.from("hub_documents").update({ mail_claimed_at: null }).eq("id", doc.id).eq("mail_claimed_at", claimedAt.toISOString());
       return json({ error: `The mail was not sent: ${(e as Error).message}` }, 502);
     }
 
     const warnings: string[] = [];
     const sentAt = new Date().toISOString();
-    const { error: sentError } = await admin.from("hub_documents").update({ mail_sent_at: sentAt, mail_sent_by: user.id, mail_sent_to: to.join(", "), mail_sending_at: null }).eq("id", doc.id);
+    const { error: sentError } = await admin.from("hub_documents").update({ mail_sent_at: sentAt, mail_sent_by: user.id, mail_sent_to: to.join(", "), mail_claimed_at: null }).eq("id", doc.id);
     if (sentError) warnings.push(`The mail was sent, but the CRM could not record it: ${sentError.message}`);
 
     const { data: sentFolder } = await eb.from("mailbox_folders").select("name").eq("mailbox_id", mailbox.id).eq("role", "sent").order("name").limit(1).maybeSingle();

@@ -11,8 +11,9 @@ import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
 import { withLineVat } from "@business-setup/logic/quoteData";
 import ProposalDesk from "./ProposalDesk";
+import AccountingDesk from "./AccountingDesk";
 import { isProposalLetter } from "../logic/proposalLetter";
-import { addLine, checkReady, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
+import { addLine, checkReady, oldDeskRows, showAccountingDesk, showViewSwitch, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
 
 const PROPOSAL = "AB Capital/Proposal"; // proposals have their own screen and list
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
@@ -37,8 +38,9 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
   const [mail, setMail] = useState(null);
-  const [view, setView] = useState(initial ? "quotation" : "proposal"); // Business Setup: the proposal form or the old quotation form; a job that hands over its details keeps the old form
-  const docs = useLoad(() => listDocuments(department || null), [department]);
+  const [view, setView] = useState("quote"); // Accounting only: the new Quote or the Old Quotation form
+  const [bsView, setBsView] = useState(initial ? "quotation" : "proposal"); // Business Setup: the proposal form or the old quotation form; a job that hands over its details keeps the old form
+  const docs = useLoad(async () => oldDeskRows(await listDocuments(department || null)), [department]);
   const mailPanel = useRef(null);
   useEffect(() => { if (mail) mailPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); }, [mail?.id]);
 
@@ -134,8 +136,12 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const mailto = mail ? `mailto:${encodeURIComponent(mail.email || form.email)}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}` : "#";
 
   const deptTabs = !department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>;
-  const viewTabs = dept === "Business Setup" && <div className="bk-tabs" role="tablist" aria-label="Document format">{[["proposal", "Proposal"], ["quotation", "Old Quotation"]].map(([k, label]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{label}</button>)}</div>;
-  if (dept === "Business Setup" && view === "proposal") return <div>{deptTabs}{viewTabs}<ProposalDesk profile={profile} /></div>;
+  // Business Setup: Proposal or Old Quotation. Accounting: Quote or Old Quotation, not inside a job, which passes onDocument and keeps the old form.
+  const viewTabs = dept === "Business Setup"
+    ? <div className="bk-tabs" role="tablist" aria-label="Document format">{[["proposal", "Proposal"], ["quotation", "Old Quotation"]].map(([k, label]) => <button type="button" role="tab" aria-selected={bsView === k} key={k} className={bsView === k ? "active" : ""} onClick={() => setBsView(k)}>{label}</button>)}</div>
+    : showViewSwitch({ department: dept, onDocument }) && <div className="bk-tabs" role="tablist" aria-label="Quotation format">{[["quote", "Quote"], ["old", "Old Quotation"]].map(([k, l]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{l}</button>)}</div>;
+  if (dept === "Business Setup" && bsView === "proposal") return <div>{deptTabs}{viewTabs}<ProposalDesk profile={profile} /></div>;
+  if (showAccountingDesk({ department: dept, onDocument, mode: view })) return <div>{deptTabs}{viewTabs}<AccountingDesk profile={profile} /></div>;
   if (catalogue.loading && !catalogue.data) return <Spinner />;
   return (
     <div>

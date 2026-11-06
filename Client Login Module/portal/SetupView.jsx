@@ -67,7 +67,14 @@ export default function SetupView({ api }) {
       {sections.includes("services") && (
         <Panel title="Your services">
           <DataTable rows={v.services} columns={[{ key: "name", label: "Service" }, { key: "action", label: "Type" }, { key: "status", label: "Status", render: (s) => <Badge tone={s.status === "Completed" ? "good" : "warn"}>{s.status}</Badge> },
+            { key: "progress", label: "Progress", render: (s) => (s.status === "Cancelled" ? "Cancelled" : s.progress == null ? "" : `${s.progress}%`) },
             { key: "started_at", label: "Started", render: (s) => fmtDate(s.started_at) }, { key: "completed_at", label: "Completed", render: (s) => fmtDate(s.completed_at) }, { key: "expiry_date", label: "Expires", render: (s) => fmtDate(s.expiry_date) }]} />
+          {/* Each service's steps: labels and statuses only, as the server sends them. */}
+          {(v.services || []).filter((s) => s.items?.length).map((s) => (
+            <details key={s.id} className="bk-mb"><summary>{s.name}: steps</summary>
+              <ul>{s.items.map((x, i) => <li key={i}>{x.label}: <Badge tone={x.status === "Completed" ? "good" : undefined}>{x.status}</Badge></li>)}</ul>
+            </details>
+          ))}
         </Panel>
       )}
       {sections.includes("quotes") && (

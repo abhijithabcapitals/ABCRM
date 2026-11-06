@@ -1,18 +1,20 @@
 -- =====================================================================
--- Template Hub Base - Business Formation Proposal                    008
+-- Template Hub Base - Business Formation Proposal                    009
 -- =====================================================================
 -- A proposal is a Business Setup quote (doc_type quote, library_template 'AB Capital/Proposal') that holds several options,
 -- one per authority. Options are never added together: the quote mirrors Option 1 until the client chooses, and the
 -- engagement letter takes the chosen option. Authority wording is stored here by an admin; the migration holds no prices.
--- Run after 007 and Business Setup 004-018. Re-runnable. Undo with rollback/008_rollback.sql.
+-- Run after 008 and Business Setup 004-018. Re-runnable. Undo with rollback/009_rollback.sql.
 -- =====================================================================
-alter table public.hub_documents add column if not exists word_path text;            -- Word file of a proposal (storage_path is its PDF)
-alter table public.hub_documents add column if not exists onedrive_path text;
-alter table public.hub_documents add column if not exists onedrive_saved_at timestamptz;
-alter table public.hub_documents add column if not exists mail_sent_at timestamptz;
-alter table public.hub_documents add column if not exists mail_sent_by uuid references public.profiles(id);
-alter table public.hub_documents add column if not exists mail_sent_to text;
-alter table public.hub_documents add column if not exists mail_sending_at timestamptz;
+-- The Word, OneDrive and mail columns on hub_documents (word_path, onedrive_*, mail_sent_*, mail_claimed_at) belong to 008, which is live.
+-- This migration adds no columns, and its rollback removes none. A send claims a proposal through mail_claimed_at, as the Accounting send does.
+do $$
+begin
+  if (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'hub_documents'
+      and column_name in ('word_path', 'onedrive_path', 'onedrive_saved_at', 'mail_sent_at', 'mail_sent_by', 'mail_sent_to', 'mail_claimed_at')) <> 7 then
+    raise exception 'Run Template Hub 008 (008_accounting_proposals.sql) first: hub_documents lacks its Word, OneDrive and mail columns';
+  end if;
+end $$;
 
 create table if not exists public.hub_proposal_authorities (
   authority_key text primary key,

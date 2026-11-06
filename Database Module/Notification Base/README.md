@@ -10,8 +10,22 @@ Database layer of the Notification and Alert Centre. Spec: `Hot Alerts Module/do
 | `003_alert_actions.sql` | Browser actions (`alert_assign`, `alert_set_status`, `alert_resolve`, `alert_escalate`, `alert_mark_read`), `alert_escalate_due()` (Live scan only), client owner functions, and admin-only `alert_rule_save`, `alert_set_mode`, `alert_scan_now` |
 | `004_alert_reads.sql` | Browser reads behind the page, each checking the caller: `alert_list`, `alert_tiles`, `alert_detail`, `alert_management_summary`, `alert_coverage`, `alert_my_access`, `alert_rule_list`, `alert_manager_list` |
 | `005_centre_tab_for_all.sql` | `my_tabs()` also returns `mytasks` for every signed-in user, so everyone has the Notification Centre tab. Unticking it in Settings has no effect. Rollback: `rollback/005_rollback.sql` |
+| `006_compliance_register.sql` | `client_compliance_items`, its screens' RPCs, expiry rules per item type |
+| `007_alert_preferences.sql` | Per-person category and channel choices; `alert_bell` honours them; Critical always bells |
+| `008_alert_email.sql` | `alert_deliveries`, `alert_email_build`, `alert_email_record`. Off until `email_enabled` is true. Edge Function `alert-digest` sends; no schedule is created here |
+| `009_alert_calendar.sql` | `alert_calendar` |
+| `010_regulatory.sql` | Regulatory Updates Centre, its enforced gate, `regulatory_update_intake` for the Tax Agent later |
+| `011_followups_payments.sql` | Contact log, document requests, follow-up and payment rules, items logged by hand |
+| `012_compliance_tax.sql` | Review-date rules, `alert_tax_items`, `tax_deadline`, off-by-default `ct_dereg_review`. Edge Function `alert-tax-scan` fills the items |
+| `013_relationship.sql` | `multiple_services`, plus off-by-default not contacted, inactive and anniversary rules |
+| `014_regulatory_close_new.sql` | Verifying an update closes its new-update alert |
+| `015_client_work_access.sql` | Review fix: contacts, document requests and logged items need the Clients access or an open alert on that client (`client_work_can`) |
+| `016_import_baseline.sql` | Review fix: rows from a register import and a newly enabled rule raise as backlog on their first scan (`baseline_pending`); duplicate register rows refused |
+| `017_regulatory_gate.sql` | Review fix: verify takes ENACTED, IN FORCE, PUBLISHED or SCHEDULED with E1 or E2 and an https source; a stale list returns to review; looser list matching |
+| `018_register_and_rules.sql` | Review fix: register client and type locked on edit; period keys and one wide step for the four rolling rules; rule filters, invoice matching, titles; no table read on the register |
+| `006_compliance_register.sql` | `client_compliance_items` (RLS, read through `client_compliance_can_read()`), browser functions `client_compliance_save`, `_close`, `_list`, `_import`, `_can_read`, `_can_write` (admin, tagged Manager or the Clients tab), nine `compliance_*` rules (Business Setup), `alert_compliance_candidates(type)` with one `alert_rule_compliance_*` wrapper per type, the renewals tile and management summary now count `compliance_%` rules, and `alert_my_access` returns `can_register`. Types with no rule (UBO, AML, KYC and so on) raise nothing until Phase 5 |
 
-Every migration is re-runnable. Rollback for 001 to 004 is `rollback/001_004_rollback.sql` (safe twice; deletes `alert_centre` bell rows only).
+Every migration is re-runnable. Rollback for the review fixes (015 to 018) is `rollback/015_018_rollback.sql`: run it first; it restores each earlier function body exactly, which `run-local.sh` proves. Rollback for 001 to 004 is `rollback/001_004_rollback.sql` (safe twice; deletes `alert_centre` bell rows only). Rollback for Phase 2 (006 onward) is `rollback/006_009_rollback.sql`: run it first, then 005, then 001 to 004. It restores 004's read functions and drops what Phase 2 added.
 
 - Rollback cannot remove locked audit rows. Where the Admin Base audit trail is attached, `audit_trail` keeps what it recorded about these tables, and its lock refuses any delete. Rollback drops the alert tables themselves, including `alert_events`.
 - Reapplying re-enables a paused cron job: `002` calls `cron.schedule('alert-scan', ...)`, which replaces the job as active. After a reapply, pause it again if it should stay off.
@@ -28,7 +42,7 @@ Every migration is re-runnable. Rollback for 001 to 004 is `rollback/001_004_rol
 - "Manager" is the live tag (`banking_user_roles.role = 'MANAGER'`, or an Active `hr_employees` row with designation `Manager`). `alert_managers()` is the only lookup; nobody tagged returns admins with `fell_back = true`.
 - Mode `Preview`: alerts are made as backlog, no bell, only admins see them. `Triage`: bell only for reason `Assigned`. `Live`: all bells. Backlog rows never bell.
 - Priorities stored: `Critical`, `High`, `Medium`, `Normal`. "Today" is the Asia/Dubai date.
-- Alerts hold no passport or Emirates ID numbers.
+- Alerts hold no passport or Emirates ID numbers. The register `reference` column is for the register screen only; the candidate function never selects it. Correction to 006's header: the Admin Base audit trail copies whole rows on any table it is attached to, so there the reference does reach the locked audit trail.
 
 ## Tests
 `bash "Database Module/Notification Base/tests/run-local.sh"` starts a throwaway Postgres on port 55447, loads `tests/000_stub.sql`, runs migrations twice, runs every `NNN_*_test.sql`, then the rollback twice and a reapply. Nothing touches Supabase. New migrations and tests are picked up by glob. `SKIP_MIGRATIONS=1` records a RED run.

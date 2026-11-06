@@ -5,6 +5,7 @@ import "@banking/components/banking.css";
 import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 import ClientMaster from "./ClientMaster";
+import ClientComplianceItems from "./ClientComplianceItems";
 import ClientInputs from "./ClientInputs";
 import { findListedClient } from "./masterLogic";
 import ClientPortalAdmin, { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
@@ -36,6 +37,8 @@ export default function ClientsHub({ profile, openClientId, onClientShown }) {
 
 function AllClients({ isAdmin, openClientId, onClientShown }) {
   const list = useLoad(() => rpc("client_base_list"), []);
+  // Who referred each client. A failure here must not stop the list: the column just stays empty.
+  const referrers = useLoad(() => rpc("business_setup_referrers").catch(() => ({})), []);
   const [line, setLine] = useState("");
   const [open, setOpen] = useState(null);
   const [notListed, setNotListed] = useState(false);
@@ -76,6 +79,7 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
           { key: "phone", label: "Phone" },
           { key: "email", label: "Email" },
           { key: "client_master_id", label: "Client Master", render: (c) => c.client_master_id || <Badge tone="warn">Not linked</Badge> },
+          { key: "referred_by", label: "Referred by", render: (c) => (referrers.data?.[c.client_master_id] || []).join(", ") || "–" },
           { key: "client_since", label: "Client since", render: (c) => fmtDate(c.client_since) },
         ]} />
       )}
@@ -83,6 +87,7 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
         <div ref={panel}>
         <Panel title={open.display_name} sub="Key details from KYC and the lead.">
           <KeyVals items={[["Legal name", open.legal_name], ["Trade name", open.trade_name], ["Type", open.client_type], ["Legal structure", open.legal_structure], ["Business activity", open.business_activity], ["Issuing authority", open.issuing_authority], ["Licence", open.license_number], ["Licence expiry", fmtDate(open.license_expiry_date)], ["VAT TRN", open.vat_trn], ["Address", open.registered_address], ["Contact", open.contact_person], ["Nationality", open.nationality], ["Phone", open.phone], ["Email", open.email], ["KYC complete", open.kyc_percent != null ? `${open.kyc_percent}%` : null], ["Engagements", open.engagements]]} />
+          <ClientComplianceItems clientId={open.client_master_id} />
           {isAdmin && !open.setup_only && <ClientAccess bankingClientId={open.id} />}
         </Panel>
         </div>

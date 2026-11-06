@@ -5,12 +5,14 @@ import { useSetup } from "../SetupContext";
 import { addDocument, completeService, openDocument, saveKyc, updateService, uploadFile } from "../../services/businessSetupApi";
 import { canComplete, isRegistration } from "../../logic/balances";
 import { SERVICE_STATUSES, statusTone } from "../../logic/statuses";
+import { progressLabel } from "../../logic/progress";
 
 const CHANGEABLE = SERVICE_STATUSES.filter((s) => s !== "Completed");
 const LICENCE = [{ name: "number", label: "Licence number", required: true }, { name: "authority", label: "Issuing authority", required: true },
   { name: "issue_date", label: "Issue date", type: "date", required: true }, { name: "expiry_date", label: "Expiry date", type: "date", required: true }];
 
-export default function Services({ w, clientId, reload }) {
+// onOpen opens a service's own page; progress maps service id to the server's figure (Pipeline passes both).
+export default function Services({ w, clientId, reload, onOpen, progress }) {
   const { can } = useSetup();
   const manage = can("setup.services.manage");
   const override = can("setup.services.override");
@@ -31,10 +33,12 @@ export default function Services({ w, clientId, reload }) {
         { key: "status", label: "Status", render: (s) => (manage && !s.locked && !s.historical && s.status !== "Completed"
           ? <select aria-label={`Status of ${s.name}`} value={s.status} disabled={busy} onChange={(e) => change(s, e.target.value)}>{CHANGEABLE.map((o) => <option key={o}>{o}</option>)}</select>
           : <Badge tone={statusTone(s.status)}>{s.status}</Badge>) },
+        ...(progress ? [{ key: "progress", label: "Progress", render: (s) => progressLabel({ ...s, progress: progress[s.id] }) }] : []),
         { key: "started_at", label: "Started", render: (s) => fmtDate(s.started_at) }, { key: "completed_at", label: "Completed", render: (s) => fmtDate(s.completed_at) },
         { key: "expiry_date", label: "Expiry", render: (s) => fmtDate(s.expiry_date) },
         { key: "x", label: "", render: (s) => (
           <span className="bk-actions">
+            {onOpen && <Button onClick={() => onOpen(s)}>Checklist</Button>}
             {manage && !s.locked && !s.historical && !["Completed", "Cancelled"].includes(s.status) && <Button onClick={() => setCompleting(s)}>Complete</Button>}
             {w.documents.filter((d) => d.service_id === s.id && d.is_output).map((d) => <button type="button" className="bk-link" key={d.id} onClick={() => openDocument(d.storage_path).catch((e) => setError(e.message))}>{d.file_name}</button>)}
           </span>
@@ -65,7 +69,7 @@ function Reason({ s, status, onClose, onDone }) {
   );
 }
 
-function Complete({ s, clientId, existing, override, onClose, onDone }) {
+export function Complete({ s, clientId, existing, override, onClose, onDone }) {
   const [file, setFile] = useState(null);
   const [visible, setVisible] = useState(true);
   const [reg, setReg] = useState(isRegistration(s.name));

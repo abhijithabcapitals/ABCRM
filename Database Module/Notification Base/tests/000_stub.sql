@@ -42,14 +42,17 @@ create table public.notifications (
 create table public.client_master (client_id text primary key, legal_name text not null, data jsonb not null);
 create table public.service_departments (name text primary key, crm_tab text not null, sort_order int not null default 0);
 insert into public.service_departments values ('Business Setup', 'Business Setup', 1), ('Accounting', 'Accounting', 2), ('Tax Compliance', 'Tax Compliance', 3), ('Business Banking', 'Business Banking', 4);
-create table public.business_setup_kyc_profiles (client_id text primary key references public.client_master (client_id), client_status text, licence_expiry date, jurisdiction text, business_activity text);
+create table public.business_setup_kyc_profiles (client_id text primary key references public.client_master (client_id), client_status text, licence_expiry date, jurisdiction text, business_activity text, licence_extras jsonb);
 create table public.business_setup_visas (id uuid primary key default gen_random_uuid(), client_id text not null, person_name text not null, occupation text, expiry_date date, status text);
 create table public.business_setup_services (id uuid primary key default gen_random_uuid(), client_id text not null, name text not null, status text not null, due_date date, owner_id uuid, historical boolean not null, expiry_date date);
 create table public.business_setup_tasks (id uuid primary key default gen_random_uuid(), client_id text not null, title text, owner_id uuid, due_date date, status text);
 create table public.banking_clients (id uuid primary key default gen_random_uuid(), client_master_id character varying, display_name text not null);
 create table public.banking_cases (id uuid primary key default gen_random_uuid(), client_id uuid not null);
 create table public.banking_tasks (id uuid primary key default gen_random_uuid(), client_id uuid, case_id uuid, task_type text not null, title text, assigned_to uuid, due_date date, status text);
-create table public.accounting_job_list (id uuid primary key default gen_random_uuid(), client_id text, client_name text, service_name text, service_department text, due_date date, assignee_ids uuid[], work_status text);
+create table public.accounting_job_list (id uuid primary key default gen_random_uuid(), client_id text, client_name text, service_name text, service_department text, due_date date, assignee_ids uuid[], work_status text, next_follow_up_on date, invoice_date date, balance numeric);
+create table public.business_setup_invoices (id uuid primary key default gen_random_uuid(), client_id text, quote_id uuid, invoice_number text, issued_on date, amount numeric);
+create table public.stub_net_paid (quote_id uuid primary key, amount numeric);
+create function public.business_setup_net_paid(p_quote uuid) returns numeric language sql stable as $$ select coalesce((select amount from public.stub_net_paid where quote_id = p_quote), 0) $$;
 
 -- Copied from Database Module/Business Setup Base/migrations/008_workspace.sql:118
 create or replace function public.business_setup_parse_date(p text) returns date

@@ -40,7 +40,6 @@ export const saveVisa = (p) => rpc("business_setup_visa_save", { p });
 export const listFees = () => run(table("business_setup_fee_items").select("*").order("sort_order"));
 export const saveFee = (p) => rpc("business_setup_fee_item_save", { p });
 export const listQuoteTemplates = () => run(table("business_setup_quote_templates").select("*").order("label"));
-export const saveQuoteTemplate = (p) => rpc("business_setup_quote_template_save", { p });
 
 // Quotes and services
 export const rejectQuote = (id, reason) => rpc("business_setup_quote_reject", { p_id: id, p_reason: reason });
@@ -160,3 +159,22 @@ export const claimRefuse = (id, note) => rpc("business_setup_claim_refuse", { p_
 export const listDecisions = (documentIds) => (documentIds.length
   ? run(table("business_setup_acceptances").select("document_id,kind,revision,decision,note,source,username,created_at").in("document_id", documentIds).order("created_at", { ascending: false }))
   : Promise.resolve([]));
+
+// Service checklists (022)
+export const serviceChecklist = (id) => rpc("business_setup_service_checklist", { p_service: id });
+export const checkpointSet = (id, status, note = null) => rpc("business_setup_checkpoint_set", { p_id: id, p_status: status, p_note: note });
+export const checkpointAssign = (id, user, due) => rpc("business_setup_checkpoint_assign", { p_id: id, p_user: user || null, p_due: due || null });
+export const checkpointVerify = (id) => rpc("business_setup_checkpoint_verify", { p_id: id });
+export const serviceVerifyAll = (id) => rpc("business_setup_service_verify_all", { p_service: id });
+export const serviceReopen = (id, note) => rpc("business_setup_service_reopen", { p_id: id, p_note: note });
+export const serviceDetailsSave = (id, p) => rpc("business_setup_service_details_save", { p_id: id, p });
+export const checkpointLists = () => rpc("business_setup_checkpoint_lists");
+export const checkpointListSave = (p) => rpc("business_setup_checkpoint_list_save", { p });
+// Uploads a file as an ordinary document of the client, then links it to the item.
+export async function checkpointFileAdd(item, service, clientId, file) {
+  const path = await uploadFile(clientId, file, `services/${service}`);
+  const doc = await addDocument({ client_id: clientId, kind: "Service file", file_name: file.name, storage_path: path, service_id: service, is_output: false, client_visible: false });
+  const docId = typeof doc === "object" && doc ? doc.id : doc;
+  return rpc("business_setup_checkpoint_file_link", { p_id: item, p_document: docId });
+}
+export const caseSetReferrer = (id, user, reason) => rpc("business_setup_case_set_referrer", { p_case: id, p_user: user || null, p_reason: reason });

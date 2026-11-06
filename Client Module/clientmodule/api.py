@@ -72,6 +72,7 @@ async def verify_remote_document_access(settings: Settings, token: str) -> str:
 
 CLIENT_FILE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".eml", ".msg"}
 MAX_CLIENT_FILE = 25 * 1024 * 1024
+PROPOSAL_DEPARTMENTS = ("Accounting", "Business Setup")  # top folders under proposalRoot
 
 
 def clean_name(s: str) -> str:
@@ -314,34 +315,57 @@ def create_app(settings: Settings) -> FastAPI:
         target.write_bytes(data)
         return {"path": str(target)}
 
-    # ---- a proposal (Word + PDF) into the client's synced OneDrive folder; both files or neither ----
+    # ---- an Accounting or Business Setup proposal (Word + PDF) into the client's synced OneDrive folder, never overwrites ----
+    # <proposalRoot>/<department>/<client> - <code>/Proposals. The middleware has already refused a missing or unlisted Origin.
     @app.post("/api/proposal-folder")
-    def save_proposal(word: UploadFile = File(...), pdf: UploadFile = File(...), client: str = Form(...), client_id: str = Form("")):
-        if settings.proposal_root is None:
-            return JSONResponse({"error": "Proposal folder is not set up on this PC."}, status_code=503)
-        client_name, cid = clean_name(client), clean_name(client_id)
-        if not client_name:
-            return JSONResponse({"error": "That client cannot be saved."}, status_code=400)
-        items = []
-        for upload, ext in ((word, ".docx"), (pdf, ".pdf")):
-            name = clean_name(Path((upload.filename or "").replace("\\", "/")).name)
-            if Path(name).suffix.lower() != ext:
-                return JSONResponse({"error": f"The {ext} file is missing or the wrong type."}, status_code=400)
-            data = upload.file.read(MAX_CLIENT_FILE + 1)
-            if len(data) > MAX_CLIENT_FILE:
-                return JSONResponse({"error": "Files must be under 25 MB."}, status_code=400)
-            items.append((name, data))
-        folder = settings.proposal_root / "Business Setup" / (f"{client_name} - {cid}" if cid else client_name) / "Proposals"
-        folder.mkdir(parents=True, exist_ok=True)
-        saved = []
-        for name, data in items:
-            target, n = folder / name, 2
-            while target.exists():
-                target = folder / f"{Path(name).stem} ({n}){Path(name).suffix}"
+    def save_proposal(request: Request, word: UploadFile = File(...), pdf: UploadFile = File(...), client: str = Form(...), client_id: str = Form(""), department: str = Form("Accounting")):
+        # CORS only limits reading the answer; a foreign web page could still post a form here. Refuse any other origin.
+        origin = (request.headers.get("origin") or "").rstrip("/")
+        if origin and origin not in settings.embed_origins:
+            return JSONResponse({"error": "This page is not allowed to save into the OneDrive folder."}, status_code=403)
+        root = settings.proposal_root
+        if root is None:
+            return JSONResponse({"error": "The OneDrive folder is not set up on this PC."}, status_code=503)
+        if not root.is_dir():
+            return JSONResponse({"error": "The OneDrive folder (proposalRoot) was not found on this PC. Check that OneDrive is running and synced."}, status_code=503)
+
+        def clean(s: str) -> str:
+            return re.sub(r'[<>:"/\\|?*\[\]\x00-\x1f]+', "-", s).strip(" .")
+        if department not in PROPOSAL_DEPARTMENTS:
+            return JSONResponse({"error": "Only Accounting and Business Setup proposals are saved here."}, status_code=400)
+        wname, pname = clean(Path(word.filename or "").name), clean(Path(pdf.filename or "").name)
+        client_name, cid = clean(client), clean(client_id)
+        if not client_name or Path(wname).suffix.lower() != ".docx" or Path(pname).suffix.lower() != ".pdf":
+            return JSONResponse({"error": "That client or file type cannot be saved."}, status_code=400)
+        reserved = re.compile(r"(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])$")
+        if any(reserved.match(s.split(".")[0].strip()) for s in (client_name, wname, pname)):
+            return JSONResponse({"error": "That name is a reserved Windows device name (such as CON, NUL, AUX, COM1 or LPT1) and cannot be used."}, status_code=400)
+        wdata, pdata = word.file.read(MAX_CLIENT_FILE + 1), pdf.file.read(MAX_CLIENT_FILE + 1)
+        if len(wdata) > MAX_CLIENT_FILE or len(pdata) > MAX_CLIENT_FILE:
+            return JSONResponse({"error": "Files must be under 25 MB."}, status_code=400)
+        base = root.resolve()
+        folder = (base / department / (f"{client_name} - {cid}" if cid else client_name) / "Proposals").resolve()
+        if not folder.is_relative_to(base):
+            return JSONResponse({"error": "That client or file type cannot be saved."}, status_code=400)
+
+        def pick(n: int) -> tuple[Path, Path]:
+            w, p = Path(wname), Path(pname)
+            return (folder / (wname if n == 1 else f"{w.stem} ({n}){w.suffix}"), folder / (pname if n == 1 else f"{p.stem} ({n}){p.suffix}"))
+        wt = pt = None
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            n = 1
+            while any(t.exists() for t in pick(n)):
                 n += 1
-            target.write_bytes(data)
-            saved.append(target.name)
-        return {"path": str(folder), "word": saved[0], "pdf": saved[1]}
+            wt, pt = pick(n)
+            wt.write_bytes(wdata)
+            pt.write_bytes(pdata)
+        except OSError:
+            for t in (wt, pt):
+                if t is not None:
+                    t.unlink(missing_ok=True)
+            return JSONResponse({"error": "The files could not be saved to OneDrive."}, status_code=500)
+        return {"path": str(wt), "word": str(wt), "pdf": str(pt)}
 
     # Opens Explorer on a generated document. Only existing files inside the configured folders.
     @app.post("/api/generated-open")

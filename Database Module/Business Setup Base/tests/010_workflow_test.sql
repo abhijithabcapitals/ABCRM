@@ -475,6 +475,7 @@ begin
   if n = 0 then
     raise notice 'skip fee seed count: private/007 seed not loaded';
   else
+    n := n - (select count(*) from public.business_setup_fee_items where checkpoint_set_id is not null); -- 022 adds its own
     perform public.bs_check('fee seed has 24 rows', n = 24, n::text || ' rows');
   end if;
 end $$;

@@ -60,7 +60,7 @@ test("leads_sections: three headed sections render in order, the first expanded"
   const open = [...out.matchAll(/aria-expanded="(true|false)"/g)].map((m) => m[1]);
   assert.deepEqual(open, ["true", "false", "false"]);
   assert.match(out, /New lead/);
-  assert.match(out, /data-slot="link-panel"/);
+  assert.doesNotMatch(out, /Referral link/);   // it lives on the user's Profile
 });
 
 test("assign_button: shown only on unowned rows; owned rows show the owner and the move button", { skip }, async () => {
@@ -170,4 +170,27 @@ test("a case page shows the eight Onboarding items, the form, the login and the 
 test("the Onboarding list names each case's form state and loads before it shows rows", { skip }, async () => {
   const out = await html("ClientOnboarding.jsx", "default", {});
   assert.match(out, /Client Onboarding/); assert.match(out, /Document register/);
+});
+
+test("service page: buttons follow the server's rights, and the checklist shows sign-off state", { skip }, async () => {
+  const item = (o) => ({ id: o.id, label: o.label, requirement: "Mandatory", status: "Not Started", files: [], ...o });
+  const d = { service: { id: "s1", name: "Ejari Renewal", status: "In progress", client_id: "CL000001", priority: "Normal" }, progress: 50, can_work: true, can_verify: true, pending_approval: 1, next_action: "Two",
+    items: [item({ id: "a", label: "One", status: "Completed", pending_approval: true }), item({ id: "b", label: "Two" })] };
+  const full = await html("ServicePage.jsx", "ServiceView", { d, clientId: "CL000001", onBack() {}, reload() {} });
+  assert.match(full, /Sign off all \(1\)/); assert.match(full, /Pending approval/); assert.match(full, /Confirm service/); assert.match(full, /50%/); assert.match(full, /Attach/);
+  const viewer = await html("ServicePage.jsx", "ServiceView", { d: { ...d, can_work: false, can_verify: false }, clientId: "CL000001", onBack() {}, reload() {} }, false);
+  assert.doesNotMatch(viewer, /Sign off/); assert.doesNotMatch(viewer, /Confirm service/); assert.doesNotMatch(viewer, /Attach/); assert.doesNotMatch(viewer, /<select/);
+  const cancelled = await html("ServicePage.jsx", "ServiceView", { d: { ...d, service: { ...d.service, status: "Cancelled" } }, clientId: "CL000001", onBack() {}, reload() {} });
+  assert.match(cancelled, /Cancelled/); assert.doesNotMatch(cancelled, /<select/); assert.doesNotMatch(cancelled, /Sign off/);
+});
+
+test("Completion and the list editor render; the referrer button is for admins only", { skip }, async () => {
+  assert.match(await html("Completion.jsx", "default", {}), /Completion/);
+  assert.match(await html("FeeMaster.jsx", "default", {}), /Service checklists/);
+  const ed = await html("ChecklistLists.jsx", "ListEditor", { list: { id: "l1", name: "Ejari Renewal", category: "Tenancy", department: "Business Setup", active: true, steps: [{ label: "Collect", requirement: "Mandatory" }, { label: "Pay (if any)", requirement: "Optional" }] }, onClose() {}, onSaved() {} });
+  assert.match(ed, /Ejari Renewal/); assert.match(ed, /\+ Step/); assert.match(ed, /Optional/);
+  const mod = await server.ssrLoadModule("/../Business Setup Module/components/ChecklistLists.jsx");
+  assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [] }), "A list needs at least one step.");
+  assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [{ label: " " }] }), "Every step needs a label.");
+  assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [{ label: "a" }] }), null);
 });

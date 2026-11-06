@@ -28,3 +28,15 @@ test("alertList sends the limit and offset for Load more", async () => {
   await alertList(stub({ data: { rows: [], total: 0 }, error: null }), "Department", "Backlog", "Accounting", 100, 200);
   assert.deepEqual(stub.last.args, { p_scope: "Department", p_filter: "Backlog", p_department: "Accounting", p_limit: 100, p_offset: 200 });
 });
+
+import { clientComplianceList, clientComplianceClose, clientComplianceImport, clientComplianceSave } from "../services/alertsApi.js";
+test("register wrappers send named parameters", async () => {
+  await clientComplianceList(stub({ data: { rows: [], total: 0 }, error: null }), "CL000001", "Ejari", "All", 50, 0);
+  assert.deepEqual(stub.last, { fn: "client_compliance_list", args: { p_client: "CL000001", p_type: "Ejari", p_status: "All", p_limit: 50, p_offset: 0 } });
+  await clientComplianceClose(stub({ data: null, error: null }), "i1", "gone");
+  assert.deepEqual(stub.last.args, { p_id: "i1", p_reason: "gone" });
+  await clientComplianceImport(stub({ data: { saved: 0, errors: [] }, error: null }), []);
+  assert.deepEqual(stub.last.args, { p_rows: [] });
+  await clientComplianceSave(stub({ data: "x", error: null }), { client_id: "c" });
+  assert.deepEqual(stub.last.args, { p: { client_id: "c" } });
+});

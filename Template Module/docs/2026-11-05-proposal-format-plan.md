@@ -61,7 +61,7 @@ field_values.proposal = {
 ### Task 1: Database
 
 **Files:**
-- Create: `Database Module/Template Hub Base/migrations/008_proposals.sql`, `Database Module/Template Hub Base/rollback/008_rollback.sql`, `Database Module/Template Hub Base/tests/050_proposal_test.sql`
+- Create: `Database Module/Template Hub Base/migrations/009_proposals.sql`, `Database Module/Template Hub Base/rollback/009_rollback.sql`, `Database Module/Template Hub Base/tests/050_proposal_test.sql`
 - Modify: `Database Module/Template Hub Base/tests/run-local.sh`, `Database Module/Template Hub Base/README.md`
 - Add to the commit: `Template Module/docs/2026-11-05-proposal-format-design.md`, this plan
 
@@ -96,7 +96,7 @@ Using the helpers in `030_letter_test.sql`, assert:
 Run: `bash "Database Module/Template Hub Base/tests/run-local.sh"`
 Expected: FAIL, `hub_proposal_create` does not exist.
 
-- [ ] **Step 3: Write `008_proposals.sql` and `008_rollback.sql`**
+- [ ] **Step 3: Write `009_proposals.sql` and `009_rollback.sql`** (first written as 008; renumbered 2026-11-06 after the Accounting 008 went live)
 
 Functions are `security definer set search_path = public, pg_temp`, with `revoke ... from public, anon` and `grant execute ... to authenticated`, as in `007_work_types.sql`. Letter guard: a `before insert` trigger on `hub_documents`. When `new.doc_type = 'letter'` and the parent's `library_template = 'AB Capital/Proposal'`, it raises unless `new.field_values ? 'accepted_option'`. `hub_proposal_can_send` wraps `business_setup_require`. RLS on the table: select for `authenticated`, no direct writes.
 
@@ -382,7 +382,7 @@ Five sets from the old proposals: IFZA, RAKEZ, SHAMS, DET, Abu Dhabi Mainland. E
 
 - [ ] **Step 3: Check the seed on the local runner**
 
-Run the seed after `008_proposals.sql` on the throwaway cluster. Expected: 5 rows, and each set's service total equals the AED total on its old proposal, read from the private source files, not written here.
+Run the seed after `009_proposals.sql` on the throwaway cluster. Expected: 5 rows, and each set's service total equals the AED total on its old proposal, read from the private source files, not written here.
 
 - [ ] **Step 4: Confirm nothing private is staged**
 
@@ -463,7 +463,7 @@ git commit -m "Match the proposal output to the old proposals"
 ### Task 11: Release (each step needs the user's yes)
 
 - [ ] **Step 1:** Whole-branch review, then merge current `main` into the branch and rerun all tests from Tasks 1 to 9.
-- [ ] **Step 2:** Apply `008_proposals.sql` live, read back the columns, table and functions, and save the rollback's location in the report.
+- [ ] **Step 2:** Apply `009_proposals.sql` live (after the live 008), read back the table and functions, and save the rollback's location in the report.
 - [ ] **Step 3:** Load the private seed live and upload images. Check 5 rows. Set the proposal contact and USD rate in Settings.
 - [ ] **Step 4:** Deploy `proposal-mail-send` with JWT on, and redeploy `zoho-books`. Check the mailbox secret exists, by name only.
 - [ ] **Step 5:** Merge to `main` and push.

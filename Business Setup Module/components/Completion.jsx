@@ -1,10 +1,11 @@
 // Completion: cases whose services are finished and wait for the department admin, and cases Accounts is validating.
-// Task 15 adds the totals and the revert flow; for now the existing send-to-Accounts step is here.
+// Each row shows the money: quote total, net paid, balance, invoices and pending payment claims. An unpaid balance shows and does not block.
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { useSetup } from "./SetupContext";
 import { caseDocuments, caseList, handoverState, sendToAccounts } from "../services/businessSetupApi";
 import { STAGE_TONE } from "../logic/statuses";
+import { caseBalance } from "../logic/progress";
 import { aedMoney as money } from "@app/money";
 
 export default function Completion() {
@@ -19,6 +20,11 @@ export default function Completion() {
         <DataTable rows={list.data || []} search="Search case or client…" empty="No cases at Completion." columns={[
           { key: "case_number", label: "Case" }, { key: "client_name", label: "Client", render: (c) => c.client_name || c.lead_name || "–" },
           { key: "stage", label: "State", render: (c) => <Badge tone={STAGE_TONE[c.stage]}>{c.stage}</Badge> },
+          { key: "quote_total", label: "Quote", right: true, render: (c) => (c.quote_total == null ? "–" : money(c.quote_total)) },
+          { key: "net_paid", label: "Net paid", right: true, render: (c) => money(c.net_paid || 0) },
+          { key: "balance", label: "Balance", right: true, render: (c) => { const b = caseBalance(c); return b == null ? "–" : b > 0 ? <Badge tone="warn">{money(b)}</Badge> : money(b); } },
+          { key: "invoices", label: "Invoices", right: true, render: (c) => c.invoices ?? 0 },
+          { key: "claims_pending", label: "Claims", render: (c) => (c.claims_pending ? <Badge tone="warn">{c.claims_pending} pending</Badge> : "") },
           { key: "owner_name", label: "Owner", render: (c) => c.owner_name || "–" }, { key: "updated_at", label: "Updated", render: (c) => fmtDate(c.updated_at) },
           { key: "x", label: "", render: (c) => (
             <span className="bk-actions bk-wrap">
@@ -53,7 +59,7 @@ function SendDialog({ c, onClose, onDone }) {
   }
   return (
     <FormModal title={`Send ${c.case_number} to Accounts`} submitLabel="Send"
-      note={`Net paid AED ${money(h.net_paid)}. This case, its services and payments cannot change while Accounts holds it.`}
+      note={`Net paid ${money(h.net_paid)}. This case, its services and payments cannot change while Accounts holds it.`}
       fields={[{ name: "remarks", label: "Remarks for Accounts", type: "textarea", full: true }]} onClose={onClose}
       onSubmit={async (v) => { await sendToAccounts(found.data.quote.id, v.remarks); await onDone(); }} />
   );
