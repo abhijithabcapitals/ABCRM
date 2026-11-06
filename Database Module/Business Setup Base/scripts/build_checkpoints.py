@@ -75,6 +75,9 @@ sql = r"""-- ===================================================================
 -- Run after 019. Re-runnable. Undo with rollback/022_rollback.sql.
 -- =====================================================================
 
+-- The seed holds non-ASCII text (an en dash). Read this file as UTF-8 whatever the client's code page, or a re-run seeds a second copy.
+set client_encoding = 'UTF8';
+
 create table if not exists public.business_setup_checkpoint_sets (
   id uuid primary key default gen_random_uuid(),
   department text not null default 'Business Setup',

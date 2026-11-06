@@ -21,7 +21,9 @@ select public.bs_as(null);
 -- ── The seed ──
 select public.bs_check('seed_counts: 45 lists, 512 steps, 40 Optional, all Business Setup',
   (select count(*) = 45 and bool_and(department = 'Business Setup') from public.business_setup_checkpoint_sets)
-  and (select count(*) = 512 from public.business_setup_checkpoint_steps) and (select count(*) = 40 from public.business_setup_checkpoint_steps where requirement = 'Optional'));
+  and (select count(*) = 512 from public.business_setup_checkpoint_steps) and (select count(*) = 40 from public.business_setup_checkpoint_steps where requirement = 'Optional'),
+  (select count(*) from public.business_setup_checkpoint_sets)::text || ' lists, ' || (select count(*) from public.business_setup_checkpoint_steps)::text || ' steps; ' || (select string_agg(department || '/' || category || '/' || name || '/' || coalesce(updated_by::text, '-') || '/' || (select count(*) from public.business_setup_checkpoint_steps st where st.set_id = cs.id), ' | ') from public.business_setup_checkpoint_sets cs where (select count(*) from public.business_setup_checkpoint_sets c2 where c2.name = cs.name) > 1 or cs.updated_by is not null or cs.department <> 'Business Setup'));
+select public.bs_check('seed_encoding: the en dash is stored as U+2013, whatever the code page', exists (select 1 from public.business_setup_checkpoint_sets where name = U&'Establishment Card \2013 New / Renewal'));
 select public.bs_check('seed: the rule for Optional is followed', not exists (select 1 from public.business_setup_checkpoint_steps where (label ~ '\((if|where) ') <> (requirement = 'Optional')));
 select public.bs_check('fee_items: 45 linked services with no amount and 5% VAT', (select count(*) = 45 and bool_and(is_service) and bool_and(default_amount is null) and bool_and(vat_rate = 5) from public.business_setup_fee_items where checkpoint_set_id is not null));
 update public.business_setup_checkpoint_steps set label = 'Edited label' where sort_order = 1 and set_id = (select id from public.business_setup_checkpoint_sets where name = 'Ejari Renewal');
