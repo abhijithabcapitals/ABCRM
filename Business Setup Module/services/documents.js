@@ -1,18 +1,13 @@
 // Word files for quotes, letters and receipts. A failed file keeps its number; the screen offers Create file again.
 // Quotes and letters can carry the AB Capital signature (shared signing, Template Hub 011); the rules are in ../logic/caseSigning.js.
-import { supabase } from "@app/supabase";
 import { createDocument, loadCatalogue, loadHubSettings, renderTemplate, saveFile } from "@template-hub/services/hubApi";
 import { fileNameFor, folderKind, mailDraft } from "@template-hub/logic/serviceDocs";
-import { canSign, signHubDocument } from "@template-hub/services/signingApi.js";
-import { loadAccountingSignatures } from "@template-hub/services/accountingApi.js";
-import { withSignatures } from "@template-hub/logic/accountingUi.js";
+import { canSignSafe, hubToPdf as toPdf, loadHubSignatures, signHubDocument, supersedeSignature as supersede } from "@template-hub/services/signingApi.js";
 import { receiptDocx } from "@banking/logic/documents";
 import { storeReceipt } from "./businessSetupApi";
 import { caseDocumentBlob, fileAndWithdraw, signCaseDocument } from "../logic/caseSigning";
 
 const download = async (blob, name) => { const { saveAs } = await import("file-saver"); saveAs(blob, name); };
-const toPdf = async (wordBlob) => (await import("@template-hub/ardentax/logic/docxToPdf.js")).docxToPdf(wordBlob);
-const supersede = async (table, id, reason) => { const { error } = await supabase.rpc("doc_sign_supersede", { p_table: table, p_id: id, p_reason: reason }); if (error) throw new Error(error.message); };
 
 // Files the new Word file, then ends any live signature (the database already did when the file changed). The warning, if any, is
 // logged: the file is saved and downloaded either way, and signing is optional.
@@ -42,14 +37,10 @@ export async function fileLetter(doc) {
 }
 
 // ---- AB Capital signing ----
-export const canSignCase = () => canSign("ab_capital").catch(() => false);
+export const canSignCase = () => canSignSafe("ab_capital");
 
 // The signing state of these quotes and letters, as { [id]: { live, last } }, read under the caller's own rules.
-export async function loadCaseSignatures(ids) {
-  const list = [...new Set((ids || []).filter(Boolean))];
-  if (!list.length) return {};
-  return Object.fromEntries(withSignatures(list.map((id) => ({ id })), await loadAccountingSignatures(list)).map((d) => [d.id, d.signing]));
-}
+export const loadCaseSignatures = loadHubSignatures;
 
 // An approver signs a case quote or letter: re-rendered from its row with the signature, stored under Business Setup/<id>/signed/.
 export const signCase = (doc) => signCaseDocument(doc, {

@@ -3,6 +3,8 @@ import { supabase } from "@app/supabase";
 import { BUCKET, check } from "./hubApi";
 import { docCompany, signedPrefix, validateSignatureFile } from "../logic/signingView";
 import { signDocument } from "./signing.js";
+import { signingById } from "../logic/hubSigning.js";
+import { loadAccountingSignatures } from "./accountingApi.js";
 
 export const loadSigning = async () => {
   const rows = check(await supabase.from("hub_settings").select("value").eq("key", "document_signing"));
@@ -65,3 +67,17 @@ export const signHubDocument = (args, { toPdf }) => signDocument(args, {
   canSign, company: async (table, doc) => docCompany(table, doc), loadImage: loadCompanyImage, toPdf,
   upload: uploadSigned, record: recordSignature, remove: removeSigned, bucketPrefix: signedPrefix,
 });
+
+// ---- Rows signed from a list (Service Desk, Company Templates, Business Setup cases) ----
+// The PDF maker every hub_documents family uses.
+export const hubToPdf = async (wordBlob) => (await import("../ardentax/logic/docxToPdf.js")).docxToPdf(wordBlob);
+// doc_sign_supersede, for a regenerate path. Throws on failure; fileAndWithdraw turns that into a warning.
+export const supersedeSignature = async (table, id, reason) => check(await supabase.rpc("doc_sign_supersede", { p_table: table, p_id: id, p_reason: reason }));
+// doc_sign_can, false when the check itself fails: signing is optional, so the list still works.
+export const canSignSafe = (company) => canSign(company).catch(() => false);
+// The signing state of these hub_documents rows, as { [id]: { live, last } }, read under the caller's own rules.
+export async function loadHubSignatures(ids) {
+  const list = [...new Set((ids || []).filter(Boolean))];
+  if (!list.length) return {};
+  return signingById(list, await loadAccountingSignatures(list));
+}

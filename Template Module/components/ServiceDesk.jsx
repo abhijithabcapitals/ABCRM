@@ -9,11 +9,14 @@ import ClientPicker from "@banking/components/ClientPicker";
 import { ClientLists, listIdFor, useClientLookup } from "@banking/components/ClientLookup";
 import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
-import { withLineVat } from "@business-setup/logic/quoteData";
 import ProposalDesk from "./ProposalDesk";
 import AccountingDesk from "./AccountingDesk";
 import { isProposalLetter } from "../logic/proposalLetter";
-import { addLine, checkReady, oldDeskRows, showAccountingDesk, showViewSwitch, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
+import { addLine, checkReady, oldDeskRows, showAccountingDesk, showViewSwitch, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, mailDraft } from "../logic/serviceDocs";
+import { deskDocumentBlob, deskSignState, signDeskDocument } from "../logic/deskSigning";
+import { fileAndWithdraw } from "../logic/hubSigning";
+import { canSignSafe, hubToPdf, loadHubSignatures, signHubDocument, supersedeSignature } from "../services/signingApi";
+import HubSignCell from "./HubSignCell";
 
 const PROPOSAL = "AB Capital/Proposal"; // proposals have their own screen and list
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
@@ -42,6 +45,11 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const [bsView, setBsView] = useState(initial ? "quotation" : "proposal"); // Business Setup: the proposal form or the old quotation form; a job that hands over its details keeps the old form
   const docs = useLoad(async () => oldDeskRows(await listDocuments(department || null)), [department]);
   const mailPanel = useRef(null);
+  // AB Capital signing (optional): whether this user approves for AB Capital, and each quotation and letter's signature.
+  const files = (docs.data || []).filter((d) => d.doc_type !== "mail").map((d) => `${d.id}:${d.storage_path || ""}`).join(",");
+  const approver = useLoad(() => canSignSafe("ab_capital"), []);
+  const sigs = useLoad(() => loadHubSignatures(files ? files.split(",").map((x) => x.split(":")[0]) : []), [files]);
+  const signOf = (d) => ({ canSign: approver.data === true, signing: sigs.data?.[d.id] || null });
   useEffect(() => { if (mail) mailPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); }, [mail?.id]);
 
   const mailOf = (d) => (docs.data || []).find((x) => x.doc_type === "mail" && x.parent_id === d.id);
@@ -70,15 +78,14 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
 
   const payload = (doc_type, extra = {}) => ({ doc_type, department: dept, client_name: form.client, contact_name: form.contact || null, contact_email: form.email || null, contact_phone: form.phone || null, client_address: form.address || null, license_number: form.license || null, vat_trn: form.trn || null, services: lines.map((l) => l.description), lines, vat_mode: deskVatMode(dept, form.vat_mode), vat_rate: 5, valid_until: form.valid_until || null, notes: form.notes || null, ...extra });
 
-  // Files a generated document and keeps its mail draft beside it.
+  // Files a generated document and keeps its mail draft beside it. A new file ends any live signature: the database does it when
+  // the file changes, and the doc_sign_supersede after it is a second line that only warns.
   const finish = async (doc, type) => {
     const company = settings.data?.company;
-    const limitations = [...new Set((catalogue.data || []).filter((c) => c.service_items.some((x) => doc.services.includes(x.name))).map((c) => c.limitation).filter(Boolean))];
-    const base = type === "quote" ? quoteData(doc, company, settings.data?.engagement_terms) : letterData(doc, company, settings.data?.engagement_terms, limitations);
-    const data = doc.department === "Business Setup" ? withLineVat(doc, base) : base;
-    const blob = await renderTemplate(type === "quote" ? "Service_Quotation_Template.docx" : "Service_Engagement_Template.docx", data);
+    const blob = await deskDocumentBlob({ ...doc, doc_type: type }, null, { render: renderTemplate, settings: settings.data, catalogue: catalogue.data });
     const fileName = fileNameFor(doc.document_number, doc.client_name);
-    const saved = await saveFile(doc, folderKind(doc.department, type), blob, fileName);
+    const { saved, warning } = await fileAndWithdraw(doc, () => saveFile(doc, folderKind(doc.department, type), blob, fileName), supersedeSignature);
+    if (warning) console.warn(warning);
     const { saveAs } = await import("file-saver");
     saveAs(blob, fileName);
     setNote({ ok: true, text: `${LABEL[type]} ${doc.document_number} created. ${saved.local ? `Saved to ${saved.local}` : "Saved online."}` });
@@ -128,6 +135,14 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
     if (d.library_template) return setError("This document came from Template Hub. Use Retry there.");
     setBusy(`file-${d.id}`); setError(null);
     try { await finish(d, d.doc_type); } catch (e) { setError(e.message); }
+    setBusy(null);
+  };
+  // An approver signs a filed quotation or letter: re-rendered from its row with the AB Capital signature, beside the unsigned file.
+  const sign = async (d) => {
+    setBusy(`sign-${d.id}`); setError(null); setNote(null);
+    const r = await signDeskDocument(d, { sign: (args) => signHubDocument(args, { toPdf: hubToPdf }), render: renderTemplate, loadSettings: loadHubSettings, loadCatalogue }, docs.data);
+    if (r.error) setError(r.error);
+    else { setNote({ ok: true, text: `${LABEL[d.doc_type]} ${d.document_number} signed. The signed copy is beside the unsigned one.` }); await sigs.reload(); }
     setBusy(null);
   };
   const copy = async () => {
@@ -207,14 +222,15 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
         </div>
       )}
       <Panel title="Generated documents">
-        <ErrorNote message={docs.error} />
+        <ErrorNote message={docs.error || sigs.error} />
         <DataTable search="Search…" rows={(docs.data || []).filter((d) => d.doc_type !== "mail" && d.library_template !== PROPOSAL && !isProposalLetter(d, docs.data, PROPOSAL))} empty="Nothing generated yet." columns={[
           { key: "doc_type", label: "Type", render: (d) => <Badge>{LABEL[d.doc_type]}</Badge> }, { key: "document_number", label: "Number" }, { key: "document_serial", label: "Serial", right: true },
           { key: "client_name", label: "Client" }, ...(department ? [] : [{ key: "department", label: "Department" }]), { key: "services", label: "Services", render: (d) => d.services.join(", ") },
           { key: "total_amount", label: "Total", right: true, render: (d) => `AED ${Number(d.total_amount).toLocaleString("en-AE")}` }, { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
           { key: "mail", label: "Mail", render: mailButton },
           { key: "next", label: "Next step", render: (d) => (d.doc_type !== "quote" ? "–" : (docs.data || []).some((x) => x.doc_type === "letter" && x.parent_id === d.id && x.status !== "rejected") ? <Badge tone="good">Letter generated</Badge> : <Button busy={busy === `letter-${d.id}`} onClick={() => generateLetter(d)}>Engagement Letter + Mail</Button>) },
-          { key: "o", label: "File", render: (d) => (d.storage_path ? <span className="bk-actions"><button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>View</button>{d.local_path ? <button type="button" className="bk-link" title={d.local_path} onClick={() => openInFolder(d.local_path).catch((e) => setError(e.message))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}</span> : (d.library_template ? <small className="bk-muted">Use Retry in Template Hub</small> : <Button busy={busy === `file-${d.id}`} onClick={() => refile(d)}>Create file</Button>)) },
+          { key: "signature", label: "Signature", render: (d) => <HubSignCell state={deskSignState(d, signOf(d), docs.data)} signing={signOf(d).signing} busy={busy === `sign-${d.id}`} onSign={() => sign(d)} onOpen={(path) => openStored(path).catch((e) => setError(e.message))} /> },
+          { key: "o", label: "File", render: (d) => (d.storage_path ? <span className="bk-actions"><button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>{deskSignState(d, signOf(d), docs.data).openLabel}</button>{d.local_path ? <button type="button" className="bk-link" title={d.local_path} onClick={() => openInFolder(d.local_path).catch((e) => setError(e.message))}>Open in Folder</button> : <Badge tone="warn">Not in PC folder</Badge>}</span> : (d.library_template ? <small className="bk-muted">Use Retry in Template Hub</small> : <Button busy={busy === `file-${d.id}`} onClick={() => refile(d)}>Create file</Button>)) },
         ]} />
       </Panel>
     </div>

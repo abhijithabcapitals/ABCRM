@@ -4,12 +4,13 @@
 // The signed Word and PDF go under Business Setup/<id>/signed/ in hub-documents and are recorded in document_signatures; the row keeps
 // its unsigned file. A new file on the row (Create file, hub_document_attach) ends the signature in the database (011 content trigger).
 import { quoteData, letterData } from "../../Template Module/logic/serviceDocs.js";
-import { signStamp } from "../../Template Module/logic/accountingUi.js";
+import { SIGN_TABLE, fileAndWithdraw, hubSignState, hubSignStatus, signHubRow } from "../../Template Module/logic/hubSigning.js";
 import { withLineVat } from "./quoteData.js";
+
+export { SIGN_TABLE, fileAndWithdraw };
 
 export const QUOTE_TEMPLATE = "Service_Quotation_Template.docx";
 export const LETTER_TEMPLATE = "Service_Engagement_Template.docx";
-export const SIGN_TABLE = "hub_documents";
 
 // What each document is filled with. settings is Template Hub's hub_settings by key (company, engagement_terms); catalogue the
 // service categories with their items (a letter prints the limitations of the categories its services belong to).
@@ -44,54 +45,20 @@ export function caseSignable(doc) {
 
 // What the row shows. canSign is doc_sign_can('ab_capital'); signing is { live, last } (withSignatures). sign: the Sign button.
 // copies: the signed Word and PDF, once a live signature exists. openLabel: the plain file's button, "Unsigned copy" beside a signed one.
-export function caseSignState(doc, { canSign = false, signing = null } = {}, openLabel = "Open") {
-  const live = signing?.live || null;
-  const copies = live ? [
-    ...(live.word_path ? [{ label: "Signed copy (Word)", path: live.word_path }] : []),
-    ...(live.pdf_path ? [{ label: "Signed copy (PDF)", path: live.pdf_path }] : []),
-  ] : [];
-  return {
-    sign: canSign === true && !live && caseSignable(doc),
-    copies,
-    openLabel: copies.length ? "Unsigned copy" : openLabel,
-    showStatus: caseSignable(doc) || !!signing?.last,
-  };
-}
+export const caseSignState = (doc, opts = {}, openLabel = "Open") => hubSignState(doc, opts, openLabel, caseSignable);
 
 // The line that says whether AB Capital signed the document. fmt formats a date.
-export function caseSignStatus(signing, fmt = (d) => d) {
-  const live = signing?.live;
-  if (live) return { label: `Signed by ${live.signer_name || "an approver"} on ${fmt(live.signed_at)}`, tone: "good" };
-  if (signing?.last?.superseded_at) return { label: `Not signed (signature withdrawn: ${signing.last.superseded_reason || "document changed"})`, tone: "warn" };
-  return { label: "Not signed", tone: "plain" };
-}
+export const caseSignStatus = hubSignStatus;
 
 // An approver signs a case quote or letter. The stamp is the one on the row being drawn, so a change made in another tab is refused
 // by the server ("The document changed"). api = { sign({ table, doc, seen, rebuild }) (signing.js with the hub-documents deps),
 // render, loadSettings(), loadCatalogue() }. Returns { signature, wordBlob, pdfBlob } or { error }.
-export async function signCaseDocument(doc, api) {
-  if (!caseSignable(doc)) return { error: "This document cannot be signed here." };
-  const seen = signStamp(doc);
-  if (!seen) return { error: "The document was not found." };
-  try {
-    const [settings, catalogue] = await Promise.all([api.loadSettings(), doc.doc_type === "letter" ? api.loadCatalogue() : Promise.resolve([])]);
-    const r = await api.sign({ table: SIGN_TABLE, doc, seen, rebuild: (d, signature) => rebuildCaseDocument(d, signature, { render: api.render, settings, catalogue }) });
-    return r && !r.error ? r : { error: r?.error || "Signing failed" };
-  } catch (e) {
-    return { error: e?.message || String(e) };
-  }
-}
-
-// A new file on a document (Create file) ends its live signature. The database does it first (011 content trigger on storage_path);
-// this is the second line, for a database without that trigger. save() files the document; the file stands even if the withdrawal
-// fails, which comes back as warning. supersede is doc_sign_supersede. Returns { saved, warning }.
-export async function fileAndWithdraw(doc, save, supersede) {
-  const saved = await save();
-  if (!doc?.id) return { saved, warning: null };
-  try {
-    await supersede(SIGN_TABLE, doc.id, "Generated again");
-    return { saved, warning: null };
-  } catch (e) {
-    return { saved, warning: `Saved, but the earlier signature could not be withdrawn: ${e?.message || e}. Ask an approver.` };
-  }
-}
+export const signCaseDocument = (doc, api) => signHubRow(doc, {
+  signable: caseSignable,
+  prepare: async (d) => {
+    const [settings, catalogue] = await Promise.all([api.loadSettings(), d.doc_type === "letter" ? api.loadCatalogue() : Promise.resolve([])]);
+    return { render: api.render, settings, catalogue };
+  },
+  rebuild: rebuildCaseDocument,
+  sign: api.sign,
+});
