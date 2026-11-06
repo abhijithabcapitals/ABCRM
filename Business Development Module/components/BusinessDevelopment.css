@@ -201,16 +201,16 @@
 .bd-detail-actions select { width: auto; max-width: 240px; font-size: 11px; }
 .bd-detail-summary { justify-content: flex-start; gap: clamp(14px, 3vw, 38px); margin-top: 20px; padding: 15px 0; border-top: 1px solid #edf0f1; border-bottom: 1px solid #edf0f1; }
 .bd-detail-summary > div { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
-.bd-detail-summary small, .bd-overview-grid small, .bd-service-card small, .bd-description-block small { color: #8b989d; font-size: 9px; }
-.bd-detail-summary b { max-width: 210px; overflow: hidden; color: #3e5359; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.bd-detail-summary small, .bd-overview-grid small, .bd-service-card small, .bd-description-block small { color: #6c7d82; font-size: 12px; }
+.bd-detail-summary b { max-width: min(240px, 100%); overflow: hidden; color: #3e5359; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
 .bd-progress-wrap { padding-top: 13px; }
-.bd-progress-label { color: #62757b; font-size: 10px; }
+.bd-progress-label { color: #4f6369; font-size: 13px; }
 .bd-progress-label b { color: #0d7d82; }
 .bd-status-note { color: #a36316 !important; text-transform: capitalize; }
 .bd-progress-track { height: 6px; margin-top: 8px; overflow: hidden; border-radius: 6px; background: #edf1f2; }
 .bd-progress-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #168f94, #4cb5a7); }
 .bd-progress-steps { display: flex; justify-content: space-between; gap: 4px; margin-top: 7px; }
-.bd-progress-steps span { color: #9aa5a9; font-size: 8px; }
+.bd-progress-steps span { color: #6c7d82; font-size: 11.5px; }
 .bd-progress-steps span.reached { color: #117a7e; font-weight: 700; }
 .bd-detail-tabs { display: flex; gap: 3px; overflow-x: auto; margin: 14px 0; border-bottom: 1px solid #e4eaec; }
 .bd-detail-tabs button { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; color: #78878d; background: transparent; font-size: 11px; white-space: nowrap; cursor: pointer; }
@@ -220,7 +220,7 @@
 .bd-detail-main { min-height: 300px; }
 .bd-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .bd-overview-grid > div { display: flex; flex-direction: column; gap: 5px; }
-.bd-overview-grid b { color: #41565c; font-size: 11px; }
+.bd-overview-grid b { color: #41565c; font-size: 13.5px; }
 .bd-description-block { margin-top: 19px; padding-top: 14px; border-top: 1px solid #eef1f2; }
 .bd-description-block p { margin: 6px 0 0; color: #54676d; font-size: 11px; line-height: 1.65; white-space: pre-wrap; }
 .bd-inline-actions { display: flex; gap: 8px; margin-top: 18px; }
@@ -295,7 +295,9 @@
   .bd-detail-actions { flex-wrap: wrap; margin-top: 13px; }
   .bd-detail-actions select { max-width: 100%; }
   .bd-detail-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
-  .bd-progress-steps span { max-width: 42px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Narrow screens: stage names sit in a 4-column grid in full instead of being cut to "Pro…". */
+  .bd-progress-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 4px; }
+  .bd-progress-steps span { font-size: 11px; }
   .bd-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bd-service-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bd-service-card > div:first-child { grid-column: 1 / -1; }
@@ -552,7 +554,7 @@
 .bd-button-small { padding: 6px 10px; font-size: 11px; }
 .bd-row-static { cursor: default; }
 .bd-row-selected td { background: #eef8f8; }
-.bd-owner-select { max-width: 100%; padding: 4px 6px; border: 1px solid #dfe7e9; border-radius: 6px; font-size: 12px; font-weight: 650; }
+.bd-owner-select { max-width: 100%; padding: 4px 6px; border: 1px solid #dfe7e9; border-radius: 6px; font-size: 13.5px; font-weight: 650; }
 .bd-subsection-title { margin: 22px 0 4px; font-size: 16px; }
 .bd-source-analytics { margin-bottom: 26px; }
 .bd-workflow-block { display: grid; gap: 10px; margin: 14px 0; padding: 12px 14px; border: 1px solid #e4ecee; border-radius: 9px; background: #fbfdfd; }
