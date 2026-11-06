@@ -500,6 +500,10 @@ revoke all on od_copy.item_map, od_copy.report from public, anon;
 grant select on od_copy.item_map, od_copy.report to authenticated, service_role;
 revoke all on function od_copy.set_stage(text), od_copy.admin_approve(text, text) from public, anon;
 grant execute on function od_copy.set_stage(text), od_copy.admin_approve(text, text) to authenticated, service_role;
+-- Ruling R13: the client profile box reads client_folders (department + web_url, no file content) for every signed-in
+-- CRM user. Everything else in od_copy stays admin/CEO only. Note: re-running 001 after 002 resets this policy; run 002 again.
+drop policy if exists client_folders_read on od_copy.client_folders;
+create policy client_folders_read on od_copy.client_folders for select to authenticated using (auth.uid() is not null);
 revoke all on od_copy.failed_items from public, anon;
 grant select on od_copy.failed_items to authenticated, service_role;
 

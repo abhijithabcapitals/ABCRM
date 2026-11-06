@@ -87,6 +87,23 @@ select set_config('test.uid', '00000000-0000-0000-0000-0000000000a1', false);
 select pg_temp.check('admin_approve leaves a copying stage alone', (select od_copy.admin_approve('unmatched') >= 0) and pg_temp.stage() = 'copying');
 reset role;
 
+-- R13: client_folders is readable by any signed-in user; the rest of od_copy is not.
+insert into od_copy.client_folders (client_id, department, dest_item_id, web_url)
+values ('CLST01', 'Accounting', 'dest-x', 'https://example.invalid/folder') on conflict do nothing;
+set role authenticated;
+select set_config('test.uid', '00000000-0000-0000-0000-0000000000b2', false);
+select pg_temp.check('non-admin reads client_folders', (select count(*) >= 1 from od_copy.client_folders where client_id = 'CLST01'));
+select pg_temp.check('non-admin still sees no plan rows', (select count(*) = 0 from od_copy.plan));
+select pg_temp.check('non-admin still sees no settings', (select count(*) = 0 from od_copy.settings));
+select pg_temp.check('non-admin still sees no failed_items', (select count(*) = 0 from od_copy.failed_items));
+select pg_temp.check('non-admin still sees no client_matches', (select count(*) = 0 from od_copy.client_matches));
+select pg_temp.rejects('non-admin cannot write client_folders', $$insert into od_copy.client_folders (client_id, department) values ('CLST02', 'x')$$);
+select pg_temp.rejects('non-admin cannot call admin_approve', $$select od_copy.admin_approve('all')$$);
+select pg_temp.rejects('non-admin cannot call set_stage', $$select od_copy.set_stage('inventory')$$);
+select set_config('test.uid', '', false);
+select pg_temp.check('no user id sees no client_folders', (select count(*) = 0 from od_copy.client_folders));
+reset role;
+
 -- Grants: authenticated and service_role may run them, anon may not.
 select pg_temp.check('set_stage: authenticated may execute', has_function_privilege('authenticated', 'od_copy.set_stage(text)', 'execute'));
 select pg_temp.check('set_stage: anon may not', not has_function_privilege('anon', 'od_copy.set_stage(text)', 'execute'));

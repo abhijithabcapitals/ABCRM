@@ -2,7 +2,7 @@ import { Empty, Panel, Spinner, useLoad } from "@banking/components/shared";
 import { loadClientFolders } from "../services/odCopyApi";
 
 // "Documents in OneDrive" on the client profile: one line per department folder, with a link that opens OneDrive.
-// Only admins and the CEO can read the folder list; for anyone else it stays empty.
+// client_folders is readable by every signed-in CRM user (department and link only).
 export default function ClientDocumentsBox({ clientId }) {
   const folders = useLoad(() => (clientId ? loadClientFolders(clientId) : Promise.resolve([])), [clientId]);
   const rows = (folders.data || []).filter((f) => f.web_url);
