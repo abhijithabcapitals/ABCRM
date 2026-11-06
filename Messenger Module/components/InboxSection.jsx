@@ -54,6 +54,7 @@ function MailMessage({ message, files, onFile }) {
 function MailThread({ thread, people, onClose, onStatus }) {
   const [messages, setMessages] = useState(null);
   const [files, setFiles] = useState([]);
+  const [earlier, setEarlier] = useState([]);
   const [problem, setProblem] = useState("");
   const [replying, setReplying] = useState(false);
 
@@ -62,6 +63,7 @@ function MailThread({ thread, people, onClose, onStatus }) {
       const list = await inboxApi.messages(thread.id);
       setMessages(list);
       setProblem("");
+      setEarlier(await inboxApi.archivedMessages(thread.id).catch(() => []));
       setFiles(await inboxApi.attachments(list.filter((m) => m.attachment_count > 0).map((m) => m.id)).catch(() => []));
     } catch (e) {
       setProblem(e.message);
@@ -87,7 +89,18 @@ function MailThread({ thread, people, onClose, onStatus }) {
       {problem && <div className="abm-list-note" role="alert"><p>{problem}</p><button type="button" className="abm-btn" onClick={load}>Try again</button></div>}
       <div className="abm-side-body abi-thread-body">
         {!problem && messages === null && <div aria-label="Loading messages" role="status"><div className="abm-skeleton" /><div className="abm-skeleton" /></div>}
-        {messages?.length === 0 && <p className="abm-list-note">This conversation has no stored messages.</p>}
+        {earlier.length > 0 && (
+          <details className="abm-list-note">
+            <summary>Earlier emails in this conversation ({earlier.length}), kept in SharePoint</summary>
+            {earlier.map((m) => (
+              <p key={m.id}>
+                <strong>{m.from_name || m.from_address || "Unknown sender"}</strong> · {m.subject || "(No subject)"} · {when(m.sent_at)}{" "}
+                {/^https:\/\//.test(m.eml_web_url || "") && <a href={m.eml_web_url} target="_blank" rel="noopener noreferrer">Open in SharePoint</a>}
+              </p>
+            ))}
+          </details>
+        )}
+        {messages?.length === 0 && earlier.length === 0 && <p className="abm-list-note">This conversation has no stored messages.</p>}
         {messages?.map((m) => <MailMessage key={m.id} message={m} files={files.filter((f) => f.message_id === m.id)} onFile={openFile} />)}
       </div>
       {replying && (

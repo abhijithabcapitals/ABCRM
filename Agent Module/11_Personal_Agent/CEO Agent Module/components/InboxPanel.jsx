@@ -28,6 +28,8 @@ const POLL_MS = 2 * 60 * 1000;
 const INBOX_REFRESH_MS = 60 * 1000;
 const PAGE_SIZE = 50;
 const BUCKET = "email-base";
+// SharePoint links come from email_base.archive_items / archived_messages; only https is opened.
+const isHttps = (url) => /^https:\/\//.test(url || "");
 const MAIL_WINDOW_DAYS = 15;
 const THREAD_COLUMNS = "id, mailbox_id, subject, participants, last_message_at, message_count, status, category, priority, needs_reply, is_important, summary, key_points, suggested_actions, folders";
 const MESSAGE_COLUMNS = "id, folder, direction, from_address, from_name, to_addresses, cc_addresses, subject, sent_at, body_text, body_complete, parse_error, attachment_count, raw_path";
@@ -89,6 +91,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   const [searchIds, setSearchIds] = useState(null);
   const [searching, setSearching] = useState(false);
   const [messagesByThread, setMessagesByThread] = useState({});
+  const [archivedByThread, setArchivedByThread] = useState({});
   const [attachmentsByMessage, setAttachmentsByMessage] = useState({});
   const [loadingMessages, setLoadingMessages] = useState(null);
   const [savedFacts, setSavedFacts] = useState([]);
@@ -178,11 +181,14 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     const safe = term.replace(/[,()*%"\\]/g, " ").trim();
     // A fresh query builder per request: builders share their URL and must not be reused.
     const mail = () => sb.schema("email_base").from("messages");
-    const [body, meta, summaries] = await Promise.all([
+    const metaFilter = `subject.ilike."*${safe}*",from_address.ilike."*${safe}*",from_name.ilike."*${safe}*"`;
+    const [body, meta, summaries, archived] = await Promise.all([
       mail().select("thread_id").textSearch("body_search_vector", term, { type: "websearch", config: "english" }).limit(150),
-      safe ? mail().select("thread_id").or(`subject.ilike."*${safe}*",from_address.ilike."*${safe}*",from_name.ilike."*${safe}*"`).limit(150) : { data: [] },
+      safe ? mail().select("thread_id").or(metaFilter).limit(150) : { data: [] },
       sb.schema("email_base").from("threads").select("id").contains("tags", ["ceo"])
         .textSearch("assistant_search_vector", term, { type: "websearch", config: "english" }).limit(150),
+      // Older emails archived to SharePoint keep their headers in archived_messages (no body).
+      safe ? sb.schema("email_base").from("archived_messages").select("thread_id").or(metaFilter).limit(150) : { data: [] },
     ]);
     setSearching(false);
     const failed = [body, meta, summaries].find((r) => r.error)?.error;
@@ -191,6 +197,7 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
       ...(summaries.data || []).map((t) => t.id),
       ...(meta.data || []).map((m) => m.thread_id),
       ...(body.data || []).map((m) => m.thread_id),
+      ...(archived.data || []).map((m) => m.thread_id).filter(Boolean),
     ])].slice(0, 200));
   }
 
@@ -203,8 +210,11 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
   async function download(path, filename) {
     setError("");
     const { data, error: err } = await sb.storage.from(BUCKET).createSignedUrl(path, 120, { download: filename || true });
-    if (err) { setError(`Could not open the file: ${err.message}`); return; }
-    window.open(data.signedUrl, "_blank", "noopener");
+    if (!err) { window.open(data.signedUrl, "_blank", "noopener"); return; }
+    // Files of older conversations live only in SharePoint (see Database Module/Email Base/ARCHIVE.md).
+    const { data: copy } = await sb.schema("email_base").from("archive_items").select("web_url").eq("storage_path", path).maybeSingle();
+    if (isHttps(copy?.web_url)) { window.open(copy.web_url, "_blank", "noopener"); return; }
+    setError(`Could not open the file: ${err.message}`);
   }
 
   const fmt = useMemo(() => new Intl.DateTimeFormat("en-GB", {
@@ -358,6 +368,11 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
     if (messageError) { setError(`Could not refresh email messages: ${messageError.message}`); return; }
     const messages = data || [];
     setMessagesByThread((all) => ({ ...all, [threadId]: messages }));
+    // Earlier emails of this conversation, moved to SharePoint: headers and links only.
+    const { data: earlier } = await sb.schema("email_base").from("archived_messages")
+      .select("id, direction, from_address, from_name, subject, sent_at, eml_web_url, attachments")
+      .eq("thread_id", threadId).order("sent_at", { ascending: true }).limit(1000);
+    setArchivedByThread((all) => ({ ...all, [threadId]: earlier || [] }));
     const withFiles = messages.filter((message) => message.attachment_count > 0).map((message) => message.id);
     if (!withFiles.length) return;
     const { data: files, error: fileError } = await sb.schema("email_base").from("attachments")
@@ -491,6 +506,20 @@ export default function InboxPanel({ sb, timezone, userId, refreshKey, onChanged
         <div className="ceo-thread-layout">
           <div className="ceo-thread-messages">
             {loadingMessages === t.id && <p className="ceo-muted">Loading messages…</p>}
+            {(archivedByThread[t.id] || []).length > 0 && (
+              <details className="ceo-msg ceo-archived">
+                <summary className="ceo-muted">Earlier emails in this conversation ({archivedByThread[t.id].length}), kept in SharePoint</summary>
+                {archivedByThread[t.id].map((m) => (
+                  <div key={m.id} className="ceo-archived-row">
+                    <span><b>{m.from_name || m.from_address || "Unknown sender"}</b> · {m.subject || "(no subject)"} · {when(m.sent_at)}</span>
+                    {isHttps(m.eml_web_url) && <a className="ceo-text-btn" href={m.eml_web_url} target="_blank" rel="noopener noreferrer">Open in SharePoint</a>}
+                    {(m.attachments || []).filter((f) => isHttps(f.web_url)).map((f) => (
+                      <a key={f.storage_path} className="ceo-chip" href={f.web_url} target="_blank" rel="noopener noreferrer">📎 {f.filename || "attachment"}</a>
+                    ))}
+                  </div>
+                ))}
+              </details>
+            )}
             {messages.map((message, index) => {
               const full = expanded[message.id] ?? index === lastIndex;
               const name = message.from_name || message.from_address || "Unknown sender";

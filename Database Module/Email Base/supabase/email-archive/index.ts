@@ -265,8 +265,17 @@ async function run(): Promise<Record<string, unknown>> {
     await Promise.all(Array.from({ length: Math.min(s.concurrency, items.length) }, worker));
   }
 
-  const deleted = s.delete_after_verify ? await deleteVerified(s, started + 140_000) : 0;
-  return { added, verified, failed, deleted, ms: Date.now() - started };
+  // Retention (migration 010): older emails of each conversation leave email_base.messages once
+  // their files are verified, then Storage keeps files only for the most recent conversations.
+  let pruned = 0;
+  let deleted = 0;
+  if (s.delete_after_verify) {
+    const { data: n, error: pruneErr } = await db.rpc("archive_prune", { p_limit: 500 });
+    if (pruneErr) throw new Error(`prune: ${pruneErr.message}`);
+    pruned = Number(n ?? 0);
+    deleted = await deleteVerified(s, started + 140_000);
+  }
+  return { added, verified, failed, pruned, deleted, ms: Date.now() - started };
 }
 
 Deno.serve(async (req) => {

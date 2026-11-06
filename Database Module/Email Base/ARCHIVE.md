@@ -2,9 +2,30 @@
 
 This job moves the files in the Supabase Storage bucket `email-base` (`.eml` originals and attachments) to a SharePoint document library. It removes a file from Supabase only after its SharePoint copy is verified. The goal is to get Supabase Storage under the free plan's 1 GB limit without losing any mail file.
 
-The job has two parts:
+The job has three parts:
 - Migration `migrations/009_onedrive_archive.sql` adds the queue, the settings, the copy report and the cron job.
-- Edge Function `supabase/email-archive` copies the files, verifies each copy and deletes the Storage file when allowed.
+- Migration `migrations/010_archive_retention.sql` adds the retention rules described below.
+- Edge Function `supabase/email-archive` copies the files, verifies each copy and applies the retention rules when allowed.
+
+## What stays in Supabase
+
+These rules were agreed with the user on 2026-11-06. They apply per mailbox.
+
+- The CRM syncs mail from the last 15 days (`MAIL_WINDOW_DAYS`).
+- Every conversation keeps one row in `email_base.messages`: its newest email, like a notification.
+- Older emails of a conversation are copied to `email_base.archived_messages`, then their rows are deleted. The copy holds headers and SharePoint links, but no body. This happens only after the email's `.eml` and every attachment are verified in SharePoint.
+- An email that has an Email Agent insight keeps its row.
+- Files stay in Supabase Storage only for the newest email of the 50 most recent conversations (`archive_settings.keep_conversations`). Every other file is deleted from Storage once its SharePoint copy is verified.
+- Every file is copied to SharePoint, including the files that stay in Supabase.
+- Both the row moves and the Storage deletions run only while `delete_after_verify` is true.
+
+In the CRM:
+- The CEO Inbox (`InboxPanel.jsx`) and the Messenger Inbox (`InboxSection.jsx`) list "Earlier emails in this conversation, kept in SharePoint", each with an "Open in SharePoint" link.
+- When a file is no longer in Supabase Storage, opening it opens its SharePoint copy instead.
+- The CEO Inbox search also matches the subject and sender of archived emails.
+- The BD agent (`bd-agent`) includes archived emails of a lead, as headers with a `sharepoint_url`. It also counts them for the last inbound date.
+
+**The mail sync must not re-import an archived email.** `ceo-mail-sync` should skip a UID that is already in `email_base.archived_messages` (`mailbox_id`, `folder`, `uidvalidity`, `uid`). The session that restores the sync owns this change. If the sync re-uploads a file anyway, `archive_enqueue()` notices the changed eTag and copies the file again.
 
 ## State on 2026-11-06
 
@@ -13,8 +34,14 @@ The job has two parts:
   - 95,896 attachments, 14.6 GB.
   - The largest file is 10.5 MB.
 - `info@abcapital.ae` has 118,785 files (34.0 GB). `bharat@ardentaxit.tax` has 5,195 files (2.1 GB).
-- `email_base.messages`, `attachments` and `threads` are empty, and the mail sync is stopped. The archive therefore works from the Storage paths alone, not from message rows.
+- `email_base.messages`, `attachments` and `threads` were emptied by another session, and the mail sync was stopped. The user then decided to bring the sync back, with 15 days of mail and the rules above. The old files have no message rows, so the archive works from the Storage paths alone.
 - A dry run of migration 009, rolled back, queued all 123,980 files and found nothing yet deletable.
+- A dry run of migrations 009 and 010 with test rows, also rolled back, gave these results:
+  - A conversation of three emails kept only its newest row.
+  - The other two emails moved to `archived_messages` with their links. One of them moved only after its attachment was verified.
+  - Storage kept only the newest email's `.eml` and attachment.
+  - A second conversation, outside the top 1, kept its row, and its file was listed for deletion.
+  - A file whose eTag changed was queued again.
 
 ## How it works
 
@@ -77,7 +104,7 @@ An Entra admin and a SharePoint admin must do steps 1 to 4.
    ```sql
    select vault.create_secret('<same random value>', 'email_base_archive_secret');
    ```
-7. **Apply migration 009 and deploy the function** with one script. Make sure the `email_base` schema is exposed in the Data API, as it already is for `ceo-mail-sync`. The script uses the Supabase CLI in `Database Module/tools`. It does not enable the job.
+7. **Apply migrations 009 and 010 and deploy the function** with one script. Then redeploy `bd-agent` and rebuild the CRM app so the SharePoint links appear. Make sure the `email_base` schema is exposed in the Data API, as it already is for `ceo-mail-sync`. The script uses the Supabase CLI in `Database Module/tools`. It does not enable the job.
    ```bash
    bash "D:/Abhijith Projects/CRM/Database Module/Email Base/deploy_archive.sh"
    ```
@@ -118,7 +145,7 @@ Throughput is roughly a few hundred files per run, so the first full copy takes 
 
 ## Deleting from Supabase Storage
 
-Get a person's approval before the first deletion. Then:
+Get a person's approval before the first deletion. Switching `delete_after_verify` on starts both steps: older emails of each conversation move to `archived_messages`, and Storage files outside the 50 most recent conversations are deleted. Then:
 
 1. Check the report: verified count, bytes, and no failed rows. Open a few `web_url`s and confirm the `.eml` files open.
 2. Run a small first batch:
