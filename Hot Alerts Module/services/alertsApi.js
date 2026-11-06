@@ -64,3 +64,7 @@ export const clientContactLog = (s, p) => call(s, "client_contact_log", { p });
 export const clientDocumentRequest = (s, p) => call(s, "client_document_request", { p });
 export const alertManualTypes = (s) => call(s, "alert_manual_types", {});
 export const alertManualRaise = (s, type, client, detail, due) => call(s, "alert_manual_raise", { p_type: type, p_client: client, p_detail: detail || null, p_due: due || null });
+
+// CHANGES MADE (019)
+export const changesMadeList = (s, days = 30, limit = 200) => call(s, "changes_made_list", { p_days: days, p_limit: limit });
+export const changesMadeMarkSeen = (s) => call(s, "changes_made_mark_seen", {});

@@ -76,12 +76,21 @@ case "$OUT" in "ok "*) ;; *) exit 1 ;; esac
 "${PSQL[@]}" -c "insert into public.notifications (user_id, type, title) select id, 'other', 'keep me' from public.profiles limit 1" || exit 1
 BEFORE="$("${PSQL[@]}" -t -A -c "select count(*) from public.notifications where type = 'alert_centre'")"
 [ "$BEFORE" -gt 0 ] || { echo "FAILED no alert_centre bell rows to roll back"; exit 1; }
-# 015 to 018 first (newest first), twice. Then prove it put back every function body and grant exactly: reapplying 001 to 014 must change nothing.
+# 019 first, twice: CHANGES MADE leaves no table, function or trigger behind.
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/019_rollback.sql" || { echo "FAILED rollback 019"; exit 1; }; done
+OUT="$("${PSQL[@]}" -t -A -c "select case
+  when to_regclass('public.changes_made_log') is not null or to_regclass('public.changes_made_seen') is not null then 'FAILED rollback 019 left a table'
+  when exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname like 'changes\_made%') then 'FAILED rollback 019 left functions'
+  when exists (select 1 from pg_trigger where tgname like 'changes\_made\_%') then 'FAILED rollback 019 left triggers'
+  else 'ok rollback 019 clean, twice' end")"
+echo "$OUT"
+case "$OUT" in "ok "*) ;; *) exit 1 ;; esac
+# 015 to 018 next (newest first), twice. Then prove it put back every function body and grant exactly: reapplying 001 to 014 must change nothing.
 SNAPSHOT="select md5(string_agg(p.oid::regprocedure::text || pg_get_functiondef(p.oid) || coalesce(p.proacl::text, ''), '|' order by p.oid::regprocedure::text)) || has_table_privilege('authenticated', 'public.client_compliance_items', 'select')::text from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prokind = 'f'"
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/015_018_rollback.sql" || { echo "FAILED rollback 015_018"; exit 1; }; done
 ROLLED="$("${PSQL[@]}" -t -A -c "$SNAPSHOT")"
 for f in "${MIGS[@]}"; do
-  case "$(basename "$f")" in 015_*|016_*|017_*|018_*) continue ;; esac
+  case "$(basename "$f")" in 015_*|016_*|017_*|018_*|019_*) continue ;; esac
   "${PSQL[@]}" -f "$f" >/dev/null 2>&1 || { echo "FAILED reapply of $f after rollback 015_018"; exit 1; }
 done
 FRESH="$("${PSQL[@]}" -t -A -c "$SNAPSHOT")"
