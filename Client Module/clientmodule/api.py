@@ -72,6 +72,12 @@ async def verify_remote_document_access(settings: Settings, token: str) -> str:
 
 CLIENT_FILE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".eml", ".msg"}
 MAX_CLIENT_FILE = 25 * 1024 * 1024
+PROPOSAL_DEPARTMENTS = ("Accounting", "Business Setup")  # top folders under proposalRoot
+
+
+def clean_name(s: str) -> str:
+    """Makes text safe as one file or folder name: path and reserved characters become '-'."""
+    return re.sub(r'[<>:"/\\|?*\[\]\x00-\x1f]+', "-", s).strip(" .")
 CLIENT_SUBFOLDERS = {"Trade Licence": "Company Documents", "MOA / AOA": "Company Documents", "VAT Document": "Company Documents",
                      "Corporate Tax Document": "Company Documents", "Passport / ID": "KYC", "Bank Statement": "Bank Statements"}
 
@@ -138,6 +144,10 @@ def create_app(settings: Settings) -> FastAPI:
         host = (request.headers.get("host") or "").split(":")[0]
         if host not in LOCAL_HOSTS:  # blocks DNS-rebinding pages from reaching the API
             return JSONResponse({"error": "Local access only."}, status_code=403)
+        # A multipart POST needs no preflight, so any website open in the browser could write files through this route.
+        # Only the listed CRM origins may save a proposal; a missing or other Origin is refused before anything is written.
+        if path == "/api/proposal-folder" and request.method != "OPTIONS" and origin not in settings.embed_origins:
+            return JSONResponse({"error": "This CRM origin is not allowed."}, status_code=403)
         # The CRM's Business Banking page reads documents and looks up clients here; only listed origins may.
         shared = origin in settings.embed_origins and path.startswith(("/api/batches", "/api/clients", "/api/generated", "/api/proposal-folder"))
         if request.method == "OPTIONS" and shared:
@@ -286,9 +296,7 @@ def create_app(settings: Settings) -> FastAPI:
     # ---- a client document validated in the CRM: into that client's folder, never overwrites ----
     @app.post("/api/clients-folder")
     def save_client_document(file: UploadFile = File(...), client: str = Form(...), client_id: str = Form(""), doc_type: str = Form("Other")):
-        def clean(s: str) -> str:
-            return re.sub(r'[<>:"/\\|?*\[\]\x00-\x1f]+', "-", s).strip(" .")
-        name, client_name, cid = clean(Path(file.filename or "document").name), clean(client), clean(client_id)
+        name, client_name, cid = clean_name(Path(file.filename or "document").name), clean_name(client), clean_name(client_id)
         if not client_name or Path(name).suffix.lower() not in CLIENT_FILE_TYPES:
             return JSONResponse({"error": "That client or file type cannot be saved."}, status_code=400)
         data = file.file.read(MAX_CLIENT_FILE + 1)
@@ -307,7 +315,8 @@ def create_app(settings: Settings) -> FastAPI:
         target.write_bytes(data)
         return {"path": str(target)}
 
-    # ---- an Accounting proposal (Word + PDF) into the client's synced OneDrive folder, never overwrites ----
+    # ---- an Accounting or Business Setup proposal (Word + PDF) into the client's synced OneDrive folder, never overwrites ----
+    # <proposalRoot>/<department>/<client> - <code>/Proposals. The middleware has already refused a missing or unlisted Origin.
     @app.post("/api/proposal-folder")
     def save_proposal(request: Request, word: UploadFile = File(...), pdf: UploadFile = File(...), client: str = Form(...), client_id: str = Form(""), department: str = Form("Accounting")):
         # CORS only limits reading the answer; a foreign web page could still post a form here. Refuse any other origin.
@@ -322,8 +331,8 @@ def create_app(settings: Settings) -> FastAPI:
 
         def clean(s: str) -> str:
             return re.sub(r'[<>:"/\\|?*\[\]\x00-\x1f]+', "-", s).strip(" .")
-        if department != "Accounting":
-            return JSONResponse({"error": "Only Accounting proposals are saved here."}, status_code=400)
+        if department not in PROPOSAL_DEPARTMENTS:
+            return JSONResponse({"error": "Only Accounting and Business Setup proposals are saved here."}, status_code=400)
         wname, pname = clean(Path(word.filename or "").name), clean(Path(pdf.filename or "").name)
         client_name, cid = clean(client), clean(client_id)
         if not client_name or Path(wname).suffix.lower() != ".docx" or Path(pname).suffix.lower() != ".pdf":
@@ -335,7 +344,7 @@ def create_app(settings: Settings) -> FastAPI:
         if len(wdata) > MAX_CLIENT_FILE or len(pdata) > MAX_CLIENT_FILE:
             return JSONResponse({"error": "Files must be under 25 MB."}, status_code=400)
         base = root.resolve()
-        folder = (base / "Accounting" / (f"{client_name} - {cid}" if cid else client_name) / "Proposals").resolve()
+        folder = (base / department / (f"{client_name} - {cid}" if cid else client_name) / "Proposals").resolve()
         if not folder.is_relative_to(base):
             return JSONResponse({"error": "That client or file type cannot be saved."}, status_code=400)
 

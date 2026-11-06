@@ -34,8 +34,8 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
 # and only once business_setup_fee_items exists.
 MINE_OLD=(); MINE_NEW=()
 for n in 01 02 03 04 05 06 07 08 09 10 11 12; do MINE_OLD+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
-# Run order 13 14 20 21 15 16 17 18. 19 (intake), 22 (checkpoints) and 23 (bd_transfer) do not exist yet and follow in that order; the glob is empty until then.
-for n in 13 14 20 21 15 16 17 18 19 22 23; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
+# Run order 13 14 20 21 15 16 17 18 19 22, then 23 (bd_transfer, not written yet: its glob is empty until then) and 24 (portal file names, on top of 022).
+for n in 13 14 20 21 15 16 17 18 19 22 23 24; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 MINE=("${MINE_OLD[@]}" "${MINE_NEW[@]}")
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 
@@ -75,7 +75,20 @@ if [ -n "${ROLLBACK_TEST:-}" ]; then
   "${PSQL[@]}" -f "$HERE/../rollback/015_018_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK 015-018 (second) FAILED"; cat "$DATA/err"; exit 1; }
   "${PSQL[@]}" -f "$HERE/../rollback/013_019_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK 013-019 after 015-018 FAILED"; cat "$DATA/err"; exit 1; }
   "${PSQL[@]}" -f "$HERE/rollback-check-013.sql" 2>&1 | grep -E "ok|ERROR" ; [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
-  for f in "${MINE_NEW[@]}"; do pass=new-again-2; run_sql "$f"; done
+  # 024 alone, on top of 022: record the two functions just before 024 replaces them (010's file function, 022's view), apply it,
+  # roll it back with rollback/024_rollback.sql, compare text and grants, and apply it again.
+  FN024="select string_agg(p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || coalesce(p.proacl::text, ''), ',' order by p.proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('business_setup_portal_file', 'business_setup_portal_view')"
+  PRE024=""
+  for f in "${MINE_NEW[@]}"; do
+    case "$(basename "$f")" in 024_*) PRE024="$("${PSQL[@]}" -At -c "$FN024")" || exit 1 ;; esac
+    pass=new-again-2; run_sql "$f"
+  done
+  [ -n "$PRE024" ] || { echo "024 CHECK FAILED: 024 did not run"; exit 1; }
+  [ "$("${PSQL[@]}" -At -c "$FN024")" != "$PRE024" ] || { echo "024 CHECK FAILED: 024 changed nothing"; exit 1; }
+  "${PSQL[@]}" -f "$HERE/../rollback/024_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK 024 FAILED"; cat "$DATA/err"; exit 1; }
+  [ "$("${PSQL[@]}" -At -c "$FN024")" = "$PRE024" ] || { echo "ROLLBACK 024 CHECK FAILED: the functions differ from 010 and 022"; exit 1; }
+  echo "rollback 024 restores 010's file function and 022's view with their grants ok"
+  pass=024-again; run_sql "$DB/Business Setup Base/migrations/024_portal_file_names.sql"
   "${PSQL[@]}" -c "drop table public.bs_pre013, public.bs_pre013_docs; delete from public.hub_documents where document_number = 'CASE-1'" >/dev/null || exit 1
   "${PSQL[@]}" -c "insert into public.client_master (client_id, legal_name, data) values ('CL990001', 'R', '{}'); insert into public.business_setup_services (client_id, name) values ('CL990001', 'x')" >/dev/null || exit 1
   "${PSQL[@]}" -f "$HERE/../rollback/001_012_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK FAILED"; cat "$DATA/err"; exit 1; }

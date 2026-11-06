@@ -344,16 +344,20 @@ def test_validated_client_document_goes_to_the_clients_folder(tmp_path):
 
 # ---- Accounting proposals into the client's synced OneDrive folder ----
 def _proposal_app(tmp_path, root=True):
-    crm = "https://crm.example"
+    crm = PROPOSAL_CRM
     s = Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", embed_origins=[crm], proposal_root=(tmp_path / "od") if root else None)
     if root:
         (tmp_path / "od").mkdir()
     return TestClient(create_app(s)), tmp_path / "od", crm
 
 
+PROPOSAL_CRM = "https://crm.example"
+
+
 def _proposal_post(c, client="Acme", cid="CL000001", dept="Accounting", word=("p.docx", b"w"), pdf=("p.pdf", b"p"), headers=None):
+    # The CRM's origin by default: the route refuses a missing or other Origin.
     return c.post("/api/proposal-folder", data={"client": client, "client_id": cid, "department": dept},
-                  files={"word": word, "pdf": pdf}, headers=headers or {})
+                  files={"word": word, "pdf": pdf}, headers={"Origin": PROPOSAL_CRM} if headers is None else headers)
 
 
 def test_proposal_folder_saves_both(tmp_path):
@@ -449,3 +453,50 @@ def test_proposal_folder_refuses_foreign_origin(tmp_path):
     assert r.status_code == 403 and list(root.iterdir()) == []
     assert _proposal_post(c, headers={"Origin": crm}).status_code == 200
     assert _proposal_post(c).status_code == 200  # no Origin header: local tools
+
+
+# ---- Business Setup proposals share the route, under their own top folder ----
+def test_proposal_folder_business_setup(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    r = _proposal_post(c, dept="Business Setup")
+    folder = root / "Business Setup" / "Acme - CL000001" / "Proposals"
+    assert r.status_code == 200
+    assert r.json() == {"path": str(folder / "p.docx"), "word": str(folder / "p.docx"), "pdf": str(folder / "p.pdf")}
+    assert (folder / "p.docx").read_bytes() == b"w" and (folder / "p.pdf").read_bytes() == b"p"
+    assert not (root / "Accounting").exists()
+
+
+def test_proposal_folder_keeps_arabic_names(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    r = _proposal_post(c, client="شركة النور", dept="Business Setup", word=("عرض.docx", b"w"))
+    assert r.status_code == 200
+    assert (root / "Business Setup" / "شركة النور - CL000001" / "Proposals" / "عرض.docx").exists()
+
+
+def test_proposal_folder_blank_name_writes_nothing(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    assert _proposal_post(c, client=" .. ", cid="", dept="Business Setup").status_code == 400
+    assert list(root.iterdir()) == []
+
+
+def test_proposal_folder_size_writes_neither(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    big = b"x" * (25 * 1024 * 1024 + 1)
+    assert _proposal_post(c, dept="Business Setup", pdf=("p.pdf", big)).status_code == 400
+    assert list(root.iterdir()) == []  # the good Word file was not written either
+
+
+def test_proposal_folder_refuses_other_or_missing_origin(tmp_path):
+    c, root, _ = _proposal_app(tmp_path)
+    for dept in ("Accounting", "Business Setup"):
+        assert _proposal_post(c, dept=dept, headers={"Origin": "https://evil.example"}).status_code == 403
+        assert _proposal_post(c, dept=dept, headers={}).status_code == 403
+    assert list(root.iterdir()) == []  # nothing was written
+    ok = _proposal_post(c, dept="Business Setup")
+    assert ok.status_code == 200 and (root / "Business Setup" / "Acme - CL000001" / "Proposals" / "p.pdf").exists()
+
+
+def test_clients_folder_keeps_its_origin_rule(tmp_path):
+    # Only /api/proposal-folder gained the Origin refusal: other routes answer a request without Origin as before.
+    c, _, _ = _proposal_app(tmp_path)
+    assert c.post("/api/clients-folder", json={}).status_code != 403

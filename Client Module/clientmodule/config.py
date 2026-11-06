@@ -25,7 +25,7 @@ class Settings:
     service_folders: dict[str, str] = field(default_factory=dict)
     embed_origins: list[str] = field(default_factory=list)  # CRM pages allowed to show this module in a frame
     generated_folders: dict[str, Path] = field(default_factory=dict)  # kind -> folder for CRM-generated documents
-    proposal_root: Path | None = None  # synced OneDrive folder that receives Accounting proposals
+    proposal_root: Path | None = None  # synced OneDrive folder that receives CRM proposals (Accounting and Business Setup)
     remote_mode: bool = False
     allowed_hosts: list[str] = field(default_factory=list)
     supabase_url: str = ""

@@ -7,6 +7,8 @@
 \ir ../migrations/010_portal.sql
 -- The portal view is 018 (it needs 013 to 016, which run-local.sh has applied). Only 018 runs again: the earlier files restore grants that tests 050 to 090 rely on.
 \ir ../migrations/018_portal.sql
+-- 024 names a stored PDF as .pdf in the download.
+\ir ../migrations/024_portal_file_names.sql
 create temp table f40 (k text primary key, v text);
 create function pg_temp.fx(p_k text) returns text language sql as $$ select v from f40 where k = p_k $$;
 create function pg_temp.q(p_client text, p_num text, p_status text, p_path text default null) returns uuid language sql as $$
@@ -50,6 +52,10 @@ insert into public.hub_documents (doc_type, department, client_name, parent_id, 
 insert into f40 select 'let_b', id::text from public.hub_documents where document_number = 'BSE-B';
 insert into public.hub_documents (doc_type, department, client_name, parent_id, document_number, storage_path) values ('letter', 'Business Setup', 'A', pg_temp.fx('quote_a')::uuid, 'BSE-A', 'l/a.docx');
 insert into f40 select 'let_a', id::text from public.hub_documents where document_number = 'BSE-A';
+-- A Business Formation Proposal and its letter are stored as PDF.
+insert into f40 values ('quote_pdf', pg_temp.q('CL900081', 'BSQ-PDF', 'issued', 'q/p.pdf')::text);
+insert into public.hub_documents (doc_type, department, client_name, parent_id, document_number, storage_path) values ('letter', 'Business Setup', 'B', pg_temp.fx('quote_pdf')::uuid, 'BSE-PDF', 'l/p.pdf');
+insert into f40 select 'let_pdf', id::text from public.hub_documents where document_number = 'BSE-PDF';
 
 create function pg_temp.v() returns jsonb language sql as $$ select public.business_setup_portal_view(pg_temp.fx('acc_a')::uuid) $$;
 
@@ -65,6 +71,21 @@ select public.bs_expect_error(format($$select business_setup_portal_file('%s','q
 select public.bs_expect_error(format($$select business_setup_portal_file('%s','quote','%s')$$, pg_temp.fx('acc_a'), pg_temp.fx('quote_nofile')), 'not found');
 select public.bs_expect_error(format($$select business_setup_portal_file('%s','anything','%s')$$, pg_temp.fx('acc_a'), pg_temp.fx('quote_a')), 'not found');
 select public.bs_expect_error(format($$select business_setup_portal_file('%s','quote','%s')$$, pg_temp.fx('acc_none'), pg_temp.fx('quote_a')), 'not found');
+-- An undecided multi-option proposal is not listed or served; a decided or single-option one is.
+insert into public.hub_documents (doc_type, department, client_name, client_id, document_number, total_amount, status, storage_path, library_template, field_values) values
+  ('quote', 'Business Setup', 'B', 'CL900081', 'BSQ-UND', 1, 'issued', 'q/u.pdf', 'AB Capital/Proposal', '{"proposal": {"options": [{}, {}]}}'),
+  ('quote', 'Business Setup', 'B', 'CL900081', 'BSQ-ONE', 1, 'issued', 'q/o.pdf', 'AB Capital/Proposal', '{"proposal": {"options": [{}]}}'),
+  ('quote', 'Business Setup', 'B', 'CL900081', 'BSQ-DEC', 1, 'issued', 'q/d.pdf', 'AB Capital/Proposal', '{"proposal": {"options": [{}, {}], "accepted_option": 1}}');
+insert into f40 select 'quote_und', id::text from public.hub_documents where document_number = 'BSQ-UND';
+select public.bs_check('an undecided multi-option proposal is not listed to the client',
+  public.business_setup_portal_view(pg_temp.fx('acc_b')::uuid)::text !~ 'BSQ-UND'
+  and public.business_setup_portal_view(pg_temp.fx('acc_b')::uuid)::text ~ 'BSQ-ONE' and public.business_setup_portal_view(pg_temp.fx('acc_b')::uuid)::text ~ 'BSQ-DEC'
+  and public.business_setup_portal_view(pg_temp.fx('acc_b')::uuid)::text ~ 'BSQ-PDF');
+select public.bs_expect_error(format($$select business_setup_portal_file('%s','quote','%s')$$, pg_temp.fx('acc_b'), pg_temp.fx('quote_und')), 'not found');
+select public.bs_check('a stored PDF keeps its .pdf name, a Word file keeps .docx',
+  public.business_setup_portal_file(pg_temp.fx('acc_b')::uuid, 'quote', pg_temp.fx('quote_pdf')::uuid) ->> 'file_name' = 'BSQ-PDF.pdf'
+  and public.business_setup_portal_file(pg_temp.fx('acc_b')::uuid, 'letter', pg_temp.fx('let_pdf')::uuid) ->> 'file_name' = 'BSE-PDF.pdf'
+  and public.business_setup_portal_file(pg_temp.fx('acc_a')::uuid, 'quote', pg_temp.fx('quote_a')::uuid) ->> 'file_name' = 'BSQ-A.docx');
 select public.bs_check('own files resolve', public.business_setup_portal_file(pg_temp.fx('acc_a')::uuid, 'quote', pg_temp.fx('quote_a')::uuid) ->> 'path' = 'q/a.docx'
   and public.business_setup_portal_file(pg_temp.fx('acc_a')::uuid, 'letter', pg_temp.fx('let_a')::uuid) ->> 'path' = 'l/a.docx'
   and public.business_setup_portal_file(pg_temp.fx('acc_a')::uuid, 'receipt', pg_temp.fx('rcp_a')::uuid) ->> 'path' = 'r/a.docx'

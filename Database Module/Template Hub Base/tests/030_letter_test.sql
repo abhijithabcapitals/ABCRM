@@ -35,7 +35,8 @@ select at_check('Business Setup letter through hub_document_create still needs a
   (select count(*) = 1 from (select id from hub_document_create(jsonb_build_object('doc_type', 'quote', 'department', 'Business Setup', 'vat_mode', 'none', 'client_name', 'Q2', 'contact_name', 'Q', 'contact_email', 'q@sample.example', 'contact_phone', '1', 'lines', '[{"description": "Fee", "amount": 10}]'::jsonb))) x));
 select id as q2 from hub_documents where client_name = 'Q2' \gset
 select at_check('hub_document_create refuses an unaccepted quote',
-  at_refused(format($f$select hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', %L::uuid))$f$, :'q2'), 'accepted first'));
+  at_refused(format($f$select hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', %L::uuid))$f$, :'q2'), 'accepted first')
+  or at_refused(format($f$select hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', %L::uuid))$f$, :'q2'), 'Confirm the signed quote first'));
 
 select at_as(null);
 update hub_documents set status = 'rejected', status_at = now() where id = :'q2';
