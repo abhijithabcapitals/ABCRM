@@ -85,7 +85,7 @@ function Loaded() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
           <label>
             Client code{" "}
-            <input type="text" value={pilotClient} onChange={(e) => setPilotClient(e.target.value)} placeholder="CL000000" aria-label="Client code for the pilot" />
+            <input type="text" value={pilotClient} onChange={(e) => setPilotClient(e.target.value)} placeholder="Client code" aria-label="Client code for the pilot" />
           </label>
           <Button disabled={!canApprove || !pilotClient.trim()} busy={busy === "client"} onClick={approvePilot}>Copy one client (pilot)</Button>
         </div>

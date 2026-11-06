@@ -6,30 +6,41 @@
 #   bash "D:/Abhijith Projects/CRM/Document Intelligence Module/supabase/deploy_onedrive_copy.sh"
 set -euo pipefail
 
+# Every failure stops the script with a clear message; nothing is ignored.
+fail() { echo "FAILED: $*" >&2; exit 1; }
+
 REF=pnnakrhfzyxudjaghoxx
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 DBMIG="$ROOT/Database Module/Document Base/migrations"
 TOOLS="$ROOT/Database Module/tools"
-cd "$TOOLS"
+cd "$TOOLS" || fail "folder $TOOLS not found (it holds the Supabase CLI)"
 
 # Re-run 002 whenever 001 is re-run: 001 resets the client_folders policy.
 for m in 001_od_copy 002_od_copy_plan; do
   echo "== $m"
-  out=$(npx --no-install supabase db query --linked --project-ref "$REF" -f "$DBMIG/$m.sql" 2>&1) || true
-  if echo "$out" | grep -q '"_tag":"Error"'; then echo "$out"; exit 1; fi
+  [ -f "$DBMIG/$m.sql" ] || fail "migration file $DBMIG/$m.sql not found"
+  # Both the CLI exit code and its output are checked: the CLI can print an error and still exit 0.
+  rc=0
+  out=$(npx --no-install supabase db query --linked --project-ref "$REF" -f "$DBMIG/$m.sql" 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ] || echo "$out" | grep -qiE '"_tag":"Error"|(^|[^a-z_])error:'; then
+    echo "$out" >&2
+    fail "migration $m (exit code $rc). Nothing after it was applied; fix the error and run the script again."
+  fi
   echo "ok"
 done
 
 # The CLI deploys from <workdir>/supabase/functions/<name>, so stage a copy there.
-STAGE="$(mktemp -d)"
+STAGE="$(mktemp -d)" || fail "cannot create a temporary folder"
 trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE/supabase/functions"
-cp -r "$HERE/onedrive-copy" "$STAGE/supabase/functions/onedrive-copy"
+mkdir -p "$STAGE/supabase/functions" || fail "cannot create the staging folder"
+cp -r "$HERE/onedrive-copy" "$STAGE/supabase/functions/onedrive-copy" || fail "cannot copy the function source"
 rm -f "$STAGE/supabase/functions/onedrive-copy/"*_test.ts
 
 echo "== deploy onedrive-copy"
-npx --no-install supabase functions deploy onedrive-copy --project-ref "$REF" --no-verify-jwt --workdir "$STAGE"
+rc=0
+npx --no-install supabase functions deploy onedrive-copy --project-ref "$REF" --no-verify-jwt --workdir "$STAGE" || rc=$?
+[ "$rc" -eq 0 ] || fail "Edge Function deploy (exit code $rc). The migrations were applied; the function was not deployed."
 
 cat <<SQL
 
