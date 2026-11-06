@@ -8,6 +8,7 @@ import { supabase } from "@app/supabase";
 import ClientPortal from "../portal/ClientPortal";
 import { filterClients } from "../logic/adminFilters";
 import { staffPost } from "../portal/portalApi";
+import TermsAdmin from "./TermsAdmin";
 
 const staffToken = async () => (await supabase.auth.getSession()).data.session?.access_token;
 export const staffCall = async (action, body) => staffPost(await staffToken(), action, body);
@@ -168,6 +169,7 @@ export default function ClientPortalAdmin() {
   return (
     <div className="bk-root">
       <PageHead title="Client Portal" sub="Only admins see this. Clients sign in on the normal page with their username, and see only their own record." />
+      <TermsAdmin />
       <div className="bk-actions bk-mb" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
         <div className="bk-field"><label htmlFor="cp-f-access">Access</label>
           <select id="cp-f-access" value={access} onChange={(e) => setAccess(e.target.value)}><option value="">All</option><option value="on">On</option><option value="revoked">Revoked</option><option value="none">None</option></select></div>

@@ -3,7 +3,8 @@
 import { lazy, Suspense, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, KeyVals, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { useSetup } from "../SetupContext";
-import { formDetail } from "../../services/businessSetupApi";
+import { addStaffFormDocument, formDetail, formStaffSave } from "../../services/businessSetupApi";
+import BulkUpload from "../BulkUpload";
 import { FIELDS } from "../../logic/staffForm";
 import { visibleDocs } from "../../logic/claims";
 import { itemState, itemTone } from "../../logic/checklist";
@@ -17,6 +18,7 @@ export default function FieldsPanel({ c, onOpenForm, onChanged }) {
   const { can } = useSetup();
   const f = useLoad(() => (c.form_id ? formDetail(c.form_id) : Promise.resolve(null)), [c.form_id, c.form_status]);
   const [reading, setReading] = useState(false);
+  const [fillError, setFillError] = useState(null);
   const d = f.data;
   const a = d?.answers || {};
   const docs = visibleDocs(d?.documents).filter((x) => x.upload_complete);
@@ -28,7 +30,12 @@ export default function FieldsPanel({ c, onOpenForm, onChanged }) {
         {canRead && <Button onClick={() => setReading(true)}>Read documents</Button>}
       </span>}>
       <div className="bk-actions bk-wrap bk-mb">{["fields", "documents"].map((k) => <Badge key={k} tone={itemTone(itemState(c, k))}>{k === "fields" ? "Fields" : "Documents"}: {itemState(c, k)}</Badge>)}</div>
-      <ErrorNote message={f.error} />
+      <ErrorNote message={f.error || fillError} onClose={fillError ? () => setFillError(null) : undefined} />
+      {canRead && <BulkUpload answers={a} labels={Object.fromEntries(FIELDS)} title="Drag and drop all the client's documents here"
+        hint="or click to choose. PDF, JPG or PNG, up to 10 MB each. They are sorted, read in this browser, and fill the empty fields below."
+        upload={(file, type) => addStaffFormDocument(c.form_id, c.client_id, type, file)}
+        fill={(next) => { setFillError(null); formStaffSave(c.form_id, next).then(f.reload, (e) => setFillError(e.message)); }}
+        onUploaded={f.reload} />}
       {!c.form_id ? <p className="bk-note">This case has no client form. Fields and Documents follow the client's KYC: they are met once nothing is missing. Complete it on the client's page, using Open client.</p>
         : f.loading && !d ? <Spinner /> : d && <>
           {d.status === "Returned" && d.return_note && <div className="bk-alert bk-alert-warn">Returned to the client: {d.return_note}</div>}

@@ -37,6 +37,8 @@ export default function ClientsHub({ profile, openClientId, onClientShown }) {
 
 function AllClients({ isAdmin, openClientId, onClientShown }) {
   const list = useLoad(() => rpc("client_base_list"), []);
+  // Who referred each client. A failure here must not stop the list: the column just stays empty.
+  const referrers = useLoad(() => rpc("business_setup_referrers").catch(() => ({})), []);
   const [line, setLine] = useState("");
   const [open, setOpen] = useState(null);
   const [notListed, setNotListed] = useState(false);
@@ -77,6 +79,7 @@ function AllClients({ isAdmin, openClientId, onClientShown }) {
           { key: "phone", label: "Phone" },
           { key: "email", label: "Email" },
           { key: "client_master_id", label: "Client Master", render: (c) => c.client_master_id || <Badge tone="warn">Not linked</Badge> },
+          { key: "referred_by", label: "Referred by", render: (c) => (referrers.data?.[c.client_master_id] || []).join(", ") || "–" },
           { key: "client_since", label: "Client since", render: (c) => fmtDate(c.client_since) },
         ]} />
       )}

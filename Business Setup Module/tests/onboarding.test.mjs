@@ -103,3 +103,63 @@ test("claims: Confirm goes through payment_add with claim_id, Refuse through cla
   assert.match(c, /staff_url/); assert.match(c, /claimRefuse\(/);
   assert.match(rd("../components/workspace/Payments.jsx"), /claim_id: claim\.id/);
 });
+
+test("drag and drop: what the reader recognised becomes a form type, and an unsure file gets none", async () => {
+  const { formTypeFor, FORM_DOC_TYPES } = await import("../logic/bulkUpload.js");
+  for (const [docai, type] of [["Passport", "Passport"], ["EmiratesID", "Emirates ID"], ["Visa", "Emirates visa"], ["TenancyContract", "Ejari"], ["BankStatement", "Bank statement"], ["ProofOfAddress", "Utility bill"], ["TradeLicence", "Other"], ["MOA", "Other"]]) {
+    assert.equal(formTypeFor({ doc_type: docai, classification_confidence: "high" }), type, docai);
+    assert.ok(FORM_DOC_TYPES.includes(type));
+  }
+  assert.equal(formTypeFor({ doc_type: "Passport", classification_confidence: "low" }), null);
+  assert.equal(formTypeFor({ doc_type: "Quotation", classification_confidence: "high" }), null);
+  assert.equal(formTypeFor(null), null);
+});
+
+test("drag and drop: only files the portal accepts are taken, once each", async () => {
+  const { sortDropped, fileProblem } = await import("../logic/bulkUpload.js");
+  assert.match(fileProblem({ name: "a.exe", size: 5 }), /only PDF/);
+  assert.match(fileProblem({ name: "a.pdf", size: 11 * 1024 * 1024 }), /larger than 10 MB/);
+  assert.match(fileProblem({ name: "a.pdf", size: 0 }), /empty/);
+  assert.equal(fileProblem({ name: "A.JPG", size: 5 }), null);
+  const a = { name: "a.pdf", size: 5 }; const b = { name: "b.pdf", size: 5 };
+  const out = sortDropped([a, a, b, { name: "c.exe", size: 5 }], [b]);
+  assert.deepEqual(out.files, [a]);
+  assert.equal(out.problems.length, 1);
+});
+
+test("drag and drop sits at the top of the client's form and of Client Onboarding, and never overwrites", () => {
+  const read = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  const form = read("../../Client Login Module/portal/SetupForm.jsx");
+  assert.ok(form.indexOf("<BulkUpload") > 0 && form.indexOf("<BulkUpload") < form.indexOf("visibleSections(form.definition, answers).map"));
+  const panel = read("../components/onboarding/FieldsPanel.jsx");
+  assert.ok(panel.indexOf("<BulkUpload") > 0 && panel.indexOf("<BulkUpload") < panel.indexOf("!c.form_id ?"));
+  const bulk = read("../components/BulkUpload.jsx");
+  assert.match(bulk, /mergeOcr\(before, out\.read\)/);
+  assert.doesNotMatch(bulk, /client-login\/admin|ClientPortalAdmin|supabase/);
+});
+
+test("referral link: the public page comes first, holds no staff code, and has only three public actions", () => {
+  const read = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  const root = read("../../Main Module/src/Root.jsx");
+  assert.ok(root.indexOf('get("intake")') < root.indexOf("getPortalToken())"));
+  const form = read("../components/IntakeForm.jsx");
+  assert.doesNotMatch(form, /businessSetupApi|bankingApi|@app\/supabase|client-login\/admin/);
+  const api = read("../services/intakeApi.js");
+  assert.doesNotMatch(api, /supabase\.|@app/);
+  const fn = read("../supabase/setup-intake/index.ts");
+  assert.deepEqual([...fn.matchAll(/action === "([a-z_]+)"/g)].map((m) => m[1]).sort(), ["open", "spam", "submit", "upload_start"]);
+  assert.doesNotMatch(fn, /createSignedUrl\(|\.download\(/);   // nothing is read back
+  assert.match(fn, /String\(body\.website \|\| ""\)\) return json\(\{ ok: true \}\)/);   // the trap stores nothing
+  assert.doesNotMatch(fn, /console\.[a-z]+\([^)]*(token|answers)/);
+  // The link lives on the user's Profile, and only there.
+  assert.match(read("../../Main Module/src/components/Profile.jsx"), /<IntakeLinks \/>/);
+  for (const f of ["../components/AllLeads.jsx", "../components/ClientOnboarding.jsx", "../../Client Module/crm/ClientsHub.jsx"]) assert.doesNotMatch(read(f), /IntakeLinks/, f);
+});
+
+test("the Profile page lets staff reset their own password, only after giving the current one", () => {
+  const read = (f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), "utf8");
+  assert.match(read("../../Main Module/src/components/Profile.jsx"), /<ProfilePassword \/>/);
+  const p = read("../../Main Module/src/components/ProfilePassword.jsx");
+  assert.ok(p.indexOf("signInWithPassword") > 0 && p.indexOf("signInWithPassword") < p.indexOf("updateUser"));
+  assert.doesNotMatch(p, /console\./);
+});

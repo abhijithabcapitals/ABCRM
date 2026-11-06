@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Badge, Button, ErrorNote, FormModal, KeyVals, Modal, Panel, fmtDateTime, useAction, useLoad } from "@banking/components/shared";
 import { staffCall } from "@client-login/admin/ClientPortalAdmin";
+import { rpc } from "@banking/services/bankingApi";
 import { loginSave, loginState, loginStatus } from "../../services/businessSetupApi";
 import { generatePassword, suggestUsername as suggest } from "../../logic/loginSecret";
 
@@ -12,10 +13,14 @@ export default function ClientLogin({ w, clientId }) {
   const [issued, setIssued] = useState(null);
   const [preview, setPreview] = useState(null);
   const a = state.data;
+  const agreed = useLoad(() => (a?.id ? rpc("client_portal_terms_acceptances_for", { p_account: a.id }) : Promise.resolve([])), [a?.id]);
   return (
     <Panel title="Client login" sub="The client sees only their own form, status, quotes, payments and documents.">
       <ErrorNote message={error || state.error} onClose={error ? () => setError(null) : undefined} />
       {a ? <KeyVals items={[["Username", a.username], ["State", <Badge key="s" tone={a.status === "active" ? "good" : "bad"}>{a.status}</Badge>], ["Last sign-in", a.last_login_at ? fmtDateTime(a.last_login_at) : "Never"]]} /> : <p className="bk-note">No login yet. Issuing one also creates the client's form, unless KYC is already done.</p>}
+      {a && <p className="bk-note bk-mt">Terms and Conditions: {agreed.error ? agreed.error : (agreed.data || []).length
+        ? (agreed.data || []).map((t) => `version ${t.version}, agreed ${fmtDateTime(t.accepted_at)}`).join("; ")
+        : agreed.loading ? "checking" : "not agreed yet"}</p>}
       <div className="bk-actions bk-mt">
         <Button variant="primary" onClick={() => setIssuing(true)}>{a ? "Reset password" : "Issue login"}</Button>
         {a?.status === "active" && <Button busy={busy} onClick={() => act(() => loginStatus(clientId, false))}>Revoke</Button>}

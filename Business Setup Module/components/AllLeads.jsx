@@ -9,6 +9,7 @@ import { caseList, caseMoveToOnboarding, caseNew, caseTake, listForms, reassignR
 import { caseWorkspace } from "../logic/caseWorkspace";
 import { ageDays, duplicateClient, leadActions } from "../logic/leads";
 import { STAGE_TONE } from "../logic/statuses";
+import IntakeDetail from "./IntakeDetail";
 
 const SECTIONS = [["assigned", "Assigned to me", true], ["leads", "All Leads", false], ["inputs", "Client Inputs pending review", false]];
 
@@ -26,6 +27,7 @@ export default function AllLeads() {
   const onDialog = (kind, c) => setDialog({ kind, c });
   // The form behind a row of Client Inputs: the case's own form, submitted or in review (a client can have more than one open case).
   const onReview = (c) => {
+    if (c.intake_pending) { setNotice(null); setDialog({ kind: "intake", c }); return; }
     const f = (forms.data || []).find((x) => x.case_id === c.id && ["Submitted", "In review"].includes(x.status));
     if (!f) { setNotice(forms.error || `No submitted form was found for ${c.case_number}. Reload the page and try again.`); return; }
     setNotice(null); setReviewing(f.id);
@@ -39,7 +41,6 @@ export default function AllLeads() {
         {can("setup.leads.manage") && <Button variant="primary" onClick={() => setDialog({ kind: "new" })}>New lead</Button>}
       </PageHead>
       <ErrorNote message={notice} onClose={notice ? () => setNotice(null) : undefined} />
-      {/* The open link panel (Task 11) goes in the aside. */}
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           {SECTIONS.map(([key, title, first]) => {
@@ -68,8 +69,8 @@ export default function AllLeads() {
           </ClosedSection>
           <ErrorNote message={closed.error || forms.error} />
         </div>
-        <aside data-slot="link-panel" />
       </div>
+      {dialog?.kind === "intake" && <IntakeDetail c={dialog.c} canSpam={can("setup.cases.approve")} onClose={() => setDialog(null)} onDone={reloadAll} />}
       {dialog?.kind === "new" && <FormModal title="New lead" submitLabel="Add lead" onClose={() => setDialog(null)}
         fields={[{ name: "lead_name", label: "Lead name", required: true, full: true }, { name: "contact_person", label: "Contact person" }, { name: "phone", label: "Phone" }, { name: "email", label: "Email" }, { name: "source", label: "Source" }, { name: "notes", label: "Notes", type: "textarea", full: true }]}
         onSubmit={async (v) => { await caseNew(v); await reloadAll(); }} />}
