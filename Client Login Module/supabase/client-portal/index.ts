@@ -30,6 +30,9 @@
 //   setup_issue_login { case_id, resend? } -> { ok, emailed, username }   setup.leads.manage, with the case's quote issued: makes the client's login with a
 //     server-generated password and emails it (never returned or logged); a client who has a login gets a notice email only; resend: true emails the stored
 //     login again without changing it. emailed: false keeps the login.
+//   setup_login_save { client_id, username, password, reset? } -> { ok, emailed, email, email_error }   setup.portal.manage (the client's Client Login tab):
+//     saves the login staff typed (business_setup_portal_login_save checks the right), then emails the username and password to the client's address in
+//     Client Master, else the one the login holds. emailed: false keeps the login, and the screen still shows the password once.
 //
 // Deploy: supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
 
@@ -89,7 +92,7 @@ Deno.serve(async (req) => {
       return json({ token: data.token });
     }
 
-    if (action === "admin_preview" || action === "admin_grant_access" || action === "staff_url" || action === "staff_review" || action === "staff_signed_url" || action === "setup_issue_login") {
+    if (action === "admin_preview" || action === "admin_grant_access" || action === "staff_url" || action === "staff_review" || action === "staff_signed_url" || action === "setup_issue_login" || action === "setup_login_save") {
       // Runs as the signed-in staff member, so the SQL's auth.uid() checks apply.
       const staff = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
         auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
@@ -125,6 +128,25 @@ Deno.serve(async (req) => {
         const { data: file, error: fileErr } = await staff.rpc("business_setup_signed_file", { p_id: String(body.id || "") });
         if (fileErr) return json({ error: fileErr.message }, 403);
         return json({ url: await signed(file.path, file.file_name) });
+      }
+      if (action === "setup_login_save") {
+        const clientId = String(body.client_id || "").slice(0, 40);
+        const username = String(body.username || "").slice(0, 100);
+        const password = String(body.password || "").slice(0, 200);
+        const { data: accountId, error: saveErr } = await staff.rpc("business_setup_portal_login_save", { p_client: clientId, p_username: username, p_password: password });
+        if (saveErr) {
+          if (/permission/i.test(saveErr.message)) return json({ error: saveErr.message }, 403);
+          if (saveErr.code === "P0001") throw new InputError(saveErr.message);
+          throw new Error(saveErr.message);
+        }
+        const { data: who } = await staff.auth.getUser();
+        const actor: string | null = who?.user?.id ?? null;
+        const { data: client } = await admin.from("client_master").select("legal_name, data").eq("client_id", clientId).maybeSingle();
+        const { data: account } = await admin.from("client_portal_accounts").select("username, display_name, email").eq("id", accountId).maybeSingle();
+        const to = String(client?.data?.["General Email"] || account?.email || "").trim();
+        if (!EMAIL.test(to)) return json({ ok: true, emailed: false, email: null, email_error: "The client has no email in Client Master." });
+        const sent = await emailCredentials(admin, actor, to, { audience: "client", reset: body.reset === true, name: account?.display_name || client?.legal_name || "", username: account?.username || username, password });
+        return json({ ok: true, email: to, ...sent });
       }
       if (action === "setup_issue_login") {
         // The SQL checks the right (setup.leads.manage) and that the case has an issued quote; it says whether the client has an active login and where to write.

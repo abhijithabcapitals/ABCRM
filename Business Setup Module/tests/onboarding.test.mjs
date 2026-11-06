@@ -170,5 +170,6 @@ test("Completion shows one AED, the money columns, and the referrer dialog is ad
   for (const k of ["quote_total", "net_paid", "balance", "invoices", "claims_pending"]) assert.match(c, new RegExp(`key: "${k}"`));
   const o = rd("../components/ClientOnboarding.jsx");
   assert.match(o, /profile\?\.role === "admin" && <Button onClick=\{\(\) => setDialog\("referrer"\)\}>Change referrer/);
-  assert.match(o, /name: "reason", label: "Reason", type: "textarea", required: true/);
+  assert.match(o, /<ReferrerDialog c={c}/);
+  assert.match(rd("../components/onboarding/ReferrerDialog.jsx"), /name: "reason", label: "Reason", type: "textarea", required: true/);
 });
