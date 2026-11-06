@@ -7,7 +7,7 @@
 -- files). All execute for service_role only. Views: security_invoker, so the od_copy Row Level Security (admins and
 -- CEO read) applies to whoever reads them.
 -- Rollback: drop view od_copy.report, od_copy.item_map; drop function od_copy.build_plan(), od_copy.approve(text,text,text),
--- od_copy.fit_path(text[]), od_copy.folder_for(text), od_copy.employee_label(text), od_copy.clean_segment(text),
+-- od_copy.fit_path(text[],int), od_copy.folder_for(text), od_copy.employee_label(text), od_copy.clean_segment(text),
 -- od_copy.cap_segment(text,int), od_copy.legal_form(text), od_copy.normalize_name(text).
 begin;
 
@@ -54,43 +54,51 @@ begin
 end $$;
 
 -- One valid OneDrive name: " * : < > ? / \ | and control characters -> '-', no leading spaces, no trailing dots or
--- spaces, reserved names (CON, PRN, AUX, NUL, COM0-9, LPT0-9, .lock, ~$...) prefixed with '_', '_vti_' broken up
+-- spaces, reserved names (CON, PRN, AUX, NUL, COM0-9, LPT0-9, .lock, desktop.ini, ~$...) prefixed with '_', '_vti_' broken up
 -- (prefixing alone would leave it inside the name), at most 120 characters keeping the extension. Empty -> '_'.
 create or replace function od_copy.clean_segment(p text) returns text
 language plpgsql immutable parallel safe as $$
 declare
   r text;
 begin
-  r := regexp_replace(translate(coalesce(p, ''), '"*:<>?/\|', '---------'), '[\x01-\x1f]', '-', 'g');
+  r := regexp_replace(translate(coalesce(p, ''), '"*:<>?/\|', '---------'), '[\x01-\x1f\x7f]', '-', 'g');
   r := ltrim(rtrim(r, '. '), ' ');
   if r = '' then return '_'; end if;
   r := replace(r, '_vti_', '_vti-');
-  if upper(split_part(r, '.', 1)) ~ '^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$' or lower(r) = '.lock' or r like '~$%' then
+  if upper(split_part(r, '.', 1)) ~ '^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$' or lower(r) in ('.lock', 'desktop.ini')
+     or r like '~$%' then
     r := '_' || r;
   end if;
   return od_copy.cap_segment(r, 120);
 end $$;
 
--- Target path from its segments: each cleaned, joined with '/'. Over 400 characters: first two and last two segments
--- kept, the middle ones shortened to 20 characters; if still too long, every folder to 20, then the file name.
-create or replace function od_copy.fit_path(p text[]) returns text
+-- Target path from its segments: each cleaned, joined with '/'. The full OneDrive path 'CRM AB CAPITAL/<target>' must
+-- stay under 400 characters, so the target gets at most 384. The first p_protected segments (department, client
+-- folder, FOLDER, service, unmatched area, person folder ...) are never shortened. Too long: the original sub-path
+-- folders between the protected prefix and the last two segments go to 20 characters; still too long, every
+-- unprotected folder goes to 8; still too long, the file name is shortened, keeping its extension.
+drop function if exists od_copy.fit_path(text[]);
+create or replace function od_copy.fit_path(p text[], p_protected int default 0) returns text
 language plpgsql immutable parallel safe as $$
 declare
+  max_len constant int := 399 - length('CRM AB CAPITAL/');
   s text[];
   n int;
+  k int;
   r text;
 begin
   select array_agg(od_copy.clean_segment(x) order by o) into s from unnest(p) with ordinality as u(x, o);
   r := array_to_string(s, '/');
-  if length(r) <= 400 then return r; end if;
+  if length(r) <= max_len then return r; end if;
   n := cardinality(s);
-  for i in 3 .. n - 2 loop s[i] := od_copy.cap_segment(s[i], 20); end loop;
+  k := least(greatest(coalesce(p_protected, 0), 0), n - 1);
+  for i in k + 1 .. n - 2 loop s[i] := od_copy.cap_segment(s[i], 20); end loop;
   r := array_to_string(s, '/');
-  if length(r) <= 400 then return r; end if;
-  for i in 1 .. n - 1 loop s[i] := od_copy.cap_segment(s[i], 20); end loop;
+  if length(r) <= max_len then return r; end if;
+  for i in k + 1 .. n - 1 loop s[i] := od_copy.cap_segment(s[i], 8); end loop;
   r := array_to_string(s, '/');
-  if length(r) <= 400 then return r; end if;
-  s[n] := od_copy.cap_segment(s[n], greatest(400 - (length(r) - length(s[n])), 20));
+  if length(r) <= max_len then return r; end if;
+  s[n] := od_copy.cap_segment(s[n], greatest(max_len - (length(r) - length(s[n])), 16));
   return array_to_string(s, '/');
 end $$;
 
@@ -100,24 +108,30 @@ language sql stable security definer set search_path = '' as $$
   select coalesce((
     select r.folder from od_copy.folder_rules r
     where case when r.is_regex then p ~* r.pattern else strpos(lower(p), lower(r.pattern)) > 0 end
-    order by r.priority limit 1), 'OTHERS')
+    order by r.priority, r.pattern limit 1), 'OTHERS')
 $$;
 
 -- '<Full Name> - <Code>' for an old employee folder: full name (case-insensitive) when exactly one employee has it,
--- else the first word when exactly one employee's first word matches, else null.
+-- else the first word when exactly one employee's first word matches and the folder is that one word, or every other
+-- word of the folder is also in that employee's name (so 'Zed Other' never lands under 'Zed Testperson'), else null.
 create or replace function od_copy.employee_label(p text) returns text
 language plpgsql stable security definer set search_path = '' as $$
 declare
   n int;
   r text;
+  w text[];
+  en text;
 begin
   if p is null or btrim(p) = '' then return null; end if;
   select count(*), min(btrim(e.full_name) || ' - ' || e.employee_code) into n, r
   from public.hr_employees e where lower(btrim(e.full_name)) = lower(btrim(p));
   if n = 1 then return r; elsif n > 1 then return null; end if;
-  select count(*), min(btrim(e.full_name) || ' - ' || e.employee_code) into n, r
-  from public.hr_employees e where lower(split_part(btrim(e.full_name), ' ', 1)) = lower(split_part(btrim(p), ' ', 1));
-  return case when n = 1 then r end;
+  w := regexp_split_to_array(lower(btrim(p)), '\s+');
+  select count(*), min(btrim(e.full_name) || ' - ' || e.employee_code), min(lower(btrim(e.full_name))) into n, r, en
+  from public.hr_employees e where (regexp_split_to_array(lower(btrim(e.full_name)), '\s+'))[1] = w[1];
+  if n <> 1 then return null; end if;
+  if cardinality(w) = 1 or w[2:] <@ regexp_split_to_array(en, '\s+') then return r; end if;
+  return null;
 end $$;
 
 -- One row per old file: its area (longest matching area_rules prefix; root files -> '(root files)'; unknown top
@@ -222,7 +236,18 @@ begin
           when e.label is not null then array[m.department, e.label, 'OTHERS'] || m.sub_segs
           else array[m.department, '00 Unmatched'] || m.segs end
         else string_to_array(m.target_prefix, '/') || m.segs
-      end as parts
+      end as parts,
+      -- Leading segments fit_path must never shorten: the CRM structure and the old client or person folder.
+      case
+        when m.kind = 'client' and m.matched then 3 + cardinality(string_to_array(m.service || coalesce('/' || m.task, ''), '/'))
+        when m.kind = 'client' then 2 + cardinality(string_to_array(m.area, '/'))
+          + least(case when m.area = '3. Corporate Tax' then 2 else 1 end, cardinality(m.segs) - 1)
+        when m.employment_list then 4
+        when m.kind = 'employees' then case
+          when m.client_folder is null or lower(btrim(m.client_folder)) = 'ex employees' then 2
+          else 3 end
+        else cardinality(string_to_array(m.target_prefix, '/'))
+      end as protected
     from m
     left join el e on m.kind = 'employees' and e.client_folder = m.client_folder),
   k as (
@@ -237,7 +262,7 @@ begin
       end as keeper
     from t left join od_copy.plan p on p.source_item_id = t.item_id)
   insert into od_copy.plan as p (source_item_id, source_path, target_path, department, client_id, status, duplicate_of, updated_at)
-  select k.item_id, k.path, od_copy.fit_path(k.parts), k.department, k.client_id,
+  select k.item_id, k.path, od_copy.fit_path(k.parts, k.protected), k.department, k.client_id,
     case when k.keeper is null or k.keeper = k.item_id then 'planned' else 'skipped_duplicate' end,
     case when k.keeper <> k.item_id then k.keeper end,
     now()
@@ -310,7 +335,7 @@ group by i.area;
 
 do $$ declare f text; begin
   foreach f in array array['od_copy.normalize_name(text)', 'od_copy.legal_form(text)', 'od_copy.cap_segment(text,int)',
-    'od_copy.clean_segment(text)', 'od_copy.fit_path(text[])', 'od_copy.folder_for(text)', 'od_copy.employee_label(text)',
+    'od_copy.clean_segment(text)', 'od_copy.fit_path(text[],int)', 'od_copy.folder_for(text)', 'od_copy.employee_label(text)',
     'od_copy.build_plan()', 'od_copy.approve(text,text,text)'] loop
     execute format('revoke all on function %s from public, anon, authenticated', f);
     execute format('grant execute on function %s to service_role', f);

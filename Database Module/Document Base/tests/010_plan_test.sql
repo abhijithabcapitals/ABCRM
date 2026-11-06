@@ -143,7 +143,7 @@ select pg_temp.check('unmatched row has no client_id', (select client_id is null
 select pg_temp.check('Epsilonix close -> review 0.7', exists (select 1 from od_copy.client_matches
   where folder_name = 'Epsilonix' and status = 'review' and method = 'close' and confidence = 0.7 and client_id = 'CL900005'));
 -- Review Focus 3: names and length
-select pg_temp.check('long target <= 400', length(pg_temp.t('i04')) <= 400);
+select pg_temp.check('long target: CRM AB CAPITAL/ + target < 400', length('CRM AB CAPITAL/' || pg_temp.t('i04')) < 400);
 select pg_temp.check('long target valid characters', pg_temp.t('i04') !~ '["*:<>?\\|]');
 select pg_temp.check('long target keeps first two and last two', pg_temp.t('i04') like 'Accounting/00 Unmatched - to link/%/' || repeat('d', 100) || '/report.pdf');
 select pg_temp.check('source_path keeps the original', (select source_path from od_copy.plan where source_item_id = 'i04')
@@ -207,3 +207,32 @@ end $$;
 select set_config('test.uid', '00000000-0000-0000-0000-0000000000b2', false);
 select pg_temp.check('staff sees empty report', (select count(*) = 0 from od_copy.report));
 reset role;
+
+-- Review fix round 1: protected path segments, full-path budget, employee fallback, legal-form conflict, names.
+select pg_temp.check('clean_segment desktop.ini', od_copy.clean_segment('desktop.ini') = '_desktop.ini');
+select pg_temp.check('clean_segment DEL', od_copy.clean_segment('a' || chr(127) || 'b') = 'a-b');
+insert into public.client_master (client_id, legal_name) values ('CL900006', 'Sigma Works LLC');
+insert into od_copy.source_items (item_id, parent_path, name, size, quickxor_hash, modified_at, is_folder) values
+  ('i24', '2. Accounting Clients/ACME TRADING L.L.C/2024 Statements/' || (select string_agg(repeat('e', 110), '/') from generate_series(1, 10)),
+          repeat('n', 110) || '.pdf', 10, 'h24', '2025-01-01', false),
+  ('i25', '5. Audit Clients/Omega Unknown Folder/' || (select string_agg(repeat('u', 110), '/') from generate_series(1, 10)),
+          repeat('m', 110) || '.pdf', 10, 'h25', '2025-01-01', false),
+  ('i26', 'Employee Folders/Zed Wrongname', 'w.pdf', 10, 'h26', '2025-01-01', false),
+  ('i27', '4. VAT Clients/Sigma Works FZCO', 's.pdf', 10, 'h27', '2025-01-01', false);
+select od_copy.build_plan();
+select pg_temp.check('long matched path keeps department, client folder, FOLDER and service',
+  pg_temp.t('i24') like 'Accounting/ACME TRADING LLC - CL900001/FINANCIALS INFORMATION/Accounting/%');
+select pg_temp.check('long matched path keeps the file name', pg_temp.t('i24') like '%/' || repeat('n', 110) || '.pdf');
+select pg_temp.check('long matched path: full path < 400', length('CRM AB CAPITAL/' || pg_temp.t('i24')) < 400);
+select pg_temp.check('long unmatched path keeps unmatched area and old client folder',
+  pg_temp.t('i25') like 'Accounting/00 Unmatched - to link/5. Audit Clients/Omega Unknown Folder/%'
+  and pg_temp.t('i25') like '%/' || repeat('m', 110) || '.pdf');
+select pg_temp.check('long unmatched path: full path < 400', length('CRM AB CAPITAL/' || pg_temp.t('i25')) < 400);
+select pg_temp.check('fit_path never shortens protected segments',
+  od_copy.fit_path(array[repeat('p', 100), repeat('q', 100), repeat('r', 100), repeat('s', 100), 'f.pdf'], 4)
+  like repeat('p', 100) || '/' || repeat('q', 100) || '/' || repeat('r', 100) || '/' || repeat('s', 100) || '/f.pdf');
+select pg_temp.check('employee two-word folder, second word not in name -> unmatched', pg_temp.t('i26') = 'EMPLOYEES/00 Unmatched/Zed Wrongname/w.pdf');
+select pg_temp.check('employee_label two words both in name', od_copy.employee_label('zed  TESTPERSON') = 'Zed Testperson - EMP901');
+select pg_temp.check('single exact match, conflicting legal form -> review', exists (select 1 from od_copy.client_matches
+  where area = '4. VAT Clients' and folder_name = 'Sigma Works FZCO' and status = 'review' and method = 'exact' and client_id = 'CL900006'));
+select pg_temp.check('conflicting legal form target unmatched', pg_temp.t('i27') = 'Accounting/00 Unmatched - to link/4. VAT Clients/Sigma Works FZCO/s.pdf');
