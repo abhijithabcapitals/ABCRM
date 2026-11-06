@@ -107,3 +107,34 @@ test("addSignature adds media, relationship and content type", () => {
   assert.match(zip.file("[Content_Types].xml").asText(), /Extension="png"/);
   assert.match(signatureXml(IMG), /rIdAccountingSignature/);
 });
+
+test("company lookup failure returns error, nothing else called", async () => {
+  const t = make({ company: async () => { throw new Error("no company"); } });
+  const r = await run(t);
+  assert.equal(r.error, "no company");
+  assert.deepEqual(t.calls, []);
+});
+
+test("pdf upload failure: error, best-effort remove, no record", async () => {
+  let removed;
+  const t = make({ upload: async () => { throw new Error("upload broke"); }, remove: async (p) => { removed = p; t.calls.push("remove"); } });
+  const r = await run(t);
+  assert.equal(r.error, "upload broke");
+  assert.ok(t.calls.includes("remove") && !t.calls.includes("record"));
+  assert.equal(removed.length, 2);
+});
+
+test("deps receive the right arguments", async () => {
+  const seen = {};
+  const wordBlob = new Blob(["word"]);
+  const t = make({
+    company: () => "co_x",
+    loadImage: async (c) => { seen.company = c; return IMG; },
+    toPdf: async (b) => { seen.pdfIn = b; return new Blob(["pdf"]); },
+  });
+  await run(t, async (d, img) => { seen.doc = d; seen.img = img; return wordBlob; });
+  assert.equal(seen.company, "co_x");
+  assert.equal(seen.doc, DOC);
+  assert.equal(seen.img, IMG);
+  assert.equal(seen.pdfIn, wordBlob);
+});

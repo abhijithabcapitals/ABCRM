@@ -9,8 +9,9 @@ const message = (e) => (e && e.message) || String(e || "Signing failed");
 export async function signDocument({ table, doc, rebuild, seen }, deps) {
   const { canSign, company, loadImage, toPdf, upload, record, remove, bucketPrefix } = deps;
   let wordBlob, pdfBlob;
-  const co = await company(table, doc);
+  let co;
   try {
+    co = await company(table, doc);
     if (!(await canSign(co))) return { error: `You are not an approver of ${co}` };
     const image = await loadImage(co);
     if (!image) return { error: `Upload the ${co} signature in Settings > Signing first` };
