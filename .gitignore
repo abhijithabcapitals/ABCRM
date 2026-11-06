@@ -46,3 +46,6 @@ Database Module/Business Setup Base/data/
 
 # Plan execution scratch
 .superpowers/
+
+# Temporary Edge Function deploy folder (Main Module/scripts/stage-edge-functions.mjs)
+.edge-deploy/
