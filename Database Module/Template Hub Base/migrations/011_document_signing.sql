@@ -208,18 +208,21 @@ begin
   if v_table is null or v_table not in ('hub_documents', 'ardentax_documents', 'banking_quotations', 'banking_engagement_letters', 'banking_receipts') then
     raise exception 'Unknown document table %', coalesce(v_table, '(none)');
   end if;
+  -- Read access first, with one message for missing and unreadable, so a caller who cannot read a document learns nothing about it
+  -- (not whether it exists, nor its company) and cannot lock it.
+  if not doc_sign_readable(v_table, v_id) then raise exception 'The document was not found'; end if;
   -- The row is locked so an edit cannot slip in between the stamp check and the record.
   execute format('select true from public.%I where id = $1 for update', v_table) into v_found using v_id;
   if v_found is null then raise exception 'The document was not found'; end if;
   v_co := doc_company(v_table, v_id);
   v_c := (select value from hub_settings where key = 'document_signing') -> 'companies' -> v_co;
   if not doc_sign_can(v_co) then raise exception 'You are not an approver of %', coalesce(v_c ->> 'name', v_co); end if;
-  if not doc_sign_readable(v_table, v_id) then raise exception 'The document was not found'; end if;
   if nullif(btrim(coalesce(v_c ->> 'signature_path', '')), '') is null then
     raise exception 'Upload the % signature in Settings > Signing first', coalesce(v_c ->> 'name', v_co);
   end if;
   v_stamp := doc_sign_stamp(v_table, v_id);
-  if v_seen is null or (v_stamp is not null and date_trunc('milliseconds', v_seen) < date_trunc('milliseconds', v_stamp)) then
+  -- seen must be the stamp the signer read, to the millisecond: older means the document changed, newer is not a stamp it ever had.
+  if v_seen is null or v_stamp is null or date_trunc('milliseconds', v_seen) <> date_trunc('milliseconds', v_stamp) then
     raise exception 'The document changed. Open it again and sign.';
   end if;
   if v_word is null or v_pdf is null then raise exception 'The signed Word and PDF files are needed'; end if;
@@ -308,7 +311,9 @@ create or replace function public.doc_sign_settings_sync() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare a jsonb; c jsonb;
 begin
-  if pg_trigger_depth() > 1 then return null; end if;
+  -- Set only around this function's own mirror write, so the copy it makes does not copy back. Any other update, from any depth, mirrors.
+  if coalesce(current_setting('doc_sign.syncing', true), '') = 'on' then return null; end if;
+  perform set_config('doc_sign.syncing', 'on', true);
   if new.key = 'accounting_proposal_defaults' then
     a := jsonb_build_object('approvers', coalesce(new.value -> 'approvers', '[]'::jsonb), 'signature_path', new.value -> 'signature_path',
                             'uploaded_at', new.value -> 'signature_uploaded_at', 'uploaded_by', new.value -> 'signature_uploaded_by');
@@ -318,7 +323,7 @@ begin
                               'uploaded_at', value #> '{companies,ab_capital,uploaded_at}', 'uploaded_by', value #> '{companies,ab_capital,uploaded_by}') is distinct from a;
   elsif new.key = 'document_signing' then
     c := new.value #> '{companies,ab_capital}';
-    if c is null then return null; end if;
+    if c is null then perform set_config('doc_sign.syncing', 'off', true); return null; end if;
     a := jsonb_build_object('approvers', coalesce(c -> 'approvers', '[]'::jsonb), 'signature_path', c -> 'signature_path',
                             'signature_uploaded_at', c -> 'uploaded_at', 'signature_uploaded_by', c -> 'uploaded_by');
     update hub_settings set value = value || a
@@ -326,6 +331,7 @@ begin
        and jsonb_build_object('approvers', coalesce(value -> 'approvers', '[]'::jsonb), 'signature_path', value -> 'signature_path',
                               'signature_uploaded_at', value -> 'signature_uploaded_at', 'signature_uploaded_by', value -> 'signature_uploaded_by') is distinct from a;
   end if;
+  perform set_config('doc_sign.syncing', 'off', true);
   return null;
 end $$;
 revoke all on function public.doc_sign_settings_sync() from public, anon, authenticated;
@@ -388,9 +394,11 @@ grant execute on function public.doc_sign_can(text), public.hub_acct_can_approve
 
 -- ── Signature images ─────────────────────────────────────────────────────
 -- hub_docs_read lets any signed-in user read the whole hub-documents bucket. These restrictive policies keep each company's image to
--- that company's approvers (accounting-signature/ counts as ab_capital), and let only a CRM administrator add, move or delete one.
+-- that company's approvers (accounting-signature/ counts as ab_capital) and CRM administrators, and let only a CRM administrator add,
+-- move or delete one. Administrators read them so the storage API's update and delete (which carry WHERE or RETURNING) find the row.
 -- The two permissive admin policies are what lets an administrator update or delete there at all (the bucket has no other).
--- Accounting's hub_docs_accounting_signature_* policies (008) stay until Task 5; they apply the same rule to accounting-signature/.
+-- Accounting's hub_docs_accounting_signature_* policies (008) stay until Task 5. Their read rule has no administrator exception, so under
+-- accounting-signature/ an administrator who is not an AB Capital approver still cannot read, replace or delete the image until then.
 -- storage.objects is owned by supabase_storage_admin on live, so the release checks these policies exist.
 do $do$
 begin
@@ -398,7 +406,7 @@ begin
   drop policy if exists doc_sign_image_read on storage.objects;
   create policy doc_sign_image_read on storage.objects as restrictive for select to authenticated
     using (bucket_id <> 'hub-documents' or (name not like 'signatures/%' and name not like 'accounting-signature/%')
-           or public.doc_sign_can(case when name like 'accounting-signature/%' then 'ab_capital' else split_part(name, '/', 2) end));
+           or public.admin_is() or public.doc_sign_can(case when name like 'accounting-signature/%' then 'ab_capital' else split_part(name, '/', 2) end));
   drop policy if exists doc_sign_image_insert on storage.objects;
   create policy doc_sign_image_insert on storage.objects as restrictive for insert to authenticated
     with check (bucket_id <> 'hub-documents' or (name not like 'signatures/%' and name not like 'accounting-signature/%') or public.admin_is());

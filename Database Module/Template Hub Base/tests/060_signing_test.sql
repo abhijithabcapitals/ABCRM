@@ -23,7 +23,8 @@ insert into public.profiles (id, full_name, role) values
   (:'admin', 'SG Admin', 'admin'), (:'abappr', 'SG AB Approver', 'member'), (:'atappr', 'SG AT Approver', 'member'),
   (:'plain', 'SG Plain', 'member'), (:'hubmgr', 'SG Hub Manager', 'member'), (:'oldappr', 'SG Old Approver', 'member') on conflict (id) do nothing;
 insert into public.banking_user_roles (user_id, role) values (:'hubmgr', 'MANAGER') on conflict do nothing;
-insert into public.member_tab_access (profile_id, tab_key) values (:'atappr', 'ardentax') on conflict do nothing;
+-- The AB Capital approver also has the ArdentTax tab, so it can read the Ardentax rows and is refused as a non-approver, not as a non-reader.
+insert into public.member_tab_access (profile_id, tab_key) values (:'atappr', 'ardentax'), (:'abappr', 'ardentax') on conflict do nothing;
 insert into public.banking_user_permissions (user_id, permission, allowed) values
   (:'abappr', 'quotes.view', true), (:'abappr', 'agreements.view', true), (:'abappr', 'payments.view', true) on conflict do nothing;
 grant usage on schema storage to authenticated;
@@ -135,6 +136,14 @@ select at_as(:'abappr');
 select at_check('an AB Capital approver cannot sign an Ardentax library document by naming AB Capital',
   at_refused(format($f$select doc_sign_record(at_sign('hub_documents', %L, 'Ardentax Documents', '{"company": "ab_capital"}'))$f$, :'h2'), 'not an approver'));
 
+-- ── a caller who cannot read learns nothing ──────────────────────────
+select at_as(:'plain');
+select at_check('a missing document and an unreadable one give the same message, before any approver check',
+  at_refused(format($f$select doc_sign_record(at_sign('ardentax_documents', %L, 'ArdentTax (ASP)'))$f$, gen_random_uuid()), 'The document was not found')
+  and at_refused(format($f$select doc_sign_record(at_sign('ardentax_documents', %L, 'ArdentTax (ASP)'))$f$, :'a1'), 'The document was not found')
+  and at_refused(format($f$select doc_sign_record(at_sign('hub_documents', %L, 'Ardentax Documents'))$f$, :'h2'), 'The document was not found')
+  and not at_refused(format($f$select doc_sign_record(at_sign('ardentax_documents', %L, 'ArdentTax (ASP)'))$f$, :'a1'), 'approver'));
+
 -- ── non-approver refused ─────────────────────────────────────────────
 select at_as(:'plain');
 select at_check('a non-approver cannot record a signature', at_refused(format($f$select doc_sign_record(at_sign('hub_documents', %L, 'Business Setup'))$f$, :'h1'), 'not an approver'));
@@ -167,10 +176,19 @@ select at_as(:'abappr');
 select at_check('a stale seen is refused',
   at_refused(format($f$select doc_sign_record(at_sign('hub_documents', %L, 'Business Setup', jsonb_build_object('seen', doc_changed_at('hub_documents', %L) - interval '1 second')))$f$, :'h1', :'h1'), 'The document changed')
   and at_refused(format($f$select doc_sign_record(at_sign('hub_documents', %L, 'Business Setup', '{"seen": null}'))$f$, :'h1'), 'The document changed'));
+select at_check('a future seen is refused, even now() and infinity',
+  at_refused(format($f$select doc_sign_record(at_sign('hub_documents', %L, 'Business Setup', jsonb_build_object('seen', doc_changed_at('hub_documents', %L) + interval '1 second')))$f$, :'h1', :'h1'), 'The document changed')
+  and at_refused(format($f$select doc_sign_record(at_sign('hub_documents', %L, 'Business Setup', jsonb_build_object('seen', now())))$f$, :'h1'), 'The document changed')
+  and at_refused(format($f$select doc_sign_record(at_sign('hub_documents', %L, 'Business Setup', '{"seen": "infinity"}'))$f$, :'h1'), 'The document changed'));
 select at_check('the stamp of a document never edited is its creation time', doc_changed_at('hub_documents', :'h1') = (select created_at from hub_documents where id = :'h1'));
 
 -- ── record, then a second record ─────────────────────────────────────
-select id as sig1 from doc_sign_record(at_sign('hub_documents', :'h1', 'Business Setup')) \gset
+-- The exact stamp is accepted (sig0, superseded at once by sig1); so is the stamp cut to the millisecond, as a browser keeps it.
+select id as sig0 from doc_sign_record(at_sign('hub_documents', :'h1', 'Business Setup')) \gset
+select at_check('the exact seen is accepted', (select signed_by = :'abappr'::uuid from document_signatures where id = :'sig0'));
+select id as sig1 from doc_sign_record(at_sign('hub_documents', :'h1', 'Business Setup',
+  jsonb_build_object('seen', to_char(date_trunc('milliseconds', doc_changed_at('hub_documents', :'h1')) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))) \gset
+select at_check('a seen cut to the millisecond is accepted', (select superseded_reason = 'Signed again' from document_signatures where id = :'sig0'));
 select at_check('the record holds the company, signer, signed and unsigned files and the stamp',
   (select company = 'ab_capital' and signed_by = :'abappr'::uuid and signed_at is not null and superseded_at is null
       and word_path = 'Business Setup/' || :'h1' || '/signed/s.docx' and pdf_path = 'Business Setup/' || :'h1' || '/signed/s.pdf'
@@ -222,7 +240,7 @@ select at_check('a content edit sets the stamp and supersedes the live signature
   doc_sign_live('hub_documents', :'h1') is null and (select content_changed_at is not null from hub_documents where id = :'h1')
   and (select superseded_reason = 'Document changed' from document_signatures where id = :'sig2'));
 update hub_documents set client_name = 'Sign Test Renamed LLC' where id = :'h1';
-select at_check('an update to the same value changes nothing', (select count(*) = 2 from document_signatures where source_id = :'h1'));
+select at_check('an update to the same value changes nothing', (select count(*) = 3 from document_signatures where source_id = :'h1'));
 update ardentax_documents set client_name = 'Sign Test Renamed LLC' where id = :'a1';
 update banking_quotations set remarks = 'changed' where id = :'bq1';
 update banking_engagement_letters set status = 'Sent to Client' where id = :'bl1';
@@ -305,7 +323,7 @@ select at_check('an approver who is not an admin cannot add one either',
 select at_as(:'admin');
 insert into storage.objects (bucket_id, name) values ('hub-documents', 'signatures/ab_capital/sig.png'), ('hub-documents', 'signatures/ardentax/sig.png'), ('hub-documents', 'signatures/ardentax/old.png');
 select at_check('an admin adds images for both companies', true);
-select at_check('an admin on neither list reads neither image', (select count(*) = 0 from storage.objects where name like 'signatures/%'));
+select at_check('an admin on neither list reads both companies'' images', (select count(*) = 3 from storage.objects where name like 'signatures/%'));
 select at_as(:'abappr');
 select at_check('the AB Capital approver reads the AB Capital image and the Accounting one, not the Ardentax one',
   (select count(*) = 1 from storage.objects where name = 'signatures/ab_capital/sig.png')
@@ -324,16 +342,34 @@ delete from storage.objects where name like 'signatures/%';
 select at_as(null);
 select at_check('approvers and non-approvers deleted or moved nothing',
   (select count(*) = 3 from storage.objects where name like 'signatures/%') and (select count(*) = 0 from storage.objects where name like '%moved.png'));
--- An admin who is an approver: empty the Ardentax list, so the admin is its approver.
+-- The admin is on neither list (ab_capital: abappr, ardentax: atappr) and still manages both companies' images.
 select at_as(:'admin');
-select doc_sign_admin_save('{"company": "ardentax", "approvers": []}') is not null as s8 \gset
-delete from storage.objects where name = 'signatures/ardentax/old.png';
+select at_check('the admin is an approver of neither company', not doc_sign_can('ab_capital') and not doc_sign_can('ardentax'));
+with d as (delete from storage.objects where name = 'signatures/ardentax/old.png' returning name) select count(*) as del_n from d \gset
+with u as (update storage.objects set name = 'signatures/ab_capital/sig-v2.png' where name = 'signatures/ab_capital/sig.png' returning name) select count(*) as upd_n from u \gset
 select at_as(null);
-select at_check('an admin who approves for the company deletes its image', (select count(*) = 0 from storage.objects where name = 'signatures/ardentax/old.png')
+select at_check('an admin on neither list deletes an image (delete with RETURNING)', :'del_n' = '1' and (select count(*) = 0 from storage.objects where name = 'signatures/ardentax/old.png'));
+select at_check('and replaces one (update with RETURNING)', :'upd_n' = '1' and (select count(*) = 1 from storage.objects where name = 'signatures/ab_capital/sig-v2.png')
   and (select count(*) = 1 from storage.objects where name = 'signatures/ardentax/sig.png'));
 select at_check('the image policies are restrictive and cover both prefixes',
   (select count(*) = 4 from pg_policies where policyname in ('doc_sign_image_read', 'doc_sign_image_insert', 'doc_sign_image_update', 'doc_sign_image_delete')
      and permissive = 'RESTRICTIVE' and coalesce(qual, with_check) like '%signatures/%' and coalesce(qual, with_check) like '%accounting-signature/%'));
-select at_as(:'admin');
-select doc_sign_admin_save(jsonb_build_object('company', 'ardentax', 'approvers', jsonb_build_array(:'atappr'))) is not null as s9 \gset
 select at_as(null);
+
+-- ── the mirror runs at any trigger depth ─────────────────────────────
+-- A trigger on another table changes Accounting's approvers: the mirror must still reach document_signing.
+create table public.at_sign_poke (id int);
+create or replace function public.at_sign_poke_fn() returns trigger language plpgsql as $f$
+begin
+  update hub_settings set value = value || jsonb_build_object('approvers', jsonb_build_array('00000000-0000-0000-0000-0000000000d6')) where key = 'accounting_proposal_defaults';
+  return new;
+end $f$;
+create trigger at_sign_poke after insert on public.at_sign_poke for each row execute function public.at_sign_poke_fn();
+insert into public.at_sign_poke values (1);
+select at_check('an update made from inside another trigger still mirrors',
+  (select value #> '{companies,ab_capital,approvers}' = jsonb_build_array(:'oldappr') from hub_settings where key = 'document_signing'));
+select at_check('the sync flag does not outlast the statement', coalesce(current_setting('doc_sign.syncing', true), '') <> 'on');
+update hub_settings set value = jsonb_set(value, '{companies,ab_capital,approvers}', jsonb_build_array(:'abappr')) where key = 'document_signing';
+select at_check('and the reverse direction mirrors too', (select value -> 'approvers' = jsonb_build_array(:'abappr') from hub_settings where key = 'accounting_proposal_defaults'));
+drop table public.at_sign_poke;
+drop function public.at_sign_poke_fn();
