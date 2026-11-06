@@ -15,6 +15,12 @@ a standalone Next.js app, ported into the CRM so it opens inside the CRM shell.
 | `supabase/migrations/202610300003_email_base_mail_assistant.sql` | Connects CEO saved facts and unsent drafts to shared Email Base threads |
 | `index.js` | Default export of the page |
 
+Two migrations share the number `202610290002` and are already applied live, so they keep their names.
+They do not depend on each other: `202610290002_chat_history.sql` creates `ceo.chat_threads` and
+`ceo.chat_messages`, and `202610290002_mail_assistant.sql` changes `ceo.mail_threads`. On a new project, run
+them in name order (`chat_history` then `mail_assistant`) after `202610290001_initial_ceo_schema.sql`. Give
+new migrations a unique number.
+
 ## Chat and dashboard
 
 Every chat message is saved to `ceo.captures`. The agent then saves what it hears as structured items:

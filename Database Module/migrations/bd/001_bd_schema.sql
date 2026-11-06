@@ -24,14 +24,33 @@ create extension if not exists pgcrypto;  -- gen_random_uuid()
 
 -- ── 0. Reused CRM entities (stand-ins only where missing) ────────────
 
-create table if not exists public.profiles (           -- live CRM: id references auth.users
-  id           uuid primary key default gen_random_uuid(),
-  full_name    text,
-  email        text,
-  role         text default 'member',
-  avatar_color text default '#378ADD',
-  created_at   timestamp default now()
-);
+-- public.profiles is owned by Main Module/db/00_base_schema.sql (id references auth.users).
+-- Create the same shape only when it is missing. A database with auth.users gets the live,
+-- login-linked shape; only a plain PostgreSQL database without auth gets the unlinked stand-in.
+do $$
+begin
+  if to_regclass('public.profiles') is null then
+    if to_regclass('auth.users') is not null then
+      create table public.profiles (
+        id           uuid primary key references auth.users(id) on delete cascade,
+        full_name    text,
+        email        text,
+        role         text default 'member',
+        avatar_color text default '#378ADD',
+        created_at   timestamp default now()
+      );
+    else
+      create table public.profiles (     -- local stand-in only: no auth schema
+        id           uuid primary key default gen_random_uuid(),
+        full_name    text,
+        email        text,
+        role         text default 'member',
+        avatar_color text default '#378ADD',
+        created_at   timestamp default now()
+      );
+    end if;
+  end if;
+end $$;
 
 create table if not exists public.crm_teams (
   id           uuid primary key default gen_random_uuid(),

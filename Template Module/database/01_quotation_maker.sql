@@ -4,7 +4,9 @@
 -- can generate a filled .docx (client-side) from a form or an Excel upload.
 
 -- ── Table: one row per freezone template ──
-create table if not exists quotation_templates (
+-- This file owns public.quotation_templates. Main Module/db/00_base_schema.sql only mirrors
+-- the live table (a generated dump); keep the columns there in step by refreshing the dump.
+create table if not exists public.quotation_templates (
   id           uuid primary key default gen_random_uuid(),
   freezone     text not null,
   storage_path text not null,               -- path in the quotation-templates bucket

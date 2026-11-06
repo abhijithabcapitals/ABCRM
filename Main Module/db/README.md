@@ -23,6 +23,11 @@ generated from the live project on 2026-10-26. Run it on a **new, empty**
 project to get a working copy; never on the live one. It reproduces the
 live security gaps — apply `security_fixes.sql` afterwards.
 
+Some tables in this mirror are owned by a module migration; change them there, not here:
+`public.quotation_templates` is owned by `Template Module/database/01_quotation_maker.sql`.
+`public.profiles` is created here; `Database Module/migrations/bd/001_bd_schema.sql` only
+creates the same shape when the table is missing.
+
 ### `security_fixes.sql` — recommended RLS / permission fixes (not yet applied)
 
 Closes the gaps found in the 2026-10-26 audit (members can promote
