@@ -23,8 +23,8 @@ npx --no-install supabase secrets set --project-ref "$REF" \
   MS_TENANT_ID="$TENANT" MS_CLIENT_ID="$CLIENT" MS_CERT_THUMBPRINT="$THUMB" \
   ARCHIVE_SECRET="$SECRET" MS_CERT_PRIVATE_KEY="$(cat "$KEYS/archive.pk8.pem")"
 
-# The cron job reads the same shared secret from Vault.
-npx --no-install supabase db query --linked --project-ref "$REF" "
+# The cron job reads the same shared secret from Vault. --yes: running this script is the confirmation.
+npx --no-install supabase db query --linked --project-ref "$REF" --yes "
   do \$\$ begin
     if exists (select 1 from vault.secrets where name = 'email_base_archive_secret') then
       perform vault.update_secret((select id from vault.secrets where name = 'email_base_archive_secret'), '$SECRET');
