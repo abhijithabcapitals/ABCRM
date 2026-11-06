@@ -1,6 +1,7 @@
 // Client Master: one row per client, kept in the CRM database so every employee sees the same record.
 // Documents are read in the browser, so all of this works from anywhere.
 import { useMemo, useRef, useState } from "react";
+import ClientDocumentsBox from "@doc-intelligence/components/ClientDocumentsBox";
 import { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
 import TeamsPanel from "@messenger/components/TeamsPanel";
 import "@banking/components/banking.css";
@@ -138,6 +139,7 @@ function ClientForm({ row, canEdit, onClose }) {
       )}
       {row.client_id && <TeamsPanel recordType="client" recordId={row.client_id} displayId={row.client_id} label={plain(rec["Client Legal Name"])} />}
       {row.client_id && <ClientAccess clientMasterId={row.client_id} />}
+      {row.client_id && <ClientDocumentsBox clientId={row.client_id} />}
       {row.client_id && (
         <Panel title="History"><DataTable rows={history.data || []} empty="No changes." columns={[{ key: "changed_at", label: "When", render: (h) => new Date(h.changed_at).toLocaleString("en-AE", { timeZone: "Asia/Dubai" }) }, { key: "action", label: "Action" }, { key: "field", label: "Field" }, { key: "old_value", label: "Old" }, { key: "new_value", label: "New" }]} /></Panel>
       )}

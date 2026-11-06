@@ -6,7 +6,9 @@
 -- plain immutable functions: a SET clause costs a settings save/restore on every call (about 2x slower over 170,000
 -- files). All execute for service_role only. Views: security_invoker, so the od_copy Row Level Security (admins and
 -- CEO read) applies to whoever reads them.
--- Rollback: drop view od_copy.report, od_copy.item_map; drop function od_copy.build_plan(), od_copy.approve(text,text,text),
+-- Rollback: drop view od_copy.failed_items; drop function od_copy.set_stage(text), od_copy.admin_approve(text,text);
+-- alter table od_copy.settings drop column stage_before_pause; drop index od_copy.plan_duplicate_of_idx;
+-- drop view od_copy.report, od_copy.item_map; drop function od_copy.build_plan(), od_copy.approve(text,text,text),
 -- od_copy.fit_path(text[],int), od_copy.folder_for(text), od_copy.employee_label(text), od_copy.clean_segment(text),
 -- od_copy.cap_segment(text,int), od_copy.legal_form(text), od_copy.normalize_name(text),
 -- od_copy.claim(text,int,int), od_copy.rollback_candidates(text,text,text,int); drop index od_copy.plan_claim_idx;
@@ -414,6 +416,77 @@ from od_copy.item_map i
 left join od_copy.plan p on p.source_item_id = i.item_id
 group by i.area;
 
+-- CRM screen support (Task 5). Admins and the CEO only (od_copy.can_read()); the screen cannot reach approve() itself.
+alter table od_copy.settings add column if not exists stage_before_pause text;
+create index if not exists plan_duplicate_of_idx on od_copy.plan (duplicate_of) where duplicate_of is not null;
+
+-- Stage changes from the screen. 'resume' goes back to the stage that was paused. Every change is conditional on the
+-- stage it expects, so a stage the Edge Function moved meanwhile wins. Returns the new stage.
+--   inventory: idle -> inventory | paused: inventory/plan/approved/copying -> paused (remembers where from)
+--   resume: paused -> remembered stage | rollback: done/paused -> rollback, only with settings.rollback_scope set
+create or replace function od_copy.set_stage(p_stage text) returns text
+language plpgsql security definer set search_path = '' as $$
+declare
+  new_stage text;
+  old_stage text;
+begin
+  if not od_copy.can_read() then
+    raise exception 'Only admins and the CEO can change the copy stage.' using errcode = '42501';
+  end if;
+  if p_stage = 'inventory' then
+    update od_copy.settings set stage = 'inventory' where id and stage = 'idle' returning stage into new_stage;
+  elsif p_stage = 'paused' then
+    select stage into old_stage from od_copy.settings where id;
+    update od_copy.settings set stage = 'paused', stage_before_pause = old_stage
+      where id and stage = old_stage and stage in ('inventory', 'plan', 'approved', 'copying') returning stage into new_stage;
+  elsif p_stage = 'resume' then
+    update od_copy.settings set stage = stage_before_pause, stage_before_pause = null
+      where id and stage = 'paused' and stage_before_pause in ('inventory', 'plan', 'approved', 'copying') returning stage into new_stage;
+  elsif p_stage = 'rollback' then
+    update od_copy.settings set stage = 'rollback', stage_before_pause = null
+      where id and stage in ('done', 'paused') and rollback_scope is not null returning stage into new_stage;
+  else
+    raise exception 'set_stage: stage must be inventory, paused, resume or rollback, not %', coalesce(p_stage, 'null');
+  end if;
+  if new_stage is null then
+    raise exception 'The stage cannot be changed to % from the current stage. Reload and check the stage first.', p_stage;
+  end if;
+  insert into od_copy.operations (action, result, detail)
+  values ('set_stage', 'ok', jsonb_build_object('requested', p_stage, 'stage', new_stage, 'by', auth.uid()));
+  return new_stage;
+end $$;
+
+-- Approval from the screen: approve() for 'all' or 'unmatched' (never the single-client pilot), then plan -> approved
+-- (or done -> approved when more is approved after a finished run). Returns the number of rows approved.
+create or replace function od_copy.admin_approve(p_scope text default 'all', p_area text default null)
+returns int
+language plpgsql security definer set search_path = '' as $$
+declare
+  n int;
+begin
+  if not od_copy.can_read() then
+    raise exception 'Only admins and the CEO can approve the copy.' using errcode = '42501';
+  end if;
+  if p_scope is null or p_scope not in ('all', 'unmatched') then
+    raise exception 'admin_approve: scope must be all or unmatched, not %', coalesce(p_scope, 'null');
+  end if;
+  n := od_copy.approve(p_scope, p_area, null);
+  if n > 0 then
+    update od_copy.settings set stage = 'approved' where id and stage in ('plan', 'done');
+  end if;
+  return n;
+end $$;
+
+-- Rows that need a person (status failed). duplicates_not_copied: files skipped as duplicates of this one, so they
+-- are not in the destination either until the keeper is fixed.
+create or replace view od_copy.failed_items with (security_invoker = true) as
+select p.source_item_id,
+  coalesce(p.source_path, p.target_path) as path,
+  p.target_path, p.attempts, p.error, p.updated_at,
+  (select count(*) from od_copy.plan d where d.duplicate_of = p.source_item_id and d.status = 'skipped_duplicate') as duplicates_not_copied
+from od_copy.plan p
+where p.status = 'failed';
+
 do $$ declare f text; begin
   foreach f in array array['od_copy.normalize_name(text)', 'od_copy.legal_form(text)', 'od_copy.cap_segment(text,int)',
     'od_copy.clean_segment(text)', 'od_copy.fit_path(text[],int)', 'od_copy.folder_for(text)', 'od_copy.employee_label(text)',
@@ -425,6 +498,10 @@ do $$ declare f text; begin
 end $$;
 revoke all on od_copy.item_map, od_copy.report from public, anon;
 grant select on od_copy.item_map, od_copy.report to authenticated, service_role;
+revoke all on function od_copy.set_stage(text), od_copy.admin_approve(text, text) from public, anon;
+grant execute on function od_copy.set_stage(text), od_copy.admin_approve(text, text) to authenticated, service_role;
+revoke all on od_copy.failed_items from public, anon;
+grant select on od_copy.failed_items to authenticated, service_role;
 
 notify pgrst, 'reload schema';
 

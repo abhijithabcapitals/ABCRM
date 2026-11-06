@@ -5,6 +5,7 @@ import { IconClose } from "./icons";
 import IntegrationsPanel, { AgentsPanel, EmailAccountsPanel } from "@integrations";
 import { ClaudeSubscriptionPanel } from "@crm-agent";
 import ClientPortalAdmin from "@client-login/admin/ClientPortalAdmin";
+import OneDriveCopyPanel from "@doc-intelligence/components/OneDriveCopyPanel";
 import { AiUsagePanel, AuditPanel, AuditTrailPanel, EmployeesPanel, HealthPanel, JobsPanel, MembersPanel, StoragePanel } from "./AdminPanels";
 
 const DEFAULT_COL_WIDTHS = { member: 220, email: 240, role: 130, joined: 140, actions: 60 };
@@ -250,6 +251,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             { key: "agents", label: "🧠 Agents" },
             { key: "claude-subscription", label: "✴️ Claude Subscription" },
             { key: "client-portal", label: "🔑 Client Portal" },
+            { key: "onedrive-copy", label: "📁 OneDrive Copy" },
             { key: "audit-trail", label: "🕵 Audit Trail" },
             { key: "audit", label: "📜 Admin Actions" },
           ].map((tab) => (
@@ -268,7 +270,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
           ))}
         </div>
 
-        {["health", "team", "employees", "ai", "storage", "jobs", "audit-trail", "audit"].includes(activeTab) && (
+        {["health", "team", "employees", "ai", "storage", "jobs", "audit-trail", "audit", "onedrive-copy"].includes(activeTab) && (
           <div className="bk-root">
             {activeTab === "health" && <HealthPanel />}
             {activeTab === "team" && <MembersPanel currentUser={currentUser} />}
@@ -278,6 +280,7 @@ export default function Settings({ currentUser, profile, spaces = [], onAccessCh
             {activeTab === "jobs" && <JobsPanel />}
             {activeTab === "audit-trail" && <AuditTrailPanel />}
             {activeTab === "audit" && <AuditPanel />}
+            {activeTab === "onedrive-copy" && <OneDriveCopyPanel isAdmin={profile?.role === "admin"} />}
           </div>
         )}
 
