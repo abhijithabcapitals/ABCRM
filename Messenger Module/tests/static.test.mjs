@@ -20,20 +20,23 @@ test("browser code holds no token words", () => {
   assert.doesNotMatch(src, /refresh_token|client_secret|MICROSOFT_CLIENT_SECRET/);
 });
 
-test("panel falls back to a visible link when the pop-up is blocked", () => {
-  const src = read("components/ChatStarter.jsx");
-  assert.match(src, /window\.open\(/);
-  assert.match(src, /blocked/i);
+test("the record panel uses CRM Messenger, not Microsoft Teams", () => {
+  for (const f of ["TeamsPanel", "ChatStarter"]) assert.ok(!existsSync(join(here, `components/${f}.jsx`)), f);
+  const src = read("components/RecordChatPanel.jsx");
+  assert.doesNotMatch(src, /buildChatLink|teams\.microsoft|window\.open/);
+  assert.match(src, /openRecordGroup/);
+  assert.match(src, /requestOpenChat/);
 });
 
-test("window.open does not use noopener, which would make a opened window look blocked", () => {
-  const src = read("components/ChatStarter.jsx");
-  assert.doesNotMatch(src, /window\.open\([^)]*noopener/);
+test("the dock opens a chat a record page asks for", () => {
+  const src = read("components/MessengerDock.jsx");
+  assert.match(src, /addEventListener\(OPEN_CHAT_EVENT/);
+  assert.match(src, /removeEventListener\(OPEN_CHAT_EVENT/);
 });
 
 const main = (p) => readFileSync(join(here, "..", "Main Module", p), "utf8");
 
-test("the Messenger tab is gone but the alias stays for TeamsPanel and ChatStarter", () => {
+test("the Messenger tab is gone but the alias stays for RecordChatPanel", () => {
   assert.match(main("vite.config.js"), /'@messenger'/);
   assert.doesNotMatch(main("src/App.jsx"), /view === "messenger"/);
   assert.doesNotMatch(main("src/App.jsx"), /lazy\(\(\) => import\("@messenger"\)\)/);
@@ -91,11 +94,13 @@ test("the admin-users edge function no longer lists the messenger tab", () => {
   assert.ok(!tabs[1].includes('"messenger"'), "messenger still in TABS");
 });
 
-test("the lead page passes no prospect name to the Teams panel", () => {
-  const src = readFileSync(join(here, "..", "Business Development Module/components/BusinessDevelopment.jsx"), "utf8");
-  const tag = src.match(/<TeamsPanel[^>]*>/);
-  assert.ok(tag, "TeamsPanel not found");
-  assert.doesNotMatch(tag[0], /label=/);
+test("the lead and client pages use the Messenger record panel", () => {
+  const lead = readFileSync(join(here, "..", "Business Development Module/components/BusinessDevelopment.jsx"), "utf8");
+  const client = readFileSync(join(here, "..", "Client Module/crm/ClientMaster.jsx"), "utf8");
+  for (const src of [lead, client]) {
+    assert.doesNotMatch(src, /TeamsPanel/);
+    assert.match(src, /<RecordChatPanel /);
+  }
 });
 
 test("Remove tells the person when nothing was deleted", () => {
