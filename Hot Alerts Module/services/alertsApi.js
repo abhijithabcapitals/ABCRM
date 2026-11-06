@@ -64,3 +64,6 @@ export const clientContactLog = (s, p) => call(s, "client_contact_log", { p });
 export const clientDocumentRequest = (s, p) => call(s, "client_document_request", { p });
 export const alertManualTypes = (s) => call(s, "alert_manual_types", {});
 export const alertManualRaise = (s, type, client, detail, due) => call(s, "alert_manual_raise", { p_type: type, p_client: client, p_detail: detail || null, p_due: due || null });
+
+// Business Setup's own checklist function (migration 022): it checks who may work the item. The alert closes at the next scan.
+export const checklistItemDone = (s, id) => call(s, "business_setup_checkpoint_set", { p_id: id, p_status: "Completed", p_note: null });
