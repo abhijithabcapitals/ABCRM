@@ -104,7 +104,7 @@ export function printReceipt(p, client, c, company) {
 }
 
 // The Authorized Signatory place ({@signature_xml}) of an unsigned document: blank lines for a hand signature.
-export const UNSIGNED_SPACE = '<w:p><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="0"/></w:pPr><w:r><w:br/><w:br/><w:br/></w:r></w:p>';
+export const UNSIGNED_SPACE = '<w:p><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="0" w:after="0"/></w:pPr><w:r><w:br/><w:br/><w:br/></w:r></w:p>';
 const WORD_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 // signature: null (unsigned, as every document is made) or { bytes, type, width, height }, the AB Capital image from Settings > Signing.

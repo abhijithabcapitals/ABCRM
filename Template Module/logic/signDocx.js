@@ -36,7 +36,7 @@ export function addSignature(zip, xmlBefore, signature) {
 }
 
 // The Authorized Signatory place ({@signature_xml}) of an unsigned document: blank lines for a hand signature.
-export const UNSIGNED_SPACE = '<w:p><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="0"/></w:pPr><w:r><w:br/><w:br/><w:br/></w:r></w:p>';
+export const UNSIGNED_SPACE = '<w:p><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="0" w:after="0"/></w:pPr><w:r><w:br/><w:br/><w:br/></w:r></w:p>';
 
 // Fills a Word template that may have the signatory place, and returns the filled zip (a PizZip) for the caller to generate.
 // libs = { PizZip, Docxtemplater }. signature: null (unsigned, blank lines) or { bytes, type, width, height }.
