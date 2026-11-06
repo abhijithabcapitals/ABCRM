@@ -4,7 +4,8 @@
 
 Reads Template Module/templates/originals and writes four files with {single brace} tags, keeping the design:
 Service_Quotation_Template.docx and Service_Engagement_Template.docx here, and the same two designs as
-Quotation_Template.docx and Engagement_Letter_Template.docx for Business Banking. Prices and bank details stay out:
+Quotation_Template.docx and Engagement_Letter_Template.docx for Business Banking (these two with the AB Capital Authorized
+Signatory place, {@signature_xml}, for signing). Prices and bank details stay out:
 they come from the data at generation time. Stops if the designs change shape.
 """
 import re
@@ -110,14 +111,47 @@ def add_letter_ref(xml, name):
     return xml[: m.end()] + line + xml[m.end() :]
 
 
-def fix_quote(xml, breakdown=False):
+# Business Banking only: the AB Capital Authorized Signatory place. Banking Module/logic/documents.js fills {@signature_xml} with a blank
+# space for a hand signature when the document is unsigned, and with the signature picture (Template Module/logic/signDocx.js) once an
+# approver signs. The tag is alone in its paragraph, as docxtemplater needs for a raw tag. The service templates are unchanged.
+SIGN_TAG = "<w:p><w:r><w:t>{@signature_xml}</w:t></w:r></w:p>"
+SIGN_LINE = "____________________________"
+
+
+def add_quote_signatory(xml, name):
+    """A signatory block after the closing line, in the closing line's style; the lines keep together on one page."""
+    m = para_with(xml, "Thank you for considering", name)
+    keep = '<w:pPr><w:keepNext/><w:spacing w:before="240" w:after="40"/></w:pPr>'
+    block = (f'<w:p>{keep}<w:r><w:rPr><w:b/></w:rPr><w:t>For AB CAPITAL SERVICES (FZE)</w:t></w:r></w:p>' + SIGN_TAG
+             + f'<w:p><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="0"/></w:pPr><w:r><w:t>{SIGN_LINE}</w:t></w:r></w:p>'
+             + '<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:t>Authorized Signatory</w:t></w:r></w:p>')
+    return xml[: m.end()] + block + xml[m.end() :]
+
+
+def add_letter_signatory(xml, name):
+    """The AB Capital cell of the signing table: the blank lines above the signature line become the signature place."""
+    m = para_with(xml, "For AB CAPITAL SERVICES (FZE)", name)
+    para = m.group(0)
+    head = "<w:t>For AB CAPITAL SERVICES (FZE)</w:t><w:br/><w:br/><w:br/><w:br/>"
+    if head not in para:
+        raise DesignError(f"{name}: the AB Capital signing cell changed shape")
+    ppr = re.search(r"<w:pPr>.*?</w:pPr>", para, re.S).group(0)
+    rpr = re.search(r"<w:rPr>.*?</w:rPr>", para, re.S).group(0)
+    first = para.split(head)[0] + "<w:t>For AB CAPITAL SERVICES (FZE)</w:t></w:r></w:p>"
+    rest = f"<w:p>{ppr}<w:r>{rpr}" + para.split(head)[1]
+    return xml[: m.start()] + first + SIGN_TAG + rest + xml[m.end() :]
+
+
+def fix_quote(xml, breakdown=False, sign=False):
     xml = fill_brackets(xml, QUOTE_TAGS, QUOTE)
-    return add_bank_details(add_fee_rows(xml, QUOTE, breakdown), QUOTE)
+    xml = add_bank_details(add_fee_rows(xml, QUOTE, breakdown), QUOTE)
+    return add_quote_signatory(xml, QUOTE) if sign else xml
 
 
-def fix_letter(xml, breakdown=False):
+def fix_letter(xml, breakdown=False, sign=False):
     xml = fill_brackets(xml, LETTER_TAGS, LETTER)
-    return add_letter_ref(add_bank_details(add_fee_rows(xml, LETTER, breakdown), LETTER), LETTER)
+    xml = add_letter_ref(add_bank_details(add_fee_rows(xml, LETTER, breakdown), LETTER), LETTER)
+    return add_letter_signatory(xml, LETTER) if sign else xml
 
 
 def add_second_phone(xml, name):
@@ -151,6 +185,6 @@ def rewrite(src, dst, change):
 if __name__ == "__main__":
     rewrite(ORIGINALS / QUOTE, SERVICE / "Service_Quotation_Template.docx", lambda x: fix_quote(x, True))
     rewrite(ORIGINALS / LETTER, SERVICE / "Service_Engagement_Template.docx", lambda x: fix_letter(x, True))
-    rewrite(ORIGINALS / QUOTE, BANKING / "Quotation_Template.docx", fix_quote)
-    rewrite(ORIGINALS / LETTER, BANKING / "Engagement_Letter_Template.docx", fix_letter)
+    rewrite(ORIGINALS / QUOTE, BANKING / "Quotation_Template.docx", lambda x: fix_quote(x, sign=True))
+    rewrite(ORIGINALS / LETTER, BANKING / "Engagement_Letter_Template.docx", lambda x: fix_letter(x, sign=True))
     print("built 4 templates")

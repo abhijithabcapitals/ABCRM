@@ -1,6 +1,9 @@
 // Quotation, engagement letter and receipt output. PDF: the browser's print dialog ("Save as PDF") from the
-// same merged data. Word: the reusable templates in ../templates, filled with docxtemplater.
+// same merged data. Word: the reusable templates in ../templates, filled with docxtemplater. Each Word document has the AB Capital
+// Authorized Signatory place, blank until an approver signs it (shared signing, Template Hub 011; the signed Word and PDF are kept in
+// document_signatures, under <case id>/generated/<document id>/signed/, and the generated unsigned files stay as they are).
 import { money } from "./pricing.js";
+import { IMAGE_TYPES, REL_ID, addSignature, signatureXml } from "../../Template Module/logic/signDocx.js";
 
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -100,13 +103,33 @@ export function printReceipt(p, client, c, company) {
   openPrint(`Fee Receipt Voucher ${p.banking_receipts.receipt_number}`, `${letterhead(m)}<h1>Fee Receipt Voucher</h1><table><tr><th>Voucher no.</th><td>${esc(p.banking_receipts.receipt_number)}</td></tr><tr><th>Date</th><td>${esc(dmy(p.payment_date))}</td></tr><tr><th>Received from</th><td>${esc(client.display_name)}</td></tr><tr><th>Banking case</th><td>${esc(c.case_ref)}</td></tr><tr><th>Amount</th><td><b>${esc(money(p.amount))}</b></td></tr><tr><th>Method</th><td>${esc(p.payment_method)}</td></tr><tr><th>Reference</th><td>${esc(p.transaction_reference)}</td></tr><tr><th>Payment ref</th><td>${esc(p.payment_ref)}</td></tr><tr><th>Description</th><td>${esc(p.description)}</td></tr></table><div class="sign"><div>Received by, for ${esc(co.short_name)}</div></div>`);
 }
 
-async function renderDocx(templateFile, data) {
-  const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
-  const { templateBuffer } = await import("../services/masterTemplates");
-  const zip = new PizZip(await templateBuffer(templateFile, new URL(`../templates/${templateFile}`, import.meta.url).href));
+// The Authorized Signatory place ({@signature_xml}) of an unsigned document: blank lines for a hand signature.
+export const UNSIGNED_SPACE = '<w:p><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="0"/></w:pPr><w:r><w:br/><w:br/><w:br/></w:r></w:p>';
+const WORD_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// signature: null (unsigned, as every document is made) or { bytes, type, width, height }, the AB Capital image from Settings > Signing.
+// deps (tests): { PizZip, Docxtemplater, templateBuffer(file) }; the browser loads the libraries and the master template itself.
+// A master template uploaded before signing existed has no {@signature_xml}: it still renders unsigned, but is refused for signing.
+async function renderDocx(templateFile, data, signature = null, deps = null) {
+  if (signature) {
+    if (!(signature.bytes?.length > 0 && signature.width > 0 && signature.height > 0)) throw new Error("Signature image is missing");
+    if (!IMAGE_TYPES[String(signature.type || "").toLowerCase()]) throw new Error("Signature image type must be png or jpg");
+  }
+  const [PizZip, Docxtemplater, buffer] = deps
+    ? [deps.PizZip, deps.Docxtemplater, await deps.templateBuffer(templateFile)]
+    : await Promise.all([import("pizzip").then((m) => m.default), import("docxtemplater").then((m) => m.default),
+      import("../services/masterTemplates").then((m) => m.templateBuffer(templateFile, new URL(`../templates/${templateFile}`, import.meta.url).href))]);
+  const zip = new PizZip(buffer);
   const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, delimiters: { start: "{", end: "}" }, nullGetter: () => "" });
-  doc.render(data);
-  return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+  doc.render({ ...data, signature_xml: signature ? signatureXml(signature) : UNSIGNED_SPACE });
+  const out = doc.getZip();
+  if (signature) {
+    if (!out.file("word/document.xml").asText().includes(`r:embed="${REL_ID}"`)) {
+      throw new Error(`The ${templateFile} template has no place for the signature. Upload a master template with {@signature_xml}, or use the built-in one, then sign.`);
+    }
+    addSignature(out, null, signature);
+  }
+  return new Blob([out.generate({ type: "uint8array", compression: "DEFLATE" })], { type: WORD_TYPE });
 }
 
 const flatBank = (m) => ({ ...m, ba_name: m.bank_details.account_name, ba_bank: m.bank_details.bank, ba_no: m.bank_details.account_no, ba_iban: m.bank_details.iban, ba_swift: m.bank_details.swift, ba_ccy: m.bank_details.currency });
@@ -145,13 +168,23 @@ export function designLetter(m) {
     other_terms: other.join("\n\n"),
   };
 }
-export async function quoteDocx(m) { return { blob: await renderDocx("Quotation_Template.docx", designQuote(flatBank(m))), fileName: documentFileName(m.quotation_number, m.client_name) }; }
-export async function letterDocx(l) { const m = letterMerge(l); const number = l.version > 1 ? `${m.letter_number} v${l.version}` : m.letter_number; return { blob: await renderDocx("Engagement_Letter_Template.docx", designLetter(flatBank(m))), fileName: documentFileName(number, m.client_name) }; }
+export async function quoteDocx(m, signature = null, deps = null) { return { blob: await renderDocx("Quotation_Template.docx", designQuote(flatBank(m)), signature, deps), fileName: documentFileName(m.quotation_number, m.client_name) }; }
+export async function letterDocx(l, signature = null, deps = null) { const m = letterMerge(l); const number = l.version > 1 ? `${m.letter_number} v${l.version}` : m.letter_number; return { blob: await renderDocx("Engagement_Letter_Template.docx", designLetter(flatBank(m)), signature, deps), fileName: documentFileName(number, m.client_name) }; }
 export function receiptMerge(p, client, c, company) {
   const co = company || FALLBACK_COMPANY;
   return { company_name: co.name, company_short: co.short_name, company_website: co.website, company_email: co.email, company_mobile: co.mobile, receipt_number: p.banking_receipts?.receipt_number, payment_date: dmy(p.payment_date), client_name: client.display_name, case_ref: c.case_ref, amount: money(p.amount), method: p.payment_method || "", reference: p.transaction_reference || "", payment_ref: p.payment_ref, description: p.description || "" };
 }
-export async function receiptDocx(p, client, c, company) { const m = receiptMerge(p, client, c, company); return { blob: await renderDocx("Fee_Receipt_Voucher_Template.docx", m), fileName: documentFileName(m.receipt_number, m.client_name), number: m.receipt_number }; }
+export async function receiptDocx(p, client, c, company, signature = null, deps = null) { const m = receiptMerge(p, client, c, company); return { blob: await renderDocx("Fee_Receipt_Voucher_Template.docx", m, signature, deps), fileName: documentFileName(m.receipt_number, m.client_name), number: m.receipt_number }; }
+
+// The family's rebuild for the shared signing step (Template Module/services/signing.js): the stored row drawn again by the same render
+// as Word and Save to folder, with the AB Capital signature. Every number, version and date comes from the row (a quotation's
+// quotation_date, a letter's letter_date and content, a receipt's payment date and number), never today's date.
+//   quote:   ctx = { client (with registered_address), c (the case), company (Banking settings), preparedBy (name), deps? }
+//   letter:  ctx = { deps? }: the letter's content holds everything it prints
+//   receipt: row is the payment with banking_receipts; ctx = { client, c, company, deps? }
+export const rebuildBankingQuote = async (q, signature, ctx) => (await quoteDocx(quoteMerge(q, ctx.client, ctx.c, ctx.company, ctx.preparedBy), signature, ctx.deps)).blob;
+export const rebuildBankingLetter = async (l, signature, ctx = {}) => (await letterDocx(l, signature, ctx.deps)).blob;
+export const rebuildBankingReceipt = async (p, signature, ctx) => (await receiptDocx(p, ctx.client, ctx.c, ctx.company, signature, ctx.deps)).blob;
 async function download({ blob, fileName }) { const { saveAs } = await import("file-saver"); saveAs(blob, fileName); }
 export const downloadQuoteDocx = async (m) => download(await quoteDocx(m));
 export const downloadLetterDocx = async (l) => download(await letterDocx(l));

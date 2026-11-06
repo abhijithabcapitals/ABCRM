@@ -88,5 +88,10 @@ test("signed files go under the document's own signed/ folder", () => {
   assert.equal(signedPrefix("ardentax_documents", { id: "a1" }), "ArdentTax (ASP)/a1/signed/");
   assert.throws(() => signedPrefix("hub_documents", { id: "d1", department: "" }), /department/);
   assert.throws(() => signedPrefix("hub_documents", { id: "", department: "Accounting" }), /document/);
-  assert.throws(() => signedPrefix("banking_quotations", { id: "b1" }), /not supported/);
+  // Business Banking (bucket banking-documents): beside the generated files, <case id>/generated/<id>/signed/, as 011 doc_sign_prefix.
+  assert.equal(signedPrefix("banking_quotations", { id: "b1", case_id: "c1" }), "c1/generated/b1/signed/");
+  assert.equal(signedPrefix("banking_engagement_letters", { id: "l1", case_id: "c1" }), "c1/generated/l1/signed/");
+  assert.equal(signedPrefix("banking_receipts", { id: "r1", case_id: "c1" }), "c1/generated/r1/signed/");
+  assert.throws(() => signedPrefix("banking_receipts", { id: "r1" }), /case/);
+  assert.throws(() => signedPrefix("other_table", { id: "x1" }), /not supported/);
 });

@@ -10,7 +10,10 @@ import { insertRow, loadSettings, openFile, readDocuments, rpc, saveGenerated, r
 import { supabase } from "@app/supabase";
 import { DOC_STATUSES, GATE_LABELS, PHASES, STAGES, STEPS, uiStep } from "../logic/constants";
 import { lineAmount, money, quoteTotals } from "../logic/pricing";
-import { downloadLetterDocx, downloadQuoteDocx, letterDocx, printLetter, printQuote, printReceipt, quoteDocx, quoteMerge, receiptDocx } from "../logic/documents";
+import { downloadLetterDocx, downloadQuoteDocx, letterDocx, printLetter, printQuote, printReceipt, quoteDocx, quoteMerge, rebuildBankingLetter, rebuildBankingQuote, rebuildBankingReceipt, receiptDocx } from "../logic/documents";
+import { fileGenerated } from "../services/bankingSigning";
+import { bankingSigningApi } from "../services/bankingSigningApi";
+import { SignButtons, SignStatus, bankingSignState, signingOf, useSigning } from "./SignControls";
 
 // Old list pages link to a case by area; each area opens at its step.
 const AREA_STEP = { client: 2, followups: 3, kyc: 4, selection: 6, documents: 8, quotation: 9, payments: 10, agreement: 12, application: 14 };
@@ -418,34 +421,42 @@ function Quotation({ c, client, reload }) {
   const [open, setOpen] = useState(null);
   const [revise, setRevise] = useState(null);
   const [decide, setDecide] = useState(null);
-  const { error, busy, act } = useAction(async () => { await quotes.reload(); await reload(); });
+  const { error, busy, act } = useAction(async () => { await quotes.reload(); await reload(); await signing.reload(); });
+  const [signError, setSignError] = useState(null);
   const rows = quotes.data || [];
   const company = settings.data?.company;
   const merge = (q) => quoteMerge(q, { ...client, registered_address: kyc.data?.registered_address }, c, company, personName(q.prepared_by));
   const [savedKey, setSavedKey] = useState(0);
   const [savedNote, setSavedNote] = useState(null);
+  const signing = useSigning("quote", rows);
+  // The signed copy is drawn by the same render as Word and Save to folder, from the stored quotation.
+  const rebuild = (q, signature) => rebuildBankingQuote(q, signature, { client: { ...client, registered_address: kyc.data?.registered_address }, c, company, preparedBy: personName(q.prepared_by) });
+  // A new file ends the quotation's live signature (bankingSigning.fileGenerated).
   const saveCopy = async (q) => {
     const m = merge(q);
     const { blob, fileName } = await quoteDocx(m);
-    const row = await saveGenerated({ kind: "quote", caseId: c.id, blob, fileName, number: q.quotation_number, quotationId: q.id });
-    setSavedNote(savedMessage(row));
+    const { row, warning } = await fileGenerated(bankingSigningApi, "quote", q, () => saveGenerated({ kind: "quote", caseId: c.id, blob, fileName, number: q.quotation_number, quotationId: q.id }));
+    setSavedNote(savedMessage(row, warning));
     setSavedKey((k) => k + 1);
+    await signing.reload();
   };
   return (
     <Panel title="Quotations" sub="Every version is kept." actions={can("quotes.manage") && <Button variant="primary" busy={busy} onClick={() => act(() => rpc("banking_quote_create", { p_case: c.id }))}>New quotation</Button>}>
-      <ErrorNote message={quotes.error || error} />
+      <ErrorNote message={quotes.error || error || signing.error || signError} />
       {savedNote && <div className={`bk-alert ${savedNote.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{savedNote.text}</div>}
       <DataTable rows={rows} empty="No quotation yet. Select a bank first." columns={[
         { key: "n", label: "Number", render: (q) => `${q.quotation_number} v${q.version}` }, { key: "b", label: "Bank", render: (q) => q.banking_partners?.bank_name },
         { key: "quotation_date", label: "Date", render: (q) => fmtDate(q.quotation_date) }, { key: "valid_until", label: "Valid until", render: (q) => fmtDate(q.valid_until) },
         { key: "status", label: "Status", render: (q) => <Badge>{q.status}</Badge> }, { key: "total_amount", label: "Total", right: true, render: (q) => money(q.total_amount) },
+        { key: "sig", label: "AB Capital signature", render: (q) => <SignStatus signing={signingOf(signing, "quote", q)} /> },
         { key: "a", label: "", render: (q) => (
           <span className="bk-actions bk-wrap">
             {["Draft", "Approval Required"].includes(q.status) && can("quotes.manage") && <Button onClick={() => setOpen(q)}>Edit</Button>}
             {q.status === "Approval Required" && can("pricing.approve") && <Button busy={busy} onClick={() => act(() => rpc("banking_quote_action", { p_quote: q.id, p_action: "approve" }))}>Approve pricing</Button>}
             {q.status === "Draft" && can("quotes.manage") && <Button variant="primary" busy={busy} onClick={() => act(async () => { await rpc("banking_quote_action", { p_quote: q.id, p_action: "issue" }); await saveCopy(q); })}>Issue</Button>}
             <Button onClick={() => printQuote(merge(q))}>Preview / PDF</Button>
-            <Button onClick={() => act(() => downloadQuoteDocx(merge(q)))}>Word</Button>
+            <Button onClick={() => act(() => downloadQuoteDocx(merge(q)))}>{bankingSignState("quote", q, { signing: signingOf(signing, "quote", q) }).unsignedLabel}</Button>
+            <SignButtons kind="quote" row={q} signing={signingOf(signing, "quote", q)} canSign={signing.canSign} canFile={can("quotes.manage")} rebuild={rebuild} onError={setSignError} onSigned={signing.reload} />
             {!["Draft", "Approval Required"].includes(q.status) && !q.is_imported && can("quotes.manage") && <Button onClick={() => act(() => saveCopy(q))}>Save to folder</Button>}
             {["Issued", "Sent"].includes(q.status) && can("quotes.manage") && <>
               <Button onClick={() => act(async () => { await rpc("banking_quote_action", { p_quote: q.id, p_action: "send" }); const m = merge(q); window.location.href = `mailto:?subject=${encodeURIComponent(`Quotation ${m.quotation_number} from ${m.company_short}`)}&body=${encodeURIComponent(`Dear ${m.client_name},\n\nPlease find attached our quotation ${m.quotation_number} for AED ${m.total_plain}, valid until ${m.valid_until}.\n\nRegards,\n${m.company_short}`)}`; })}>Send to client</Button>
@@ -523,7 +534,7 @@ function QuoteEditor({ q, onClose, onSaved }) {
 
 function Payments({ c, client, finance, reload }) {
   const { can, personName } = useBanking();
-  const pays = useLoad(() => run(table("banking_payments").select("*, banking_receipts(receipt_number, issued_on)").eq("case_id", c.id).order("payment_date", { ascending: false }).order("created_at", { ascending: false })), [c.id]);
+  const pays = useLoad(() => run(table("banking_payments").select("*, banking_receipts(id, receipt_number, issued_on)").eq("case_id", c.id).order("payment_date", { ascending: false }).order("created_at", { ascending: false })), [c.id]);
   const settings = useLoad(() => loadSettings(), []);
   const [adding, setAdding] = useState(false);
   const [counter, setCounter] = useState(null);
@@ -533,14 +544,19 @@ function Payments({ c, client, finance, reload }) {
   const { error, act } = useAction();
   const [savedKey, setSavedKey] = useState(0);
   const [savedNote, setSavedNote] = useState(null);
+  const [signError, setSignError] = useState(null);
+  const signing = useSigning("receipt", pays.data);
+  const rebuild = (p, signature) => rebuildBankingReceipt(p, signature, { client, c, company: settings.data?.company });
+  // A new voucher file ends the receipt's live signature (bankingSigning.fileGenerated).
   const saveVoucher = async (p) => {
     const { blob, fileName, number } = await receiptDocx(p, client, c, settings.data?.company);
-    const row = await saveGenerated({ kind: "receipt", caseId: c.id, blob, fileName, number, paymentId: p.id });
-    setSavedNote(savedMessage(row));
+    const { row, warning } = await fileGenerated(bankingSigningApi, "receipt", p, () => saveGenerated({ kind: "receipt", caseId: c.id, blob, fileName, number, paymentId: p.id }));
+    setSavedNote(savedMessage(row, warning));
     setSavedKey((k) => k + 1);
+    await signing.reload();
   };
   // The payment stands even if saving its file fails; the failure is shown and can be retried.
-  const voucherFor = (paymentId) => act(async () => saveVoucher(await run(table("banking_payments").select("*, banking_receipts(receipt_number, issued_on)").eq("id", paymentId).single())));
+  const voucherFor = (paymentId) => act(async () => saveVoucher(await run(table("banking_payments").select("*, banking_receipts(id, receipt_number, issued_on)").eq("id", paymentId).single())));
   return (
     <div>
       <Panel title="Payment summary">
@@ -548,16 +564,18 @@ function Payments({ c, client, finance, reload }) {
       </Panel>
       <Panel title="Payment ledger" sub="Each entry is its own record. Mistakes are reversed, never edited."
         actions={<>{can("payments.manage") && <Button variant="primary" onClick={() => setAdding(true)}>Record payment</Button>}{can("payments.refund") && <Button onClick={() => setAdjust(true)}>Adjustment</Button>}</>}>
-        <ErrorNote message={pays.error || error} />
+        <ErrorNote message={pays.error || error || signing.error || signError} />
         {savedNote && <div className={`bk-alert ${savedNote.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{savedNote.text}</div>}
         <DataTable rows={pays.data || []} empty="No payments recorded." columns={[
           { key: "payment_ref", label: "Ref" }, { key: "payment_date", label: "Date", render: (r) => fmtDate(r.payment_date) }, { key: "txn_type", label: "Type", render: (r) => <Badge tone={r.txn_type === "Payment" ? "good" : "warn"}>{r.txn_type}</Badge> },
           { key: "signed_amount", label: "Amount", right: true, render: (r) => money(r.signed_amount) }, { key: "payment_method", label: "Method" }, { key: "transaction_reference", label: "Reference" },
           { key: "reference_note", label: "Note" }, { key: "received_by", label: "Received by", render: (r) => r.received_by_text || personName(r.received_by) }, { key: "remarks", label: "Remarks" },
+          { key: "sig", label: "AB Capital signature", render: (r) => (r.banking_receipts ? <SignStatus signing={signingOf(signing, "receipt", r)} /> : "–") },
           { key: "a", label: "", render: (r) => (
             <span className="bk-actions">
               {r.banking_receipts && <Button onClick={() => printReceipt(r, client, c, settings.data?.company)}>Voucher {r.banking_receipts.receipt_number}</Button>}
               {r.banking_receipts && can("payments.manage") && <Button onClick={() => act(() => saveVoucher(r))}>Save to folder</Button>}
+              <SignButtons kind="receipt" row={r} signing={signingOf(signing, "receipt", r)} canSign={signing.canSign} canFile={can("payments.manage")} rebuild={rebuild} onError={setSignError} onSigned={signing.reload} />
               {r.document_path && <Button onClick={() => act(() => openFile(r.document_path))}>Proof</Button>}
               {r.txn_type === "Payment" && can("payments.manage") && <Button onClick={() => setCounter({ p: r, type: "Reversal" })}>Reverse</Button>}
               {r.txn_type === "Payment" && can("payments.refund") && <Button onClick={() => setCounter({ p: r, type: "Refund" })}>Refund</Button>}
@@ -596,15 +614,20 @@ function Agreement({ c, reload }) {
   const letters = useLoad(() => run(table("banking_engagement_letters").select("*").eq("case_id", c.id).order("created_at", { ascending: false })), [c.id]);
   const [sign, setSign] = useState(null);
   const [file, setFile] = useState(null);
-  const done = async () => { await letters.reload(); await reload(); };
+  const signing = useSigning("letter", letters.data);
+  const done = async () => { await letters.reload(); await reload(); await signing.reload(); };
   const { error, busy, act } = useAction(done);
   const [savedKey, setSavedKey] = useState(0);
   const [savedNote, setSavedNote] = useState(null);
+  const [signError, setSignError] = useState(null);
+  // A new file ends the letter's live signature (bankingSigning.fileGenerated). A new letter starts unsigned; a replaced (cancelled)
+  // letter keeps its signature, which still matches its own files.
   const saveCopy = async (l) => {
     const { blob, fileName } = await letterDocx(l);
-    const row = await saveGenerated({ kind: "letter", caseId: c.id, blob, fileName, number: l.letter_number, letterId: l.id });
-    setSavedNote(savedMessage(row));
+    const { row, warning } = await fileGenerated(bankingSigningApi, "letter", l, () => saveGenerated({ kind: "letter", caseId: c.id, blob, fileName, number: l.letter_number, letterId: l.id }));
+    setSavedNote(savedMessage(row, warning));
     setSavedKey((k) => k + 1);
+    await signing.reload();
   };
   const generate = () => act(async () => {
     const id = await rpc("banking_letter_generate", { p_case: c.id });
@@ -612,16 +635,18 @@ function Agreement({ c, reload }) {
   });
   return (
     <Panel title="Engagement letter" sub="Generated from the accepted quotation." actions={can("agreements.manage") && <Button variant="primary" busy={busy} onClick={generate}>Generate letter</Button>}>
-      <ErrorNote message={letters.error || error} />
+      <ErrorNote message={letters.error || error || signing.error || signError} />
       {savedNote && <div className={`bk-alert ${savedNote.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{savedNote.text}</div>}
       <DataTable rows={letters.data || []} empty="Not generated yet." columns={[
         { key: "letter_number", label: "Number", render: (l) => `${l.letter_number} v${l.version}` }, { key: "letter_date", label: "Date", render: (l) => fmtDate(l.letter_date) }, { key: "status", label: "Status", render: (l) => <Badge>{l.status}</Badge> }, { key: "signed_at", label: "Signed", render: (l) => fmtDate(l.signed_at) }, { key: "signatory_name", label: "Signatory" },
+        { key: "sig", label: "AB Capital signature", render: (l) => <SignStatus signing={signingOf(signing, "letter", l)} /> },
         { key: "a", label: "", render: (l) => (
           <span className="bk-actions bk-wrap">
             <Button onClick={() => printLetter(l)}>Preview / PDF</Button>
-            <Button onClick={() => act(() => downloadLetterDocx(l))}>Word</Button>
+            <Button onClick={() => act(() => downloadLetterDocx(l))}>{bankingSignState("letter", l, { signing: signingOf(signing, "letter", l) }).unsignedLabel}</Button>
+            <SignButtons kind="letter" row={l} signing={signingOf(signing, "letter", l)} canSign={signing.canSign} canFile={can("agreements.manage")} rebuild={rebuildBankingLetter} onError={setSignError} onSigned={signing.reload} />
             {can("agreements.manage") && l.status !== "Cancelled" && <Button onClick={() => act(() => saveCopy(l))}>Save to folder</Button>}
-            {l.signed_document_path && <Button onClick={() => act(() => openFile(l.signed_document_path))}>Signed copy</Button>}
+            {l.signed_document_path && <Button onClick={() => act(() => openFile(l.signed_document_path))}>Client-signed copy</Button>}
             {can("agreements.manage") && !["Signed", "Cancelled"].includes(l.status) && <>
               {l.status === "Draft" && <Button busy={busy} onClick={() => act(() => rpc("banking_letter_action", { p_letter: l.id, p_action: "send" }))}>Sent to client</Button>}
               <Button variant="primary" onClick={() => setSign(l)}>Record signature</Button>
@@ -644,9 +669,11 @@ function Agreement({ c, reload }) {
   );
 }
 
-const savedMessage = (row) => (row.local_path
-  ? { ok: true, text: `Saved to ${row.local_path}` }
-  : { ok: true, text: "Saved online." });
+const savedMessage = (row, warning = null) => (warning
+  ? { ok: false, text: warning }
+  : row.local_path
+    ? { ok: true, text: `Saved to ${row.local_path}` }
+    : { ok: true, text: "Saved online." });
 
 function GeneratedDocuments({ caseId, kind }) {
   const list = useLoad(() => run(table("banking_generated_documents").select("*").eq("case_id", caseId).eq("kind", kind).order("created_at", { ascending: false })), [caseId, kind]);

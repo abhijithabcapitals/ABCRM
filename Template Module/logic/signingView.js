@@ -61,8 +61,9 @@ export function docCompany(table, doc) {
   return "ab_capital";
 }
 
-// Where the signed files go, as Template Hub 011 doc_sign_prefix; doc_sign_record refuses any other folder. Banking uses its own bucket
-// and is added with that family.
+// Where the signed files go, as Template Hub 011 doc_sign_prefix; doc_sign_record refuses any other folder. Business Banking's go in
+// its own bucket (banking-documents), beside the generated files: doc is { id, case_id }, a receipt's case_id being its payment's.
+const BANKING = ["banking_quotations", "banking_engagement_letters", "banking_receipts"];
 export function signedPrefix(table, doc) {
   if (!doc?.id) throw new Error("The document is needed to sign it.");
   if (table === "hub_documents") {
@@ -70,5 +71,9 @@ export function signedPrefix(table, doc) {
     return `${doc.department}/${doc.id}/signed/`;
   }
   if (table === "ardentax_documents") return `ArdentTax (ASP)/${doc.id}/signed/`;
+  if (BANKING.includes(table)) {
+    if (!doc.case_id) throw new Error("The document has no banking case, so it cannot be signed.");
+    return `${doc.case_id}/generated/${doc.id}/signed/`;
+  }
   throw new Error(`Signing ${table} is not supported yet.`);
 }
