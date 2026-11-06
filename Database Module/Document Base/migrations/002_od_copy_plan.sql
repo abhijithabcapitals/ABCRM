@@ -9,7 +9,8 @@
 -- Rollback: drop view od_copy.report, od_copy.item_map; drop function od_copy.build_plan(), od_copy.approve(text,text,text),
 -- od_copy.fit_path(text[],int), od_copy.folder_for(text), od_copy.employee_label(text), od_copy.clean_segment(text),
 -- od_copy.cap_segment(text,int), od_copy.legal_form(text), od_copy.normalize_name(text),
--- od_copy.claim(text,int,int), od_copy.rollback_candidates(text,text,text,int); drop index od_copy.plan_claim_idx.
+-- od_copy.claim(text,int,int), od_copy.rollback_candidates(text,text,text,int); drop index od_copy.plan_claim_idx;
+-- alter table od_copy.plan drop column hash_checked.
 begin;
 
 -- Company name for matching: lowercase, & -> and, punctuation -> space, legal-form and filler words removed.
@@ -320,6 +321,10 @@ begin
   return n;
 end $$;
 
+-- hash_checked: false when a copy was verified by size alone (the source file had no quickXorHash), true when size
+-- and hash were both compared. Null until verified.
+alter table od_copy.plan add column if not exists hash_checked boolean;
+
 -- Work queue for the copy Edge Function (Task 4). Two concurrent calls never return the same row: candidates are
 -- locked with "for update skip locked" and changed in the same statement.
 -- 'approved': at most p_limit rows minus those already 'copying' (so the in-flight cap holds across overlapping runs)
@@ -403,7 +408,8 @@ select i.area,
   count(*) filter (where p.status = 'planned') as planned,
   count(*) filter (where p.status = 'approved') as approved,
   count(*) filter (where p.status = 'verified') as verified,
-  count(*) filter (where p.status = 'failed') as failed
+  count(*) filter (where p.status = 'failed') as failed,
+  count(*) filter (where p.status = 'verified' and p.hash_checked is false) as verified_size_only
 from od_copy.item_map i
 left join od_copy.plan p on p.source_item_id = i.item_id
 group by i.area;

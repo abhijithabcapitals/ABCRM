@@ -9,13 +9,13 @@ import postgres from "npm:postgres@3";
 import { Graph } from "./graph.ts";
 import { handle } from "./handler.ts";
 import { getToken } from "./msauth.ts";
-import type { ClientFolderRow, Db, Operation, PlanRow, RollbackScope, Settings, SourceRow } from "./stages.ts";
+import type { ClientFolderRow, Db, Operation, PlanRow, RollbackScope, Settings, SourceRow, Stage } from "./stages.ts";
 
 // The destination folder, at the top of the drive. Graph proves the configured dest_item_id is this folder.
 const DEST_ROOT_PATH = "CRM AB CAPITAL";
 const CHUNK = 500;
 const ID_CHUNK = 100;
-const PLAN_COLUMNS = ["status", "dest_item_id", "monitor_url", "attempts", "error"] as const;
+const PLAN_COLUMNS = ["status", "dest_item_id", "monitor_url", "attempts", "error", "hash_checked"] as const;
 
 function env(name: string): string {
   const v = Deno.env.get(name);
@@ -47,6 +47,14 @@ export class SupabaseDb implements Db {
 
   async saveSettings(p: Partial<Settings>): Promise<void> {
     check(await this.sb.from("settings").update(p).eq("id", true), "save settings");
+  }
+
+  async setStage(to: Stage, from: Stage[]): Promise<boolean> {
+    const rows = check(
+      await this.sb.from("settings").update({ stage: to }).eq("id", true).in("stage", from).select("stage"),
+      "set stage",
+    ) as { stage: string }[];
+    return rows.length > 0;
   }
 
   async upsertSourceItems(rows: SourceRow[]): Promise<void> {

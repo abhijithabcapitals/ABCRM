@@ -44,6 +44,7 @@ export type PlanRow = {
   monitor_url: string | null;
   attempts: number;
   error: string | null;
+  hash_checked?: boolean | null; // false: verified by size only (the source had no quickXorHash)
   size: number;
   quickxor_hash: string | null;
 };
@@ -64,6 +65,8 @@ export type RollbackScope = { area?: string; clientId?: string; all?: boolean };
 export interface Db {
   getSettings(): Promise<Settings>;
   saveSettings(p: Partial<Settings>): Promise<void>;
+  // Stage change only from one of the expected stages, so a pause or rollback set meanwhile wins. True if changed.
+  setStage(to: Stage, from: Stage[]): Promise<boolean>;
   upsertSourceItems(rows: SourceRow[]): Promise<void>;
   markDeleted(ids: string[]): Promise<void>;
   buildPlan(): Promise<Record<string, number>>;
@@ -120,12 +123,17 @@ function rawSegments(path: string): string[] {
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
-export async function runInventory(
-  g: GraphApi,
-  db: Db,
-  deadline: number,
-  now: () => number = Date.now,
-): Promise<{ pages: number; items: number; done: boolean; skipped: number; plan?: Record<string, number> }> {
+export type InventoryResult = {
+  pages: number;
+  items: number;
+  done: boolean;
+  skipped: number; // outside the source folder
+  unresolved: number; // parent never found: logged as 'inventory_unresolved', not stored
+  plan?: Record<string, number>;
+  stage_changed?: string;
+};
+
+export async function runInventory(g: GraphApi, db: Db, deadline: number, now: () => number = Date.now): Promise<InventoryResult> {
   const s = await db.getSettings();
   if (!s.source_item_id) throw new Error("settings.source_item_id is not set");
   const sourceId = s.source_item_id;
@@ -135,33 +143,44 @@ export async function runInventory(
 
   // Folder id -> path below the source root ("" = the root).
   const folders = new Map<string, string>([[sourceId, ""]]);
-  const out = { pages: 0, items: 0, done: false, skipped: 0 };
+  const out: InventoryResult = { pages: 0, items: 0, done: false, skipped: 0, unresolved: 0 };
+  // Items whose parent is not known yet: carried to later pages, then resolved one by one.
+  let carried: DriveItem[] = [];
 
+  const underRoot = (path: string): string | null => {
+    const segs = rawSegments(path);
+    if (segs.length < rootSegs.length || !rootSegs.every((x, i) => same(x, segs[i]))) return null;
+    return segs.slice(rootSegs.length).join("/");
+  };
   // Parent path below the source root; null when outside it; undefined when not yet known.
   const parentOf = (it: DriveItem): string | null | undefined => {
     const p = it.parentReference?.path;
-    if (p) {
-      const segs = rawSegments(p);
-      if (segs.length < rootSegs.length || !rootSegs.every((x, i) => same(x, segs[i]))) return null;
-      return segs.slice(rootSegs.length).join("/");
-    }
+    if (p) return underRoot(p);
     const pid = it.parentReference?.id;
     return pid ? folders.get(pid) : undefined;
   };
+  const toRow = (it: DriveItem, parent: string): SourceRow => {
+    if (it.folder) folders.set(it.id, parent ? `${parent}/${it.name}` : it.name);
+    return {
+      item_id: it.id,
+      parent_path: parent,
+      name: it.name,
+      size: it.size ?? 0,
+      quickxor_hash: it.file?.hashes?.quickXorHash ?? null,
+      modified_at: it.lastModifiedDateTime ?? null,
+      is_folder: !!it.folder,
+    };
+  };
 
-  for await (const page of g.delta(sourceId, s.delta_link ?? undefined)) {
-    out.pages++;
-    const items = page.items.filter((i) => i.id !== sourceId);
-    const deleted = items.filter((i) => i.deleted).map((i) => i.id);
-    let pending = items.filter((i) => !i.deleted);
-
-    // Parents named only by id and not seen in this run: look them up among stored folders.
-    const unknown = [...new Set(pending.filter((i) => !i.parentReference?.path && i.parentReference?.id)
-      .map((i) => i.parentReference!.id!).filter((id) => !folders.has(id) && !pending.some((x) => x.id === id)))];
+  // Resolve in passes (a folder later in the list can be the parent of an earlier item); returns the rows and
+  // what is still unknown.
+  const resolve = async (list: DriveItem[]): Promise<{ rows: SourceRow[]; left: DriveItem[] }> => {
+    const ids = new Set(list.map((i) => i.id));
+    const unknown = [...new Set(list.filter((i) => !i.parentReference?.path && i.parentReference?.id)
+      .map((i) => i.parentReference!.id!).filter((id) => !folders.has(id) && !ids.has(id)))];
     if (unknown.length) for (const [id, path] of Object.entries(await db.folderPaths(unknown))) folders.set(id, path);
-
-    // Resolve in passes: a folder later in the page can be the parent of an earlier item.
     const rows: SourceRow[] = [];
+    let pending = list;
     let progress = true;
     while (pending.length && progress) {
       progress = false;
@@ -173,40 +192,75 @@ export async function runInventory(
           continue;
         }
         progress = true;
-        if (parent === null) {
-          out.skipped++;
-          continue;
-        }
-        const isFolder = !!it.folder;
-        if (isFolder) folders.set(it.id, parent ? `${parent}/${it.name}` : it.name);
-        rows.push({
-          item_id: it.id,
-          parent_path: parent,
-          name: it.name,
-          size: it.size ?? 0,
-          quickxor_hash: it.file?.hashes?.quickXorHash ?? null,
-          modified_at: it.lastModifiedDateTime ?? null,
-          is_folder: isFolder,
-        });
+        if (parent === null) out.skipped++;
+        else rows.push(toRow(it, parent));
       }
       pending = left;
     }
-    out.skipped += pending.length; // parent never found: not stored (reported in the result)
+    return { rows, left: pending };
+  };
 
+  const store = async (rows: SourceRow[]) => {
     if (rows.length) await db.upsertSourceItems(rows);
-    if (deleted.length) await db.markDeleted(deleted);
     out.items += rows.length;
+  };
+
+  // Before the delta link moves past them for good: ask Graph for each leftover item's own path; log what stays
+  // unknown (action 'inventory_unresolved').
+  const settleCarried = async () => {
+    const rows: SourceRow[] = [];
+    for (const it of carried) {
+      let parent: string | null | undefined;
+      try {
+        const full = await g.getItem(it.id);
+        parent = full.parentReference?.path ? underRoot(full.parentReference.path) : undefined;
+      } catch (e) {
+        if (isThrottle(e)) throw e;
+        parent = undefined;
+      }
+      if (parent === null) out.skipped++;
+      else if (parent !== undefined) rows.push(toRow(it, parent));
+      else {
+        out.unresolved++;
+        await db.log({
+          action: "inventory_unresolved",
+          source_item_id: it.id,
+          result: "unresolved",
+          detail: { parent_id: it.parentReference?.id ?? null },
+        });
+      }
+    }
+    carried = [];
+    await store(rows);
+  };
+
+  for await (const page of g.delta(sourceId, s.delta_link ?? undefined)) {
+    out.pages++;
+    const items = page.items.filter((i) => i.id !== sourceId);
+    const deleted = items.filter((i) => i.deleted).map((i) => i.id);
+    const { rows, left } = await resolve([...carried, ...items.filter((i) => !i.deleted)]);
+    carried = left;
+    await store(rows);
+    if (deleted.length) await db.markDeleted(deleted);
 
     if (page.deltaLink) {
+      await settleCarried();
       await db.saveSettings({ delta_link: page.deltaLink });
-      const plan = await db.buildPlan();
-      await db.saveSettings({ stage: "plan" });
-      return { ...out, done: true, plan };
+      out.plan = await db.buildPlan();
+      out.done = true;
+      if (!(await db.setStage("plan", ["inventory"]))) out.stage_changed = "stage was changed during the run; left as is";
+      return out;
     }
-    // Progress is saved every page, so an interrupted run resumes from here.
-    if (page.nextLink) await db.saveSettings({ delta_link: page.nextLink });
-    if (now() >= deadline) return out;
+    if (page.nextLink && now() >= deadline) {
+      await settleCarried();
+      await db.saveSettings({ delta_link: page.nextLink });
+      return out;
+    }
+    // Progress is saved every page so an interrupted run resumes from here, except while items are carried: then
+    // the older link stays, so a crash lists those items again instead of losing them.
+    if (page.nextLink && carried.length === 0) await db.saveSettings({ delta_link: page.nextLink });
   }
+  await settleCarried();
   return out;
 }
 
@@ -214,29 +268,29 @@ export async function runInventory(
 
 export type LoopOptions = { now?: () => number; sleep?: (ms: number) => Promise<void>; pollMs?: number };
 
-export async function runCopy(
-  g: GraphApi,
-  db: Db,
-  deadline: number,
-  maxInFlight: number,
-  opts: LoopOptions = {},
-): Promise<{ started: number; verified: number; failed: number; stopped?: string }> {
+export type CopyResult = { started: number; verified: number; failed: number; deferred: number; stopped?: string };
+
+// A Graph answer that will not change on retry (bad request, not found, gone ...): not worth polling again.
+function isPermanent(e: unknown): boolean {
+  return e instanceof GraphError && e.status >= 400 && e.status < 500 && ![408, 409, 429].includes(e.status);
+}
+
+export async function runCopy(g: GraphApi, db: Db, deadline: number, maxInFlight: number, opts: LoopOptions = {}): Promise<CopyResult> {
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const pollMs = opts.pollMs ?? 2_000;
-  const out: { started: number; verified: number; failed: number; stopped?: string } = { started: 0, verified: 0, failed: 0 };
+  const out: CopyResult = { started: 0, verified: 0, failed: 0, deferred: 0 };
   if (now() >= deadline) return { ...out, stopped: "deadline" };
 
-  const settings = await db.getSettings();
-  let stageCopying = settings.stage === "copying";
-  const tried = new Set<string>(); // rows started or failed in this run: not retried in the same run
+  const tried = new Set<string>(); // rows started or settled in this run: not touched again in the same run
   const clientsDone = new Set<string>();
   let inFlight: PlanRow[] = [];
 
+  // A counted attempt (monitor said failed, verify mismatch, copy POST failed): retried until MAX_ATTEMPTS.
   const fail = async (r: PlanRow, error: string, destId?: string) => {
     const attempts = r.attempts + 1;
     const status = attempts >= MAX_ATTEMPTS ? "failed" : "approved";
-    await db.update(r.source_item_id, { status, attempts, error, monitor_url: null });
+    await db.update(r.source_item_id, { status, attempts, error, monitor_url: null, dest_item_id: null });
     await db.log({
       action: "copy",
       source_item_id: r.source_item_id,
@@ -244,6 +298,25 @@ export async function runCopy(
       result: status === "failed" ? "failed" : "retry",
       detail: { error, attempts },
     });
+    tried.add(r.source_item_id);
+    out.failed++;
+  };
+
+  // The copy may exist but cannot be checked now: keep it 'copying' with its monitor (and the new item's id when
+  // known) so a later run polls or verifies again. No new copy is started, so no untracked duplicate.
+  const defer = async (r: PlanRow, error: string, destId?: string) => {
+    const dest = destId ?? r.dest_item_id;
+    await db.update(r.source_item_id, { status: "copying", monitor_url: r.monitor_url, dest_item_id: dest, error });
+    await db.log({ action: "copy", source_item_id: r.source_item_id, dest_item_id: dest, result: "deferred", detail: { error } });
+    tried.add(r.source_item_id);
+    out.deferred++;
+  };
+
+  // The state cannot be learned again (monitor gone, item not found, no item id): 'failed' for a person to check
+  // the destination. Not retried automatically, because a retry could make a second copy.
+  const review = async (r: PlanRow, error: string, destId?: string) => {
+    await db.update(r.source_item_id, { status: "failed", error: `${error}; check the destination before retrying`, monitor_url: null });
+    await db.log({ action: "copy", source_item_id: r.source_item_id, dest_item_id: destId ?? r.dest_item_id, result: "needs_review", detail: { error } });
     tried.add(r.source_item_id);
     out.failed++;
   };
@@ -265,54 +338,93 @@ export async function runCopy(
     }
   };
 
-  const finish = async (r: PlanRow, resourceId: string | undefined) => {
-    if (!resourceId) return await fail(r, "copy completed without an item id");
-    const item = await g.getItem(resourceId);
-    const hash = item.file?.hashes?.quickXorHash ?? null;
-    const hashOk = r.quickxor_hash ? hash === r.quickxor_hash : true; // no source hash: size only (logged)
-    if (!item.file || item.size !== r.size || !hashOk) {
-      return await fail(r, "verify mismatch: size or quickXorHash differs from the source", resourceId);
+  // Verify the copied item against the source. Throws only for throttling or the write guard (row kept 'copying'
+  // with the item id, so the next run verifies it).
+  const verify = async (r: PlanRow, destId: string) => {
+    let item: DriveItem;
+    try {
+      item = await g.getItem(destId);
+    } catch (e) {
+      if (isThrottle(e) || e instanceof WriteGuardError) {
+        await db.update(r.source_item_id, { status: "copying", monitor_url: r.monitor_url, dest_item_id: destId });
+        throw e;
+      }
+      return isPermanent(e) ? await review(r, `copied item unreadable: ${errText(e)}`, destId) : await defer(r, errText(e), destId);
     }
-    await db.update(r.source_item_id, { status: "verified", dest_item_id: resourceId, monitor_url: null, error: null });
+    const hash = item.file?.hashes?.quickXorHash ?? null;
+    // With a source hash the destination must carry the same hash; without one, size only (hash_checked = false).
+    const hashChecked = !!r.quickxor_hash;
+    const hashOk = hashChecked ? hash === r.quickxor_hash : true;
+    if (!item.file || item.size !== r.size || !hashOk) {
+      return await fail(r, "verify mismatch: size or quickXorHash differs from the source", destId);
+    }
+    await db.update(r.source_item_id, { status: "verified", dest_item_id: destId, monitor_url: null, error: null, hash_checked: hashChecked });
     await db.log({
       action: "copy",
       source_item_id: r.source_item_id,
-      dest_item_id: resourceId,
+      dest_item_id: destId,
       result: "verified",
-      detail: { size: r.size, hash_checked: !!r.quickxor_hash },
+      detail: { size: r.size, hash_checked: hashChecked },
     });
+    tried.add(r.source_item_id);
     out.verified++;
     await recordClientFolder(r);
   };
 
+  // One running copy: poll its monitor, or verify directly when the new item's id is already recorded.
+  // Returns true while the copy is still running.
+  const check = async (r: PlanRow): Promise<boolean> => {
+    try {
+      if (r.dest_item_id) {
+        await verify(r, r.dest_item_id);
+        return false;
+      }
+      const st = await g.pollCopy(r.monitor_url!);
+      if (st.status === "inProgress") return true;
+      if (st.status === "failed") {
+        await fail(r, `copy failed: ${errText(st.error ?? "unknown")}`);
+        return false;
+      }
+      if (!st.resourceId) {
+        await review(r, "copy completed without an item id");
+        return false;
+      }
+      await verify(r, st.resourceId);
+      return false;
+    } catch (e) {
+      if (isThrottle(e) || e instanceof WriteGuardError) {
+        out.stopped = stopReason(e);
+        return false; // row stays 'copying' in the database for the next run
+      }
+      if (isPermanent(e)) await review(r, `copy monitor unreadable: ${errText(e)}`);
+      else await defer(r, errText(e));
+      return false;
+    }
+  };
+
+  // Stop when someone changed the stage (pause, rollback) during the run.
+  const stageStillCopying = async (): Promise<boolean> => {
+    const st = (await db.getSettings()).stage;
+    if (st !== "approved" && st !== "copying") out.stopped = `stage changed to ${st}`;
+    return !out.stopped;
+  };
+
   // Copies left running by earlier runs.
   for (const r of await db.claim("copying", 50)) {
-    if (r.monitor_url) inFlight.push(r);
+    if (r.monitor_url || r.dest_item_id) inFlight.push(r);
     else await fail(r, "copy start was not recorded (run interrupted); the destination may hold an extra copy");
   }
 
+  let stageCopying = false;
   while (!out.stopped && now() < deadline) {
     // 1. Poll running copies.
     const still: PlanRow[] = [];
     for (const r of inFlight) {
-      if (out.stopped || now() >= deadline) {
-        still.push(r);
-        continue;
-      }
-      try {
-        const st = await g.pollCopy(r.monitor_url!);
-        if (st.status === "inProgress") still.push(r);
-        else if (st.status === "completed") await finish(r, st.resourceId);
-        else await fail(r, `copy failed: ${errText(st.error ?? "unknown")}`);
-      } catch (e) {
-        if (isThrottle(e) || e instanceof WriteGuardError) {
-          out.stopped = stopReason(e);
-          still.push(r);
-        } else await fail(r, errText(e));
-      }
+      if (out.stopped || now() >= deadline) still.push(r);
+      else if (await check(r)) still.push(r);
     }
     inFlight = still;
-    if (out.stopped || now() >= deadline) break;
+    if (out.stopped || now() >= deadline || !(await stageStillCopying())) break;
 
     // 2. Start new copies up to the in-flight limit.
     const fresh = await db.claim("approved", maxInFlight);
@@ -328,12 +440,12 @@ export async function runCopy(
         if (cut <= 0) throw new Error("target path has no folder");
         const parentId = await g.ensureFolder(r.target_path.slice(0, cut));
         const monitor = await g.startCopy(r.source_item_id, parentId, r.target_path.slice(cut + 1));
-        await db.update(r.source_item_id, { status: "copying", monitor_url: monitor });
-        inFlight.push({ ...r, status: "copying", monitor_url: monitor });
+        await db.update(r.source_item_id, { status: "copying", monitor_url: monitor, dest_item_id: null });
+        inFlight.push({ ...r, status: "copying", monitor_url: monitor, dest_item_id: null });
         out.started++;
         startedNow++;
         if (!stageCopying) {
-          await db.saveSettings({ stage: "copying" });
+          await db.setStage("copying", ["approved"]);
           stageCopying = true;
         }
       } catch (e) {
@@ -349,7 +461,7 @@ export async function runCopy(
   }
 
   if (inFlight.length === 0 && (!out.stopped || out.stopped === "deadline") && (await db.openCount()) === 0) {
-    await db.saveSettings({ stage: "done" });
+    await db.setStage("done", ["approved", "copying"]);
   }
   return out;
 }
@@ -416,7 +528,7 @@ export async function runRollback(
       }
     }
   }
-  if (out.finished) await db.saveSettings({ stage: "paused" });
+  if (out.finished) await db.setStage("paused", ["rollback"]);
   return out;
 }
 

@@ -14,6 +14,7 @@ import {
   runRollback,
   type Settings,
   type SourceRow,
+  type Stage,
 } from "./stages.ts";
 import { handle } from "./handler.ts";
 
@@ -37,13 +38,20 @@ class FakeDb implements Db {
   clientFolders: ClientFolderRow[] = [];
   buildPlanCalls = 0;
   deleted: string[] = [];
+  onBuildPlan?: () => void;
 
   getSettings() {
     return Promise.resolve({ ...this.settings });
   }
   saveSettings(p: Partial<Settings>) {
+    if ("stage" in p) throw new Error("stages must change the stage through setStage");
     this.settings = { ...this.settings, ...p };
     return Promise.resolve();
+  }
+  setStage(to: Stage, from: Stage[]) {
+    if (!from.includes(this.settings.stage as Stage)) return Promise.resolve(false);
+    this.settings.stage = to;
+    return Promise.resolve(true);
   }
   upsertSourceItems(rows: SourceRow[]) {
     for (const r of rows) this.source.set(r.item_id, r);
@@ -56,6 +64,7 @@ class FakeDb implements Db {
   }
   buildPlan() {
     this.buildPlanCalls++;
+    this.onBuildPlan?.();
     return Promise.resolve({ files: [...this.source.values()].filter((s) => !s.is_folder).length });
   }
   claim(status: "approved" | "copying", limit: number) {
@@ -133,6 +142,9 @@ class FakeGraph implements GraphApi {
   startCopyError?: Error;
   recycled: string[] = [];
   copyNames = new Map<string, string>();
+  pollError?: Error;
+  getItemErrors = new Map<string, Error>();
+  onGetItem?: (id: string) => void;
 
   async *delta(itemId: string, deltaLink?: string) {
     this.calls.push(`delta ${itemId} ${deltaLink ?? "-"}`);
@@ -147,6 +159,9 @@ class FakeGraph implements GraphApi {
   }
   getItem(id: string) {
     this.calls.push(`getItem ${id}`);
+    this.onGetItem?.(id);
+    const err = this.getItemErrors.get(id);
+    if (err) return Promise.reject(err);
     const it = this.items.get(id);
     if (!it) return Promise.reject(new GraphError(404, "itemNotFound"));
     return Promise.resolve(structuredClone(it));
@@ -167,6 +182,7 @@ class FakeGraph implements GraphApi {
   }
   pollCopy(monitorUrl: string) {
     this.calls.push(`pollCopy ${monitorUrl}`);
+    if (this.pollError) return Promise.reject(this.pollError);
     return Promise.resolve(this.monitors.get(monitorUrl) ?? { status: "inProgress" as const });
   }
   recycle(itemId: string) {
@@ -276,6 +292,7 @@ Deno.test("copy: approved -> copying with monitor; next run completed with match
   assertEquals(r2.verified, 1);
   assertEquals(db.plan.get("s1")!.status, "verified");
   assertEquals(db.plan.get("s1")!.dest_item_id, "D1");
+  assertEquals(db.plan.get("s1")!.hash_checked, true);
   const copyOps = db.ops.filter((o) => o.action === "copy" && o.result === "verified");
   assertEquals(copyOps.length, 1);
   assertEquals(copyOps[0].dest_item_id, "D1");
@@ -538,4 +555,192 @@ Deno.test("handler: rollback reads its scope from settings.rollback_scope", asyn
   assertEquals(res.status, 200);
   assertEquals((await res.json()).recycled, 1);
   assertEquals(g.recycled, ["D1"]);
+});
+
+// ---------- fix round 1 ----------
+const startCopies = (g: FakeGraph) => g.calls.filter((x) => x.startsWith("startCopy")).length;
+
+Deno.test("copy: source without a hash -> verified by size only, hash_checked = false", async () => {
+  const db = new FakeDb();
+  db.settings.stage = "copying";
+  db.plan.set("s1", planRow("s1", { status: "copying", monitor_url: "https://monitor.example.invalid/s1", quickxor_hash: null }));
+  const g = new FakeGraph();
+  g.complete("s1", "D1", 100, undefined);
+  const c = clock();
+  const r = await runCopy(g, db, c.now() + 10_000, 4, c);
+  assertEquals(r.verified, 1);
+  assertEquals(db.plan.get("s1")!.status, "verified");
+  assertEquals(db.plan.get("s1")!.hash_checked, false);
+  assertEquals(db.ops.find((o) => o.result === "verified")?.detail?.hash_checked, false);
+});
+
+Deno.test("copy: source has a hash but the destination has none -> not verified", async () => {
+  const db = new FakeDb();
+  db.settings.stage = "copying";
+  db.plan.set("s1", planRow("s1", { status: "copying", monitor_url: "https://monitor.example.invalid/s1" }));
+  const g = new FakeGraph();
+  g.complete("s1", "D1", 100, undefined);
+  const c = clock();
+  const r = await runCopy(g, db, c.now() + 1, 4, c);
+  assertEquals(r.verified, 0);
+  assert(db.plan.get("s1")!.status !== "verified");
+  assertEquals(db.plan.get("s1")!.attempts, 1);
+});
+
+Deno.test("copy: a transient pollCopy error keeps the row copying with its monitor; no second copy", async () => {
+  const db = new FakeDb();
+  db.settings.stage = "copying";
+  db.plan.set("s1", planRow("s1", { status: "copying", monitor_url: "https://monitor.example.invalid/s1" }));
+  const g = new FakeGraph();
+  g.pollError = new GraphError(502, "");
+  const c = clock();
+  const r1 = await runCopy(g, db, c.now() + 10_000, 4, c);
+  assertEquals(r1.deferred, 1);
+  let row = db.plan.get("s1")!;
+  assertEquals(row.status, "copying");
+  assertEquals(row.monitor_url, "https://monitor.example.invalid/s1");
+  assertEquals(row.attempts, 0);
+  assertEquals(startCopies(g), 0);
+  assertEquals(db.settings.stage, "copying", "not done while a copy is unresolved");
+  // Next run: the monitor answers.
+  g.pollError = undefined;
+  g.complete("s1", "D1", 100, "H-s1");
+  await runCopy(g, db, c.now() + 10_000, 4, c);
+  row = db.plan.get("s1")!;
+  assertEquals(row.status, "verified");
+  assertEquals(row.attempts, 0);
+  assertEquals(startCopies(g), 0);
+});
+
+Deno.test("copy: a transient getItem error after completion stores the item id; next run verifies it", async () => {
+  const db = new FakeDb();
+  db.settings.stage = "copying";
+  db.plan.set("s1", planRow("s1", { status: "copying", monitor_url: "https://monitor.example.invalid/s1" }));
+  const g = new FakeGraph();
+  g.complete("s1", "D1", 100, "H-s1");
+  g.getItemErrors.set("D1", new GraphError(500, "generalException"));
+  const c = clock();
+  await runCopy(g, db, c.now() + 10_000, 4, c);
+  let row = db.plan.get("s1")!;
+  assertEquals(row.status, "copying");
+  assertEquals(row.dest_item_id, "D1");
+  assertEquals(row.monitor_url, "https://monitor.example.invalid/s1");
+  assertEquals(row.attempts, 0);
+  assertEquals(startCopies(g), 0);
+  // Next run: verified straight from the stored id, without polling again.
+  g.getItemErrors.clear();
+  const pollsBefore = g.calls.filter((x) => x.startsWith("pollCopy")).length;
+  await runCopy(g, db, c.now() + 10_000, 4, c);
+  row = db.plan.get("s1")!;
+  assertEquals(row.status, "verified");
+  assertEquals(row.dest_item_id, "D1");
+  assertEquals(g.calls.filter((x) => x.startsWith("pollCopy")).length, pollsBefore);
+  assertEquals(startCopies(g), 0);
+});
+
+Deno.test("copy: a lost monitor (404) -> failed for review, never a second copy", async () => {
+  const db = new FakeDb();
+  db.settings.stage = "copying";
+  db.plan.set("s1", planRow("s1", { status: "copying", monitor_url: "https://monitor.example.invalid/s1" }));
+  const g = new FakeGraph();
+  g.pollError = new GraphError(404, "itemNotFound");
+  const c = clock();
+  await runCopy(g, db, c.now() + 10_000, 4, c);
+  const row = db.plan.get("s1")!;
+  assertEquals(row.status, "failed");
+  assert(row.error?.includes("check the destination"));
+  assertEquals(startCopies(g), 0);
+  assert(db.ops.some((o) => o.result === "needs_review"));
+});
+
+Deno.test("inventory: a child on page 1 before its parent folder on page 2 is stored with the right parent_path", async () => {
+  const db = new FakeDb();
+  db.settings.stage = "inventory";
+  const g = new FakeGraph();
+  const SRCP = "/drives/DRV/root:/Old Testdrive";
+  g.items.set("SRC", { id: "SRC", name: "Old Testdrive", folder: {}, parentReference: { path: "/drives/DRV/root:" } });
+  g.pages = {
+    start: {
+      nextLink: "https://graph.microsoft.com/v1.0/p2",
+      items: [{ id: "c1", name: "child.pdf", size: 3, file: { hashes: { quickXorHash: "hc" } }, parentReference: { id: "B" } }],
+    },
+    "https://graph.microsoft.com/v1.0/p2": {
+      deltaLink: "https://graph.microsoft.com/v1.0/final",
+      items: [{ id: "B", name: "Desktop", folder: {}, parentReference: { path: SRCP, id: "SRC" } }],
+    },
+  };
+  const r = await runInventory(g, db, Date.now() + 60_000);
+  assertEquals(db.source.get("c1")?.parent_path, "Desktop");
+  assertEquals(r.unresolved, 0);
+  assertEquals(r.skipped, 0);
+  assertEquals(r.items, 2);
+});
+
+Deno.test("inventory: an item whose parent never appears is resolved by getItem, else logged as unresolved", async () => {
+  const db = new FakeDb();
+  db.settings.stage = "inventory";
+  const g = new FakeGraph();
+  const SRCP = "/drives/DRV/root:/Old Testdrive";
+  g.items.set("SRC", { id: "SRC", name: "Old Testdrive", folder: {}, parentReference: { path: "/drives/DRV/root:" } });
+  g.items.set("k1", { id: "k1", name: "found.pdf", parentReference: { path: SRCP + "/Pictures/Trip" } });
+  g.pages = {
+    start: {
+      deltaLink: "https://graph.microsoft.com/v1.0/final",
+      items: [
+        { id: "k1", name: "found.pdf", size: 1, file: {}, parentReference: { id: "NOPE1" } },
+        { id: "k2", name: "lost.pdf", size: 1, file: {}, parentReference: { id: "NOPE2" } },
+      ],
+    },
+  };
+  const r = await runInventory(g, db, Date.now() + 60_000);
+  assertEquals(db.source.get("k1")?.parent_path, "Pictures/Trip");
+  assertEquals(db.source.has("k2"), false);
+  assertEquals(r.unresolved, 1);
+  assertEquals(r.skipped, 0);
+  assert(db.ops.some((o) => o.action === "inventory_unresolved" && o.source_item_id === "k2"));
+});
+
+Deno.test("a pause set mid-run survives: copy, inventory and rollback never overwrite it", async () => {
+  // copy: paused while verifying
+  const db = new FakeDb();
+  db.settings.stage = "copying";
+  db.plan.set("s1", planRow("s1", { status: "copying", monitor_url: "https://monitor.example.invalid/s1" }));
+  const g = new FakeGraph();
+  g.complete("s1", "D1", 100, "H-s1");
+  g.onGetItem = () => void (db.settings.stage = "paused");
+  const c = clock();
+  const r = await runCopy(g, db, c.now() + 10_000, 4, c);
+  assertEquals(db.plan.get("s1")!.status, "verified");
+  assertEquals(db.settings.stage, "paused");
+  assert(r.stopped?.includes("paused"));
+
+  // copy: a paused job starts nothing
+  const dbp = new FakeDb();
+  dbp.settings.stage = "paused";
+  dbp.plan.set("s2", planRow("s2"));
+  const gp = new FakeGraph();
+  await runCopy(gp, dbp, c.now() + 10_000, 4, c);
+  assertEquals(startCopies(gp), 0);
+  assertEquals(dbp.settings.stage, "paused");
+
+  // inventory: paused while the plan is built
+  const dbi = new FakeDb();
+  dbi.settings.stage = "inventory";
+  dbi.onBuildPlan = () => void (dbi.settings.stage = "paused");
+  const gi = new FakeGraph();
+  gi.items.set("SRC", { id: "SRC", name: "Old Testdrive", folder: {}, parentReference: { path: "/drives/DRV/root:" } });
+  gi.pages = { start: { deltaLink: "https://graph.microsoft.com/v1.0/final", items: [] } };
+  const ri = await runInventory(gi, dbi, Date.now() + 60_000);
+  assertEquals(dbi.settings.stage, "paused");
+  assert(ri.stage_changed);
+
+  // rollback: stage changed while recycling
+  const dbr = new FakeDb();
+  dbr.settings.stage = "rollback";
+  dbr.plan.set("s1", planRow("s1", { status: "verified", dest_item_id: "D1" }));
+  const gr = new FakeGraph();
+  gr.items.set("D1", { id: "D1", name: "s1.pdf", size: 100, file: { hashes: { quickXorHash: "H-s1" } } });
+  gr.onGetItem = () => void (dbr.settings.stage = "idle");
+  await runRollback(gr, dbr, Date.now() + 60_000, { all: true });
+  assertEquals(dbr.settings.stage, "idle");
 });

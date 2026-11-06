@@ -101,6 +101,13 @@ select pg_temp.check('rollback skips rows without a destination id and rows not 
 select pg_temp.check('rollback pages after the cursor', (select array_agg(source_item_id order by source_item_id) = array['rb-2', 'rb-3']
   from od_copy.rollback_candidates(null, null, 'rb-1', 50) where source_item_id like 'rb-%'));
 
+-- hash_checked: size-only verification is flagged and counted in the report.
+select pg_temp.check('plan.hash_checked boolean', exists (select 1 from information_schema.columns
+  where table_schema = 'od_copy' and table_name = 'plan' and column_name = 'hash_checked' and data_type = 'boolean'));
+update od_copy.plan set hash_checked = false where source_item_id = 'rb-1';
+update od_copy.plan set hash_checked = true where source_item_id = 'rb-2';
+select pg_temp.check('report counts size-only verified copies', (select sum(verified_size_only) = 1 from od_copy.report));
+
 -- Grants: service_role only.
 select pg_temp.check('claim: service_role may execute', has_function_privilege('service_role', 'od_copy.claim(text,int,int)', 'execute'));
 select pg_temp.check('claim: authenticated may not', not has_function_privilege('authenticated', 'od_copy.claim(text,int,int)', 'execute'));
