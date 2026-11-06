@@ -1,6 +1,6 @@
 # Messenger Module
 
-The CRM's docked chat **panel** and the Teams panel on client and lead records: start a Microsoft Teams chat from the CRM. The Microsoft connection screens are in Settings > Integrations.
+The CRM's docked chat **panel** and the Messenger panel on client and lead records: start or reopen a CRM Messenger group about the record. The Microsoft connection screens are in Settings > Integrations.
 Data lives in `Database Module/Messanger Base` (`crm_communication_links`). Design and plan: `docs/`.
 
 The docked panel (`MessengerDock`, `DockSections`) shows the full page's own sections, one column at a time: Chats, Activity, Teams, Calls, Files and Inbox. The two share the same components and data.
@@ -13,7 +13,7 @@ The full page (`MessengerApp`, view `team-messenger`) has Chats, Activity and Fi
 
 | Folder | Holds |
 |---|---|
-| `components/` | `MessengerDock`, `ChatRail` and the chat screens, `ChatStarter` (staff picker and open button), `TeamsPanel` (record panel), `MicrosoftConnection` (admin: connection, people review, test, secret expiry; shown under the microsoft row in Settings > Integrations), `SyncLogs` (admin log, shown below it) |
+| `components/` | `MessengerDock`, `ChatRail` and the chat screens, `RecordChatPanel` (record panel: picks staff, then creates or reopens a Messenger group for the record and opens it in the dock), `MicrosoftConnection` (admin: connection, people review, test, secret expiry; shown under the microsoft row in Settings > Integrations), `SyncLogs` (admin log, shown below it) |
 | `logic/` | Pure rules: Teams deep link and message text, staff list, sentences for the Microsoft return and secret expiry |
 | `services/messengerApi.js` | The only file that talks to Supabase and the `ms365` function |
 | `supabase/ms365/` | The Edge Function: Microsoft sign-in, token storage in Vault, Graph client |
@@ -23,7 +23,7 @@ The full page (`MessengerApp`, view `team-messenger`) has Chats, Activity and Fi
 
 ## Rules the screens follow
 
-- The Teams message holds only the record reference: client ID and legal name, lead number, or task title. No KYC data.
+- A record group is named after the record (for example `Lead LD-2026-000005 · Al Noor Trading`) and starts with the record reference. No KYC data. The same record with the same people reopens the same group: `crm_communication_links` keeps `messenger:<conversation id>:<member ids>` as the reference.
 - The chat window opens straight from the click. If the browser blocks it, a visible link is shown.
 - No tokens or secrets reach the browser. Message-reading scopes are never requested.
 - Only admins open Settings > Integrations, so the Microsoft screens are admin-facing.

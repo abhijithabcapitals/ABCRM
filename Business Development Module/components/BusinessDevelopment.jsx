@@ -26,7 +26,7 @@ import { CONVERTED_STAGE, DEPARTMENTS, QUOTE_STAGE, departmentForService, depart
 import BdAgentPanel from "./BdAgentPanel";
 import BdCalendarView from "./BdCalendarView";
 import LeadGenerationView, { prospectLeadValues, prospectSourceName } from "./LeadGenerationView";
-import TeamsPanel from "@messenger/components/TeamsPanel";
+import RecordChatPanel from "@messenger/components/RecordChatPanel";
 import "./BusinessDevelopment.css";
 
 const CONVERTED_PAGE = "Converted & Transfers";
@@ -1128,7 +1128,7 @@ function LeadWorkspace({ lead, profiles, currentUserId, isManager, onBack, onAct
         </main>
         <aside className="bd-panel bd-detail-side"><div className="bd-panel-heading"><div><h3>Activity timeline</h3><p>Most recent discussions</p></div></div><Timeline activities={history.slice(0, 5)} compact /><button className="bd-text-button bd-full-button" onClick={() => setTab("Discussion History")}>View full discussion history →</button><div className="bd-side-divider" /><div className="bd-panel-heading"><div><h3>Next actions</h3><p>Scheduled follow-ups</p></div></div>{followups.slice(0, 3).map((item) => <div className="bd-side-followup" key={item.id}><b>{item.objective || "Follow-up"}</b><span>{when(item.planned_at)}</span><small>{item.status}</small></div>)}{followups.length === 0 && <div className="bd-muted-empty">No follow-up records yet.</div>}{lead.status === "active" && <button className="bd-button bd-button-secondary bd-full-button" onClick={onFollowup}>＋ Add follow-up</button>}</aside>
       </div>
-      <TeamsPanel recordType="lead" recordId={lead.id} displayId={lead.lead_id} currentUserId={currentUserId} />
+      <RecordChatPanel recordType="lead" recordId={lead.id} displayId={lead.lead_id} label={lead.name} currentUserId={currentUserId} />
       {modal === "activity" && <ActivityForm lead={lead} currentUserId={currentUserId} busy={busy} onClose={onCloseModal} onSubmit={onSubmitActivity} />}
       {modal === "followup" && <FollowupForm lead={lead} currentUserId={currentUserId} busy={busy} onClose={onCloseModal} onSubmit={onSubmitFollowup} />}
       {modal === "service" && <ServiceForm lead={lead} service={selectedService} busy={busy} onClose={onCloseModal} onSubmit={onSubmitService} />}
