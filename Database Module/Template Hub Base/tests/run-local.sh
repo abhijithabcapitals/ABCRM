@@ -32,7 +32,7 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
 BS=(); for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14; do BS+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 AFTER=("$DB/ArdentTax Base/migrations/001_ardentax.sql" "$DB/Template Hub Base/migrations/003_brand_name.sql" "$DB/../Template Module/database/01_quotation_maker.sql" "$DB/../Template Module/database/02_quotation_templates_access.sql" "$DB/Template Hub Base/migrations/004_hub_admin.sql")
-MINE=("$HERE/../migrations/005_library_fill.sql" "$HERE/../migrations/006_library_letter.sql" "$HERE/../migrations/007_work_types.sql" "$HERE/../migrations/008_accounting_proposals.sql")
+MINE=("$HERE/../migrations/005_library_fill.sql" "$HERE/../migrations/006_library_letter.sql" "$HERE/../migrations/007_work_types.sql" "$HERE/../migrations/008_accounting_proposals.sql" "$HERE/../migrations/009_accounting_send_from.sql")
 
 run_sql() { "${PSQL[@]}" -f "$1" >/dev/null 2>"$DATA/err" || { echo "FAILED: $1"; cat "$DATA/err"; exit 1; }; }
 for f in "${BASE[@]}"; do run_sql "$f"; done
@@ -57,6 +57,10 @@ for t in "$HERE"/[01][0-9]0_*; do
   esac
 done
 
+# 009 undone before 008: it only drops the sent-from column, and applies again with the other migrations at the end.
+"${PSQL[@]}" -f "$HERE/../rollback/009_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL send-from rollback: $(cat "$DATA/err")"; RC=1; }
+LEFT9="$("${PSQL[@]}" -At -c "select count(*) from information_schema.columns where table_name = 'hub_documents' and column_name = 'mail_sent_from'")"
+if [ "$LEFT9" = "0" ]; then echo "ok   send-from rollback leaves nothing behind"; else echo "FAIL send-from rollback left the column"; RC=1; fi
 # 008 undone first: it refuses while Accounting proposals exist unless forced, removes everything it added, and leaves quotes made the old way.
 OLDQ_BEFORE="$("${PSQL[@]}" -At -c "select count(*) from hub_documents where department = 'Accounting' and library_template is null")"
 "${PSQL[@]}" -f "$HERE/../rollback/008_rollback.sql" >/dev/null 2>&1 && { echo "FAIL accounting proposals rollback ran with proposals present"; RC=1; } || echo "ok   accounting proposals rollback refuses while proposals exist"

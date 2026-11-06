@@ -372,3 +372,7 @@ select at_check('an administrator is not blocked by the update and delete polici
 select at_as(:'hubmgr');
 select at_check('a Hub-admin manager who is not an approver does not read it', (select count(*) = 0 from storage.objects where name like 'accounting-signature/%'));
 select at_as(null);
+
+-- 009: the mailbox a mail was sent from is a plain text column on the document.
+select at_as(null);
+select at_check('009 adds mail_sent_from as text', (select count(*) = 1 from information_schema.columns where table_schema = 'public' and table_name = 'hub_documents' and column_name = 'mail_sent_from' and data_type = 'text'));

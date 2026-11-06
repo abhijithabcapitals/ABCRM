@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FilePick, Modal, Panel, fmtDate, fmtDateTime, today, useLoad } from "@banking/components/shared";
 import { openStored } from "../services/hubApi";
-import { acceptOption, canApprove as canApproveApi, listAccountingDocuments, openWord, recordSigned, sendDoc, updateAccountingMail } from "../services/accountingApi";
+import { acceptOption, canApprove as canApproveApi, listAccountingDocuments, loadSendOptions, openWord, recordSigned, sendDoc, updateAccountingMail } from "../services/accountingApi";
 import { accountingDeps, generateGuard } from "../services/accountingDeps";
 import { approveAgreement, editAgreement, generateAgreement, retryDocument, saveToOneDrive } from "../services/accountingGenerate";
 import { BASES, isAccountingAgreement, isAccountingQuote, registerLabel, totalsByBasis } from "../logic/accountingQuote";
 import { agreementFromQuote } from "../logic/accountingAgreement";
+import { fromOptions, initialChoice, pdfName, pickFrom, pickSignature, sendOptions, sendProblem } from "../logic/accountingSend";
 import { agreementUnder, docActions, docStatus, rejectedAgreementNote } from "../logic/accountingUi";
 import AccountingAgreementForm from "./AccountingAgreementForm";
 
@@ -65,6 +66,53 @@ function RecordSigned({ doc, onSubmit, onClose }) {
         <div className="bk-field bk-mb"><label htmlFor="sg-date">Date the client signed</label><input id="sg-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
         <div className="bk-field"><label>Countersigned file</label><FilePick label={file ? file.name : "Choose file"} onFile={setFile} accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" /></div>
         <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy}>Save signed copy</Button></div>
+      </form>
+    </Modal>
+  );
+}
+
+// Who the mail comes from and which signature it carries, then the recipient and file for a last look.
+function SendMail({ doc, resend, onSubmit, onClose }) {
+  const [opts, setOpts] = useState(null);
+  const [choice, setChoice] = useState({ from: "info@abcapital.ae", signatureId: "" });
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    loadSendOptions().then((o) => {
+      if (!live) return;
+      const froms = fromOptions(o.owned);
+      setOpts({ froms, signatures: o.signatures }); setChoice(initialChoice(o.signatures, froms));
+    }).catch((e) => live && setError(e.message));
+    return () => { live = false; };
+  }, []);
+  const problem = opts ? sendProblem(choice, opts.signatures, opts.froms) : null;
+  const sig = opts?.signatures.find((s) => s.id === choice.signatureId);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!opts || problem) return;
+    setBusy(true); setError(null);
+    const failed = await onSubmit(sendOptions(choice));
+    if (failed) { setError(failed); setBusy(false); }
+  };
+  return (
+    <Modal title={`${resend ? "Send again" : "Send"} ${doc.document_number}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <ErrorNote message={error || problem} />
+        <div className="bk-field bk-mb"><label htmlFor="sm-from">From</label>
+          <select id="sm-from" value={choice.from} disabled={!opts} onChange={(e) => setChoice(pickFrom(choice, opts.signatures, e.target.value))}>
+            {(opts?.froms || [{ address: choice.from, label: choice.from }]).map((f) => <option key={f.address} value={f.address}>{f.label}</option>)}
+          </select></div>
+        <div className="bk-field bk-mb"><label htmlFor="sm-sig">Signature</label>
+          <select id="sm-sig" value={choice.signatureId} disabled={!opts} onChange={(e) => setChoice(pickSignature(choice, opts.signatures, opts.froms, e.target.value))}>
+            <option value="">No signature</option>
+            {(opts?.signatures || []).map((s) => <option key={s.id} value={s.id}>{s.label || s.name}</option>)}
+          </select>
+          {sig?.logo_url && <small className="bk-muted">Its logo is added below the text.</small>}</div>
+        <div className="bk-field bk-mb"><label>To</label><div>{doc.contact_email}</div></div>
+        <div className="bk-field"><label>Attachment</label><div>{pdfName(doc)}</div></div>
+        {resend && <p className="bk-muted">This was already sent{doc.mail_sent_to ? ` to ${doc.mail_sent_to}` : ""}. Sending again mails it a second time.</p>}
+        <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy} disabled={!opts || !!problem}>{resend ? "Send again" : "Send"}</Button></div>
       </form>
     </Modal>
   );
@@ -149,13 +197,20 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
   const openMail = (d) => { const m = mailOf(d); if (m) setMail({ id: m.id, subject: m.mail_subject || "", body: m.mail_body || "", docId: d.id }); };
   const mailDoc = mail ? all.find((d) => d.id === mail.docId) : null;
   const saveDraft = () => run("mail-save", async () => { await updateAccountingMail(mail.id, mail.subject, mail.body); setNote({ ok: true, text: "Mail changes saved." }); });
-  // The recipient is the document's contact email; it is shown and confirmed before anything is sent.
+  // The recipient is the document's contact email; the Send dialog shows it with the From mailbox and signature before anything is sent.
   const send = (d) => {
-    const resend = !!d.mail_sent_at;
-    const to = d.contact_email;
-    if (!to) { setError("This document has no contact email."); return; }
-    if (!window.confirm(`${resend ? "Send again: " : ""}Send the PDF of ${d.document_number} to ${to}?`)) return;
-    run("send", async () => { await updateAccountingMail(mail.id, mail.subject, mail.body); await sendDoc(d.id, resend); setNote({ ok: true, text: `${d.document_number} sent to ${to}.` }); });
+    if (!d.contact_email) { setError("This document has no contact email."); return; }
+    setDialog({ kind: "send", doc: d, resend: !!d.mail_sent_at });
+  };
+  const submitSend = async (options) => {
+    if (busy) return "Wait for the current action to finish.";
+    const d = dialog.doc, to = d.contact_email;
+    setBusy("send"); setError(null); setNote(null);
+    try { await updateAccountingMail(mail.id, mail.subject, mail.body); await sendDoc(d.id, dialog.resend, options); }
+    catch (e) { setBusy(null); return e.message; }
+    try { await docs.reload(); } catch { /* shown by the list */ }
+    setBusy(null); setDialog(null); setNote({ ok: true, text: `${d.document_number} sent to ${to}.` });
+    return null;
   };
 
   const actionsCell = (d) => {
@@ -224,6 +279,7 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
       {dialog?.kind === "accept" && <AcceptOption doc={dialog.doc} onSubmit={submitAccept} onClose={() => setDialog(null)} />}
       {dialog?.kind === "agreement" && <AccountingAgreementForm title={`Agreement for ${dialog.doc.document_number}`} initial={dialog.initial} onSubmit={submitAgreement} onClose={() => setDialog(null)} />}
       {dialog?.kind === "edit" && <AccountingAgreementForm title={`Edit agreement ${dialog.doc.document_number}`} initial={dialog.initial} approved={!!dialog.doc.approved_at} onSubmit={submitEdit} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "send" && <SendMail doc={dialog.doc} resend={dialog.resend} onSubmit={submitSend} onClose={() => setDialog(null)} />}
       {dialog?.kind === "signed" && <RecordSigned doc={dialog.doc} onSubmit={submitSigned} onClose={() => setDialog(null)} />}
     </>
   );

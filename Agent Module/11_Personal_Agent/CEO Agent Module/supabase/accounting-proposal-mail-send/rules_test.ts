@@ -55,3 +55,33 @@ Deno.test("the claim must still match the PDF that was read, and an agreement mu
   assertEquals(claimRule(now, { resend: false }, quote), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: PDF, requireApproved: false });
   assertEquals(claimRule(now, { resend: true }, agreement), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: PDF, requireApproved: true });
 });
+
+// ---- From mailbox and signature ----
+import { chooseSender, composeText, DEFAULT_SENDER, DEFAULT_SENDER_NAME, senderName, signatureFits, signatureHtml } from "./rules.ts";
+
+Deno.test("no from means info@abcapital.ae", () => assertEquals(chooseSender({ from: undefined, owned: false }), { address: DEFAULT_SENDER, needsOwnership: false }));
+Deno.test("info@ is allowed without ownership, in any case", () => assertEquals(chooseSender({ from: " Info@ABCapital.ae ", owned: false }), { address: DEFAULT_SENDER, needsOwnership: false }));
+Deno.test("an unowned mailbox is refused with the 403 text", () => {
+  const r = chooseSender({ from: "ceo@abcapital.ae", owned: false });
+  assertEquals(r, { error: "You can only send from info@abcapital.ae or a mailbox you own.", status: 403 });
+});
+Deno.test("an owned mailbox is allowed", () => assertEquals(chooseSender({ from: "ceo@abcapital.ae", owned: true }), { address: "ceo@abcapital.ae", needsOwnership: true }));
+Deno.test("a non-address from is refused", () => assertEquals((chooseSender({ from: "x\r\nBcc: a@b.c", owned: true }) as { status: number }).status, 400));
+
+Deno.test("a signature with no mailbox fits any sender", () => assert(signatureFits({ sender_mailbox_address: null }, "info@abcapital.ae")));
+Deno.test("a signature tied to the sender fits, ignoring case", () => assert(signatureFits({ sender_mailbox_address: "CEO@abcapital.ae" }, "ceo@abcapital.ae")));
+Deno.test("a signature tied to another mailbox is refused", () => assert(!signatureFits({ sender_mailbox_address: "ceo@abcapital.ae" }, "info@abcapital.ae")));
+
+Deno.test("signature text follows the body after one blank line", () => assertEquals(composeText("Hello\n\n", { body_text: "  Regards\nAB  " }), "Hello\n\nRegards\nAB"));
+Deno.test("no signature leaves the body as it is", () => assertEquals(composeText("Hello", null), "Hello"));
+Deno.test("signature HTML text is escaped", () => assert(!signatureHtml({ body_text: "<script>x</script> & co", logo_url: null }).includes("<script>")));
+Deno.test("the logo is optional and escaped", () => {
+  assertEquals(signatureHtml({ body_text: "x", logo_url: null }).includes("<img"), false);
+  const h = signatureHtml({ body_text: "x", logo_url: 'https://e.example/l.png"onerror="a' });
+  assert(h.includes("<img") && !h.includes('"onerror'));
+});
+Deno.test("sender name is the display name, else the company", () => {
+  assertEquals(senderName({ display_name: "Info Desk" }), "Info Desk");
+  assertEquals(senderName({ display_name: " " }), DEFAULT_SENDER_NAME);
+  assertEquals(senderName(null), DEFAULT_SENDER_NAME);
+});

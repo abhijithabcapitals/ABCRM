@@ -1,19 +1,19 @@
 // accounting-proposal-mail-send: mails one Accounting quote or approved agreement, with only its PDF attached.
-//   POST { document_id, resend? }  ->  { ok: true, sent_at, warnings } or { error }
+//   POST { document_id, resend?, from?, signature_id? }  ->  { ok: true, sent_at, warnings } or { error }
 // The caller must pass hub_acct_can_send(document_id). Subject and body come from the document's child 'mail' draft and the
 // recipient from the document's contact email. Mail goes through the accounts mailbox's own SMTP server, with the same
 // password store as ardentax-mail-send, and a copy goes to its Sent folder. The sent mark is written with the service role
 // only after the mail server accepts the message, so nobody can mark a mail sent without sending it.
+// From is info@abcapital.ae (any staff) or a mailbox the caller owns (read with the caller's own login, so row-level security decides).
+// signature_id names a shared signature from public.email_signatures, read with the caller's login; its text follows the draft and its logo goes under it.
 // Deploy as "accounting-proposal-mail-send" with JWT verification on. Logs carry no mail text, recipients or passwords.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail } from "../ardentax-mail-send/mime.ts";
 import { chooseLogin, htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients } from "../ardentax-mail-send/rules.ts";
-import { attachmentFileName, attachmentsFor, CLAIM_REFUSED, claimRule, refusal } from "./rules.ts";
+import { attachmentFileName, attachmentsFor, CLAIM_REFUSED, chooseSender, claimRule, composeText, DEFAULT_SENDER, refusal, senderName, signatureFits, signatureHtml } from "./rules.ts";
 
-const SENDER = "accounts@abcapital.ae";
-const SENDER_NAME = "AB Capital Services FZE";
 const BUCKET = "hub-documents";
 
 const CORS = {
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userDb.auth.getUser();
     if (!user) return json({ error: "Sign in first." }, 401);
 
-    const { document_id: id, resend } = await req.json();
+    const { document_id: id, resend, from, signature_id: signatureId } = await req.json();
     if (typeof id !== "string") return json({ error: "A document is needed." }, 400);
     const { data: allowed } = await userDb.rpc("hub_acct_can_send", { p_id: id });
     if (allowed !== true) return json({ error: "You cannot mail this document. It needs a PDF, and an agreement needs its approval." }, 403);
@@ -56,6 +56,32 @@ Deno.serve(async (req) => {
     if (refused) return json({ error: refused }, doc.mail_sent_at && !resend ? 409 : 400);
     const to = parseRecipients(doc.contact_email);
 
+    // Who the mail comes from and which signature it carries, checked before anything is claimed.
+    const MAILBOX_COLUMNS = "id, address, display_name, login_user, smtp_host, smtp_port, imap_host, imap_port";
+    const wanted = typeof from === "string" ? from.trim().toLowerCase() : from;
+    let mailbox;
+    if (wanted === undefined || wanted === null || wanted === "" || wanted === DEFAULT_SENDER) {
+      const { data, error } = await admin.schema("email_base").from("mailboxes").select(MAILBOX_COLUMNS).eq("address", DEFAULT_SENDER).maybeSingle();
+      if (error) throw new Error(error.message);
+      mailbox = data;
+    } else {
+      const own = typeof wanted === "string" ? await userDb.schema("email_base").from("mailboxes").select(MAILBOX_COLUMNS).eq("address", wanted).maybeSingle() : { data: null, error: null };
+      if (own.error) throw new Error(own.error.message);
+      mailbox = own.data;
+    }
+    const sender = chooseSender({ from: wanted, owned: !!mailbox });
+    if ("error" in sender) return json({ error: sender.error }, sender.status);
+    if (!mailbox?.smtp_host) return json({ error: `The mailbox ${sender.address} is not set up for sending.` }, 400);
+    let signature = null;
+    if (signatureId !== undefined && signatureId !== null && signatureId !== "") {
+      if (typeof signatureId !== "string") return json({ error: "The signature is not valid." }, 400);
+      const { data, error } = await userDb.from("email_signatures").select("id, body_text, logo_url, sender_mailbox_address").eq("id", signatureId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return json({ error: "Signature not found." }, 404);
+      if (!signatureFits(data, sender.address)) return json({ error: `This signature sends from ${data.sender_mailbox_address}, not from ${sender.address}.` }, 400);
+      signature = data;
+    }
+
     // Claim the row before sending; no row back means another send holds it or it was just sent.
     const claimedAt = new Date();
     const rule = claimRule(claimedAt, { resend: !!resend }, doc);
@@ -70,11 +96,8 @@ Deno.serve(async (req) => {
     let released = false; // the success update clears the claim itself
     try {
       const eb = admin.schema("email_base");
-      const { data: mailbox, error: mailboxError } = await eb.from("mailboxes").select("id, address, login_user, smtp_host, smtp_port, imap_host, imap_port").eq("address", SENDER).maybeSingle();
-      if (mailboxError) throw new Error(mailboxError.message);
-      if (!mailbox?.smtp_host) return json({ error: `The mailbox ${SENDER} is not set up for sending.` }, 400);
       const login = await mailboxLogin(admin, mailbox.address, mailbox.login_user);
-      if (!login) return json({ error: `No password is saved for ${SENDER}. Add it in Settings > Email Accounts.` }, 400);
+      if (!login) return json({ error: `No password is saved for ${mailbox.address}. Add it in Settings > Email Accounts.` }, 400);
 
       const [path] = attachmentsFor(doc);
       const { data: file, error: fileError } = await admin.storage.from(BUCKET).download(path);
@@ -82,9 +105,9 @@ Deno.serve(async (req) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (bytes.length > MAX_ATTACHMENT_BYTES) return json({ error: "The PDF is too large to send." }, 400);
 
-      const body = draft?.mail_body || "";
+      const body = composeText(draft?.mail_body || "", signature);
       const { messageId, raw } = buildMail({
-        from: mailbox.address, fromName: SENDER_NAME, to, cc: [], subject: draft!.mail_subject, text: body, html: htmlBody(body, ""), inline: [],
+        from: mailbox.address, fromName: senderName(mailbox), to, cc: [], subject: draft!.mail_subject, text: body, html: htmlBody(body, signatureHtml(signature)), inline: [],
         attachments: [{ name: attachmentFileName(doc), type: "application/pdf", bytes }],
       });
 
@@ -96,7 +119,7 @@ Deno.serve(async (req) => {
 
       const warnings: string[] = [];
       const sentAt = new Date().toISOString();
-      const { error: sentError } = await admin.from("hub_documents").update({ mail_sent_at: sentAt, mail_sent_by: user.id, mail_sent_to: doc.contact_email, mail_claimed_at: null }).eq("id", doc.id);
+      const { error: sentError } = await admin.from("hub_documents").update({ mail_sent_at: sentAt, mail_sent_by: user.id, mail_sent_to: doc.contact_email, mail_sent_from: mailbox.address, mail_claimed_at: null }).eq("id", doc.id);
       if (sentError) warnings.push(`The mail was sent, but the CRM could not record it: ${sentError.message}`);
       else released = true;
 

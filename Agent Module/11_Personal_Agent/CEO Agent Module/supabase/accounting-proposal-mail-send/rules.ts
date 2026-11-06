@@ -55,3 +55,36 @@ export function claimRule(now: Date, opts: { resend?: boolean }, doc: Accounting
 }
 
 export const CLAIM_REFUSED = "Another send of this document is already in progress, or it was just sent. Wait a few minutes and check its mail status.";
+
+// ---- From mailbox and signature ----
+export const DEFAULT_SENDER = "info@abcapital.ae";
+export const DEFAULT_SENDER_NAME = "AB Capital Services FZE";
+export const NOT_YOUR_MAILBOX = "You can only send from info@abcapital.ae or a mailbox you own.";
+
+// `from` missing means the shared address, which any signed-in staff member may use. Any other address needs ownership,
+// which the function proves by reading the mailbox with the caller's own login (row-level security).
+export function chooseSender(opts: { from?: unknown; owned: boolean }): { address: string; needsOwnership: boolean } | { error: string; status: number } {
+  const raw = opts.from === undefined || opts.from === null || opts.from === "" ? DEFAULT_SENDER : opts.from;
+  if (typeof raw !== "string" || !/^[^\s@<>"',;]+@[^\s@<>"',;]+$/.test(raw.trim())) return { error: "The From address is not valid.", status: 400 };
+  const address = raw.trim().toLowerCase();
+  if (address === DEFAULT_SENDER) return { address, needsOwnership: false };
+  if (!opts.owned) return { error: NOT_YOUR_MAILBOX, status: 403 };
+  return { address, needsOwnership: true };
+}
+
+// A signature tied to a mailbox may only go out from that mailbox.
+export const signatureFits = (signature: { sender_mailbox_address?: string | null }, from: string): boolean =>
+  !signature.sender_mailbox_address || signature.sender_mailbox_address.trim().toLowerCase() === from.trim().toLowerCase();
+
+// Signature text goes after the draft body with one blank line.
+export const composeText = (body: string, signature: { body_text?: string | null } | null | undefined): string => {
+  const sig = String(signature?.body_text ?? "").trim();
+  return sig ? `${String(body ?? "").trimEnd()}\n\n${sig}` : String(body ?? "");
+};
+
+const escapeHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+// What goes into the HTML part under the text: the logo, when the signature has one. The text itself is already in the body.
+export const signatureHtml = (signature: { body_text?: string | null; logo_url?: string | null } | null | undefined): string =>
+  signature?.logo_url ? `<p><img src="${escapeHtml(signature.logo_url)}" alt="" style="max-width:480px;height:auto"></p>` : "";
+
+export const senderName = (mailbox: { display_name?: string | null } | null | undefined): string => String(mailbox?.display_name ?? "").trim() || DEFAULT_SENDER_NAME;

@@ -1,5 +1,6 @@
 // Server calls for the Accounting quote and agreement. The generate and approve steps in accountingGenerate.js take these as deps.
 import { supabase } from "@app/supabase";
+import { shapeSharedSignatures } from "@app/replySignature";
 import { BUCKET, CLIENT_MODULE_URL, check, openStored } from "./hubApi";
 import { fileNameFor } from "../logic/serviceDocs";
 import { ACCOUNTING_TEMPLATES, loadAccountingDocs } from "./accountingList.js";
@@ -69,8 +70,9 @@ export async function saveFolder(doc, wordBlob, pdfBlob) {
   } catch { return null; }
 }
 
-export async function sendDoc(id, resend) {
-  const { data, error } = await supabase.functions.invoke("accounting-proposal-mail-send", { body: { document_id: id, resend: !!resend } });
+export async function sendDoc(id, resend, options = {}) {
+  const body = { document_id: id, resend: !!resend, from: options.from, signature_id: options.signature_id || null };
+  const { data, error } = await supabase.functions.invoke("accounting-proposal-mail-send", { body });
   if (error) {
     // The function explains a refusal in its response; the client's own message is generic.
     let message = error.message;
@@ -79,6 +81,18 @@ export async function sendDoc(id, resend) {
   }
   if (data?.error) throw new Error(data.error);
   return data;
+}
+
+// What the Send dialog offers: the mailboxes this user owns (row-level security limits the list) and the shared signatures.
+export async function loadSendOptions() {
+  const [boxes, sigs, session] = await Promise.all([
+    supabase.schema("email_base").from("mailboxes").select("address, display_name").order("address"),
+    supabase.schema("public").from("email_signatures").select("id, user_id, name, body_text, logo_url, is_default, sender_mailbox_address, owner:profiles(full_name, email)").order("created_at"),
+    supabase.auth.getSession(),
+  ]);
+  if (boxes.error) throw new Error(boxes.error.message);
+  if (sigs.error) throw new Error(sigs.error.message);
+  return { owned: boxes.data || [], signatures: shapeSharedSignatures(sigs.data || [], session?.data?.session?.user?.id) };
 }
 
 export const openWord = (path) => openStored(path);
