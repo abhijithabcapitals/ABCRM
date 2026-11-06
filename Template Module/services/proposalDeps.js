@@ -28,4 +28,5 @@ export const proposalDeps = {
 // For "Save now": the stored files are copied into the office folder again.
 export const oneDriveDeps = { loadStored: storedBlob, saveLocal: saveProposalFolder, markSaved: markProposalSaved };
 
-export const pdfName = (doc) => `${String(doc.document_number).replace(/[/\\]+/g, "-")} ${String(doc.client_name || "").replace(/[^\w .-]+/g, "").trim()}.pdf`;
+// The PDF download name lives with the pure proposal rules, where it is tested.
+export { pdfName } from "../logic/proposalModel.js";

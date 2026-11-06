@@ -147,7 +147,8 @@ New migration in `Database Module/Template Hub Base/migrations/`, with rollback 
 | Function | Purpose |
 |---|---|
 | `hub_proposal_create(p)` | Requires `setup.quotes.manage`. Validates, recalculates, numbers and inserts. |
-| `hub_proposal_letter_create(p)` | Requires `setup.quotes.manage`. See below. |
+| `hub_proposal_choose(p)` | Requires `setup.quotes.manage` and an issued proposal. Records the client's option. See below. |
+| `hub_proposal_letter_create(p)` | Requires `setup.quotes.manage`. Accepted proposals only. See below. |
 | `hub_proposal_attach(id, pdf, word)`, `hub_proposal_saved(id, path)` | Record the files |
 | Authority save and archive | Hub admins only. Archived sets stay readable. |
 
@@ -155,9 +156,13 @@ New migration in `Database Module/Template Hub Base/migrations/`, with rollback 
 
 ## Engagement letter from a proposal
 
-The generated documents list shows **Engagement Letter + Mail** on a proposal as today, but it first asks which option the client accepted, and asks for any detail the letter needs that the proposal did not collect (phone, address, licence number, TRN).
+The order is: record the client's choice, accept, then make the letter.
 
-The letter takes only that option's rows, one line per service, and records `accepted_option`. It uses the existing `BSE` series, template and one-letter-per-quote rule.
+1. **Record the client's choice.** On an issued proposal, the generated documents list shows **Record client's choice**: one radio per option with its authority and total. `hub_proposal_choose` sets `accepted_option` and copies that option's lines, services and total to the quote. The proposal stays issued, and the choice can change while it is issued. A proposal with one option needs no choice.
+2. **Accept.** Acceptance goes through the existing paths, which call `business_setup_quote_accept_body`: a signed copy confirmed in the client workspace (Quotes & Agreements), or the client's acceptance in the portal. That body checks the client link, the KYC, the revision chain and the client's evidence, creates the `business_setup_services` rows of the chosen option and writes the audit. A trigger refuses to accept a proposal that has several options and no choice, by any path. The portal lists a proposal only once its choice is set.
+3. **Engagement Letter + Mail.** Offered only once the proposal is accepted. The dialog asks for any detail the letter needs that the proposal did not collect (phone, address, licence number, TRN). `hub_proposal_letter_create` requires an accepted proposal and takes the option recorded on the quote; it changes nothing on the quote and refuses an `option` that differs from the choice.
+
+The letter takes only that option's rows, one line per service, and records `accepted_option`. It uses the existing `BSE` series, template and one-letter-per-quote rule. A letter the client rejected is replaced as `hub_document_create` does: the old letter lets go of the quote, becomes superseded, and the new letter points back at it through `revises_id`.
 
 A trigger refuses any letter on a proposal without `accepted_option`, so the older routes cannot silently copy Option 1. In the Company Templates letter generator, proposals are left out of the quote dropdown.
 

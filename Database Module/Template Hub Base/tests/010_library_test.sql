@@ -151,7 +151,8 @@ select at_check('nobody can write the new tables directly',
 select at_as(:'quoter');
 select id as lq from hub_library_create(at_lib('AB Capital/Test/Plain', :ab_file)) \gset
 select at_check('accepted library quote can take the engagement letter step; unaccepted is refused',
-  at_refused(format($f$select hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', %L::uuid))$f$, :'lq'), 'accepted first'));
+  at_refused(format($f$select hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', %L::uuid))$f$, :'lq'), 'accepted first')
+  or at_refused(format($f$select hub_document_create(jsonb_build_object('doc_type', 'letter', 'parent_id', %L::uuid))$f$, :'lq'), 'Confirm the signed quote first'));
 select at_as(null);
 update hub_documents set status = 'accepted', status_at = now() where id = :'lq';
 select at_as(:'quoter');

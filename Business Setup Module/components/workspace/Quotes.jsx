@@ -76,8 +76,9 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
       <ErrorNote message={error || state.error} onClose={error ? () => setError(null) : undefined} />
       {h?.state === "Reverted" && <div className="bk-alert bk-alert-warn">Accounts reverted this quote: {h.remarks}</div>}
       <Decision rows={decisions} doc={q} label="this quote" />
+      {isUndecidedProposal(q) && <p className="bk-note">Proposal with {q.field_values.proposal.options.length} options, none chosen yet.</p>}
       <ul className="bk-list">{(q.lines || []).map((l, i) => <li key={i}>{l.description}: AED {money(l.amount)}{l.scope && <div className="bk-muted">Scope: {l.scope}</div>}</li>)}</ul>
-      {isUndecidedProposal(q) ? (quotes && q.status === "issued" && <p className="bk-note">Create the letter from Service Documents</p>) : <SignedCopy q={q} clientId={clientId} manage={quotes} after={after} setError={setError} />}
+      {isUndecidedProposal(q) ? (quotes && q.status === "issued" && <p className="bk-note">Record the client&apos;s choice in Service Documents</p>) : <SignedCopy q={q} clientId={clientId} manage={quotes} after={after} setError={setError} />}
       <div className="bk-actions bk-wrap">
         {q.storage_path ? <Button onClick={() => openStored(q.storage_path).catch((e) => setError(e.message))}>Open quote</Button>
           : quotes && !q.library_template && <Button busy={busy} onClick={() => act(() => fileQuote(q))}>Create file</Button>}

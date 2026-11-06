@@ -160,3 +160,35 @@ test("proposalContext flags empty sections", () => {
   const c = proposalContext({ document_number: "X", field_values: { proposal: prop([two(), two()]) } }, {});
   assert.deepEqual(c.options.map((o) => o.brk), [false, true]);
 });
+
+test("amounts take at most 2 decimals, typed or numeric", async () => {
+  const { parseAmount } = await import("../logic/proposalModel.js");
+  assert.equal(parseAmount("1,000.25"), 1000.25);
+  assert.equal(parseAmount(12.5), 12.5);
+  assert.equal(parseAmount(0.1 + 0.2), 0.1 + 0.2); // a float sum of 2-decimal amounts is still 2 decimals
+  assert.ok(Number.isNaN(parseAmount("1.005")));
+  assert.ok(Number.isNaN(parseAmount(1.005)));
+  assert.ok(Number.isNaN(parseAmount("-1")));
+  assert.equal(parseAmount(""), null);
+});
+
+test("a proposal row shows the chosen option's total once a choice is set", async () => {
+  const { proposalAmount, chosenOption } = await import("../logic/proposalModel.js");
+  const options = [{ services: [{ name: "A", amount: 100 }] }, { services: [{ name: "B", amount: 900 }] }];
+  const doc = (accepted_option, status = "issued", opts = options) => ({ status, field_values: { proposal: { accepted_option, options: opts } } });
+  assert.deepEqual(proposalAmount(doc(null)), { total: 100, label: "Option 1 of 2" });
+  assert.deepEqual(proposalAmount(doc(1)), { total: 900, label: "Option 2 chosen" });
+  assert.deepEqual(proposalAmount(doc(1, "accepted")), { total: 900, label: "Option 2 accepted" });
+  assert.deepEqual(proposalAmount(doc(null, "accepted", options.slice(0, 1))), { total: 100, label: "Option 1 accepted" });
+  assert.equal(chosenOption(doc(null)), null);
+  assert.equal(chosenOption(doc(0)), 0);
+  assert.equal(proposalAmount({ field_values: {} }), null);
+});
+
+test("the PDF name keeps Arabic and other letters and removes only unsafe characters", async () => {
+  const { pdfName } = await import("../logic/proposalModel.js");
+  assert.equal(pdfName({ document_number: "ABC/2026/11/BSQ001", client_name: "شركة الأمل" }), "ABC-2026-11-BSQ001 شركة الأمل.pdf");
+  assert.equal(pdfName({ document_number: "ABC/1", client_name: "Café Ünïon: A/B <Co>?*|\"x\"" }), "ABC-1 Café Ünïon AB Cox.pdf");
+  assert.equal(pdfName({ document_number: "R1", client_name: "Sample & Sons (FZE) L.L.C." }), "R1 Sample & Sons (FZE) L.L.C..pdf");
+  assert.equal(pdfName({ document_number: "R2", client_name: null }), "R2 .pdf");
+});

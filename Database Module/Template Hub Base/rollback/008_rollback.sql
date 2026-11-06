@@ -8,6 +8,8 @@ drop function if exists public.hub_proposal_can_send();
 drop function if exists public.hub_proposal_defaults_save(jsonb);
 drop function if exists public.hub_proposal_authority_save(jsonb);
 drop function if exists public.hub_proposal_letter_create(jsonb);
+drop function if exists public.hub_proposal_choose(jsonb);
+drop function if exists public.hub_proposal_ref(text);
 drop function if exists public.hub_proposal_saved(uuid, text);
 drop function if exists public.hub_proposal_attach(uuid, text, text);
 drop function if exists public.hub_proposal_create(jsonb);

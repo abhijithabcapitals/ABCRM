@@ -14,6 +14,7 @@ export const saveDefaults = async (p) => check(await supabase.rpc("hub_proposal_
 export const createProposal = async (p) => check(await supabase.rpc("hub_proposal_create", { p }));
 export const attachProposal = async (id, pdf, word) => check(await supabase.rpc("hub_proposal_attach", { p_id: id, p_pdf: pdf, p_word: word }));
 export const markProposalSaved = async (id, path) => check(await supabase.rpc("hub_proposal_saved", { p_id: id, p_path: path }));
+export const chooseProposalOption = async (id, option) => check(await supabase.rpc("hub_proposal_choose", { p: { quote_id: id, option } }));
 export const createProposalLetter = async (p) => check(await supabase.rpc("hub_proposal_letter_create", { p }));
 
 // Stores one file of a proposal. The PDF carries its content type so the signed link opens in the browser.

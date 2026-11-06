@@ -13,3 +13,14 @@ test("a letter is a proposal's only when its parent is a proposal in the list", 
   assert.equal(isProposalLetter({ doc_type: "letter", parent_id: "q1" }, rows, "AB Capital/Proposal"), false);
   assert.equal(isProposalLetter({ doc_type: "quote", parent_id: "p1" }, rows, "AB Capital/Proposal"), false);
 });
+test("a proposal's step: choose, accept, letter, closed", async () => {
+  const { proposalStage } = await import("../logic/proposalLetter.js");
+  const two = [{ services: [] }, { services: [] }];
+  const p = (status, accepted_option = null, options = two) => ({ library_template: "AB Capital/Proposal", status, field_values: { proposal: { options, accepted_option } } });
+  assert.equal(proposalStage(p("issued")), "choose");
+  assert.equal(proposalStage(p("issued", 1)), "accept");
+  assert.equal(proposalStage(p("issued", null, two.slice(0, 1))), "accept");
+  assert.equal(proposalStage(p("accepted", 1)), "letter");
+  assert.equal(proposalStage(p("rejected", 1)), "closed");
+  assert.equal(proposalStage(p("superseded")), "closed");
+});

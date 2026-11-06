@@ -7,12 +7,12 @@ const dubaiDate = (iso) => (iso ? dmy(new Intl.DateTimeFormat("en-CA", { timeZon
 const str = (v) => String(v ?? "").trim();
 const texts = (list) => (Array.isArray(list) ? list : []).map(str).filter(Boolean);
 const blank = (v) => v === null || v === undefined || str(v) === "";
-// A typed amount: "1,000" is 1000. Returns null for blank, NaN for anything that is not zero or more (the server takes the same).
-const parseAmount = (v) => {
+// A typed amount: "1,000" is 1000. Returns null for blank, NaN for anything that is not zero or more with at most 2 decimals (the server takes the same).
+export const parseAmount = (v) => {
   if (blank(v)) return null;
-  if (typeof v === "number") return Number.isFinite(v) && v >= 0 ? v : NaN;
+  if (typeof v === "number") return Number.isFinite(v) && v >= 0 && Math.abs(v * 100 - Math.round(v * 100)) < 1e-6 ? v : NaN;
   const s = str(v).replace(/,/g, "");
-  return /^[0-9]+(\.[0-9]+)?$/.test(s) ? Number(s) : NaN;
+  return /^[0-9]+(\.[0-9]{1,2})?$/.test(s) ? Number(s) : NaN;
 };
 
 // Readers outside the proposal screens: a proposal is a hub_documents quote holding several alternative options.
@@ -26,6 +26,24 @@ export const isUndecidedProposal = (doc) => {
 };
 // Done in JS, so rows with a null library_template stay (a database .neq would drop them).
 export const withoutProposals = (rows) => (rows || []).filter((r) => !isProposal(r));
+// The option a proposal now stands on: the recorded choice, or the only option of an accepted single-option proposal. Null when undecided.
+export const chosenOption = (doc) => {
+  const p = doc?.field_values?.proposal, opts = p?.options || [];
+  const k = p?.accepted_option ?? (doc?.status === "accepted" && opts.length === 1 ? 0 : null);
+  return k !== null && opts[k] ? k : null;
+};
+// The amount a proposal row shows: the chosen option's total once a choice is set, otherwise Option 1 of N.
+export function proposalAmount(doc) {
+  const opts = doc?.field_values?.proposal?.options || [];
+  if (!opts.length) return null;
+  const k = chosenOption(doc);
+  if (k === null) return { total: optionTotal(opts[0]), label: `Option 1 of ${opts.length}` };
+  return { total: optionTotal(opts[k]), label: `Option ${k + 1} ${doc.status === "accepted" ? "accepted" : "chosen"}` };
+}
+
+// The download name of a proposal PDF: the Ref with / and \ turned into -, then the client name. Letters of any script (Arabic too) stay;
+// only characters a file name cannot hold (< > : " / \ | ? * and control characters) are removed.
+export const pdfName = (doc) => `${String(doc.document_number).replace(/[/\\]+/g, "-")} ${String(doc.client_name || "").replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "").replace(/\s+/g, " ").trim()}.pdf`;
 
 export const toUsd = (aed, rate) => Math.round(Number(aed || 0) / Number(rate));
 const usdText = (aed, rate) => `$ ${plain(toUsd(aed, rate))}`;
@@ -76,14 +94,14 @@ export function checkProposal(form, proposal) {
         if (!blank(s.amount)) return `${s.name} has sub services, so its amount cannot also be typed.`;
         for (const b of s.subs) {
           if (!str(b.name)) return `Each sub service of ${s.name} needs a name.`;
-          if (Number.isNaN(parseAmount(b.amount)) || blank(b.amount)) return `Enter an amount of zero or more for ${b.name}.`;
+          if (Number.isNaN(parseAmount(b.amount)) || blank(b.amount)) return `Enter an amount of zero or more, with at most 2 decimals, for ${b.name}.`;
         }
-      } else if (Number.isNaN(parseAmount(s.amount)) || blank(s.amount)) return `Enter an amount of zero or more for ${s.name}.`;
+      } else if (Number.isNaN(parseAmount(s.amount)) || blank(s.amount)) return `Enter an amount of zero or more, with at most 2 decimals, for ${s.name}.`;
     }
   }
   for (const a of proposal.shared?.addons || []) {
     if (!str(a.name)) return "Each add-on needs a name.";
-    if (Number.isNaN(parseAmount(a.amount))) return `Enter an amount of zero or more for the add-on ${a.name}.`;
+    if (Number.isNaN(parseAmount(a.amount))) return `Enter an amount of zero or more, with at most 2 decimals, for the add-on ${a.name}.`;
   }
   return null;
 }

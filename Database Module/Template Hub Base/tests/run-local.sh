@@ -29,7 +29,8 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
   "$DB/Voucher Base/migrations"/001_*.sql "$DB/Voucher Base/migrations"/002_*.sql "$DB/Client Base/migrations"/002_*.sql
   "$DB/HR Base/migrations"/001_*.sql "$DB/AI Base/migrations"/001_*.sql "$DB/Admin Base/migrations"/001_*.sql
   "$DB/Client Base/migrations"/003_*.sql "$DB/Admin Base/migrations"/003_*.sql "$DB/Client Login Base/migrations"/001_*.sql "$DB/Client Login Base/migrations"/002_*.sql)
-BS=(); for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14; do BS+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
+# Business Setup in its own runner's order, through 018 and 024: the proposal tests accept through business_setup_quote_accept_body (016-017) and read the portal view (024).
+BS=(); for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 20 21 15 16 17 18 24; do BS+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 AFTER=("$DB/ArdentTax Base/migrations/001_ardentax.sql" "$DB/Template Hub Base/migrations/003_brand_name.sql" "$DB/../Template Module/database/01_quotation_maker.sql" "$DB/../Template Module/database/02_quotation_templates_access.sql" "$DB/Template Hub Base/migrations/004_hub_admin.sql")
 MINE=("$HERE/../migrations/005_library_fill.sql" "$HERE/../migrations/006_library_letter.sql" "$HERE/../migrations/007_work_types.sql" "$HERE/../migrations/008_proposals.sql")

@@ -82,7 +82,7 @@ begin
         if jsonb_typeof(s -> 'subs') <> 'array' then raise exception 'Sub services of % must be a list', s ->> 'name'; end if;
         for b in select * from jsonb_array_elements(s -> 'subs') loop
           if jsonb_typeof(b) <> 'object' or nullif(btrim(coalesce(b ->> 'name', '')), '') is null then raise exception 'Each sub service of % needs a name', s ->> 'name'; end if;
-          if coalesce(b ->> 'amount', '') !~ '^\s*[0-9]+(\.[0-9]+)?\s*$' then raise exception 'Enter an amount of zero or more for %', b ->> 'name'; end if;
+          if coalesce(b ->> 'amount', '') !~ '^\s*[0-9]+(\.[0-9]{1,2})?\s*$' then raise exception 'Enter an amount of zero or more, with at most 2 decimals, for %', b ->> 'name'; end if;
           v_amt := (b ->> 'amount')::numeric;
           v_sum := v_sum + v_amt;
           v_subs := v_subs || jsonb_build_array(jsonb_build_object('name', btrim(b ->> 'name'), 'amount', v_amt));
@@ -90,12 +90,12 @@ begin
       end if;
       if jsonb_array_length(v_subs) > 0 then
         if nullif(btrim(coalesce(s ->> 'amount', '')), '') is not null then
-          if s ->> 'amount' !~ '^\s*[0-9]+(\.[0-9]+)?\s*$' then raise exception 'Enter an amount of zero or more for %', s ->> 'name'; end if;
+          if s ->> 'amount' !~ '^\s*[0-9]+(\.[0-9]{1,2})?\s*$' then raise exception 'Enter an amount of zero or more, with at most 2 decimals, for %', s ->> 'name'; end if;
           if (s ->> 'amount')::numeric <> v_sum then raise exception 'The amount of % disagrees with its sub services', s ->> 'name'; end if;
         end if;
         v_amt := v_sum;
       else
-        if coalesce(s ->> 'amount', '') !~ '^\s*[0-9]+(\.[0-9]+)?\s*$' then raise exception 'Enter an amount of zero or more for %', s ->> 'name'; end if;
+        if coalesce(s ->> 'amount', '') !~ '^\s*[0-9]+(\.[0-9]{1,2})?\s*$' then raise exception 'Enter an amount of zero or more, with at most 2 decimals, for %', s ->> 'name'; end if;
         v_amt := (s ->> 'amount')::numeric;
       end if;
       v_svcs := v_svcs || jsonb_build_array(jsonb_build_object('name', btrim(s ->> 'name'), 'remarks', nullif(btrim(coalesce(s ->> 'remarks', '')), ''), 'amount', v_amt, 'subs', v_subs));
@@ -111,7 +111,7 @@ begin
     if jsonb_typeof(v_shared -> 'addons') <> 'array' then raise exception 'Add-ons must be a list'; end if;
     for s in select * from jsonb_array_elements(v_shared -> 'addons') loop
       if jsonb_typeof(s) <> 'object' or nullif(btrim(coalesce(s ->> 'name', '')), '') is null then raise exception 'Each add-on needs a name'; end if;
-      if nullif(btrim(coalesce(s ->> 'amount', '')), '') is not null and s ->> 'amount' !~ '^\s*[0-9]+(\.[0-9]+)?\s*$' then raise exception 'Enter an amount of zero or more for %', s ->> 'name'; end if;
+      if nullif(btrim(coalesce(s ->> 'amount', '')), '') is not null and s ->> 'amount' !~ '^\s*[0-9]+(\.[0-9]{1,2})?\s*$' then raise exception 'Enter an amount of zero or more, with at most 2 decimals, for %', s ->> 'name'; end if;
       v_add := v_add || jsonb_build_array(jsonb_build_object('name', btrim(s ->> 'name'), 'amount', nullif(btrim(coalesce(s ->> 'amount', '')), '')::numeric, 'text', nullif(btrim(coalesce(s ->> 'text', '')), '')));
     end loop;
   end if;
@@ -186,37 +186,76 @@ begin
   return r;
 end $$;
 
--- The engagement letter of a proposal takes the option the client chose (0-based) and fixes the quote to it.
-create or replace function public.hub_proposal_letter_create(p jsonb) returns public.hub_documents
+-- A proposal reference from the browser, checked so that a malformed one gets a sentence instead of a cast error.
+create or replace function public.hub_proposal_ref(p_id text) returns uuid
+language plpgsql immutable set search_path = public, pg_temp as $$
+begin
+  if coalesce(btrim(p_id), '') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then raise exception 'The proposal reference is not valid'; end if;
+  return btrim(p_id)::uuid;
+end $$;
+revoke all on function public.hub_proposal_ref(text) from public, anon, authenticated;
+
+-- Records the option the client chose (0-based) on an issued proposal. The quote then carries that option's lines, services and total,
+-- so acceptance (a signed copy confirmed by staff, or the client in the portal) goes through business_setup_quote_accept_body like any quote.
+-- The choice can change while the proposal is still issued.
+create or replace function public.hub_proposal_choose(p jsonb) returns public.hub_documents
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare
-  q hub_documents; r hub_documents; v_opt int; v_o jsonb; v_number text; v_prop jsonb; v_lines jsonb;
+declare q hub_documents; r hub_documents; v_opt int; v_o jsonb;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   perform business_setup_require('setup.quotes.manage');
-  select * into q from hub_documents where id = nullif(p ->> 'quote_id', '')::uuid and doc_type = 'quote' and library_template = 'AB Capital/Proposal' for update;
+  select * into q from hub_documents where id = hub_proposal_ref(p ->> 'quote_id') and doc_type = 'quote' and library_template = 'AB Capital/Proposal' for update;
   if q.id is null then raise exception 'The proposal was not found'; end if;
-  if q.status not in ('issued', 'accepted') then raise exception 'Proposal % is % and cannot have a letter', q.document_number, q.status; end if;
-  if exists (select 1 from hub_documents where parent_id = q.id and doc_type = 'letter' and status <> 'rejected') then raise exception 'Quote % already has its engagement letter', q.document_number; end if;
-  if coalesce(p ->> 'option', '') !~ '^[0-9]+$' then raise exception 'Choose the accepted option'; end if;
+  if q.status <> 'issued' then raise exception 'Proposal % is % and its choice cannot change', q.document_number, q.status; end if;
+  if coalesce(p ->> 'option', '') !~ '^[0-9]{1,3}$' then raise exception 'Choose the option the client accepted'; end if;
   v_opt := (p ->> 'option')::int;
+  v_o := q.field_values #> array['proposal', 'options', v_opt::text];
+  if v_o is null or jsonb_typeof(v_o) <> 'object' then raise exception 'Choose the option the client accepted'; end if;
+  update hub_documents set field_values = jsonb_set(field_values, '{proposal,accepted_option}', to_jsonb(v_opt)), lines = hub_proposal_lines(v_o),
+         services = array(select s ->> 'name' from jsonb_array_elements(v_o -> 'services') s), total_amount = hub_proposal_total(v_o)
+   where id = q.id returning * into r;
+  perform business_setup_audit('hub_documents', q.id::text, 'proposal_choose',
+          jsonb_build_object('accepted_option', q.field_values #> '{proposal,accepted_option}', 'total_amount', q.total_amount),
+          jsonb_build_object('accepted_option', v_opt, 'total_amount', r.total_amount));
+  return r;
+end $$;
+
+-- The engagement letter of an accepted proposal. It takes the option recorded on the quote (a single-option proposal needs no choice)
+-- and changes nothing on the quote. A letter the client rejected is replaced as hub_document_create does: the old one lets go of the quote
+-- (one letter per quote), is marked superseded, and the new letter points back at it through revises_id.
+create or replace function public.hub_proposal_letter_create(p jsonb) returns public.hub_documents
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  q hub_documents; r hub_documents; v_opt int; v_o jsonb; v_number text; v_prop jsonb; v_old uuid;
+begin
+  if auth.uid() is null then raise exception 'Sign in first'; end if;
+  perform business_setup_require('setup.quotes.manage');
+  select * into q from hub_documents where id = hub_proposal_ref(p ->> 'quote_id') and doc_type = 'quote' and library_template = 'AB Capital/Proposal' for update;
+  if q.id is null then raise exception 'The proposal was not found'; end if;
+  if q.status <> 'accepted' then raise exception 'Proposal % is %: it must be accepted before its engagement letter', q.document_number, q.status; end if;
   v_prop := q.field_values -> 'proposal';
-  v_o := v_prop -> 'options' -> v_opt;
-  if v_o is null then raise exception 'Choose the accepted option'; end if;
-  v_lines := hub_proposal_lines(v_o);
+  v_opt := case when v_prop ->> 'accepted_option' ~ '^[0-9]{1,3}$' then (v_prop ->> 'accepted_option')::int
+                when jsonb_typeof(v_prop -> 'options') = 'array' and jsonb_array_length(v_prop -> 'options') = 1 then 0 end;
+  v_o := v_prop #> array['options', coalesce(v_opt, -1)::text];
+  if v_opt is null or v_o is null then raise exception 'Choose the accepted option'; end if;
+  if nullif(btrim(coalesce(p ->> 'option', '')), '') is not null and btrim(p ->> 'option') is distinct from v_opt::text then
+    raise exception 'The client chose Option %: the letter takes that option', v_opt + 1;
+  end if;
+  select id into v_old from hub_documents where parent_id = q.id and doc_type = 'letter' and status = 'rejected' for update;
+  if exists (select 1 from hub_documents where parent_id = q.id and doc_type = 'letter' and status <> 'rejected') then raise exception 'Quote % already has its engagement letter', q.document_number; end if;
+  if v_old is not null then
+    update hub_documents set parent_id = null, status = 'superseded', status_at = now(), status_by = auth.uid(), status_reason = 'Replaced by a new letter' where id = v_old;
+  end if;
   v_number := hub_next_number('Business Setup', 'letter');
   insert into hub_documents (parent_id, doc_type, department, document_number, document_serial, client_id, client_name, contact_name, contact_email, contact_phone, client_address,
-                             license_number, vat_trn, services, lines, vat_mode, vat_rate, vat_amount, total_amount, library_template, field_values)
+                             license_number, vat_trn, services, lines, vat_mode, vat_rate, vat_amount, total_amount, library_template, field_values, revises_id, case_id)
   values (q.id, 'letter', 'Business Setup', v_number, hub_serial_of('Business Setup', 'letter', v_number), q.client_id, q.client_name, q.contact_name, q.contact_email,
           coalesce(nullif(btrim(coalesce(p ->> 'contact_phone', '')), ''), q.contact_phone), nullif(btrim(coalesce(p ->> 'client_address', '')), ''),
           nullif(btrim(coalesce(p ->> 'license_number', '')), ''), nullif(btrim(coalesce(p ->> 'vat_trn', '')), ''),
-          array(select s ->> 'name' from jsonb_array_elements(v_o -> 'services') s), v_lines, 'none', 0, 0, hub_proposal_total(v_o), 'AB Capital/Engagement Letter',
-          jsonb_build_object('accepted_option', v_opt, 'authority_key', v_o ->> 'authority_key', 'authority_name', v_o ->> 'authority_name', 'activity', v_o ->> 'activity'))
+          array(select s ->> 'name' from jsonb_array_elements(v_o -> 'services') s), hub_proposal_lines(v_o), 'none', 0, 0, hub_proposal_total(v_o), 'AB Capital/Engagement Letter',
+          jsonb_build_object('accepted_option', v_opt, 'authority_key', v_o ->> 'authority_key', 'authority_name', v_o ->> 'authority_name', 'activity', v_o ->> 'activity'),
+          v_old, q.case_id)
   returning * into r;
-  update hub_documents set field_values = jsonb_set(field_values, '{proposal,accepted_option}', to_jsonb(v_opt)), lines = v_lines,
-         services = r.services, total_amount = r.total_amount,
-         status = 'accepted', status_at = case when status = 'accepted' then status_at else now() end, status_by = case when status = 'accepted' then status_by else auth.uid() end
-   where id = q.id;
   return r;
 end $$;
 
@@ -285,7 +324,7 @@ do $$
 declare f text;
 begin
   foreach f in array array[
-    'hub_proposal_create(jsonb)', 'hub_proposal_attach(uuid, text, text)', 'hub_proposal_saved(uuid, text)', 'hub_proposal_letter_create(jsonb)',
+    'hub_proposal_create(jsonb)', 'hub_proposal_attach(uuid, text, text)', 'hub_proposal_saved(uuid, text)', 'hub_proposal_choose(jsonb)', 'hub_proposal_letter_create(jsonb)',
     'hub_proposal_authority_save(jsonb)', 'hub_proposal_defaults_save(jsonb)', 'hub_proposal_can_send()'] loop
     execute format('revoke all on function public.%s from public, anon', f);
     execute format('grant execute on function public.%s to authenticated', f);
@@ -294,7 +333,7 @@ end $$;
 revoke all on function public.hub_proposal_letter_guard() from public, anon, authenticated;
 
 -- A proposal with several options cannot be accepted until one option is chosen, by any path (client, signed copy, staff).
--- hub_proposal_letter_create sets status and accepted_option in one update, so it passes.
+-- hub_proposal_choose records the option while the proposal is issued; acceptance then goes through business_setup_quote_accept_body.
 create or replace function public.hub_proposal_accept_guard() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 begin
