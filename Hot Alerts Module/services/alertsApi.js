@@ -67,3 +67,7 @@ export const alertManualRaise = (s, type, client, detail, due) => call(s, "alert
 
 // Business Setup's own checklist function (migration 022): it checks who may work the item. The alert closes at the next scan.
 export const checklistItemDone = (s, id) => call(s, "business_setup_checkpoint_set", { p_id: id, p_status: "Completed", p_note: null });
+
+// CHANGES MADE (020)
+export const changesMadeList = (s, days = 30, limit = 200) => call(s, "changes_made_list", { p_days: days, p_limit: limit });
+export const changesMadeMarkSeen = (s) => call(s, "changes_made_mark_seen", {});

@@ -10,6 +10,7 @@ import AlertCalendar from "./AlertCalendar";
 import RegulatoryUpdates from "./RegulatoryUpdates";
 import LogItem from "./LogItem";
 import ComplianceRegister from "./ComplianceRegister";
+import ChangesMade from "./ChangesMade";
 import { Note, btn } from "./ui";
 import { dubaiToday, emptyText, isNotSwitchedOn, tabsFor } from "../logic/alertLogic";
 import { alertMyAccess } from "../services/alertsApi";
@@ -77,6 +78,7 @@ export default function NotificationCentre({ profile, supabase, fmtDate, openAle
         </div>
       )}
 
+      {access && tab === "My Notifications" && <ChangesMade supabase={supabase} refreshKey={refreshKey} onOpenClient={onOpenClient} />}
       {access && tab === "My Notifications" && <LogItem supabase={supabase} onDone={() => bump()} />}
       {access && tab === "My Notifications" && (
         <ScopeView supabase={supabase} scope="My" today={today} onOpen={open} refreshKey={refreshKey}
