@@ -5,11 +5,17 @@ export const PROPOSAL_TEMPLATE = "AB Capital/Proposal";
 
 type Doc = {
   id: string; library_template?: string | null; storage_path?: string | null; word_path?: string | null;
-  contact_email?: string | null; mail_subject?: string | null; mail_sent_at?: string | null;
+  contact_email?: string | null; mail_subject?: string | null; mail_sent_at?: string | null; status?: string | null;
 };
 
 // Only the PDF goes out. The Word file is never attached.
 export const attachmentsFor = (doc: { storage_path?: string | null; word_path?: string | null }): string[] => (doc.storage_path ? [doc.storage_path] : []);
+
+// The attachment name the client sees: the proposal's Ref with / and \ turned into -, other unsafe characters removed, ending .pdf.
+export function attachmentName(documentNumber: string | null | undefined): string {
+  const base = String(documentNumber ?? "").replace(/[/\\]+/g, "-").replace(/[^A-Za-z0-9 _.-]+/g, "").replace(/\s+/g, " ").replace(/^[ .-]+|[ .]+$/g, "");
+  return `${base || "Proposal"}.pdf`;
+}
 
 // Files are read with the service role, which ignores storage rules, so the path is checked here.
 export function isProposalPath(id: string, path: string | null | undefined): boolean {
@@ -21,6 +27,8 @@ export function isProposalPath(id: string, path: string | null | undefined): boo
 // One client address only. `doc.mail_subject` is the subject of the child draft row.
 export function refusal(doc: Doc, opts: { resend?: boolean }): string | null {
   if (doc.library_template !== PROPOSAL_TEMPLATE) return "This document is not a proposal.";
+  if (doc.status === "rejected") return "This proposal was rejected and cannot be sent.";
+  if (doc.status === "superseded") return "This proposal was replaced and cannot be sent.";
   if (!doc.storage_path) return "This proposal has no PDF yet. Generate it first.";
   if (!String(doc.mail_subject || "").trim()) return "Write the mail draft with a subject first.";
   if (!isProposalPath(doc.id, doc.storage_path)) return "This proposal's file path is not valid.";

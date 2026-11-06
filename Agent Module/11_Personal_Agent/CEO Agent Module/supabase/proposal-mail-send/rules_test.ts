@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { attachmentsFor, claimFilter, refusal } from "./rules.ts";
+import { attachmentName, attachmentsFor, claimFilter, refusal } from "./rules.ts";
 
 const ID = "11111111-2222-3333-4444-555555555555";
 const good = {
@@ -40,4 +40,19 @@ Deno.test("claimFilter: 2 minute staleness, unsent unless resend", () => {
   assertEquals(claimFilter(now, {}), { staleBefore: "2026-11-05T09:58:00.000Z", requireUnsent: true });
   assertEquals(claimFilter(now, { resend: false }).requireUnsent, true);
   assertEquals(claimFilter(now, { resend: true }), { staleBefore: "2026-11-05T09:58:00.000Z", requireUnsent: false });
+});
+
+Deno.test("the attachment is named after the proposal's Ref, made safe, ending .pdf", () => {
+  assertEquals(attachmentName("ABC/2026/11/BSQ001"), "ABC-2026-11-BSQ001.pdf");
+  assertEquals(attachmentName("ABC\\2026:11*BSQ<2>"), "ABC-202611BSQ2.pdf");
+  assertEquals(attachmentName(" ../x "), "x.pdf");
+  assertEquals(attachmentName(""), "Proposal.pdf");
+  assertEquals(attachmentName(null), "Proposal.pdf");
+});
+
+Deno.test("a rejected or replaced proposal is not sent", () => {
+  assertEquals(refusal({ ...good, status: "rejected" }, { resend: true }), "This proposal was rejected and cannot be sent.");
+  assertEquals(refusal({ ...good, status: "superseded" }, { resend: true }), "This proposal was replaced and cannot be sent.");
+  assertEquals(refusal({ ...good, status: "issued" }, { resend: false }), null);
+  assertEquals(refusal({ ...good, status: "accepted" }, { resend: false }), null);
 });

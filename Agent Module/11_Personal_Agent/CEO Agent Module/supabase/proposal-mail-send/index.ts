@@ -10,7 +10,7 @@ import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail } from "../ardentax-mail-send/mime.ts";
 import { chooseLogin, htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients, totalAttachmentBytes } from "../ardentax-mail-send/rules.ts";
-import { attachmentsFor, claimFilter, PROPOSAL_TEMPLATE, refusal } from "./rules.ts";
+import { attachmentName, attachmentsFor, claimFilter, PROPOSAL_TEMPLATE, refusal } from "./rules.ts";
 
 const SENDER = "info@abcapital.ae";
 const SENDER_NAME = "AB Capital Services FZE";
@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
     const { document_id: id, resend } = await req.json();
     if (typeof id !== "string") return json({ error: "A document is needed." }, 400);
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-    const { data: doc, error: docError } = await admin.from("hub_documents").select("id, document_number, library_template, storage_path, word_path, contact_email, mail_sent_at").eq("id", id).eq("library_template", PROPOSAL_TEMPLATE).maybeSingle();
+    const { data: doc, error: docError } = await admin.from("hub_documents").select("id, document_number, library_template, status, storage_path, word_path, contact_email, mail_sent_at").eq("id", id).eq("library_template", PROPOSAL_TEMPLATE).maybeSingle();
     if (docError) throw new Error(docError.message);
     if (!doc) return json({ error: "Proposal not found." }, 404);
     const { data: draft, error: draftError } = await admin.from("hub_documents").select("mail_subject, mail_body").eq("parent_id", id).eq("doc_type", "mail").order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
     for (const path of attachmentsFor(full)) {
       const { data, error } = await admin.storage.from(BUCKET).download(path);
       if (error) throw new Error(`Could not read ${path.split("/").pop()}: ${error.message}`);
-      attachments.push({ name: path.split("/").pop()!, type: "application/pdf", bytes: new Uint8Array(await data.arrayBuffer()) });
+      attachments.push({ name: attachmentName(doc.document_number), type: "application/pdf", bytes: new Uint8Array(await data.arrayBuffer()) });
     }
     if (totalAttachmentBytes(attachments) > MAX_ATTACHMENT_BYTES) return json({ error: "The PDF is too large to send." }, 400);
 
