@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatBytes, progress, stageLabel, STAGES, failedNote } from "../logic/odCopyView.js";
+import { formatBytes, progress, stageLabel, STAGES, failedNote, pilotVerified, approveSummary, approveConfirmText, duplicateRows, canPause } from "../logic/odCopyView.js";
 
 test("formatBytes", () => {
   assert.equal(formatBytes(1536), "1.5 KB");
@@ -27,12 +27,13 @@ test("progress treats strings from the database as numbers and never passes 100"
 });
 
 test("every stage has a label", () => {
-  for (const s of ["idle", "inventory", "plan", "approved", "copying", "done", "paused", "rollback"]) {
+  for (const s of ["idle", "inventory", "planning", "plan", "approved", "copying", "done", "paused", "rollback"]) {
     assert.ok(STAGES.includes(s));
     assert.ok(stageLabel(s).length > 0, s);
   }
   assert.equal(stageLabel("idle"), "Not started");
   assert.equal(stageLabel("inventory"), "Listing the old folder");
+  assert.equal(stageLabel("planning"), "Building the plan");
   assert.equal(stageLabel("plan"), "Plan ready, waiting for approval");
   assert.equal(stageLabel("approved"), "Copying");
   assert.equal(stageLabel("copying"), "Copying");
@@ -47,4 +48,45 @@ test("failedNote says the skipped duplicates were not copied", () => {
   assert.match(failedNote(1), /1 duplicate was skipped/);
   assert.match(failedNote(3), /3 duplicates were skipped/);
   assert.match(failedNote(3), /not copied/);
+});
+
+const REPORT = [
+  { area: "4. VAT Clients", files: 10, verified: 0, planned_matched: 6, planned_matched_gb: 1.5, planned_unmatched: 2, planned_unmatched_gb: 0.25 },
+  { area: "Desktop", files: 4, verified: 0, planned_matched: 3, planned_matched_gb: "0.5", planned_unmatched: 0, planned_unmatched_gb: 0 },
+];
+
+test("bulk approval waits for a verified pilot", () => {
+  assert.equal(pilotVerified(REPORT), false);
+  assert.equal(pilotVerified([...REPORT, { area: "x", verified: "1" }]), true);
+  assert.equal(pilotVerified(null), false);
+});
+
+test("approveSummary counts what a bulk approval would approve, optionally one area", () => {
+  assert.deepEqual(approveSummary(REPORT, "all"), { files: 9, gb: 2 });
+  assert.deepEqual(approveSummary(REPORT, "unmatched"), { files: 2, gb: 0.25 });
+  assert.deepEqual(approveSummary(REPORT, "all", "Desktop"), { files: 3, gb: 0.5 });
+  assert.deepEqual(approveSummary([], "all"), { files: 0, gb: 0 });
+});
+
+test("approveConfirmText names the file count and the size", () => {
+  const t = approveConfirmText("Approve matched and fixed", { files: 9, gb: 2 }, null);
+  assert.match(t, /9 files/);
+  assert.match(t, /2\.0 GB/);
+  assert.match(t, /never moved or deleted/);
+  assert.match(approveConfirmText("Approve unmatched", { files: 1, gb: 0.001 }, "Desktop"), /1 file .*Desktop/);
+});
+
+test("duplicateRows shows every location of a group: the kept file and each skipped copy", () => {
+  const rows = duplicateRows([{ keeper_id: "k1", keeper_path: "A/kept.pdf", keeper_status: "verified", copies_skipped: 2, skipped_paths: ["B/x.pdf", "C/y.pdf"] }]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "k1");
+  assert.equal(rows[0].path, "A/kept.pdf");
+  assert.deepEqual(rows[0].locations, ["B/x.pdf", "C/y.pdf"]);
+  assert.match(rows[0].note, /2 identical copies not copied/);
+  assert.deepEqual(duplicateRows(null), []);
+});
+
+test("pause is offered while listing, planning, copying and during a rollback", () => {
+  for (const s of ["inventory", "planning", "plan", "approved", "copying", "rollback"]) assert.equal(canPause(s), true, s);
+  for (const s of ["idle", "done", "paused"]) assert.equal(canPause(s), false, s);
 });

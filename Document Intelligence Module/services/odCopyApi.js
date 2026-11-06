@@ -1,6 +1,7 @@
 import { supabase } from "@app/supabase";
+import { duplicateRows } from "../logic/odCopyView";
 
-// Reads and the three admin actions for the OneDrive copy. Everything is in schema od_copy; Row Level Security lets
+// Reads and the admin actions for the OneDrive copy. Everything is in schema od_copy; Row Level Security lets
 // only admins and the CEO read it, and the two functions check the same rule again. No file content is ever loaded.
 const od = () => supabase.schema("od_copy");
 
@@ -20,8 +21,8 @@ const percent = (c) => (c == null ? "" : `${Math.round(Number(c) * 100)}%`);
 export async function loadIssues(kind, limit = 200) {
   const n = Math.max(1, Math.min(1000, Number(limit) || 200));
   if (kind === "duplicates") {
-    const rows = check(await od().from("plan").select("source_item_id, source_path").eq("status", "skipped_duplicate").order("source_path").limit(n));
-    return rows.map((r) => ({ id: r.source_item_id, path: r.source_path, note: "Same size and hash as another file, not copied", skipped: 0 }));
+    // One row per group: the kept file and every skipped location.
+    return duplicateRows(check(await od().from("duplicate_groups").select("keeper_id, keeper_path, keeper_status, copies_skipped, skipped_paths").order("keeper_path").limit(n)));
   }
   if (kind === "review" || kind === "unmatched") {
     const q = od().from("client_matches").select("area, folder_name, confidence, status");
@@ -40,7 +41,11 @@ export async function loadIssues(kind, limit = 200) {
   throw new Error(`Unknown list: ${kind}`);
 }
 
-// scope: 'all' (matched client folders and fixed areas) or 'unmatched'. Moves the plan to the copy stage.
-export const approve = async (scope, area = null) => check(await od().rpc("admin_approve", { p_scope: scope, p_area: area }));
+// scope 'client': value = client id (the pilot). scope 'all' (matched client folders and fixed areas) or 'unmatched':
+// value = one old area or null for every area; refused by the database until a pilot copy is verified.
+// Moves the plan to the copy stage.
+export const approve = async (scope, value = null) => check(await od().rpc("admin_approve", { p_scope: scope, p_value: value }));
+// Admins and the CEO (the same rule as the od_copy Row Level Security).
+export const canRead = async () => check(await od().rpc("can_read")) === true;
 // stage: 'inventory' (start listing), 'paused', 'resume' or 'rollback'.
 export const setStage = async (stage) => check(await od().rpc("set_stage", { p_stage: stage }));

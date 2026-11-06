@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Badge, Button, DataTable, Empty, ErrorNote, KeyVals, Panel, Spinner, useLoad } from "@banking/components/shared";
-import { approve, loadIssues, loadReport, loadSettings, setStage } from "../services/odCopyApi";
-import { failedNote, formatBytes, progress, stageLabel } from "../logic/odCopyView";
+import { approve, canRead, loadIssues, loadReport, loadSettings, setStage } from "../services/odCopyApi";
+import { approveConfirmText, approveSummary, canPause, failedNote, formatBytes, pilotVerified, progress, stageLabel } from "../logic/odCopyView";
 
 const LISTS = [
   ["duplicates", "Duplicates skipped"],
@@ -10,10 +10,20 @@ const LISTS = [
   ["failed", "Failed"],
 ];
 const sum = (rows, key) => rows.reduce((t, r) => t + (Number(r[key]) || 0), 0);
+// Approvals are possible once the plan is built, and again after a run finished.
+const APPROVABLE = ["plan", "approved", "copying", "done"];
 
-// Settings > OneDrive Copy. Admins only: nothing is loaded until the admin check passes.
+// Settings > OneDrive Copy. Admins and the CEO only: an admin sees it at once; anyone else only after
+// od_copy.can_read() (the same rule as the database's Row Level Security) says yes. Nothing else loads before that.
 export default function OneDriveCopyPanel({ isAdmin }) {
-  if (!isAdmin) return <Empty>The OneDrive copy is for admins only.</Empty>;
+  if (!isAdmin) return <AccessCheck />;
+  return <Loaded />;
+}
+
+function AccessCheck() {
+  const access = useLoad(canRead, []);
+  if (access.loading) return <Spinner />;
+  if (access.data !== true) return <Empty>The OneDrive copy is for admins and the CEO only.</Empty>;
   return <Loaded />;
 }
 
@@ -22,6 +32,8 @@ function Loaded() {
   const [list, setList] = useState("failed");
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
+  const [pilotClient, setPilotClient] = useState("");
+  const [area, setArea] = useState("");
   const settings = useLoad(loadSettings, [tick]);
   const report = useLoad(loadReport, [tick]);
   const issues = useLoad(() => loadIssues(list), [list, tick]);
@@ -40,11 +52,21 @@ function Loaded() {
     try { await fn(); setTick((n) => n + 1); } catch (e) { setError(e.message); }
     setBusy(null);
   };
-  const approveScope = (scope, label) => {
-    if (!window.confirm(`${label}? Copying starts as soon as you confirm. Files are copied, never moved or deleted in the old folder.`)) return;
-    act(scope, () => approve(scope));
+  const canApprove = APPROVABLE.includes(stage);
+  // Bulk approval only after the pilot: at least one copy verified (the database refuses it too).
+  const canBulk = canApprove && pilotVerified(rows);
+  const approveBulk = (scope, label) => {
+    const chosen = area || null;
+    const summary = approveSummary(rows, scope, chosen);
+    if (!window.confirm(approveConfirmText(label, summary, chosen))) return;
+    act(scope, () => approve(scope, chosen));
   };
-  const canApprove = ["plan", "approved", "copying", "done"].includes(stage);
+  const approvePilot = () => {
+    const id = pilotClient.trim();
+    if (!id) return;
+    if (!window.confirm(`Copy client ${id} only (pilot)? Copying starts as soon as you confirm. Check the result in OneDrive before approving the rest.`)) return;
+    act("client", () => approve("client", id));
+  };
 
   return (
     <>
@@ -55,13 +77,30 @@ function Loaded() {
           <Badge tone={stage === "done" ? "good" : stage === "paused" ? "warn" : "plain"}>{stage}</Badge>
           {p.total > 0 && <span>{p.verified} of {p.total} files copied and checked ({p.pct}%)</span>}
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
           <Button variant="primary" disabled={stage !== "idle"} busy={busy === "inventory"} onClick={() => act("inventory", () => setStage("inventory"))}>Start listing</Button>
-          <Button disabled={!canApprove} busy={busy === "all"} onClick={() => approveScope("all", "Approve matched and fixed")}>Approve matched and fixed</Button>
-          <Button disabled={!canApprove} busy={busy === "unmatched"} onClick={() => approveScope("unmatched", "Approve unmatched")}>Approve unmatched</Button>
-          <Button disabled={!["inventory", "plan", "approved", "copying"].includes(stage)} busy={busy === "paused"} onClick={() => act("paused", () => setStage("paused"))}>Pause</Button>
+          <Button disabled={!canPause(stage)} busy={busy === "paused"} onClick={() => act("paused", () => setStage("paused"))}>Pause</Button>
           <Button disabled={stage !== "paused"} busy={busy === "resume"} onClick={() => act("resume", () => setStage("resume"))}>Resume</Button>
         </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+          <label>
+            Client code{" "}
+            <input type="text" value={pilotClient} onChange={(e) => setPilotClient(e.target.value)} placeholder="CL000000" aria-label="Client code for the pilot" />
+          </label>
+          <Button disabled={!canApprove || !pilotClient.trim()} busy={busy === "client"} onClick={approvePilot}>Copy one client (pilot)</Button>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <label>
+            Old area{" "}
+            <select value={area} onChange={(e) => setArea(e.target.value)} aria-label="Old area to approve">
+              <option value="">All areas</option>
+              {rows.map((r) => <option key={r.area} value={r.area}>{r.area}</option>)}
+            </select>
+          </label>
+          <Button disabled={!canBulk} busy={busy === "all"} onClick={() => approveBulk("all", "Approve matched and fixed")}>Approve matched and fixed</Button>
+          <Button disabled={!canBulk} busy={busy === "unmatched"} onClick={() => approveBulk("unmatched", "Approve unmatched")}>Approve unmatched</Button>
+        </div>
+        {canApprove && !canBulk && <small>Copy one client first (pilot) and check it in OneDrive. The bulk buttons open once a pilot copy is verified.</small>}
       </Panel>
 
       <Panel title="Counts">
@@ -98,7 +137,13 @@ function Loaded() {
         {issues.loading && !issues.data ? <Spinner /> : (
           <DataTable rows={issues.data || []} empty="Nothing in this list." columns={[
             { key: "path", label: "Path" },
-            { key: "note", label: "Note", render: (r) => <>{r.note}{r.skipped > 0 && <div><small>{failedNote(r.skipped)}</small></div>}</> },
+            { key: "note", label: "Note", render: (r) => (
+              <>
+                {r.note}
+                {(r.locations || []).map((loc) => <div key={loc}><small>{loc}</small></div>)}
+                {r.skipped > 0 && <div><small>{failedNote(r.skipped)}</small></div>}
+              </>
+            ) },
           ]} />
         )}
         {list === "failed" && <small>Failed files need a person: check the destination, then ask for a retry.</small>}

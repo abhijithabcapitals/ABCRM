@@ -46,5 +46,25 @@ test("external links open safely", () => {
   assert.match(files.box, /Open in OneDrive/);
 });
 test("panel has the required buttons", () => {
-  for (const label of ["Start listing", "Approve matched and fixed", "Approve unmatched", "Pause", "Resume"]) assert.ok(files.panel.includes(label), label);
+  for (const label of ["Start listing", "Copy one client (pilot)", "Approve matched and fixed", "Approve unmatched", "Pause", "Resume"]) assert.ok(files.panel.includes(label), label);
+});
+test("bulk approval buttons stay disabled until a pilot copy is verified and confirm with count and size", () => {
+  assert.match(files.panel, /pilotVerified\(/);
+  assert.match(files.panel, /approveConfirmText\(/);
+  const bulk = files.panel.slice(files.panel.indexOf("Approve matched and fixed") - 400, files.panel.indexOf("Approve unmatched</Button>"));
+  assert.match(bulk, /disabled=\{!canBulk\}/);
+});
+test("a non-admin (the CEO) sees the panel only when od_copy.can_read() allows it", () => {
+  assert.match(files.api, /rpc\("can_read"\)/);
+  const gate = files.panel.slice(files.panel.indexOf("function AccessCheck"), files.panel.indexOf("function Loaded"));
+  assert.match(gate, /useLoad\(canRead/);
+  assert.match(gate, /data !== true/);
+  assert.ok(!/loadReport|loadSettings|loadIssues/.test(gate), "nothing else is loaded before access is confirmed");
+});
+test("the duplicates list reads duplicate_groups (all locations)", () => {
+  assert.match(files.api, /from\("duplicate_groups"\)/);
+});
+test("the pilot goes through admin_approve with scope client", () => {
+  assert.match(files.api, /admin_approve", \{ p_scope: scope, p_value: value \}/);
+  assert.match(files.panel, /approve\("client", /);
 });
