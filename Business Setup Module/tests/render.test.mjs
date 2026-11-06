@@ -186,7 +186,7 @@ test("service page: buttons follow the server's rights, and the checklist shows 
 
 test("Completion and the list editor render; the referrer button is for admins only", { skip }, async () => {
   assert.match(await html("Completion.jsx", "default", {}), /Completion/);
-  assert.match(await html("FeeMaster.jsx", "default", {}), /Service checklists/);
+  assert.match(await html("FeeMaster.jsx", "default", {}), /Fee list/);
   const ed = await html("ChecklistLists.jsx", "ListEditor", { list: { id: "l1", name: "Ejari Renewal", category: "Tenancy", department: "Business Setup", active: true, steps: [{ label: "Collect", requirement: "Mandatory" }, { label: "Pay (if any)", requirement: "Optional" }] }, onClose() {}, onSaved() {} });
   assert.match(ed, /Ejari Renewal/); assert.match(ed, /\+ Step/); assert.match(ed, /Optional/);
   const mod = await server.ssrLoadModule("/../Business Setup Module/components/ChecklistLists.jsx");

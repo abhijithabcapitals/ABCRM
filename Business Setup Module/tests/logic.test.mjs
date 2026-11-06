@@ -287,7 +287,7 @@ test("revising a quote whose lines included VAT says that VAT is now added on to
 
 test("the fee master shows and saves is_service", () => {
   const src = readFileSync(fileURLToPath(new URL("../components/FeeMaster.jsx", import.meta.url)), "utf8");
-  assert.match(src, /name: "is_service"[^}]*type: "bool"/); assert.match(src, /is_service: true/); assert.match(src, /key: "is_service"/);
+  assert.match(src, /name: "is_service"[^}]*type: "bool"/); assert.match(src, /is_service: true/); assert.match(src, /r\.is_service === false \? "Cost"/);
 });
 
 test("nav_order: the nine keys and labels of the client flow", () => {
