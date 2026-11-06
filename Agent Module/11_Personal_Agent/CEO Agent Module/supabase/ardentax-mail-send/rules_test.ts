@@ -181,3 +181,9 @@ Deno.test("a signed file outside the signed folder is refused", () => {
   assertEquals(attachmentPlan({ ...UNSIGNED, mail_attach_word: true }, true, { ...LIVE, word_path: null }), { error: "The signed Word file's path is not valid." });
   assertEquals(attachmentPlan({ ...UNSIGNED, mail_attach_word: true }, true, { ...LIVE, word_path: `Accounting/${SID}/signed/x.docx` }), { error: "The signed Word file's path is not valid." });
 });
+
+Deno.test("the extension needs its dot: xpdf and xdocx are refused", () => {
+  assert(!isSignedArdentaxPath(SID, `ArdentTax (ASP)/${SID}/signed/0b0c0d0e-1111-4222-8333-444455556666xpdf`, "pdf"));
+  assert(!isSignedArdentaxPath(SID, `ArdentTax (ASP)/${SID}/signed/0b0c0d0e-1111-4222-8333-444455556666xdocx`, "docx"));
+  assert(isSignedArdentaxPath(SID, `ArdentTax (ASP)/${SID}/signed/0b0c0d0e-1111-4222-8333-444455556666.pdf`, "pdf"));
+});

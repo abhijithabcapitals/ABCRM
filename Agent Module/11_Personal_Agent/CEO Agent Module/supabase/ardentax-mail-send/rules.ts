@@ -97,7 +97,7 @@ export function isSignedArdentaxPath(id: string | null | undefined, path: string
   const prefix = `ArdentTax (ASP)/${id}/signed/`;
   if (!path.startsWith(prefix)) return false;
   const name = path.slice(prefix.length);
-  return !name.includes("/") && !name.includes("..") && new RegExp(`^[A-Za-z0-9 _.-]+\.${ext}$`).test(name);
+  return !name.includes("/") && !name.includes("..") && (ext === "pdf" ? /^[A-Za-z0-9 _.-]+\.pdf$/ : /^[A-Za-z0-9 _.-]+\.docx$/).test(name);
 }
 
 type SignableDoc = { id?: string | null; pdf_path?: string | null; word_path?: string | null; mail_attach_word?: boolean | null };

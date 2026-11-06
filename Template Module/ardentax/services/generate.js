@@ -78,8 +78,13 @@ export function makeLetter(api, quote, requestId, deps, onCreated) {
 }
 
 // The family's rebuild for the shared signing step: the stored document with the company signature, by the same fill.
-// ctx: { api, JSZip, parse, serialize }. Returns the Word blob.
-export const rebuildArdentax = (doc, signature, ctx) => render(ctx.api, doc, signature, ctx);
+// ctx: { api, JSZip, parse, serialize }. Returns the Word blob. A blank saved date would print the signing day (fillDocx prints today),
+// so the row's created_at, as a Dubai date, stands in: the signed copy then carries the stored file's date. A fresh generate is unchanged.
+const dubaiDate = (t) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date(t));
+export function rebuildArdentax(doc, signature, ctx) {
+  const dated = !doc.details?.date && doc.created_at ? { ...doc, details: { ...doc.details, date: dubaiDate(doc.created_at) } } : doc;
+  return render(ctx.api, dated, signature, ctx);
+}
 
 // An approver signs a document. seen is the change stamp the server reads now (doc_changed_at); the server refuses the record if
 // the row changed after it. api.sign is signing.js signDocument with its deps. Returns { signature, wordBlob, pdfBlob } or { error }.

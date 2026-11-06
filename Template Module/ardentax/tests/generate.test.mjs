@@ -259,3 +259,20 @@ test("a refused or failed signing comes back as an error, never thrown", async (
   const broken = fakeApi({ changedAt: async () => { throw new Error("offline"); }, sign: async () => ({}) });
   assert.deepEqual(await signArdentax(broken, doc, deps()), { error: "offline" });
 });
+
+test("a blank saved date: the signed copy made a day later carries the stored file's date, not the signing day's", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-05T10:00:00Z") });
+  const api = fakeApi();
+  const stored = await generateDocument(api, { details: details((d) => { d.date = ""; }), requestId: "r" }, deps());
+  const doc = { ...stored.doc, created_at: "2026-11-05T10:00:00Z" };
+  t.mock.timers.setTime(Date.parse("2026-11-06T10:00:00Z"));
+  const signed = await rebuildArdentax(doc, SIG, { api, ...deps() });
+  const before = await textIn(stored.wordBlob);
+  const after = await textIn(signed);
+  assert.ok(before.includes("05/11/2026"));
+  assert.ok(after.includes("05/11/2026"));
+  assert.ok(!after.includes("06/11/2026"));
+  // A fresh generate on the later day still prints that day, as before.
+  const fresh = await generateDocument(fakeApi(), { details: details((d) => { d.date = ""; }), requestId: "r2" }, deps());
+  assert.ok((await textIn(fresh.wordBlob)).includes("06/11/2026"));
+});
