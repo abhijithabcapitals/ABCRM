@@ -102,8 +102,11 @@ export function pemToPkcs8(pem: string): Uint8Array<ArrayBuffer> {
   }
   if (/BEGIN ENCRYPTED PRIVATE KEY/.test(text)) throw new Error("private key must not be password-protected");
   const m = text.match(/-----BEGIN PRIVATE KEY-----([\s\S]+?)-----END PRIVATE KEY-----/);
-  if (!m) throw new Error("private key must be a PKCS#8 PEM (-----BEGIN PRIVATE KEY-----)");
-  const bin = atob(m[1].replace(/\s+/g, ""));
+  // The Supabase CLI keeps only the first line of a multi-line secret, so the key may also be given
+  // as one line: the PEM body (base64 of the PKCS#8 DER) without the BEGIN/END lines.
+  const body = m ? m[1] : /^[A-Za-z0-9+/=\s]{200,}$/.test(text.trim()) ? text : null;
+  if (!body) throw new Error("private key must be PKCS#8: a PEM (-----BEGIN PRIVATE KEY-----) or its base64 body on one line");
+  const bin = atob(body.replace(/\s+/g, ""));
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;

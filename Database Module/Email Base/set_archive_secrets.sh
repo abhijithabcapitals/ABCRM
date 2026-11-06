@@ -21,7 +21,9 @@ SECRET="$(tr -d '\r\n' < "$KEYS/archive-secret.txt")"
 cd "$TOOLS"
 npx --no-install supabase secrets set --project-ref "$REF" \
   MS_TENANT_ID="$TENANT" MS_CLIENT_ID="$CLIENT" MS_CERT_THUMBPRINT="$THUMB" \
-  ARCHIVE_SECRET="$SECRET" MS_CERT_PRIVATE_KEY="$(cat "$KEYS/archive.pk8.pem")"
+  ARCHIVE_SECRET="$SECRET" MS_CERT_PRIVATE_KEY="$(grep -v -- '-----' "$KEYS/archive.pk8.pem" | tr -d '\r\n')"
+# The private key goes in as one line (base64 body, no BEGIN/END lines): the CLI keeps only the
+# first line of a multi-line value. The function accepts both forms.
 
 # The cron job reads the same shared secret from Vault. --yes: running this script is the confirmation.
 npx --no-install supabase db query --linked --project-ref "$REF" --yes "

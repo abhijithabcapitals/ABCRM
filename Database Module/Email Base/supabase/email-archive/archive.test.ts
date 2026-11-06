@@ -144,6 +144,9 @@ Deno.test("client assertion is a valid RS256 JWT for the tenant token endpoint",
   const der = new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey));
   const pem = `-----BEGIN PRIVATE KEY-----\n${toB64(der).match(/.{1,64}/g)!.join("\n")}\n-----END PRIVATE KEY-----\n`;
   const key = await importSigningKey(pem.replace(/\n/g, "\\n")); // secrets often arrive with literal \n
+  // The one-line form (base64 body only) that set_archive_secrets.sh stores.
+  await importSigningKey(toB64(der));
+  assertThrows(() => pemToPkcs8("-----BEGIN PRIVATE KEY-----"), Error, "PKCS#8");
   const parts = assertionParts({ tenantId: "contoso.onmicrosoft.com", clientId: "app-1", x5t: "X5T", nowSec: 1_000_000, jti: "j-1" });
   const jwt = await signAssertion(key, parts);
   const [h, p, sig] = jwt.split(".");
