@@ -577,3 +577,7 @@
 .bd-fit-table td.bd-row-action { width: auto; white-space: normal; text-align: right; }
 .bd-fit-table .bd-row-action .bd-button { max-width: 100%; white-space: nowrap; }
 .bd-fit-table .bd-stage-badge, .bd-fit-table .bd-pool-badge, .bd-fit-table .bd-source-tag { white-space: normal; }
+/* Small columns have fixed widths; Lead takes the rest. Tighter cells so the action button always fits. */
+.bd-fit-table th, .bd-fit-table td { padding-left: 10px; padding-right: 10px; }
+.bd-fit-table td.bd-row-action { padding-left: 4px; padding-right: 10px; }
+.bd-fit-table .bd-row-action .bd-button { padding: 0 10px; }
