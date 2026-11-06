@@ -24,9 +24,10 @@ const dateTime = (value) => value ? new Intl.DateTimeFormat("en-GB", {
 }).format(new Date(value)) : "—";
 
 const sourceName = (provider) => SOURCES.find((s) => s.provider === provider)?.name || provider;
+export const prospectSourceName = sourceName;
 
-// Values for the New lead form when a prospect is added to the pipeline.
-function leadValues(p) {
+// Values for the New lead form when a prospect is added to the pipeline (also used by All Leads "Assign to me").
+export function prospectLeadValues(p) {
   const name = sourceName(p.provider);
   const context = [p.why_hot, p.note].filter(Boolean).join(" ");
   return {
@@ -130,8 +131,8 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
     <section className="bd-leadgen">
       <div className="bd-section-heading">
         <div>
-          <h2>Lead Generation</h2>
-          <p>Every lead-generation platform in one place. Open a source to connect or sync it; review all prospects below.</p>
+          <h2>Platform inbox</h2>
+          <p>Lead-generation platforms. Open a source to connect or sync it. New prospects also appear in All Leads as unassigned leads; replies and drafts are handled here.</p>
         </div>
       </div>
 
@@ -220,9 +221,9 @@ export default function LeadGenerationView({ onAddToPipeline, version = 0 }) {
                   <td className="bd-leadgen-row-actions">
                     {(p.status === "new" || p.status === "drafted") && (
                       <>
-                        <button type="button" className="bd-button bd-button-primary" onClick={() => onAddToPipeline(p.id, leadValues(p))}
+                        <button type="button" className="bd-button bd-button-primary" onClick={() => onAddToPipeline(p.id, prospectLeadValues(p))}
                           disabled={!p.email && !p.phone} title={!p.email && !p.phone ? "No email or phone to create a lead with" : undefined}>
-                          Add to pipeline
+                          Assign to me
                         </button>
                         {p.status === "new" && <button type="button" className="bd-text-button" onClick={() => dismiss(p)}>Dismiss</button>}
                       </>

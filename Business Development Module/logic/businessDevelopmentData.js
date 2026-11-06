@@ -4,18 +4,8 @@ import { shapeSharedSignatures } from "@app/replySignature";
 // Backend: Database Module/migrations/bd (001 schema, 002 seed, 003 UI functions).
 // Every write goes through a bd_* database function; the lists below mirror the seed names.
 
-export const BD_STAGES = [
-  "New Lead",
-  "Contact Pending",
-  "First Contact Attempted",
-  "Contact Established",
-  "Requirement Identified",
-  "Qualified",
-  "Proposal / Quotation Preparation",
-  "Proposal Sent",
-  "Follow-up / Negotiation",
-  "Verbal Confirmation",
-];
+// Workflow stages (migration 012). Converted is reached only through bd_convert_lead.
+export { WORKFLOW_STAGES as BD_STAGES, CONVERTED_STAGE as BD_CONVERTED_STAGE } from "./leadRules.js";
 
 export const BD_SOURCES = [
   "Cold Call",
@@ -67,6 +57,7 @@ export const BD_SERVICES = [
   "Tax Deregistration",
   "Other Advisory",
   "E-Invoicing Services",
+  "Bank Account Opening",
 ];
 
 // Leads with their services, discussions, follow-ups and handover, already in the shape the screens use
@@ -118,6 +109,38 @@ export async function markBusinessDevelopmentLeadWon(leadId, handover) {
     p_lead_id: leadId,
     p_handover: handover,
   });
+}
+
+// Take a lead from the pool (no userId) or, as a manager or team leader, assign it to someone.
+export async function assignBusinessDevelopmentLead(leadId, userId = null, reason = null) {
+  return supabase.rpc("bd_assign_lead", { p_lead_id: leadId, p_user: userId, p_reason: reason });
+}
+
+// The caller's BD role (super_admin, bd_manager, team_leader, sales_executive, ...), or null.
+export async function fetchBusinessDevelopmentRole() {
+  return supabase.rpc("bd_current_role");
+}
+
+// Records the quotation and engagement letter mail and moves the lead to Quote & Engagement Sent.
+export async function recordBusinessDevelopmentQuoteSent(leadId, quote) {
+  return supabase.rpc("bd_record_quote_sent", { p_lead_id: leadId, p: quote });
+}
+
+// Uploads the client's payment receipt; the path is what bd_convert_lead expects.
+export async function uploadBusinessDevelopmentReceipt(leadId, file) {
+  const safe = file.name.replace(/[^\w.\- ]+/g, "_").slice(-120);
+  const path = `Business Development/receipts/${leadId}/${Date.now()}-${safe}`;
+  const { error } = await supabase.storage.from("hub-documents").upload(path, file, { contentType: file.type || undefined });
+  return { data: error ? null : { path, name: file.name }, error };
+}
+
+export async function businessDevelopmentReceiptUrl(path) {
+  return supabase.storage.from("hub-documents").createSignedUrl(path, 300);
+}
+
+// Records the receipt, marks the lead converted and creates the department leads/jobs.
+export async function convertBusinessDevelopmentLead(leadId, conversion) {
+  return supabase.rpc("bd_convert_lead", { p_lead_id: leadId, p: conversion });
 }
 
 export async function markBusinessDevelopmentLeadLost(leadId, reason, notes) {
@@ -185,6 +208,16 @@ export async function callBdAgent(action, payload = {}) {
   }
   if (data?.error) return { data: null, error: { message: data.error } };
   return { data, error: null };
+}
+
+// Platform prospects not yet in the pipeline: shown in All Leads as unassigned pool rows.
+export async function fetchPoolProspects() {
+  return supabase.from("bd_platform_prospects")
+    .select("id, provider, kind, external_id, campaign_name, name, email, phone, job_title, company_name, company_domain, linkedin_url, country, why_hot, note, became_hot_at, replied, status, fetched_at")
+    .in("status", ["new", "drafted", "replied"])
+    .order("became_hot_at", { ascending: false, nullsFirst: false })
+    .order("fetched_at", { ascending: false })
+    .limit(1000);
 }
 
 export async function fetchPlatformProspectCounts() {
