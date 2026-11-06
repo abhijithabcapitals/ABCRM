@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { groupTitle, linkReference, memberKey, messengerLinks, openRecordGroup, parseReference, requestOpenChat, OPEN_CHAT_EVENT } from "../logic/recordChat.js";
+import { groupTitle, linkReference, memberKey, messengerLinks, openRecordGroup, parseReference, requestOpenChat, savedChatState, OPEN_CHAT_EVENT } from "../logic/recordChat.js";
+import { chatsIn, totalUnread } from "../logic/chat.js";
 
 test("groupTitle names the record and its company", () => {
   assert.equal(groupTitle({ recordType: "lead", id: "LD-2026-000005", label: "Al Noor Trading" }), "Lead LD-2026-000005 · Al Noor Trading");
@@ -33,12 +34,13 @@ test("messengerLinks skips old Teams links", () => {
 });
 
 function fakes({ saved = [], members = {} } = {}) {
-  const calls = { created: [], sent: [], saved: [] };
+  const calls = { created: [], sent: [], saved: [], archived: [] };
   const deps = {
     chat: {
       createGroup: async (title, ids) => { calls.created.push({ title, ids }); return "new-conv"; },
       members: async (id) => members[id] || [],
       send: async (m) => { calls.sent.push(m); },
+      setArchived: async (id, on) => { calls.archived.push([id, on]); },
     },
     links: {
       list: async () => saved,
@@ -67,6 +69,7 @@ test("same record and people: reopens the saved group and does not repeat the re
   assert.equal(calls.created.length, 0);
   assert.equal(calls.saved.length, 0);
   assert.equal(calls.sent.length, 0);
+  assert.deepEqual(calls.archived, [["old", false]], "a reused group comes out of the archive");
 });
 
 test("reopening with a new message posts it", async () => {
@@ -95,4 +98,18 @@ test("requestOpenChat sends the conversation id to the dock", () => {
   target.addEventListener(OPEN_CHAT_EVENT, (e) => { got = e.detail; });
   requestOpenChat("c9", target);
   assert.deepEqual(got, { conversationId: "c9" });
+});
+
+test("savedChatState reads the person's own chat list", () => {
+  const chats = [{ id: "a", archived: false }, { id: "b", archived: true }];
+  assert.equal(savedChatState({ conversationId: "a" }, chats), "open");
+  assert.equal(savedChatState({ conversationId: "b" }, chats), "archived");
+  assert.equal(savedChatState({ conversationId: "gone" }, chats), "gone");
+});
+
+test("archived chats sit apart and do not add to the badge", () => {
+  const rows = [{ id: "a", unread: 2 }, { id: "b", unread: 5, archived: true }, { id: "c", unread: 1, muted: true }];
+  assert.deepEqual(chatsIn(rows, false).map((r) => r.id), ["a", "c"]);
+  assert.deepEqual(chatsIn(rows, true).map((r) => r.id), ["b"]);
+  assert.equal(totalUnread(rows), 2);
 });

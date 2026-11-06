@@ -28,6 +28,13 @@ test("the record panel uses CRM Messenger, not Microsoft Teams", () => {
   assert.match(src, /requestOpenChat/);
 });
 
+test("only the owner sees Delete group, and it asks first", () => {
+  const src = read("components/GroupInfo.jsx");
+  assert.match(src, /\{owner && <button[^\n]*setConfirming\("delete"\)/);
+  assert.match(src, /cannot be undone/);
+  assert.match(src, /chatApi\.deleteGroup\(cid\)/);
+});
+
 test("the dock opens a chat a record page asks for", () => {
   const src = read("components/MessengerDock.jsx");
   assert.match(src, /addEventListener\(OPEN_CHAT_EVENT/);

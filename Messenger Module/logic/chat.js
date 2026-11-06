@@ -7,8 +7,14 @@ export function badgeText(total) {
   return total > 99 ? "99+" : String(total);
 }
 
+// Muted and archived chats do not add to the badge.
 export function totalUnread(rows) {
-  return rows.reduce((sum, r) => sum + (r.muted ? 0 : r.unread || 0), 0);
+  return rows.reduce((sum, r) => sum + (r.muted || r.archived ? 0 : r.unread || 0), 0);
+}
+
+// The chats on one side of the archive: the list shows one side at a time.
+export function chatsIn(rows, archived) {
+  return (rows || []).filter((r) => !!r.archived === !!archived);
 }
 
 export function checkBody(text) {

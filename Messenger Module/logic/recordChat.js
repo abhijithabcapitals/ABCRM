@@ -43,6 +43,13 @@ export function messengerLinks(links) {
   });
 }
 
+// How a saved chat stands for this person, from their chat list: open, archived, or gone (deleted, or they are not in it).
+export function savedChatState(link, chats) {
+  const row = (chats || []).find((c) => c.id === link.conversationId);
+  if (!row) return "gone";
+  return row.archived ? "archived" : "open";
+}
+
 // Asks the Messenger dock to show a chat.
 export function requestOpenChat(conversationId, target = globalThis) {
   target.dispatchEvent?.(new CustomEvent(OPEN_CHAT_EVENT, { detail: { conversationId } }));
@@ -50,7 +57,8 @@ export function requestOpenChat(conversationId, target = globalThis) {
 
 /**
  * Finds this record's group with exactly these people, or makes one, then posts the message.
- * deps: { chat: { createGroup, members, send }, links: { list, save }, newId }
+ * deps: { chat: { createGroup, members, send, setArchived }, links: { list, save }, newId }
+ * A reused group that the person archived comes back out of the archive.
  * Returns { conversationId, created }.
  */
 export async function openRecordGroup(deps, { me, memberIds, title, label, message, defaultMessage, link }) {
@@ -68,6 +76,7 @@ export async function openRecordGroup(deps, { me, memberIds, title, label, messa
   }
 
   const created = !conversationId;
+  if (!created) await deps.chat.setArchived(conversationId, false);
   if (created) {
     conversationId = await deps.chat.createGroup(title, others);
     await deps.links.save({ reference: linkReference(conversationId, [me, ...others]), label });
