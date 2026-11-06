@@ -183,3 +183,14 @@ test("service page: buttons follow the server's rights, and the checklist shows 
   const cancelled = await html("ServicePage.jsx", "ServiceView", { d: { ...d, service: { ...d.service, status: "Cancelled" } }, clientId: "CL000001", onBack() {}, reload() {} });
   assert.match(cancelled, /Cancelled/); assert.doesNotMatch(cancelled, /<select/); assert.doesNotMatch(cancelled, /Sign off/);
 });
+
+test("Completion and the list editor render; the referrer button is for admins only", { skip }, async () => {
+  assert.match(await html("Completion.jsx", "default", {}), /Completion/);
+  assert.match(await html("FeeMaster.jsx", "default", {}), /Service checklists/);
+  const ed = await html("ChecklistLists.jsx", "ListEditor", { list: { id: "l1", name: "Ejari Renewal", category: "Tenancy", department: "Business Setup", active: true, steps: [{ label: "Collect", requirement: "Mandatory" }, { label: "Pay (if any)", requirement: "Optional" }] }, onClose() {}, onSaved() {} });
+  assert.match(ed, /Ejari Renewal/); assert.match(ed, /\+ Step/); assert.match(ed, /Optional/);
+  const mod = await server.ssrLoadModule("/../Business Setup Module/components/ChecklistLists.jsx");
+  assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [] }), "A list needs at least one step.");
+  assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [{ label: " " }] }), "Every step needs a label.");
+  assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [{ label: "a" }] }), null);
+});

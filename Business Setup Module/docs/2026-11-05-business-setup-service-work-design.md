@@ -171,3 +171,15 @@ One release, on the user's approval: backup, apply `022`, deploy `client-portal`
 | Internal approvals other than sign-off | Later, on request |
 | 15-tab layout | Decided at the end |
 | Business Development transfer | Phase D, unchanged |
+
+## 11. As built (2026-11-06)
+
+Built on branch `business-setup-restructure`, not live. Three changes from section 3, made to reuse what exists:
+
+| Spec | Built |
+|---|---|
+| New `assigned_to` on services | The existing `owner_id` is the assigned employee. It defaults to the case owner when the quote is accepted |
+| New `business_setup_checkpoint_files` table | An attachment is an ordinary client document (`business_setup_documents`, not client-visible) with a new `checkpoint_id`. Same private bucket |
+| `business_setup_service_confirm` wrapper | The checklist rule sits inside `business_setup_service_complete`, so every route to Completed obeys it |
+
+Not covered by tests: two people racing a sign-off against a reopen (the functions lock the service row, then the item), and a quote revised after its checklists exist.

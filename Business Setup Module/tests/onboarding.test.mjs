@@ -163,3 +163,12 @@ test("the Profile page lets staff reset their own password, only after giving th
   assert.ok(p.indexOf("signInWithPassword") > 0 && p.indexOf("signInWithPassword") < p.indexOf("updateUser"));
   assert.doesNotMatch(p, /console\./);
 });
+
+test("Completion shows one AED, the money columns, and the referrer dialog is admin-only with a required reason", () => {
+  const c = rd("../components/Completion.jsx");
+  assert.doesNotMatch(c, /AED \$\{money/);
+  for (const k of ["quote_total", "net_paid", "balance", "invoices", "claims_pending"]) assert.match(c, new RegExp(`key: "${k}"`));
+  const o = rd("../components/ClientOnboarding.jsx");
+  assert.match(o, /profile\?\.role === "admin" && <Button onClick=\{\(\) => setDialog\("referrer"\)\}>Change referrer/);
+  assert.match(o, /name: "reason", label: "Reason", type: "textarea", required: true/);
+});

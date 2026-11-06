@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, useLoad } from "@banking/components/shared";
 import { useSetup } from "./SetupContext";
 import { listFees, saveFee } from "../services/businessSetupApi";
+import ChecklistLists from "./ChecklistLists";
 
 const FEE_FIELDS = [
   { name: "grp", label: "Group", required: true }, { name: "name", label: "Item", required: true, full: true },
@@ -30,6 +31,7 @@ export default function FeeMaster() {
           { key: "active", label: "State", render: (r) => <Badge tone={r.active ? "good" : undefined}>{r.active ? "In use" : "Not in use"}</Badge> },
         ]} />}
       </Panel>
+      <ChecklistLists manage={manage} />
       {fee && <FormModal title={fee.id ? "Edit fee item" : "New fee item"} fields={FEE_FIELDS} initial={fee} onClose={() => setFee(null)} onSubmit={async (v) => { await saveFee({ ...v, id: fee.id }); await fees.reload(); }} />}
     </div>
   );

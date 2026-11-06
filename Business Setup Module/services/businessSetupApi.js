@@ -177,3 +177,4 @@ export async function checkpointFileAdd(item, service, clientId, file) {
   const docId = typeof doc === "object" && doc ? doc.id : doc;
   return rpc("business_setup_checkpoint_file_link", { p_id: item, p_document: docId });
 }
+export const caseSetReferrer = (id, user, reason) => rpc("business_setup_case_set_referrer", { p_case: id, p_user: user || null, p_reason: reason });
