@@ -24,6 +24,7 @@ import {
 } from "../logic/businessDevelopmentData";
 import { CONVERTED_STAGE, DEPARTMENTS, QUOTE_STAGE, departmentForService, departmentLabel, isOpen, isUnassigned, nextStep } from "../logic/leadRules.js";
 import BdAgentPanel from "./BdAgentPanel";
+import BdAgentTab from "./BdAgentTab";
 import BdCalendarView from "./BdCalendarView";
 import LeadGenerationView, { prospectLeadValues, prospectSourceName } from "./LeadGenerationView";
 import RecordChatPanel from "@messenger/components/RecordChatPanel";
@@ -403,7 +404,7 @@ export default function BusinessDevelopment({ profile }) {
         ? <BdAgentPanel lead={selectedLead} page={selectedLead ? "Lead workspace" : page} onClose={() => setAgentOpen(false)}
           followups={dueFollowups} onOpenLead={openLead}
           onOpenCalendar={() => { setSelectedLead(null); setModal(""); setPage("Lead Calendar"); }} />
-        : <button type="button" className="bd-agent-tab" onClick={() => setAgentOpen(true)}>BD Agent</button>}
+        : <BdAgentTab onOpen={() => setAgentOpen(true)} />}
     </div>
   );
 
