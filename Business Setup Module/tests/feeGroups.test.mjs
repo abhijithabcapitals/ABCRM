@@ -3,7 +3,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { FEE_CATEGORIES, categoryOptions, feeCategory, groupFees, unlinkedLists } from "../logic/feeGroups.js";
+import { FEE_CATEGORIES, applyCategoryOrder, categoryOptions, feeCategory, groupFees, moveCategory, unlinkedLists } from "../logic/feeGroups.js";
+
+test("a person's saved order moves sections; unsaved ones keep their place after", () => {
+  const cats = ["A", "B", "C", "D"].map((category) => ({ category }));
+  assert.deepEqual(applyCategoryOrder(cats, ["C", "A"]).map((c) => c.category), ["C", "A", "B", "D"]);
+  assert.deepEqual(applyCategoryOrder(cats, []).map((c) => c.category), ["A", "B", "C", "D"]);
+  assert.deepEqual(moveCategory(["A", "B", "C", "D"], "A", "C"), ["B", "C", "A", "D"]);
+  assert.deepEqual(moveCategory(["A", "B", "C", "D"], "D", "B"), ["A", "D", "B", "C"]);
+  assert.deepEqual(moveCategory(["A", "B"], "A", "X"), ["A", "B"]);
+});
 
 const lists = [{ id: "s1", category: "Visa & Immigration", name: "Visa Renewal", steps: [{}, {}] }, { id: "s9", category: "Corporate Compliance", name: "Loose list", steps: [{}] }];
 const fees = [

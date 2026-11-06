@@ -47,6 +47,28 @@ export function groupFees(fees = [], lists = [], q = "") {
     });
 }
 
+// Each person's own order of the category sections, dragged on the screen and kept in this browser (as the CRM's
+// tab bars are). A category not in the saved order keeps its place after the saved ones.
+const orderKey = (user) => `bs-fee-cat-order:${user || "anon"}`;
+export function readCategoryOrder(user) {
+  try { const v = JSON.parse(localStorage.getItem(orderKey(user))); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+export function saveCategoryOrder(user, keys) {
+  try { if (keys.length) localStorage.setItem(orderKey(user), JSON.stringify(keys)); else localStorage.removeItem(orderKey(user)); } catch { /* applies until reload */ }
+}
+export function applyCategoryOrder(cats, order = []) {
+  const rank = (c) => (order.includes(c.category) ? order.indexOf(c.category) : order.length);
+  return cats.map((c, i) => [c, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([c]) => c);
+}
+// Puts the dragged section where the target is; the sections between them shift by one.
+export function moveCategory(keys, from, to) {
+  const at = keys.indexOf(to);
+  if (from === to || at < 0 || !keys.includes(from)) return keys;
+  const rest = keys.filter((k) => k !== from);
+  rest.splice(at, 0, from);
+  return rest;
+}
+
 // Checklists no fee item points at: shown on their own so a list made with "+ Checklist" can still be found and edited.
 export const unlinkedLists = (fees = [], lists = []) => {
   const used = new Set(fees.map((f) => f.checkpoint_set_id).filter(Boolean));
