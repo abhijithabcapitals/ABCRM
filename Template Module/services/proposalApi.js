@@ -1,6 +1,8 @@
 // Server calls of the Business Formation Proposal. The screen wires them into the deps of proposalGenerate.js.
 import { supabase } from "@app/supabase";
-import { createDocument, openStored, storedBlob } from "./hubApi";
+import { createDocument, listDocuments, openStored, storedBlob } from "./hubApi";
+import { loadAccountingSignatures } from "./accountingApi";
+import { withSignatures } from "../logic/accountingUi.js";
 import { fileNameFor } from "../logic/serviceDocs";
 
 export { openStored, storedBlob };
@@ -80,8 +82,17 @@ export async function createProposalMail(doc, mail) {
   });
 }
 
-export async function sendProposal(id, resend) {
-  const { data, error } = await supabase.functions.invoke("proposal-mail-send", { body: { document_id: id, resend: !!resend } });
+// The Business Setup documents, each proposal with its signing state ({ live, last }, see accountingUi withSignatures).
+// loadAccountingSignatures reads any hub_documents rows' signatures, under the caller's own rules.
+export async function listProposalsWithSignatures() {
+  const docs = await listDocuments("Business Setup");
+  const ids = docs.filter((d) => d.doc_type === "quote" && d.library_template === "AB Capital/Proposal").map((d) => d.id);
+  return withSignatures(docs, ids.length ? await loadAccountingSignatures(ids) : []);
+}
+
+// signed: true sends the live signature's PDF (refused when there is none); false sends the unsigned PDF as before.
+export async function sendProposal(id, resend, signed = false) {
+  const { data, error } = await supabase.functions.invoke("proposal-mail-send", { body: { document_id: id, resend: !!resend, signed: !!signed } });
   if (error) {
     // The function explains a refusal in its response; the client's own message is generic.
     let message = error.message;

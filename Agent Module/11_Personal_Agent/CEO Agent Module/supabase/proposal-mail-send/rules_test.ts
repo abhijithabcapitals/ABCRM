@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { attachmentName, attachmentsFor, claimFilter, refusal } from "./rules.ts";
+import { attachmentChoice, attachmentName, attachmentsFor, claimFilter, isSignedProposalPath, mailBodies, NOT_SIGNED, parseSigned, refusal } from "./rules.ts";
 
 const ID = "11111111-2222-3333-4444-555555555555";
 const good = {
@@ -37,9 +37,9 @@ Deno.test("resend passes for an already sent proposal", () => {
 
 Deno.test("claimFilter: 2 minute staleness, unsent unless resend", () => {
   const now = new Date("2026-11-05T10:00:00.000Z");
-  assertEquals(claimFilter(now, {}), { staleBefore: "2026-11-05T09:58:00.000Z", requireUnsent: true });
+  assertEquals(claimFilter(now, {}), { staleBefore: "2026-11-05T09:58:00.000Z", requireUnsent: true, storagePath: null });
   assertEquals(claimFilter(now, { resend: false }).requireUnsent, true);
-  assertEquals(claimFilter(now, { resend: true }), { staleBefore: "2026-11-05T09:58:00.000Z", requireUnsent: false });
+  assertEquals(claimFilter(now, { resend: true }), { staleBefore: "2026-11-05T09:58:00.000Z", requireUnsent: false, storagePath: null });
 });
 
 Deno.test("the attachment is named after the proposal's Ref, made safe, ending .pdf", () => {
@@ -55,4 +55,72 @@ Deno.test("a rejected or replaced proposal is not sent", () => {
   assertEquals(refusal({ ...good, status: "superseded" }, { resend: true }), "This proposal was replaced and cannot be sent.");
   assertEquals(refusal({ ...good, status: "issued" }, { resend: false }), null);
   assertEquals(refusal({ ...good, status: "accepted" }, { resend: false }), null);
+});
+
+// ---- Signed or unsigned copy (shared signing, Template Hub 011) ----
+const LIVE = { id: "s1", source_table: "hub_documents", source_id: ID, pdf_path: `Business Setup/${ID}/signed/abc.pdf`, superseded_at: null };
+
+Deno.test("parseSigned takes only true, false or nothing", () => {
+  assertEquals(parseSigned(undefined), false);
+  assertEquals(parseSigned(null), false);
+  assertEquals(parseSigned(false), false);
+  assertEquals(parseSigned(true), true);
+  assertEquals(parseSigned("true"), { error: "signed must be true or false." });
+  assertEquals(parseSigned(1), { error: "signed must be true or false." });
+});
+
+Deno.test("unsigned send is unchanged: the row's own PDF, no signature checked", () => {
+  assertEquals(attachmentChoice(good, false, null), { path: good.storage_path, signatureId: null });
+  assertEquals(attachmentChoice(good, false, LIVE), { path: good.storage_path, signatureId: null });
+});
+
+Deno.test("signed send takes the live signature's PDF", () => {
+  assertEquals(attachmentChoice(good, true, LIVE), { path: LIVE.pdf_path, signatureId: "s1" });
+});
+
+Deno.test("signed send with no live signature is refused", () => {
+  assertEquals(attachmentChoice(good, true, null), { error: NOT_SIGNED });
+  assertEquals(attachmentChoice(good, true, { ...LIVE, superseded_at: "2026-11-06T08:00:00Z" }), { error: NOT_SIGNED });
+  assertEquals(attachmentChoice(good, true, { ...LIVE, source_id: "99999999-2222-3333-4444-555555555555" }), { error: NOT_SIGNED });
+  assertEquals(attachmentChoice(good, true, { ...LIVE, source_table: "ardentax_documents" }), { error: NOT_SIGNED });
+  assertEquals(attachmentChoice(good, true, { ...LIVE, id: null }), { error: NOT_SIGNED });
+});
+
+Deno.test("the signed PDF must sit directly under Business Setup/<id>/signed/", () => {
+  const bad = (pdf_path: string) => assertEquals(attachmentChoice(good, true, { ...LIVE, pdf_path }), { error: "The signed PDF's path is not valid." });
+  bad(`Business Setup/${ID}/abc.pdf`);
+  bad(`Business Setup/${ID}/signed/abc.docx`);
+  bad(`Business Setup/${ID}/signed/x/abc.pdf`);
+  bad(`Business Setup/${ID}/signed/../abc.pdf`);
+  bad(`Business Setup/other/signed/abc.pdf`);
+  bad(`Accounting/${ID}/signed/abc.pdf`);
+  bad(`Business Setup/${ID}/signed/.pdf`.replace(".pdf", ""));
+  assertEquals(isSignedProposalPath(ID, LIVE.pdf_path), true);
+  assertEquals(isSignedProposalPath(null, LIVE.pdf_path), false);
+  assertEquals(isSignedProposalPath(ID, null), false);
+});
+
+Deno.test("claimFilter holds the PDF that was read", () => {
+  const now = new Date("2026-11-05T10:00:00.000Z");
+  assertEquals(claimFilter(now, {}, good).storagePath, good.storage_path);
+  assertEquals(claimFilter(now, {}).storagePath, null);
+});
+
+// ---- Mail text (Task 4 shared rules) ----
+Deno.test("the closing mark is never sent; with no mail signature the closing stays; bold asterisks leave the plain part", () => {
+  const draft = "Dear Pat,\n\n*Option 1*\n\n-- closing --\nKind regards\nSam Signer";
+  const m = mailBodies(draft);
+  assertEquals(m.text, "Dear Pat,\n\nOption 1\n\nKind regards\nSam Signer");
+  assertEquals(m.html.includes("-- closing --"), false);
+  assertEquals(m.html.includes("<b>Option 1</b>"), true);
+  assertEquals(m.html.includes("Kind regards"), true);
+  assertEquals(mailBodies("No mark here").text, "No mark here");
+});
+
+Deno.test("the mail function sends the chosen copy, checks the signature again after the claim, and never the Word file", async () => {
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  if (!src.includes("attachmentChoice(") || !src.includes("parseSigned(") || !src.includes("mailBodies(")) throw new Error("index.ts must use the rules");
+  const claim = src.indexOf("await claim.select"), recheck = src.indexOf(".is(\"superseded_at\", null)", claim), smtp = src.indexOf("new SmtpClient", claim);
+  if (!(claim > 0 && recheck > claim && smtp > recheck)) throw new Error("the live signature must be checked again after the claim and before SMTP");
+  if (/word_path\)|download\(doc\.word_path/.test(src)) throw new Error("the Word file is never read for sending");
 });

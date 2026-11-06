@@ -7,8 +7,13 @@ styles and theme are kept. Its body, custom XML and document properties are NOT 
 Stops if the header holds anything but logos, the footer anything but the office address, or the header has no images.
 Writes Template Module/templates/AB_Capital_Proposal_Template.docx.
 
+    python "Template Module/scripts/build_proposal_template.py" --refresh
+
+rewrites only the body of the committed template (no source needed), for a change made in body().
+
 Tags (docxtemplater, single braces): see Template Module/logic/proposalModel.js (proposalContext).
-Raw tags {@logo_xml} {@timeline_xml} are filled by Template Module/logic/proposalDocx.js.
+Raw tags {@logo_xml} {@timeline_xml} are filled by Template Module/logic/proposalDocx.js, and {@signature_xml}
+(the AB Capital "Authorized Signatory" block, blank until an approver signs) by the same file through logic/signDocx.js.
 """
 import re
 import sys
@@ -184,6 +189,15 @@ def list_block(items_tag):
     return tag("{#%s}" % items_tag) + bullet("{text}") + tag("{/%s}" % items_tag)
 
 
+def signature_block():
+    """AB Capital's Authorized Signatory block. {@signature_xml} is empty (its paragraph removed) until an approver signs;
+    then signDocx.js puts the signature picture there. The lines keep together on one page."""
+    return (para(run("For AB CAPITAL SERVICES (FZE)", bold=True), before=240, after=60, keep_next=True)
+            + tag("{@signature_xml}")
+            + para(run("______________________________"), before=240, after=0, keep_next=True)
+            + para(run("Authorized Signatory"), after=60))
+
+
 def body():
     b = []
     b.append(para(run("Business Formation Proposal", bold=True, size=36), jc="center", before=120, after=120))
@@ -250,6 +264,7 @@ def body():
     b.append(h("Notes:"))
     b.append(list_block("notes"))
     b.append(tag("{/has_notes}"))
+    b.append(signature_block())
     cw = [1250, 9830]
     stack = (cp_raw(run("{contact_name}", bold=True)) + cp_raw(run("{contact_phone}", bold=True)) +
              cp_raw(run("{contact_email}   {contact_website}", bold=True)))
@@ -356,10 +371,25 @@ def build(source):
     print(f"wrote {OUT.relative_to(ROOT)} ({OUT.stat().st_size} bytes), header images: {len(media)}")
 
 
+def refresh():
+    """Rewrites only the body of the committed template from body(), keeping its header, footer, styles and page setup.
+    Gives the same file as a full build from the private source, without needing that source."""
+    with zipfile.ZipFile(OUT) as z:
+        files = {n: z.read(n) for n in z.namelist()}
+    doc = files["word/document.xml"].decode("utf8")
+    start = doc.index("<w:body>") + len("<w:body>")
+    end = doc.rindex("<w:sectPr")
+    files["word/document.xml"] = (doc[:start] + body() + doc[end:]).encode("utf8")
+    with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as out:
+        for n, data in files.items():
+            out.writestr(n, data)
+    print(f"refreshed the body of {OUT.relative_to(ROOT)} ({OUT.stat().st_size} bytes)")
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     try:
-        build(sys.argv[1])
+        refresh() if sys.argv[1] == "--refresh" else build(sys.argv[1])
     except SourceError as e:
         sys.exit(f"STOP: {e}")

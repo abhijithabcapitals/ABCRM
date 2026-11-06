@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { renderProposal } from "../logic/proposalDocx.js";
 import { proposalContext } from "../logic/proposalModel.js";
+import { signatureXml } from "../logic/signDocx.js";
 
 const require = createRequire(new URL("../../Main Module/package.json", import.meta.url));
 const JSZip = require("jszip");
@@ -283,10 +284,64 @@ test("every template tag exists in proposalContext output", async () => {
   const names = new Set([...text(xml).matchAll(/\{([#^/@]?)([A-Za-z_][\w]*)\}/g)].map((m) => m[2]));
   const full = ctx([option({ services: [{ name: "S", remarks: "r", amount: 1, subs: [] }, { name: "B", remarks: "", amount: "", subs: [{ name: "x", amount: 1 }] }] })],
     { addons: [{ name: "A", amount: 5, text: "" }], documents: ["d"], payment: ["p"], scope: ["s"], notes: ["n"] });
-  const keys = new Set(["logo_xml", "timeline_xml"]);   // filled by renderProposal for each option
+  const keys = new Set(["logo_xml", "timeline_xml", "signature_xml"]);   // filled by renderProposal (images per option, the signature once)
   const walk = (v) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { keys.add(k); walk(x); } };
   walk(full);
   assert.ok(names.size > 40);
   const missing = [...names].filter((n) => !keys.has(n));
   assert.deepEqual(missing, []);
+});
+
+// ---- AB Capital signature (shared signing, signDocx.js) ----
+const SIG = { bytes: PNG, type: "png", width: 400, height: 200 };
+const sigBlock = (xml) => text(xml).slice(text(xml).indexOf("For AB CAPITAL SERVICES (FZE)"), text(xml).indexOf("Contact: - "));
+
+test("template ends with the AB Capital Authorized Signatory block, signature tag alone in its paragraph, before the contact block", async () => {
+  const xml = await (await JSZip.loadAsync(template)).file("word/document.xml").async("string");
+  const t = text(xml);
+  assert.equal(t.split("{@signature_xml}").length - 1, 1);
+  assert.ok(t.indexOf("For AB CAPITAL SERVICES (FZE)") < t.indexOf("{@signature_xml}"));
+  assert.ok(t.indexOf("{@signature_xml}") < t.indexOf("Authorized Signatory"));
+  assert.ok(t.indexOf("Authorized Signatory") < t.indexOf("Contact: - "));
+  const para = xml.split("</w:p>").find((p) => p.includes("{@signature_xml}"));
+  assert.equal(text(para), "{@signature_xml}");
+});
+
+test("unsigned: the signatory line prints blank, with no picture", async () => {
+  const blob = await renderProposal(template, ctx([option()]), {}, deps);
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const xml = await zip.file("word/document.xml").async("string");
+  assert.match(sigBlock(xml), /^For AB CAPITAL SERVICES \(FZE\)_+Authorized Signatory$/);
+  assert.equal(xml.includes("<w:drawing"), false);
+  assert.equal(Object.keys(zip.files).some((n) => n.startsWith("word/media/signature")), false);
+  assert.doesNotMatch(await zip.file("word/_rels/document.xml.rels").async("string"), /rIdAccountingSignature/);
+  assertWellFormed(xml);
+});
+
+test("signed: the picture sits on the signatory line, with its file, relationship and content type", async () => {
+  const blob = await renderProposal(template, ctx([option()]), {}, deps, SIG);
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const xml = await zip.file("word/document.xml").async("string");
+  assert.equal((xml.match(/r:embed="rIdAccountingSignature"/g) || []).length, 1);
+  assert.ok(xml.indexOf("rIdAccountingSignature") > xml.indexOf("For AB CAPITAL SERVICES (FZE)") && xml.indexOf("rIdAccountingSignature") < xml.indexOf("Authorized Signatory"));
+  assert.ok(zip.file("word/media/signature.png"));
+  assert.match(await zip.file("word/_rels/document.xml.rels").async("string"), /Id="rIdAccountingSignature"[^>]*Target="media\/signature\.png"/);
+  assert.match(await zip.file("[Content_Types].xml").async("string"), /Extension="png"/);
+  assertWellFormed(xml);
+});
+
+test("signed copy is the stored render plus the picture: same Ref, date, options and totals", async () => {
+  const images = { "a/logo.png": { bytes: PNG, type: "png", width: 300, height: 100 } };
+  const c = ctx([option({ logo_path: "a/logo.png" }), option({ activity: "Second Activity" })]);
+  const unsigned = await read(await renderProposal(template, c, images, deps));
+  const signed = await read(await renderProposal(template, c, images, deps, SIG));
+  assert.equal(signed.replace(signatureXml(SIG), ""), unsigned);
+  const z = await JSZip.loadAsync(await (await renderProposal(template, c, images, deps, SIG)).arrayBuffer());
+  assert.ok(z.file("word/media/proposal_1.png"), "the option images stay");
+});
+
+test("a signature that is not a png or jpg, or has no size, is refused", async () => {
+  await assert.rejects(renderProposal(template, ctx([option()]), {}, deps, { ...SIG, type: "gif" }), /png or jpg/);
+  await assert.rejects(renderProposal(template, ctx([option()]), {}, deps, { ...SIG, width: 0 }), /missing/);
+  await assert.rejects(renderProposal(template, ctx([option()]), {}, deps, { ...SIG, bytes: new Uint8Array() }), /missing/);
 });
