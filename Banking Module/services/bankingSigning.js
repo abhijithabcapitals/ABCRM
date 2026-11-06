@@ -34,8 +34,8 @@ export async function signBanking(api, { kind, row, rebuild }) {
 }
 
 // Every regenerate (Issue, Save to folder, a new letter or voucher) files a new unsigned Word file, which moves the document's change
-// stamp (011 doc_sign_stamp), so its live signature no longer matches and is ended here ("Generated again"; any reader may once the
-// stamp moved). save() is the existing saveGenerated call; the saved file stands even if the withdrawal fails, and the failure is
+// stamp (011 doc_sign_stamp). Template Hub 013 ends the live signature in the database on that insert ("Generated again"); the
+// doc_sign_supersede call here is a second line only (any reader may once the stamp moved) and then usually finds nothing to end. save() is the existing saveGenerated call; the saved file stands even if the withdrawal fails, and the failure is
 // returned as warning so the screen can say so. Returns { row, warning }.
 export async function fileGenerated(api, kind, row, save) {
   const saved = await save();

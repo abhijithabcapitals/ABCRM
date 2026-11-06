@@ -250,8 +250,9 @@ select at_check('a letter status change does not', (doc_sign_live('banking_engag
 -- Receipts are append-only: a regenerated receipt file is a new generated document, which moves the stamp.
 insert into banking_generated_documents (case_id, kind, payment_id, document_number, file_name, storage_path)
   values (:'bca', 'receipt', :'bp1', 'SG-RC-1', 'r.docx', :'bca' || '/generated/new-r.docx');
+-- (013 also ends the receipt's live signature then; 100_banking_signing_test.sql covers that.)
 select at_check('a regenerated receipt file moves the stamp past the signature',
-  doc_sign_stamp('banking_receipts', :'br1') > (doc_sign_live('banking_receipts', :'br1')).document_changed_at);
+  doc_sign_stamp('banking_receipts', :'br1') > (select document_changed_at from document_signatures where source_table = 'banking_receipts' and source_id = :'br1' order by signed_at desc limit 1));
 update banking_engagement_letters set content = '{"x": 1}' where id = :'bl1';
 select at_check('a letter content edit supersedes', doc_sign_live('banking_engagement_letters', :'bl1') is null);
 select at_check('the new stamp is what a signer must now have seen',

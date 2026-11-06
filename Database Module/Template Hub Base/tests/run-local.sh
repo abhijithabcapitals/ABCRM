@@ -36,7 +36,8 @@ BS=(); for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 20 21 15 16 17 18 19 2
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 AFTER=("$DB/ArdentTax Base/migrations/001_ardentax.sql" "$DB/Template Hub Base/migrations/003_brand_name.sql" "$DB/../Template Module/database/01_quotation_maker.sql" "$DB/../Template Module/database/02_quotation_templates_access.sql" "$DB/Template Hub Base/migrations/004_hub_admin.sql")
 MINE=("$HERE/../migrations/005_library_fill.sql" "$HERE/../migrations/006_library_letter.sql" "$HERE/../migrations/007_work_types.sql" "$HERE/../migrations/008_accounting_proposals.sql"
-  "$HERE/../migrations/009_proposals.sql" "$HERE/../migrations/010_accounting_send_from.sql" "$HERE/../migrations/011_document_signing.sql" "$HERE/../migrations/012_accounting_signing.sql")
+  "$HERE/../migrations/009_proposals.sql" "$HERE/../migrations/010_accounting_send_from.sql" "$HERE/../migrations/011_document_signing.sql" "$HERE/../migrations/012_accounting_signing.sql"
+  "$HERE/../migrations/013_banking_signing.sql")
 
 run_sql() { "${PSQL[@]}" -f "$1" >/dev/null 2>"$DATA/err" || { echo "FAILED: $1"; cat "$DATA/err"; exit 1; }; }
 for f in "${BASE[@]}"; do run_sql "$f"; done
@@ -68,7 +69,14 @@ if [ -n "${PROPOSAL_SEED:-}" ] && [ -f "$PROPOSAL_SEED" ]; then
   if [ -n "${PROPOSAL_SEED_CHECK:-}" ] && [ -f "$PROPOSAL_SEED_CHECK" ]; then BIN="$BIN" PORT="$PORT" bash "$PROPOSAL_SEED_CHECK" || { RC=1; echo "TESTS FAILED: proposal seed check"; }; fi
 fi
 
-# 012 undone first: Accounting goes back to approval before sending an agreement (008), with its own image policies.
+# 013 undone first: Business Banking goes back to 011 alone (no filing or line item rule); signing records are kept.
+SIGS13="$("${PSQL[@]}" -At -c "select count(*) from document_signatures")"
+"${PSQL[@]}" -f "$HERE/../rollback/013_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL banking signing rollback: $(cat "$DATA/err")"; RC=1; }
+LEFT13="$("${PSQL[@]}" -At -c "select (select count(*) from pg_trigger where tgname in ('doc_sign_banking_filed', 'doc_sign_banking_items'))
+  + (select count(*) from pg_proc where proname in ('doc_sign_banking_filed', 'doc_sign_banking_items'))
+  + (select (count(*) <> $SIGS13)::int from document_signatures)")"
+if [ "$LEFT13" = "0" ]; then echo "ok   banking signing rollback leaves nothing behind and keeps the signatures"; else echo "FAIL banking signing rollback left $LEFT13 items"; RC=1; fi
+# 012 undone next: Accounting goes back to approval before sending an agreement (008), with its own image policies.
 "${PSQL[@]}" -f "$HERE/../rollback/012_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL accounting signing rollback: $(cat "$DATA/err")"; RC=1; }
 BACK12="$("${PSQL[@]}" -At -c "select (select count(*) from pg_policies where policyname like 'hub\_docs\_accounting\_signature%')
   + (select count(*) from pg_proc where proname = 'hub_acct_can_send' and prosrc like '%approved_at is not null%')
