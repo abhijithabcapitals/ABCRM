@@ -57,7 +57,7 @@ Deno.test("the claim must still match the PDF that was read, and an agreement mu
 });
 
 // ---- From mailbox and signature ----
-import { htmlBody } from "../ardentax-mail-send/rules.ts";
+import { htmlBody, plainText } from "../ardentax-mail-send/rules.ts";
 import { chooseSender, composeText, DEFAULT_SENDER, DEFAULT_SENDER_NAME, senderName, signatureFits, signatureHtml } from "./rules.ts";
 
 Deno.test("no from means info@abcapital.ae", () => assertEquals(chooseSender({ from: undefined, owned: false }), { address: DEFAULT_SENDER, needsOwnership: false }));
@@ -91,4 +91,18 @@ Deno.test("sender name is the display name, else the company", () => {
   assertEquals(senderName({ display_name: "Info Desk" }), "Info Desk");
   assertEquals(senderName({ display_name: " " }), DEFAULT_SENDER_NAME);
   assertEquals(senderName(null), DEFAULT_SENDER_NAME);
+});
+Deno.test("marked closing is dropped under a signature and the asterisks vanish from plain text", () => {
+  const body = "Dear X\n\n-- closing --\nKind regards,\nAB Capital Services FZE";
+  const sig = { body_text: "*Regards,*\nBharat Bajaj" };
+  const text = composeText(body, sig);
+  assertEquals(text, "Dear X\n\n*Regards,*\nBharat Bajaj");
+  assertEquals(plainText(text), "Dear X\n\nRegards,\nBharat Bajaj");
+  assert(htmlBody(text, "").includes("<b>Regards,</b>"));
+});
+Deno.test("no signature keeps the closing and drops only the mark", () => {
+  assertEquals(composeText("Dear X\n\n-- closing --\nKind regards,\nAB", null), "Dear X\n\nKind regards,\nAB");
+});
+Deno.test("a saved draft without the mark sends as before", () => {
+  assertEquals(composeText("Hello\nKind regards", { body_text: "Sig" }), "Hello\nKind regards\n\nSig");
 });

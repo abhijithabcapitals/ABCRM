@@ -18,13 +18,13 @@ export function mailText(doc, settings) {
   const ref = doc.document_number;
   const who = doc.contact_name || doc.client_name;
   if (kindOf(doc) === "agreement") {
-    return { subject: `Service Agreement ${ref}`, body: `Dear ${who},\n\nPlease find attached our Service Agreement ${ref}.\n\nKind regards,\nAB Capital Services FZE` };
+    return { subject: `Service Agreement ${ref}`, body: `Dear ${who},\n\nPlease find attached our Service Agreement ${ref}.\n\n-- closing --\nKind regards,\nAB Capital Services FZE` };
   }
   const ctx = quoteContext(doc, settings);
   const blocks = ctx.options.map((o) => `Option ${o.number}: ${o.name}\n${o.totals.length ? o.totals.map((t) => `- ${t.text}`).join("\n") : "- No fixed fee"}`);
   return {
     subject: `Quotation ${ref}`,
-    body: `Dear ${who},\n\nThank you for your interest in AB Capital. Please find attached our Quotation ${ref}.\n\n${blocks.join("\n\n")}\n\nPlease let us know which option you would like to proceed with.\n\nKind regards,\nAB Capital Services FZE`,
+    body: `Dear ${who},\n\nThank you for your interest in AB Capital. Please find attached our Quotation ${ref}.\n\n${blocks.join("\n\n")}\n\nPlease let us know which option you would like to proceed with.\n\n-- closing --\nKind regards,\nAB Capital Services FZE`,
   };
 }
 

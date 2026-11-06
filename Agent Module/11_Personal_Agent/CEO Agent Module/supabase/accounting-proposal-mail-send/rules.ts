@@ -1,5 +1,5 @@
 // What the Accounting mail function may send. No network and no Deno-only imports, so it is tested directly.
-import { parseRecipients } from "../ardentax-mail-send/rules.ts";
+import { applyClosing, parseRecipients } from "../ardentax-mail-send/rules.ts";
 
 export const TEMPLATES = ["AB Capital/Accounting Quote", "AB Capital/Accounting Agreement"];
 const AGREEMENT = "AB Capital/Accounting Agreement";
@@ -79,7 +79,9 @@ export const signatureFits = (signature: { sender_mailbox_address?: string | nul
 // Signature text goes after the draft body with one blank line.
 export const composeText = (body: string, signature: { body_text?: string | null } | null | undefined): string => {
   const sig = String(signature?.body_text ?? "").trim();
-  return sig ? `${String(body ?? "").trimEnd()}\n\n${sig}` : String(body ?? "");
+  // The draft's marked closing goes when a signature is chosen; the mark never stays. Bold asterisks stay here (HTML needs them).
+  const text = applyClosing(String(body ?? ""), !!sig);
+  return sig ? `${text.trimEnd()}\n\n${sig}` : text;
 };
 
 const escapeHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

@@ -19,8 +19,33 @@ export function parseRecipients(value: string | null | undefined): string[] {
 
 const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+// A whole line wrapped in asterisks (signature lines such as *Regards,*) is bold in HTML and bare in plain text.
+// Same rule as BOLD_LINE in ceo-mail-reply/smtp.ts.
+const BOLD_LINE = /^[ \t]*\*([^*\n]+)\*[ \t\r]*$/gm;
+
+export function boldLines(text: string): { html: string; plain: string } {
+  const src = String(text ?? "");
+  return { html: escapeHtml(src).replace(BOLD_LINE, "<b>$1</b>"), plain: src.replace(BOLD_LINE, "$1") };
+}
+
+// Draft builders put this line above their closing block. The mark is never sent; the closing below it is dropped
+// when a signature is chosen. Text without the mark is returned as it is.
+export const CLOSING_MARK = "-- closing --";
+const MARK_LINE = /^[ \t]*-- closing --[ \t]*\r?$/m;
+
+export function applyClosing(text: string, hasSignature: boolean): string {
+  const src = String(text ?? "");
+  const m = MARK_LINE.exec(src);
+  if (!m) return src;
+  if (hasSignature) return src.slice(0, m.index).trimEnd();
+  return src.slice(0, m.index) + src.slice(m.index + m[0].length).replace(/^\r?\n/, "");
+}
+
+// Plain-text part: mark and bold asterisks removed.
+export const plainText = (text: string, hasSignature = false): string => boldLines(applyClosing(text, hasSignature)).plain;
+
 export function htmlBody(text: string, signatureHtml: string) {
-  return `<!doctype html><html><body><div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1f2937">${escapeHtml(text).replace(/\r?\n/g, "<br>")}</div>${signatureHtml}</body></html>`;
+  return `<!doctype html><html><body><div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1f2937">${boldLines(applyClosing(text, false)).html.replace(/\r?\n/g, "<br>")}</div>${signatureHtml}</body></html>`;
 }
 
 export const totalAttachmentBytes = (parts: { bytes: Uint8Array }[]) => parts.reduce((n, p) => n + p.bytes.length, 0);

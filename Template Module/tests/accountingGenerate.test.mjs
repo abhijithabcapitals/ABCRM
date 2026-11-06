@@ -1,7 +1,7 @@
 // node --test "Template Module/tests/accountingGenerate.test.mjs"
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateQuote, generateAgreement, retryDocument, approveAgreement, editAgreement, saveToOneDrive } from "../services/accountingGenerate.js";
+import { generateQuote, generateAgreement, retryDocument, approveAgreement, editAgreement, saveToOneDrive, mailText } from "../services/accountingGenerate.js";
 
 const form = { client_name: "Sample Client", contact_name: "Sam", contact_email: "s@example.com", contact_phone: "050" };
 const quote = {
@@ -212,4 +212,14 @@ test("retry with mail false creates no second mail draft", async () => {
   const third = fakes();
   await retryDocument(r.doc, third.deps);
   assert.equal(names(third.calls).includes("createMail"), true);
+});
+
+test("mail drafts place the closing mark above the closing block", () => {
+  const agreement = mailText({ document_number: "ABA001", client_name: "C", contact_name: "Sam", library_template: "AB Capital/Accounting Agreement" }, {});
+  assert.match(agreement.body, /\n\n-- closing --\nKind regards,\nAB Capital Services FZE$/);
+  assert.equal(agreement.body.split("-- closing --").length, 2);
+});
+test("quote drafts also carry the closing mark", () => {
+  const q = mailText({ document_number: "ABA002", client_name: "C", contact_name: "Sam", field_values: { quote } }, {});
+  assert.match(q.body, /\n\n-- closing --\nKind regards,\nAB Capital Services FZE$/);
 });

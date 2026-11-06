@@ -1,6 +1,6 @@
 // deno test "Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ardentax-mail-send/"
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { chooseLogin, htmlBody, isDocumentPath, parseRecipients, sendRefusal, totalAttachmentBytes, MAX_ATTACHMENT_BYTES } from "./rules.ts";
+import { applyClosing, boldLines, CLOSING_MARK, plainText, chooseLogin, htmlBody, isDocumentPath, parseRecipients, sendRefusal, totalAttachmentBytes, MAX_ATTACHMENT_BYTES } from "./rules.ts";
 
 const ready = { pdf_path: "a.pdf", word_path: "a.docx", mail_to: "pat@sample.example", mail_subject: "S", mail_body: "B", mail_sent_at: null };
 
@@ -56,4 +56,32 @@ Deno.test("the mailbox login comes from the same places as ceo-mail-reply, in th
   assertEquals(chooseLogin({ saved: "a" }, address, "login@x.example"), { user: "login@x.example", pass: "a" });
   assertEquals(chooseLogin({ legacyUser: "other@x.example", legacyPass: "c" }, address), null);
   assertEquals(chooseLogin({}, address), null);
+});
+
+Deno.test("a whole line in asterisks is bold in HTML and bare in plain text", () => {
+  const r = boldLines("Hi\n*Regards,*\nBharat");
+  assertEquals(r.html, "Hi\n<b>Regards,</b>\nBharat");
+  assertEquals(r.plain, "Hi\nRegards,\nBharat");
+});
+Deno.test("asterisks inside a sentence stay, empty lines are kept", () => {
+  const t = "a * b *c* d\n\n\n2*3*4";
+  assertEquals(boldLines(t), { html: t, plain: t });
+});
+Deno.test("the closing goes only when a signature is chosen; the mark never stays", () => {
+  const t = `Body\n\n${CLOSING_MARK}\nKind regards,\nAB Capital`;
+  assertEquals(applyClosing(t, true), "Body");
+  assertEquals(applyClosing(t, false), "Body\n\nKind regards,\nAB Capital");
+  assert(!plainText(t, true).includes("-- closing"));
+  assert(!plainText(t, false).includes("-- closing"));
+  assert(!htmlBody(t, "").includes("-- closing"));
+  assert(htmlBody(t, "").includes("Kind regards,"));
+});
+Deno.test("text without the mark is unchanged", () => {
+  const t = "Dear X\n\nKind regards,\nAB Capital";
+  assertEquals(applyClosing(t, true), t);
+  assertEquals(plainText(t, true), t);
+});
+Deno.test("htmlBody makes bold lines bold and keeps escaping", () => {
+  const h = htmlBody("<a>\n*Regards,*", "");
+  assert(h.includes("&lt;a&gt;<br><b>Regards,</b>"));
 });

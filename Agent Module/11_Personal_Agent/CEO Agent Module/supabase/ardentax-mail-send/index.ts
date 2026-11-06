@@ -8,7 +8,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail, type MailPart } from "./mime.ts";
-import { chooseLogin, htmlBody, isDocumentPath, MAX_ATTACHMENT_BYTES, parseRecipients, sendRefusal, totalAttachmentBytes } from "./rules.ts";
+import { applyClosing, chooseLogin, htmlBody, plainText, isDocumentPath, MAX_ATTACHMENT_BYTES, parseRecipients, sendRefusal, totalAttachmentBytes } from "./rules.ts";
 
 const SENDER = "bharat@ardentaxit.tax";
 const SENDER_NAME = "Bharat Bajaj";
@@ -65,6 +65,7 @@ Deno.serve(async (req) => {
     const { data: settings, error: settingsError } = await admin.from("hub_settings").select("value").eq("key", "ardentax_mail").single();
     if (settingsError) throw new Error(settingsError.message);
     const signature = String(settings.value?.signature_html || "");
+    const hasSignature = signature.trim() !== "";
 
     const eb = admin.schema("email_base");
     const { data: mailbox, error: mailboxError } = await eb.from("mailboxes").select("id, address, login_user, smtp_host, smtp_port, imap_host, imap_port").eq("address", SENDER).maybeSingle();
@@ -78,7 +79,7 @@ Deno.serve(async (req) => {
     if (totalAttachmentBytes(attachments) > MAX_ATTACHMENT_BYTES) return json({ error: "The attachments are too large to send." }, 400);
     const inline = signature.includes(`cid:${BANNER_CID}`) ? [{ ...(await download(admin, BANNER_PATH, "image/png")), cid: BANNER_CID }] : [];
 
-    const { messageId, raw } = buildMail({ from: mailbox.address, fromName: SENDER_NAME, to, cc, subject: doc.mail_subject, text: doc.mail_body || "", html: htmlBody(doc.mail_body || "", signature), inline, attachments });
+    const { messageId, raw } = buildMail({ from: mailbox.address, fromName: SENDER_NAME, to, cc, subject: doc.mail_subject, text: plainText(doc.mail_body || "", hasSignature), html: htmlBody(applyClosing(doc.mail_body || "", hasSignature), signature), inline, attachments });
 
     try {
       await new SmtpClient(mailbox.smtp_host, mailbox.smtp_port || 465).send(login.user, login.pass, mailbox.address, [...to, ...cc], raw);

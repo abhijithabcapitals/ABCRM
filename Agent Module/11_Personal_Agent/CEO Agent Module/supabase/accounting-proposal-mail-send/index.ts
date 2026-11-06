@@ -11,7 +11,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail } from "../ardentax-mail-send/mime.ts";
-import { chooseLogin, htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients } from "../ardentax-mail-send/rules.ts";
+import { chooseLogin, htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients, plainText } from "../ardentax-mail-send/rules.ts";
 import { attachmentFileName, attachmentsFor, CLAIM_REFUSED, chooseSender, claimRule, composeText, DEFAULT_SENDER, refusal, senderName, signatureFits, signatureHtml } from "./rules.ts";
 
 const BUCKET = "hub-documents";
@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
 
       const body = composeText(draft?.mail_body || "", signature);
       const { messageId, raw } = buildMail({
-        from: mailbox.address, fromName: senderName(mailbox), to, cc: [], subject: draft!.mail_subject, text: body, html: htmlBody(body, signatureHtml(signature)), inline: [],
+        from: mailbox.address, fromName: senderName(mailbox), to, cc: [], subject: draft!.mail_subject, text: plainText(body), html: htmlBody(body, signatureHtml(signature)), inline: [],
         attachments: [{ name: attachmentFileName(doc), type: "application/pdf", bytes }],
       });
 
