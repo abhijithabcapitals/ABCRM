@@ -36,7 +36,7 @@ BS=(); for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 20 21 15 16 17 18 19 2
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 AFTER=("$DB/ArdentTax Base/migrations/001_ardentax.sql" "$DB/Template Hub Base/migrations/003_brand_name.sql" "$DB/../Template Module/database/01_quotation_maker.sql" "$DB/../Template Module/database/02_quotation_templates_access.sql" "$DB/Template Hub Base/migrations/004_hub_admin.sql")
 MINE=("$HERE/../migrations/005_library_fill.sql" "$HERE/../migrations/006_library_letter.sql" "$HERE/../migrations/007_work_types.sql" "$HERE/../migrations/008_accounting_proposals.sql"
-  "$HERE/../migrations/009_proposals.sql" "$HERE/../migrations/010_accounting_send_from.sql")
+  "$HERE/../migrations/009_proposals.sql" "$HERE/../migrations/010_accounting_send_from.sql" "$HERE/../migrations/011_document_signing.sql")
 
 run_sql() { "${PSQL[@]}" -f "$1" >/dev/null 2>"$DATA/err" || { echo "FAILED: $1"; cat "$DATA/err"; exit 1; }; }
 for f in "${BASE[@]}"; do run_sql "$f"; done
@@ -68,7 +68,25 @@ if [ -n "${PROPOSAL_SEED:-}" ] && [ -f "$PROPOSAL_SEED" ]; then
   if [ -n "${PROPOSAL_SEED_CHECK:-}" ] && [ -f "$PROPOSAL_SEED_CHECK" ]; then BIN="$BIN" PORT="$PORT" bash "$PROPOSAL_SEED_CHECK" || { RC=1; echo "TESTS FAILED: proposal seed check"; }; fi
 fi
 
-# 010 undone first: it only drops the sent-from column, and applies again with the other migrations at the end.
+# 011 undone first. It refuses while signatures or images under signatures/ exist unless forced, and puts the AB Capital approvers and
+# image path back into accounting_proposal_defaults. The Accounting copy is blanked first (sync trigger off) so the restore is shown.
+SIGS="$("${PSQL[@]}" -At -c "select count(*) from document_signatures")"
+if "${PSQL[@]}" -f "$HERE/../rollback/011_rollback.sql" >/dev/null 2>"$DATA/err"; then echo "FAIL signing rollback ran with signatures present ($SIGS)"; RC=1
+elif grep -q "Signatures or signature images exist" "$DATA/err"; then echo "ok   signing rollback refuses while signatures exist ($SIGS)"; else echo "FAIL signing rollback: $(cat "$DATA/err")"; RC=1; fi
+"${PSQL[@]}" -c "update hub_settings set value = jsonb_set(value, '{companies,ab_capital}', value #> '{companies,ab_capital}' || '{\"signature_path\": \"accounting-signature/rollback-test.png\"}') where key = 'document_signing'" >/dev/null || RC=1
+WANT="$("${PSQL[@]}" -At -c "select (value #> '{companies,ab_capital,approvers}')::text || ' ' || (value #>> '{companies,ab_capital,signature_path}') from hub_settings where key = 'document_signing'")"
+"${PSQL[@]}" -c "alter table hub_settings disable trigger doc_sign_settings_sync" -c "update hub_settings set value = value || '{\"approvers\": [], \"signature_path\": null}' where key = 'accounting_proposal_defaults'" -c "alter table hub_settings enable trigger doc_sign_settings_sync" >/dev/null || RC=1
+"${PSQL[@]}" -c "set doc_sign.rollback_force = 'yes'" -f "$HERE/../rollback/011_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL signing rollback: $(cat "$DATA/err")"; RC=1; }
+GOT="$("${PSQL[@]}" -At -c "select (value -> 'approvers')::text || ' ' || (value ->> 'signature_path') from hub_settings where key = 'accounting_proposal_defaults'")"
+if [ -n "$WANT" ] && [ "$WANT" = "$GOT" ]; then echo "ok   signing rollback restores the Accounting approvers and path ($GOT)"; else echo "FAIL signing rollback restored '$GOT', wanted '$WANT'"; RC=1; fi
+LEFT11="$("${PSQL[@]}" -At -c "select (to_regclass('public.document_signatures') is not null)::int + (select count(*) from pg_proc where proname like 'doc\_sign\_%' or proname in ('doc_company', 'doc_changed_at'))
+  + (select count(*) from hub_settings where key = 'document_signing') + (select count(*) from pg_policies where policyname like 'doc\_sign\_%')
+  + (select count(*) from information_schema.columns where column_name = 'content_changed_at' and table_name in ('hub_documents','ardentax_documents','banking_quotations','banking_engagement_letters','banking_receipts'))
+  + (select count(*) from pg_trigger where tgname like 'doc\_sign\_%')")"
+if [ "$LEFT11" = "0" ]; then echo "ok   signing rollback leaves nothing behind"; else echo "FAIL signing rollback left $LEFT11 items"; RC=1; fi
+BACK11="$("${PSQL[@]}" -At -c "select count(*) from pg_proc where proname = 'hub_acct_can_approve' and prosrc like '%hub_acct_approvers()%'")"
+if [ "$BACK11" = "1" ]; then echo "ok   signing rollback restores hub_acct_can_approve"; else echo "FAIL hub_acct_can_approve not restored"; RC=1; fi
+# 010 undone next: it only drops the sent-from column, and applies again with the other migrations at the end.
 "${PSQL[@]}" -f "$HERE/../rollback/010_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL send-from rollback: $(cat "$DATA/err")"; RC=1; }
 LEFT10="$("${PSQL[@]}" -At -c "select count(*) from information_schema.columns where table_name = 'hub_documents' and column_name = 'mail_sent_from'")"
 if [ "$LEFT10" = "0" ]; then echo "ok   send-from rollback leaves nothing behind"; else echo "FAIL send-from rollback left the column"; RC=1; fi
