@@ -520,6 +520,7 @@ export async function runCopy(g: GraphApi, db: Db, deadline: number, maxInFlight
   }
 
   let stageCopying = false;
+  const templated = new Set<string>(); // client/employee folders whose required sub-folders exist this run
   while (!out.stopped && now() < deadline) {
     // 1. Poll running copies.
     const still: PlanRow[] = [];
@@ -542,6 +543,11 @@ export async function runCopy(g: GraphApi, db: Db, deadline: number, maxInFlight
       try {
         const cut = r.target_path.lastIndexOf("/");
         if (cut <= 0) throw new Error("target path has no folder");
+        const tpl = templateFor(r);
+        if (tpl && !templated.has(tpl.base)) {
+          for (const f of tpl.folders) await g.ensureFolder(`${tpl.base}/${f}`);
+          templated.add(tpl.base);
+        }
         const parentId = await g.ensureFolder(r.target_path.slice(0, cut));
         // A row a person set back to 'approved' may still name an earlier copy: keep it findable in operations.
         if (r.dest_item_id) {
@@ -647,4 +653,20 @@ export async function runRollback(
 export function scopeFrom(v: Record<string, unknown> | null | undefined): RollbackScope {
   const str = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : undefined);
   return { area: str(v?.area), clientId: str(v?.client_id ?? v?.clientId), all: v?.all === true ? true : undefined };
+}
+
+// User rule 2026-11-06: every client folder has these seven folders, every employee folder these five,
+// whether or not the copy fills them.
+export const CLIENT_FOLDERS = ["KYC", "FINANCIALS INFORMATION", "ACCOUNTING DATA", "VOUCHERS", "OTHERS", "PROPOSALS", "ENGAGEMENT LETTERS"];
+export const EMPLOYEE_FOLDERS = ["PERSONAL DOCUMENTS", "EMPLOYMENT DOCUMENTS", "PAYROLL", "LEAVE AND ATTENDANCE", "OTHERS"];
+
+/** The client or employee folder a row lands in, with its required sub-folders; null for every other target. */
+export function templateFor(r: { target_path: string; client_id?: string | null }): { base: string; folders: string[] } | null {
+  const segs = r.target_path.split("/");
+  if (r.client_id && segs.length >= 4) return { base: segs.slice(0, 2).join("/"), folders: CLIENT_FOLDERS };
+  if (segs[0] === "EMPLOYEES" && segs[1] !== "00 Unmatched") {
+    const n = segs[1] === "00 EX EMPLOYEES" ? 3 : 2;
+    if (segs.length > n + 1) return { base: segs.slice(0, n).join("/"), folders: EMPLOYEE_FOLDERS };
+  }
+  return null;
 }

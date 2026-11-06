@@ -16,6 +16,8 @@ import {
   type Settings,
   type SourceRow,
   type Stage,
+  CLIENT_FOLDERS,
+  templateFor,
 } from "./stages.ts";
 import { handle } from "./handler.ts";
 
@@ -1032,4 +1034,28 @@ Deno.test("copy: a file in the way of a needed folder fails that row for review;
   assert(s1.error?.includes("in the way"));
   assertEquals(db.plan.get("s2")!.status, "copying");
   assertEquals(startCopies(g), 1);
+});
+
+Deno.test("templateFor: client rows get the seven folders, employee rows five, others none", () => {
+  const c = templateFor({ target_path: "Accounting/Zeta Testco LLC - CL900001/KYC/VAT/p.pdf", client_id: "CL900001" });
+  assertEquals(c?.base, "Accounting/Zeta Testco LLC - CL900001");
+  assertEquals(c?.folders.length, 7);
+  const e = templateFor({ target_path: "EMPLOYEES/Zed Testperson - EMP901/OTHERS/a.pdf", client_id: null });
+  assertEquals(e?.base, "EMPLOYEES/Zed Testperson - EMP901");
+  assertEquals(e?.folders.length, 5);
+  const x = templateFor({ target_path: "EMPLOYEES/00 EX EMPLOYEES/Old Person - EMP902/OTHERS/a.pdf", client_id: null });
+  assertEquals(x?.base, "EMPLOYEES/00 EX EMPLOYEES/Old Person - EMP902");
+  assertEquals(templateFor({ target_path: "EMPLOYEES/00 Unmatched/Someone/a.pdf", client_id: null }), null);
+  assertEquals(templateFor({ target_path: "Accounting/00 Unmatched - to link/4. VAT Clients/X/a.pdf", client_id: null }), null);
+  assertEquals(templateFor({ target_path: "08 Archive/From old OneDrive/Desktop/a.txt", client_id: null }), null);
+});
+
+Deno.test("copy: a client row creates all seven client folders before copying", async () => {
+  const db = new FakeDb();
+  db.settings.stage = "approved";
+  db.plan.set("s1", planRow("s1"));
+  const g = new FakeGraph();
+  const c = clock();
+  await runCopy(g, db, c.now() + 10_000, 4, c);
+  for (const f of CLIENT_FOLDERS) assert(g.calls.includes(`ensureFolder Accounting/Zeta Testco LLC - CL900001/${f}`), f);
 });
