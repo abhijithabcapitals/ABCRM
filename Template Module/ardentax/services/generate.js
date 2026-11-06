@@ -9,6 +9,11 @@ import { fillDocx } from "../logic/fillDocx.js";
 const WORD_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const requestTotals = (t) => ({ one_time: t.oneTime, annual: t.annualTotal, year1: t.year1 });
 
+// A blank date is saved as today in Dubai when the row is made (create, revise), so every later render of that row (Generate again,
+// the signed copy) prints the same date. fillDocx still prints today for a blank date, as in the macro.
+const dubaiDate = (t) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date(t));
+const withDate = (details) => (String(details?.date || "").trim() ? details : { ...details, date: dubaiDate(Date.now()) });
+
 function assertReady(details, totals) {
   const missing = quoteBlockers(details, totals);
   if (missing.length) throw new Error(`Fill in before generating: ${missing.join(", ")}.`);
@@ -50,7 +55,8 @@ async function fileDocument(api, doc, deps, reason) {
   return { doc: { ...doc, word_path: wordPath, pdf_path: pdfPath }, wordBlob, pdfBlob };
 }
 
-export async function generateDocument(api, { details, requestId, sourceQuoteId, onCreated }, deps) {
+export async function generateDocument(api, { details: given, requestId, sourceQuoteId, onCreated }, deps) {
+  const details = withDate(given);
   const totals = computeQuote(details);
   assertReady(details, totals);
   await trialFill(api, details, totals, deps);
@@ -61,7 +67,8 @@ export async function generateDocument(api, { details, requestId, sourceQuoteId,
 
 export const regenerate = (api, doc, deps) => fileDocument(api, doc, deps, "Generated again");
 
-export async function reviseDocument(api, doc, details, requestId, deps, onCreated) {
+export async function reviseDocument(api, doc, given, requestId, deps, onCreated) {
+  const details = withDate(given);
   const totals = computeQuote(details);
   assertReady(details, totals);
   await trialFill(api, details, totals, deps);
@@ -78,9 +85,8 @@ export function makeLetter(api, quote, requestId, deps, onCreated) {
 }
 
 // The family's rebuild for the shared signing step: the stored document with the company signature, by the same fill.
-// ctx: { api, JSZip, parse, serialize }. Returns the Word blob. A blank saved date would print the signing day (fillDocx prints today),
-// so the row's created_at, as a Dubai date, stands in: the signed copy then carries the stored file's date. A fresh generate is unchanged.
-const dubaiDate = (t) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date(t));
+// ctx: { api, JSZip, parse, serialize }. Returns the Word blob. It prints details.date. A row filed before dates were saved may have a
+// blank one; then its created_at, as a Dubai date, stands in, so the signed copy does not print the signing day.
 export function rebuildArdentax(doc, signature, ctx) {
   const dated = !doc.details?.date && doc.created_at ? { ...doc, details: { ...doc.details, date: dubaiDate(doc.created_at) } } : doc;
   return render(ctx.api, dated, signature, ctx);

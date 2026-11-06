@@ -260,19 +260,39 @@ test("a refused or failed signing comes back as an error, never thrown", async (
   assert.deepEqual(await signArdentax(broken, doc, deps()), { error: "offline" });
 });
 
-test("a blank saved date: the signed copy made a day later carries the stored file's date, not the signing day's", async (t) => {
+test("a blank date is saved as the Dubai day: Generate again and the signed copy print the day it was made", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-05T10:00:00Z") });
   const api = fakeApi();
-  const stored = await generateDocument(api, { details: details((d) => { d.date = ""; }), requestId: "r" }, deps());
-  const doc = { ...stored.doc, created_at: "2026-11-05T10:00:00Z" };
+  const made = await generateDocument(api, { details: details((d) => { d.date = ""; }), requestId: "r" }, deps());
+  assert.equal(api.lastCreate.details.date, "2026-11-05", "the date goes to the database with the details");
   t.mock.timers.setTime(Date.parse("2026-11-06T10:00:00Z"));
-  const signed = await rebuildArdentax(doc, SIG, { api, ...deps() });
-  const before = await textIn(stored.wordBlob);
-  const after = await textIn(signed);
-  assert.ok(before.includes("05/11/2026"));
-  assert.ok(after.includes("05/11/2026"));
-  assert.ok(!after.includes("06/11/2026"));
-  // A fresh generate on the later day still prints that day, as before.
-  const fresh = await generateDocument(fakeApi(), { details: details((d) => { d.date = ""; }), requestId: "r2" }, deps());
-  assert.ok((await textIn(fresh.wordBlob)).includes("06/11/2026"));
+  const again = await regenerate(api, { ...made.doc, created_at: "2026-11-05T10:00:00Z" }, deps());
+  t.mock.timers.setTime(Date.parse("2026-11-07T10:00:00Z"));
+  const signed = await rebuildArdentax({ ...again.doc, created_at: "2026-11-05T10:00:00Z" }, SIG, { api, ...deps() });
+  for (const blob of [made.wordBlob, again.wordBlob, signed]) {
+    const x = await textIn(blob);
+    assert.ok(x.includes("05/11/2026"));
+    assert.ok(!x.includes("06/11/2026") && !x.includes("07/11/2026"));
+  }
+});
+
+test("a revision with a blank date saves the day it is made; a set date is kept", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-08T10:00:00Z") });
+  const api = fakeApi();
+  await reviseDocument(api, { id: "id-1" }, details((d) => { d.date = ""; }), "r", deps());
+  assert.equal(api.lastRevise.details.date, "2026-11-08");
+  await generateDocument(api, { details: details((d) => { d.date = "2026-10-01"; }), requestId: "r2" }, deps());
+  assert.equal(api.lastCreate.details.date, "2026-10-01");
+});
+
+test("an older row with a blank saved date: the signed copy uses created_at, not the signing day", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-05T10:00:00Z") });
+  const api = fakeApi();
+  const old = { id: "old-1", version: 1, document_number: "Ardentax/2026/11/ADTQ050", created_at: "2026-11-05T10:00:00Z", details: details((d) => { d.date = ""; }) };
+  const stored = await regenerate(api, old, deps());
+  t.mock.timers.setTime(Date.parse("2026-11-06T10:00:00Z"));
+  const signed = await rebuildArdentax(stored.doc, SIG, { api, ...deps() });
+  assert.ok((await textIn(stored.wordBlob)).includes("05/11/2026"));
+  assert.ok((await textIn(signed)).includes("05/11/2026"));
+  assert.ok(!(await textIn(signed)).includes("06/11/2026"));
 });
