@@ -4,8 +4,8 @@
 
 Reads Template Module/templates/originals and writes four files with {single brace} tags, keeping the design:
 Service_Quotation_Template.docx and Service_Engagement_Template.docx here, and the same two designs as
-Quotation_Template.docx and Engagement_Letter_Template.docx for Business Banking (these two with the AB Capital Authorized
-Signatory place, {@signature_xml}, for signing). Prices and bank details stay out:
+Quotation_Template.docx and Engagement_Letter_Template.docx for Business Banking. All four have the AB Capital Authorized
+Signatory place, {@signature_xml}, for signing. Prices and bank details stay out:
 they come from the data at generation time. Stops if the designs change shape.
 """
 import re
@@ -111,9 +111,10 @@ def add_letter_ref(xml, name):
     return xml[: m.end()] + line + xml[m.end() :]
 
 
-# Business Banking only: the AB Capital Authorized Signatory place. Banking Module/logic/documents.js fills {@signature_xml} with a blank
-# space for a hand signature when the document is unsigned, and with the signature picture (Template Module/logic/signDocx.js) once an
-# approver signs. The tag is alone in its paragraph, as docxtemplater needs for a raw tag. The service templates are unchanged.
+# The AB Capital Authorized Signatory place, in all four templates. Banking Module/logic/documents.js and, for the service templates,
+# Template Module/logic/signDocx.js renderSigned (through hubApi.renderTemplate) fill {@signature_xml} with a blank space for a hand
+# signature when the document is unsigned, and with the signature picture once an approver signs. The tag is alone in its paragraph,
+# as docxtemplater needs for a raw tag.
 SIGN_TAG = "<w:p><w:r><w:t>{@signature_xml}</w:t></w:r></w:p>"
 SIGN_LINE = "____________________________"
 
@@ -183,8 +184,8 @@ def rewrite(src, dst, change):
 
 
 if __name__ == "__main__":
-    rewrite(ORIGINALS / QUOTE, SERVICE / "Service_Quotation_Template.docx", lambda x: fix_quote(x, True))
-    rewrite(ORIGINALS / LETTER, SERVICE / "Service_Engagement_Template.docx", lambda x: fix_letter(x, True))
+    rewrite(ORIGINALS / QUOTE, SERVICE / "Service_Quotation_Template.docx", lambda x: fix_quote(x, True, sign=True))
+    rewrite(ORIGINALS / LETTER, SERVICE / "Service_Engagement_Template.docx", lambda x: fix_letter(x, True, sign=True))
     rewrite(ORIGINALS / QUOTE, BANKING / "Quotation_Template.docx", lambda x: fix_quote(x, sign=True))
     rewrite(ORIGINALS / LETTER, BANKING / "Engagement_Letter_Template.docx", lambda x: fix_letter(x, sign=True))
     print("built 4 templates")
