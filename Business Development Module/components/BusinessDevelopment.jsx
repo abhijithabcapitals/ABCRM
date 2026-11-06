@@ -733,7 +733,7 @@ function AllLeadsView({ leads, prospects, profiles, currentUserId, search, onSea
       </div>
       {rows.length ? (
         <div className="bd-table-wrap bd-fit-wrap"><table className="bd-table bd-fit-table">
-          <colgroup><col /><col style={{ width: "24%" }} /><col style={{ width: "13%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "10%" }} /></colgroup>
+          <colgroup><col style={{ width: "24%" }} /><col style={{ width: "30%" }} /><col style={{ width: "14%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "10%" }} /></colgroup>
           <thead><tr><th>Lead</th><th>Source</th><th>Stage / Status</th><th>Owner</th><th>Next Follow-up</th><th /></tr></thead>
           <tbody>{rows.map((row) => {
             const lead = row.lead;
