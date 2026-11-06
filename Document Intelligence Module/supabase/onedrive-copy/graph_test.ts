@@ -138,6 +138,8 @@ Deno.test("delta follows nextLink and yields the final deltaLink", async () => {
   assertEquals(pages.length, 2);
   assertEquals(pages[0].items.map((i) => i.id), ["a"]);
   assertEquals(pages[0].deltaLink, undefined);
+  assertEquals(pages[0].nextLink, "https://graph.microsoft.com/v1.0/next-page");
+  assertEquals(pages[1].nextLink, undefined);
   assertEquals(pages[1].deltaLink, "https://graph.microsoft.com/v1.0/delta-final");
   assertEquals(
     calls[0].url,

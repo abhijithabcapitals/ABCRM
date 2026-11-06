@@ -8,7 +8,8 @@
 -- CEO read) applies to whoever reads them.
 -- Rollback: drop view od_copy.report, od_copy.item_map; drop function od_copy.build_plan(), od_copy.approve(text,text,text),
 -- od_copy.fit_path(text[],int), od_copy.folder_for(text), od_copy.employee_label(text), od_copy.clean_segment(text),
--- od_copy.cap_segment(text,int), od_copy.legal_form(text), od_copy.normalize_name(text).
+-- od_copy.cap_segment(text,int), od_copy.legal_form(text), od_copy.normalize_name(text),
+-- od_copy.claim(text,int,int), od_copy.rollback_candidates(text,text,text,int); drop index od_copy.plan_claim_idx.
 begin;
 
 -- Company name for matching: lowercase, & -> and, punctuation -> space, legal-form and filler words removed.
@@ -319,6 +320,80 @@ begin
   return n;
 end $$;
 
+-- Work queue for the copy Edge Function (Task 4). Two concurrent calls never return the same row: candidates are
+-- locked with "for update skip locked" and changed in the same statement.
+-- 'approved': at most p_limit rows minus those already 'copying' (so the in-flight cap holds across overlapping runs)
+-- become 'copying' with no monitor URL yet. A row that failed before waits p_lease_seconds after its last change
+-- (retry back-off). 'copying': rows untouched for p_lease_seconds (longer than one 120 s run) are leased to the caller
+-- by touching updated_at. Returns the plan columns plus the source file's size and quickXorHash (for verification).
+create index if not exists plan_claim_idx on od_copy.plan (status, attempts, source_item_id);
+
+create or replace function od_copy.claim(p_status text, p_limit int, p_lease_seconds int default 150)
+returns table (source_item_id text, source_path text, target_path text, department text, client_id text, status text,
+  dest_item_id text, monitor_url text, attempts int, error text, size bigint, quickxor_hash text)
+language plpgsql security definer set search_path = '' as $$
+#variable_conflict use_column
+declare
+  n bigint := greatest(coalesce(p_limit, 0), 0);
+  lease interval := make_interval(secs => greatest(coalesce(p_lease_seconds, 150), 0));
+begin
+  if p_status = 'approved' then
+    n := greatest(0, n - (select count(*) from od_copy.plan x where x.status = 'copying'));
+    return query
+    with c as (
+      select p.source_item_id as id from od_copy.plan p
+      where p.status = 'approved' and (p.attempts = 0 or p.updated_at < now() - lease)
+      order by p.attempts, p.source_item_id
+      limit n
+      for update skip locked)
+    update od_copy.plan p set status = 'copying', monitor_url = null, updated_at = now()
+    from c, od_copy.source_items s
+    where p.source_item_id = c.id and s.item_id = p.source_item_id
+    returning p.source_item_id, p.source_path, p.target_path, p.department, p.client_id, p.status,
+      p.dest_item_id, p.monitor_url, p.attempts, p.error, s.size, s.quickxor_hash;
+  elsif p_status = 'copying' then
+    return query
+    with c as (
+      select p.source_item_id as id from od_copy.plan p
+      where p.status = 'copying' and p.updated_at < now() - lease
+      order by p.updated_at, p.source_item_id
+      limit n
+      for update skip locked)
+    update od_copy.plan p set updated_at = now()
+    from c, od_copy.source_items s
+    where p.source_item_id = c.id and s.item_id = p.source_item_id
+    returning p.source_item_id, p.source_path, p.target_path, p.department, p.client_id, p.status,
+      p.dest_item_id, p.monitor_url, p.attempts, p.error, s.size, s.quickxor_hash;
+  else
+    raise exception 'od_copy.claim: status must be approved or copying, not %', p_status;
+  end if;
+end $$;
+
+-- Rollback input: this job's own verified copies (status 'verified' with the dest_item_id it recorded), in a scope.
+-- p_area as in item_map (longest area rule; '(root files)' = files directly in the old root); p_client_id; both null
+-- = every copy. Paged by source_item_id after p_after. Read-only: the Edge Function re-checks each item before recycling.
+create or replace function od_copy.rollback_candidates(p_area text default null, p_client_id text default null,
+  p_after text default null, p_limit int default 50)
+returns table (source_item_id text, source_path text, target_path text, department text, client_id text, status text,
+  dest_item_id text, monitor_url text, attempts int, error text, size bigint, quickxor_hash text)
+language sql stable security definer set search_path = '' as $$
+  select p.source_item_id, p.source_path, p.target_path, p.department, p.client_id, p.status,
+    p.dest_item_id, p.monitor_url, p.attempts, p.error, s.size, s.quickxor_hash
+  from od_copy.plan p
+  join od_copy.source_items s on s.item_id = p.source_item_id
+  where p.status = 'verified' and p.dest_item_id is not null
+    and (p_client_id is null or p.client_id = p_client_id)
+    and (p_area is null or case
+      when p_area = '(root files)' then strpos(coalesce(p.source_path, ''), '/') = 0
+      else lower(left(p.source_path, length(p_area) + 1)) = lower(p_area) || '/'
+        and not exists (select 1 from od_copy.area_rules r where length(r.area) > length(p_area)
+                        and lower(left(p.source_path, length(r.area) + 1)) = lower(r.area) || '/')
+    end)
+    and (p_after is null or p.source_item_id > p_after)
+  order by p.source_item_id
+  limit greatest(coalesce(p_limit, 50), 0)
+$$;
+
 -- One row per old area for the CRM screen.
 create or replace view od_copy.report with (security_invoker = true) as
 select i.area,
@@ -336,7 +411,8 @@ group by i.area;
 do $$ declare f text; begin
   foreach f in array array['od_copy.normalize_name(text)', 'od_copy.legal_form(text)', 'od_copy.cap_segment(text,int)',
     'od_copy.clean_segment(text)', 'od_copy.fit_path(text[],int)', 'od_copy.folder_for(text)', 'od_copy.employee_label(text)',
-    'od_copy.build_plan()', 'od_copy.approve(text,text,text)'] loop
+    'od_copy.build_plan()', 'od_copy.approve(text,text,text)', 'od_copy.claim(text,int,int)',
+    'od_copy.rollback_candidates(text,text,text,int)'] loop
     execute format('revoke all on function %s from public, anon, authenticated', f);
     execute format('grant execute on function %s to service_role', f);
   end loop;

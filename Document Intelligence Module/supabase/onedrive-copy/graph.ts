@@ -17,6 +17,7 @@ export type DriveItem = {
   lastModifiedDateTime?: string;
   deleted?: object;
   remoteItem?: object;
+  webUrl?: string;
 };
 
 export type CopyStatus = { status: "inProgress" | "completed" | "failed"; resourceId?: string; error?: string };
@@ -138,12 +139,14 @@ export class Graph {
     return await this.json<DriveItem>("GET", this.itemUrl(itemId));
   }
 
-  async *delta(itemId: string, deltaLink?: string): AsyncGenerator<{ items: DriveItem[]; deltaLink?: string }> {
+  // Each page carries nextLink (more pages follow) or deltaLink (the last page). Either one can be
+  // stored and passed back as `deltaLink` to resume: both are Graph URLs and are checked as such.
+  async *delta(itemId: string, deltaLink?: string): AsyncGenerator<{ items: DriveItem[]; deltaLink?: string; nextLink?: string }> {
     let url = deltaLink ?? `${this.itemUrl(itemId)}/delta?$select=${DELTA_SELECT}`;
     while (true) {
       const page = await this.json<{ value?: DriveItem[]; "@odata.nextLink"?: string; "@odata.deltaLink"?: string }>("GET", url);
       const next = page["@odata.nextLink"];
-      yield { items: page.value ?? [], deltaLink: page["@odata.deltaLink"] };
+      yield { items: page.value ?? [], deltaLink: page["@odata.deltaLink"], nextLink: next };
       if (!next) return;
       url = next;
     }
