@@ -171,3 +171,15 @@ test("the Onboarding list names each case's form state and loads before it shows
   const out = await html("ClientOnboarding.jsx", "default", {});
   assert.match(out, /Client Onboarding/); assert.match(out, /Document register/);
 });
+
+test("service page: buttons follow the server's rights, and the checklist shows sign-off state", { skip }, async () => {
+  const item = (o) => ({ id: o.id, label: o.label, requirement: "Mandatory", status: "Not Started", files: [], ...o });
+  const d = { service: { id: "s1", name: "Ejari Renewal", status: "In progress", client_id: "CL000001", priority: "Normal" }, progress: 50, can_work: true, can_verify: true, pending_approval: 1, next_action: "Two",
+    items: [item({ id: "a", label: "One", status: "Completed", pending_approval: true }), item({ id: "b", label: "Two" })] };
+  const full = await html("ServicePage.jsx", "ServiceView", { d, clientId: "CL000001", onBack() {}, reload() {} });
+  assert.match(full, /Sign off all \(1\)/); assert.match(full, /Pending approval/); assert.match(full, /Confirm service/); assert.match(full, /50%/); assert.match(full, /Attach/);
+  const viewer = await html("ServicePage.jsx", "ServiceView", { d: { ...d, can_work: false, can_verify: false }, clientId: "CL000001", onBack() {}, reload() {} }, false);
+  assert.doesNotMatch(viewer, /Sign off/); assert.doesNotMatch(viewer, /Confirm service/); assert.doesNotMatch(viewer, /Attach/); assert.doesNotMatch(viewer, /<select/);
+  const cancelled = await html("ServicePage.jsx", "ServiceView", { d: { ...d, service: { ...d.service, status: "Cancelled" } }, clientId: "CL000001", onBack() {}, reload() {} });
+  assert.match(cancelled, /Cancelled/); assert.doesNotMatch(cancelled, /<select/); assert.doesNotMatch(cancelled, /Sign off/);
+});

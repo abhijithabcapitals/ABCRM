@@ -251,6 +251,7 @@ begin
     'progress', business_setup_service_progress(p_service),
     'can_work', business_setup_service_can_work(p_service),
     'can_verify', business_setup_can('setup.cases.approve'),
+    'outputs', (select count(*) from business_setup_documents d where d.service_id = p_service and d.is_output),
     'pending_approval', (select count(*) from business_setup_service_checkpoints x where x.service_id = p_service and x.requirement = 'Mandatory' and x.status = 'Completed' and x.verified_at is null),
     'next_action', (select x.label from business_setup_service_checkpoints x where x.service_id = p_service and x.status not in ('Completed', 'Not Applicable') order by x.requirement = 'Optional', x.sort_order limit 1),
     'items', (select coalesce(jsonb_agg(to_jsonb(x) || jsonb_build_object('assignee_name', business_setup_person_name(x.assigned_to), 'verified_by_name', business_setup_person_name(x.verified_by),
