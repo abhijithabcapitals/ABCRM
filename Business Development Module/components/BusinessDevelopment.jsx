@@ -3,6 +3,9 @@ import {
   BD_SOURCES,
   BD_STAGES,
   BD_SERVICES,
+  assignBusinessDevelopmentLead,
+  businessDevelopmentReceiptUrl,
+  convertBusinessDevelopmentLead,
   createBusinessDevelopmentActivity,
   createBusinessDevelopmentFollowup,
   createBusinessDevelopmentLead,
@@ -10,56 +13,50 @@ import {
   completeBusinessDevelopmentFollowup,
   fetchBusinessDevelopmentLeads,
   fetchBusinessDevelopmentProfiles,
+  fetchBusinessDevelopmentRole,
+  fetchPoolProspects,
   markBusinessDevelopmentLeadLost,
-  markBusinessDevelopmentLeadWon,
+  recordBusinessDevelopmentQuoteSent,
   updateBusinessDevelopmentStage,
   updateBusinessDevelopmentService,
   updatePlatformProspect,
+  uploadBusinessDevelopmentReceipt,
 } from "../logic/businessDevelopmentData";
-import { isOpen } from "../logic/leadRules.js";
+import { CONVERTED_STAGE, DEPARTMENTS, QUOTE_STAGE, departmentForService, departmentLabel, isOpen, isUnassigned, nextStep } from "../logic/leadRules.js";
 import BdAgentPanel from "./BdAgentPanel";
 import BdCalendarView from "./BdCalendarView";
-import LeadGenerationView from "./LeadGenerationView";
+import LeadGenerationView, { prospectLeadValues, prospectSourceName } from "./LeadGenerationView";
 import TeamsPanel from "@messenger/components/TeamsPanel";
 import "./BusinessDevelopment.css";
 
+const CONVERTED_PAGE = "Converted & Transfers";
 const PAGES = [
-  "Lead Generation",
   "BD Dashboard",
-  "Lead Pipeline",
   "All Leads",
   "My Leads",
+  "Lead Pipeline",
+  "Lead Generation",
   "Team Leads",
   "Lead Calendar",
   "Follow-up Center",
   "Campaigns & Sources",
   "Proposals & Quotations",
-  "Won Leads & Onboarding Handover",
+  CONVERTED_PAGE,
   "Lost Leads Analysis",
   "Reports & Analytics",
   "Settings & Master Data",
 ];
+const MANAGER_ROLES = ["super_admin", "bd_manager", "team_leader"];
 const CHANNELS = ["Phone Call", "WhatsApp", "Email", "Face-to-Face Meeting", "Video Meeting", "Instagram / Social Media", "Website / Form", "Other"];
 const LOST_REASONS = ["Price Too High", "No Response", "Competitor Selected", "Service Not Required", "Budget Not Available", "Timing / Deferred", "Unable to Meet Requirements", "Duplicate Lead", "Other"];
+// Stage-weighted forecast (matches default_probability in migration 012)
 const PROBABILITY = {
-  "New Lead": 0.05, "Contact Pending": 0.08, "First Contact Attempted": 0.12,
-  "Contact Established": 0.2, "Requirement Identified": 0.3, Qualified: 0.4,
-  "Proposal / Quotation Preparation": 0.55, "Proposal Sent": 0.65,
-  "Follow-up / Negotiation": 0.75, "Verbal Confirmation": 0.9,
+  Prospect: 0.05, Contact: 0.15, Convinced: 0.35, "Received Documents": 0.5, "Done KYC": 0.65, [QUOTE_STAGE]: 0.8,
 };
+const PROGRESS_STEPS = ["Prospect", "Contact", "Convinced", "Documents", "KYC", "Quote sent", "Converted", "Transferred"];
 const PROGRESS_INDEX = {
-  "New Lead": 0,
-  "Contact Pending": 0,
-  "First Contact Attempted": 1,
-  "Contact Established": 2,
-  "Requirement Identified": 2,
-  Qualified: 3,
-  "Proposal / Quotation Preparation": 4,
-  "Proposal Sent": 4,
-  "Follow-up / Negotiation": 5,
-  "Verbal Confirmation": 5,
-  "Won — Pending Onboarding": 6,
-  "Onboarding Completed": 7,
+  Prospect: 0, Contact: 1, Convinced: 2, "Received Documents": 3, "Done KYC": 4, [QUOTE_STAGE]: 5,
+  [CONVERTED_STAGE]: 6, "Onboarding Completed": 7,
 };
 
 const uaeDate = (value) => value ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value)) : "";
@@ -158,8 +155,10 @@ function LeadCard({ lead, profiles, onOpen, draggable = false, onDragStart }) {
 }
 
 export default function BusinessDevelopment({ profile }) {
-  const [page, setPage] = useState("Lead Generation");
+  const [page, setPage] = useState("All Leads");
   const [leads, setLeads] = useState([]);
+  const [poolProspects, setPoolProspects] = useState([]);
+  const [role, setRole] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -179,18 +178,23 @@ export default function BusinessDevelopment({ profile }) {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const [leadResult, profileResult] = await Promise.all([
+    const [leadResult, profileResult, prospectResult, roleResult] = await Promise.all([
       fetchBusinessDevelopmentLeads(),
       fetchBusinessDevelopmentProfiles(),
+      fetchPoolProspects(),
+      fetchBusinessDevelopmentRole(),
     ]);
     if (leadResult.error) setError(errorText(leadResult.error));
     else setLeads(leadResult.data || []);
     if (profileResult.error) setError((current) => current || profileResult.error.message);
     else setProfiles(profileResult.data || []);
+    setPoolProspects(prospectResult.error ? [] : prospectResult.data || []); // no platform table yet: pool shows leads only
+    setRole(roleResult.error ? null : roleResult.data || null);
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, prospectsVersion]);
+  const isManager = MANAGER_ROLES.includes(role);
   useEffect(() => {
     if (!selectedLead) return;
     const fresh = leads.find((lead) => lead.id === selectedLead.id);
@@ -201,8 +205,8 @@ export default function BusinessDevelopment({ profile }) {
   const filteredLeads = useMemo(() => {
     let rows = leads;
     if (page === "My Leads") rows = rows.filter((lead) => lead.current_owner === currentUserId);
-    if (page === "Team Leads") rows = rows.filter((lead) => lead.current_owner !== currentUserId);
-    if (page === "Won Leads & Onboarding Handover") rows = rows.filter((lead) => lead.status === "won");
+    if (page === "Team Leads") rows = rows.filter((lead) => lead.current_owner && lead.current_owner !== currentUserId);
+    if (page === CONVERTED_PAGE) rows = rows.filter((lead) => lead.status === "won");
     if (page === "Lost Leads Analysis") rows = rows.filter((lead) => lead.status === "lost" || lead.status === "disqualified");
     if (sourceFilter) rows = rows.filter((lead) => lead.source === sourceFilter);
     const needle = search.trim().toLowerCase();
@@ -223,8 +227,9 @@ export default function BusinessDevelopment({ profile }) {
   const wonValueThisMonth = currencyTotals(wonThisMonth.flatMap((lead) => (lead.bd_lead_services || [])
     .filter((service) => service.status === "accepted")
     .map((service) => ({ amount: service.final_agreed_fee, currency: service.currency }))));
-  const contactedCount = activeLeads.filter((lead) => BD_STAGES.indexOf(lead.stage) >= BD_STAGES.indexOf("Contact Established")).length;
-  const proposalsCount = activeLeads.filter((lead) => ["Proposal / Quotation Preparation", "Proposal Sent", "Follow-up / Negotiation", "Verbal Confirmation"].includes(lead.stage)).length;
+  const contactedCount = activeLeads.filter((lead) => BD_STAGES.indexOf(lead.stage) >= BD_STAGES.indexOf("Contact")).length;
+  const proposalsCount = activeLeads.filter((lead) => lead.stage === QUOTE_STAGE).length;
+  const unassignedCount = activeLeads.filter(isUnassigned).length + poolProspects.length;
 
   function setStatus(message) {
     setNotice(message);
@@ -297,21 +302,18 @@ export default function BusinessDevelopment({ profile }) {
     await load();
   }
 
+  // Stage moves follow the workflow; Quote & Engagement Sent and Converted open their own forms.
   async function moveStage(lead, nextStage) {
     if (nextStage === lead.stage) return;
-    if (BD_STAGES.indexOf(nextStage) >= BD_STAGES.indexOf("Requirement Identified") && !lead.initial_service_interest && !(lead.bd_lead_services || []).length) {
-      setError("Add at least one service interest before moving this lead to Requirement Identified.");
+    if (!lead.current_owner) { setError("Assign the lead to someone before moving it through the pipeline."); return; }
+    if (nextStage === QUOTE_STAGE && !lead.quote_sent_at) { openLeadWith(lead, "quote"); return; }
+    if (nextStage === CONVERTED_STAGE) { openLeadWith(lead, lead.quote_sent_at ? "convert" : "quote"); return; }
+    const services = lead.bd_lead_services || [];
+    if (BD_STAGES.indexOf(nextStage) >= BD_STAGES.indexOf("Convinced") && !lead.initial_service_interest && !services.length) {
+      setError(`Add at least one service interest before moving this lead to ${nextStage}.`);
       return;
     }
-    if (BD_STAGES.indexOf(nextStage) >= BD_STAGES.indexOf("Proposal / Quotation Preparation") && !(lead.bd_lead_services || []).length) {
-      setError("Add a service opportunity before moving this lead into proposal preparation.");
-      return;
-    }
-    if (BD_STAGES.indexOf(nextStage) >= BD_STAGES.indexOf("Proposal Sent") && !(lead.bd_lead_services || []).some((service) => service.proposed_fee !== null && service.proposed_fee !== undefined)) {
-      setError("Record a proposed fee on a service before moving this lead to Proposal Sent.");
-      return;
-    }
-    if (BD_STAGES.indexOf(nextStage) >= BD_STAGES.indexOf("Qualified") && !lead.next_followup_at && !lead.no_followup_reason) {
+    if (BD_STAGES.indexOf(nextStage) >= BD_STAGES.indexOf("Convinced") && !lead.next_followup_at && !lead.no_followup_reason) {
       setError("Set a next follow-up date before moving this active lead forward.");
       return;
     }
@@ -321,16 +323,51 @@ export default function BusinessDevelopment({ profile }) {
     await load();
   }
 
-  async function confirmWon(handover) {
+  async function assignLead(lead, userId = null) {
+    setError("");
+    const { error: saveError } = await assignBusinessDevelopmentLead(lead.id, userId);
+    if (saveError) { setError(errorText(saveError)); return; }
+    const owner = profiles.find((person) => person.id === (userId || currentUserId));
+    setStatus(userId && userId !== currentUserId ? `Lead assigned to ${fullName(owner)}.` : "Lead assigned to you. It is now a Prospect in your pipeline.");
+    await load();
+  }
+
+  // A platform prospect becomes a lead owned by the person who takes it.
+  function assignProspect(prospect) {
+    setError("");
+    setLeadPrefill({ prospectId: prospect.id, values: { ...prospectLeadValues(prospect), current_owner: currentUserId || "" } });
+    setModal("lead");
+  }
+
+  async function confirmQuote(quote) {
     setBusy(true);
-    const { error: saveError } = await markBusinessDevelopmentLeadWon(selectedLead.id, handover);
+    const { error: saveError } = await recordBusinessDevelopmentQuoteSent(selectedLead.id, quote);
     setBusy(false);
     if (saveError) { setError(errorText(saveError)); return; }
     setModal("");
-    setSelectedLead(null);
-    setStatus("Lead marked won and placed in the onboarding handover queue.");
+    setStatus("Quote & engagement letter recorded as sent. A follow-up has been scheduled.");
     await load();
   }
+
+  async function confirmConvert({ file, ...conversion }) {
+    setBusy(true);
+    setError("");
+    const upload = await uploadBusinessDevelopmentReceipt(selectedLead.id, file);
+    if (upload.error) { setBusy(false); setError(`The receipt could not be uploaded: ${upload.error.message}`); return; }
+    const { error: saveError } = await convertBusinessDevelopmentLead(selectedLead.id, {
+      ...conversion,
+      receipt: { ...conversion.receipt, file_path: upload.data.path, file_name: upload.data.name },
+      idempotency_key: `convert-${selectedLead.id}-${upload.data.path}`,
+    });
+    setBusy(false);
+    if (saveError) { setError(errorText(saveError)); return; }
+    setModal("");
+    const names = conversion.transfers.map((transfer) => departmentLabel(transfer.department)).join(", ");
+    setStatus(`Lead converted and transferred to ${names}.`);
+    await load();
+  }
+
+  function openLeadWith(lead, nextModal) { setSelectedLead(lead); setError(""); setModal(nextModal); }
 
   async function confirmLost(reason, notes) {
     setBusy(true);
@@ -368,7 +405,10 @@ export default function BusinessDevelopment({ profile }) {
         onActivity={() => setModal("activity")}
         onFollowup={() => setModal("followup")}
         onService={(service = null) => { setSelectedService(service); setModal("service"); }}
-        onWon={() => setModal("won")}
+        onQuote={() => setModal("quote")}
+        onConvert={() => setModal("convert")}
+        onAssign={assignLead}
+        isManager={isManager}
         onLost={() => setModal("lost")}
         onStage={moveStage}
         error={error}
@@ -380,7 +420,8 @@ export default function BusinessDevelopment({ profile }) {
         onSubmitFollowup={submitFollowup}
         onSubmitService={submitService}
         selectedService={selectedService}
-        onSubmitWon={confirmWon}
+        onSubmitQuote={confirmQuote}
+        onSubmitConvert={confirmConvert}
         onSubmitLost={confirmLost}
       />,
     );
@@ -435,30 +476,15 @@ export default function BusinessDevelopment({ profile }) {
             />
           )}
           {isPipeline && (
-            <section>
-              <div className="bd-section-heading"><div><h2>Deal Pipeline</h2><p>Move leads forward only when their next-step requirements are ready.</p></div><span className="bd-count-pill">{activeLeads.length} active</span></div>
-              <div className="bd-pipeline">
-                {BD_STAGES.map((stage, index) => {
-                  const cards = activeLeads.filter((lead) => lead.stage === stage);
-                  return (
-                    <div className={`bd-stage-column bd-stage-${stageClass(stage)}`} key={stage}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        const leadId = event.dataTransfer.getData("text/plain");
-                        const dragged = activeLeads.find((lead) => lead.id === leadId);
-                        if (dragged) moveStage(dragged, stage);
-                      }}>
-                      <div className="bd-stage-heading"><span className="bd-stage-dot" /><div><strong>{stage}</strong><small>Stage {index + 1}</small></div><b>{cards.length}</b></div>
-                      <div className="bd-stage-cards">
-                        {cards.map((lead) => <LeadCard key={lead.id} lead={lead} profiles={profiles} onOpen={openLead} draggable onDragStart={(event, item) => event.dataTransfer.setData("text/plain", item.id)} />)}
-                        {cards.length === 0 && <div className="bd-stage-empty">Drop a lead here</div>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+            <PipelineView
+              leads={leads}
+              activeLeads={activeLeads}
+              profiles={profiles}
+              unassignedCount={unassignedCount}
+              onOpen={openLead}
+              onMove={moveStage}
+              onViewPool={() => setPage("All Leads")}
+            />
           )}
           {!isDashboard && !isPipeline && isFollowups && (
             isCalendar
@@ -467,17 +493,43 @@ export default function BusinessDevelopment({ profile }) {
               : <FollowupView items={dueFollowups} onOpen={openLead} onComplete={completeFollowup} />
           )}
           {!isDashboard && !isPipeline && isSources && <SourcesView leads={leads} />}
-          {page === "Lead Generation" && (
-            <LeadGenerationView
-              version={prospectsVersion}
-              onAddToPipeline={(prospectId, values) => { setError(""); setLeadPrefill({ prospectId, values }); setModal("lead"); }}
+          {page === "All Leads" && (
+            <AllLeadsView
+              leads={leads}
+              prospects={poolProspects}
+              profiles={profilesById}
+              currentUserId={currentUserId}
+              search={search}
+              onSearch={setSearch}
+              sourceFilter={sourceFilter}
+              onSourceFilter={setSourceFilter}
+              onOpen={openLead}
+              onAssign={(lead) => assignLead(lead)}
+              onAssignProspect={assignProspect}
             />
           )}
+          {page === "Lead Generation" && (
+            <>
+              <SourceAnalyticsView
+                leads={leads}
+                prospects={poolProspects}
+                profiles={profilesById}
+                sourceFilter={sourceFilter}
+                onSourceFilter={setSourceFilter}
+                onOpen={openLead}
+              />
+              <LeadGenerationView
+                version={prospectsVersion}
+                onAddToPipeline={(prospectId, values) => { setError(""); setLeadPrefill({ prospectId, values: { ...values, current_owner: currentUserId || "" } }); setModal("lead"); }}
+              />
+            </>
+          )}
+          {page === CONVERTED_PAGE && <ConvertedView leads={filteredLeads} profiles={profilesById} onOpen={openLead} />}
           {!isDashboard && !isPipeline && isProposals && <ProposalView leads={leads} onOpen={openLead} />}
           {!isDashboard && !isPipeline && page === "Reports & Analytics" && <ReportsView leads={leads} />}
           {!isDashboard && !isPipeline && page === "Settings & Master Data" && <MasterDataView />}
-          {!isDashboard && !isPipeline && !isFollowups && !isSources && !isProposals && (
-            page !== "Reports & Analytics" && page !== "Settings & Master Data" && page !== "Lead Generation" && <LeadListView
+          {["My Leads", "Team Leads", "Lost Leads Analysis"].includes(page) && (
+            <LeadListView
               title={page}
               leads={filteredLeads}
               profiles={profilesById}
@@ -518,8 +570,8 @@ function DashboardView({ leads, activeLeads, totalPotential, weightedPipeline, o
         <Metric label="Total Leads" value={leads.length} note="All records" onClick={() => onView("All Leads")} />
         <Metric label="New Leads Today" value={todaysLeads} note="Added today" tint="blue" onClick={() => onView("All Leads")} />
         <Metric label="Leads Contacted" value={contactedCount} note="Active opportunities" tint="violet" onClick={() => onView("Lead Pipeline")} />
-        <Metric label="Proposals in Progress" value={proposalsCount} note="Preparation through negotiation" tint="orange" onClick={() => onView("Proposals & Quotations")} />
-        <Metric label="Won Business · This Month" value={wonValueThisMonth} note={`${wonCount} won in total`} tint="green" onClick={() => onView("Won Leads & Onboarding Handover")} />
+        <Metric label="Quotes Out" value={proposalsCount} note="Quote & engagement sent, awaiting payment" tint="orange" onClick={() => onView("Proposals & Quotations")} />
+        <Metric label="Converted · This Month" value={wonValueThisMonth} note={`${wonCount} converted in total`} tint="green" onClick={() => onView("Converted & Transfers")} />
         <Metric label="Potential Business" value={totalPotential} note="Active lead estimates · by currency" tint="blue" onClick={() => onView("Reports & Analytics")} />
         <Metric label="Weighted Pipeline" value={weightedPipeline} note="Stage-based forecast · by currency" tint="violet" onClick={() => onView("Lead Pipeline")} />
         <Metric label="Overdue Follow-ups" value={overdue} note={`${dueCount} due today or overdue`} tint="red" onClick={() => onView("Follow-up Center")} />
@@ -534,7 +586,7 @@ function DashboardView({ leads, activeLeads, totalPotential, weightedPipeline, o
         <section className="bd-panel">
           <div className="bd-panel-heading"><div><h3>Lead Sources</h3><p>Where prospects are coming from</p></div></div>
           {sourceCounts.length ? <div className="bd-source-list">{sourceCounts.map(([source, count], index) => <div className="bd-source-row" key={source}><span className={`bd-source-bullet bd-source-${index}`} /><span>{source}</span><b>{count}</b><div><i style={{ width: `${Math.max(4, (count / Math.max(1, leads.length)) * 100)}%` }} /></div></div>)}</div> : <Empty title="No source activity yet" body="Lead source breakdown will appear when leads are added." />}
-          <div className="bd-outcome-strip"><span>Won <b>{wonCount}</b></span><span>Lost <b>{lostCount}</b></span></div>
+          <div className="bd-outcome-strip"><span>Converted <b>{wonCount}</b></span><span>Lost <b>{lostCount}</b></span></div>
         </section>
       </div>
       <section className="bd-panel bd-recent-panel">
@@ -545,13 +597,262 @@ function DashboardView({ leads, activeLeads, totalPotential, weightedPipeline, o
   );
 }
 
+function PipelineView({ leads, activeLeads, profiles, unassignedCount, onOpen, onMove, onViewPool }) {
+  const assigned = activeLeads.filter((lead) => lead.current_owner);
+  const converted = leads.filter((lead) => lead.status === "won")
+    .sort((a, b) => new Date(b.won_at) - new Date(a.won_at)).slice(0, 30);
+  const columns = [
+    ...BD_STAGES.map((stage) => ({ stage, cards: assigned.filter((lead) => lead.stage === stage) })),
+    { stage: CONVERTED_STAGE, cards: converted, done: true },
+  ];
+  return (
+    <section>
+      <div className="bd-section-heading">
+        <div><h2>Lead Pipeline</h2><p>Prospect → Contact → Convinced → Received Documents → Done KYC → Quote & Engagement Sent → Converted. Drop a lead on Converted to record the client's payment receipt.</p></div>
+        <span className="bd-count-pill">{assigned.length} in progress</span>
+      </div>
+      {unassignedCount > 0 && (
+        <div className="bd-pool-note">
+          <span><b>{unassignedCount}</b> unassigned lead{unassignedCount === 1 ? "" : "s"} waiting in the pool.</span>
+          <button type="button" className="bd-text-button" onClick={onViewPool}>Assign from All Leads →</button>
+        </div>
+      )}
+      <div className="bd-pipeline">
+        {columns.map(({ stage, cards, done }, index) => (
+          <div className={`bd-stage-column bd-stage-${stageClass(stage)}`} key={stage}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const dragged = activeLeads.find((lead) => lead.id === event.dataTransfer.getData("text/plain"));
+              if (dragged) onMove(dragged, stage);
+            }}>
+            <div className="bd-stage-heading"><span className="bd-stage-dot" /><div><strong>{stage}</strong><small>{done ? "Payment received" : `Step ${index + 1}`}</small></div><b>{cards.length}</b></div>
+            <div className="bd-stage-cards">
+              {cards.map((lead) => <LeadCard key={lead.id} lead={lead} profiles={profiles} onOpen={onOpen} draggable={!done}
+                onDragStart={(event, item) => event.dataTransfer.setData("text/plain", item.id)} />)}
+              {cards.length === 0 && <div className="bd-stage-empty">{done ? "Drop a lead here to convert" : "Drop a lead here"}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// One row shape for pipeline leads and platform prospects, so All Leads lists every source together.
+function poolRows(leads, prospects) {
+  const leadRows = leads.map((lead) => ({
+    key: `lead-${lead.id}`, kind: "lead", lead, name: lead.name, sub: `${lead.lead_id} · ${lead.contact_name || lead.mobile || lead.email || "No contact"}`,
+    source: lead.source || "Unspecified", campaign: lead.campaign_name, owner: lead.current_owner, created: lead.created_at,
+    unassigned: isUnassigned(lead),
+  }));
+  const prospectRows = prospects.map((prospect) => ({
+    key: `prospect-${prospect.id}`, kind: "prospect", prospect, name: prospect.company_name || prospect.name || prospect.email || "Unknown",
+    sub: [prospect.company_name ? prospect.name : null, prospect.email, prospect.phone].filter(Boolean).join(" · ") || "No contact details",
+    source: prospectSourceName(prospect.provider), campaign: prospect.campaign_name, owner: null,
+    created: prospect.became_hot_at || prospect.fetched_at, unassigned: true,
+  }));
+  return [...leadRows, ...prospectRows].sort((a, b) => new Date(b.created || 0) - new Date(a.created || 0));
+}
+
+function SourceTags({ rows, value, onChange }) {
+  const counts = Object.entries(rows.reduce((all, row) => {
+    all[row.source] = (all[row.source] || 0) + 1;
+    return all;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  return (
+    <div className="bd-source-tags" role="group" aria-label="Filter by source">
+      <button type="button" className={!value ? "active" : ""} onClick={() => onChange("")}>All sources <b>{rows.length}</b></button>
+      {counts.map(([source, count]) => (
+        <button type="button" key={source} className={value === source ? "active" : ""} onClick={() => onChange(value === source ? "" : source)}>
+          {source} <b>{count}</b>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AllLeadsView({ leads, prospects, profiles, currentUserId, search, onSearch, sourceFilter, onSourceFilter, onOpen, onAssign, onAssignProspect }) {
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const all = useMemo(() => poolRows(leads, prospects), [leads, prospects]);
+  const needle = search.trim().toLowerCase();
+  const rows = all.filter((row) => {
+    if (sourceFilter && row.source !== sourceFilter) return false;
+    if (ownerFilter === "unassigned" && !row.unassigned) return false;
+    if (ownerFilter === "mine" && row.owner !== currentUserId) return false;
+    if (ownerFilter === "assigned" && !row.owner) return false;
+    if (!needle) return true;
+    return [row.name, row.sub, row.source, row.campaign].some((value) => String(value || "").toLowerCase().includes(needle));
+  });
+  const poolCount = all.filter((row) => row.unassigned).length;
+  return (
+    <section>
+      <div className="bd-section-heading">
+        <div><h2>All Leads</h2><p>Every lead from every source in one place. Take an unassigned lead with <b>Assign to me</b>; it becomes a Prospect in your pipeline.</p></div>
+        <span className="bd-count-pill">{poolCount} unassigned · {all.length} total</span>
+      </div>
+      <SourceTags rows={all} value={sourceFilter} onChange={onSourceFilter} />
+      <div className="bd-list-tools">
+        <input aria-label="Search leads" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search name, lead ID, phone, email, campaign…" />
+        <select aria-label="Filter by owner" value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)}>
+          <option value="all">Everyone</option>
+          <option value="unassigned">Unassigned pool</option>
+          <option value="mine">Assigned to me</option>
+          <option value="assigned">Assigned</option>
+        </select>
+      </div>
+      {rows.length ? (
+        <div className="bd-table-wrap"><table className="bd-table">
+          <thead><tr><th>Lead</th><th>Source</th><th>Stage / Status</th><th>Owner</th><th>Next Follow-up</th><th /></tr></thead>
+          <tbody>{rows.map((row) => {
+            const lead = row.lead;
+            const status = lead ? (lead.status === "active" ? lead.stage : lead.status === "won" ? CONVERTED_STAGE : lead.status) : "New from platform";
+            const canTake = row.kind === "prospect" ? Boolean(row.prospect.email || row.prospect.phone) : row.unassigned;
+            return (
+              <tr key={row.key} onClick={() => (lead ? onOpen(lead) : undefined)} className={lead ? "" : "bd-row-static"}>
+                <td><strong>{row.name}</strong><small>{row.sub}</small></td>
+                <td><span className="bd-source-tag">{row.source}</span>{row.campaign && <small>{row.campaign}</small>}</td>
+                <td><span className={`bd-stage-badge bd-stage-${stageClass(status)}`}>{status}</span></td>
+                <td>{row.owner ? fullName(profiles[row.owner]) : <span className="bd-pool-badge">Unassigned</span>}</td>
+                <td>{lead ? <span className={isLate(lead.next_followup_at) ? "bd-overdue-text" : ""}>{dateOnly(lead.next_followup_at)}</span> : "—"}</td>
+                <td className="bd-row-action">
+                  {row.unassigned && (
+                    <button type="button" className="bd-button bd-button-primary bd-button-small" disabled={!canTake}
+                      title={canTake ? undefined : "No email or phone to create a lead with"}
+                      onClick={(event) => { event.stopPropagation(); if (row.kind === "prospect") onAssignProspect(row.prospect); else onAssign(lead); }}>
+                      Assign to me
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}</tbody>
+        </table></div>
+      ) : <Empty title="No leads match this view" body="Try another source tag or clear the filters." />}
+    </section>
+  );
+}
+
+// Lead Generation: filter by source and see how each source performs.
+function SourceAnalyticsView({ leads, prospects, profiles, sourceFilter, onSourceFilter, onOpen }) {
+  const all = useMemo(() => poolRows(leads, prospects), [leads, prospects]);
+  const stats = useMemo(() => {
+    const out = {};
+    for (const row of all) {
+      const s = (out[row.source] ||= { source: row.source, total: 0, pool: 0, progress: 0, quotes: 0, converted: 0, lost: 0, value: [] });
+      s.total += 1;
+      if (row.unassigned) s.pool += 1;
+      const lead = row.lead;
+      if (!lead) continue;
+      if (lead.status === "active" && lead.current_owner) s.progress += 1;
+      if (lead.status === "active" && lead.stage === QUOTE_STAGE) s.quotes += 1;
+      if (lead.status === "won") {
+        s.converted += 1;
+        s.value.push(...(lead.bd_lead_services || []).filter((service) => service.status === "accepted")
+          .map((service) => ({ amount: service.final_agreed_fee, currency: service.currency })));
+      }
+      if (lead.status === "lost" || lead.status === "disqualified") s.lost += 1;
+    }
+    return Object.values(out).sort((a, b) => b.total - a.total);
+  }, [all]);
+  const picked = sourceFilter ? stats.find((s) => s.source === sourceFilter) : null;
+  const totals = picked || stats.reduce((sum, s) => ({
+    total: sum.total + s.total, pool: sum.pool + s.pool, progress: sum.progress + s.progress, quotes: sum.quotes + s.quotes,
+    converted: sum.converted + s.converted, lost: sum.lost + s.lost, value: [...sum.value, ...s.value],
+  }), { total: 0, pool: 0, progress: 0, quotes: 0, converted: 0, lost: 0, value: [] });
+  const months = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date();
+    date.setUTCDate(1);
+    date.setUTCMonth(date.getUTCMonth() - (5 - index));
+    return date.toISOString().slice(0, 7);
+  });
+  const monthly = months.map((month) => ({
+    month,
+    count: all.filter((row) => (!sourceFilter || row.source === sourceFilter) && uaeDate(row.created).slice(0, 7) === month).length,
+  }));
+  const maxMonth = Math.max(1, ...monthly.map((item) => item.count));
+  const sourceLeads = sourceFilter ? leads.filter((lead) => (lead.source || "Unspecified") === sourceFilter) : [];
+  const rate = (s) => (s.converted + s.lost ? `${Math.round((s.converted / (s.converted + s.lost)) * 100)}%` : "—");
+
+  return (
+    <section className="bd-source-analytics">
+      <div className="bd-section-heading">
+        <div><h2>Lead Generation</h2><p>Filter leads by source and compare how each source converts. Assign leads from All Leads.</p></div>
+      </div>
+      <SourceTags rows={all} value={sourceFilter} onChange={onSourceFilter} />
+      <div className="bd-metrics-grid bd-report-metrics">
+        <Metric label={sourceFilter ? `${sourceFilter} leads` : "Leads, all sources"} value={totals.total} note={`${totals.pool} unassigned`} />
+        <Metric label="In pipeline" value={totals.progress} note={`${totals.quotes} with quote out`} tint="violet" />
+        <Metric label="Converted" value={totals.converted} note={currencyTotals(totals.value)} tint="green" />
+        <Metric label="Win rate" value={rate(totals)} note={`${totals.lost} lost`} tint="orange" />
+      </div>
+      <div className="bd-dashboard-grid">
+        <section className="bd-panel">
+          <div className="bd-panel-heading"><div><h3>By source</h3><p>Leads, pipeline and conversion per source</p></div></div>
+          {stats.length ? <div className="bd-table-wrap"><table className="bd-table">
+            <thead><tr><th>Source</th><th>Leads</th><th>Unassigned</th><th>In pipeline</th><th>Converted</th><th>Win rate</th><th>Converted value</th></tr></thead>
+            <tbody>{stats.map((s) => (
+              <tr key={s.source} className={sourceFilter === s.source ? "bd-row-selected" : ""} onClick={() => onSourceFilter(sourceFilter === s.source ? "" : s.source)}>
+                <td><span className="bd-source-tag">{s.source}</span></td><td>{s.total}</td><td>{s.pool}</td><td>{s.progress}</td>
+                <td>{s.converted}</td><td>{rate(s)}</td><td>{currencyTotals(s.value)}</td>
+              </tr>))}</tbody>
+          </table></div> : <Empty title="No leads yet" body="Source analytics appear once leads arrive." />}
+        </section>
+        <section className="bd-panel bd-chart-panel">
+          <div className="bd-panel-heading"><div><h3>New leads by month</h3><p>{sourceFilter || "All sources"} · last 6 months</p></div></div>
+          <div className="bd-stage-bars">
+            {monthly.map((item) => <div className="bd-bar-row" key={item.month}><span>{new Date(`${item.month}-01T00:00:00Z`).toLocaleDateString("en-AE", { month: "short", year: "numeric", timeZone: "UTC" })}</span><div className="bd-bar-track"><i style={{ width: `${Math.max(3, (item.count / maxMonth) * 100)}%` }} /></div><b>{item.count}</b></div>)}
+          </div>
+        </section>
+      </div>
+      {sourceFilter && (
+        <section className="bd-panel">
+          <div className="bd-panel-heading"><div><h3>{sourceFilter} leads in the pipeline</h3><p>{sourceLeads.length} lead{sourceLeads.length === 1 ? "" : "s"}</p></div></div>
+          {sourceLeads.length ? <div className="bd-table-wrap"><table className="bd-table">
+            <thead><tr><th>Lead</th><th>Stage / Status</th><th>Owner</th><th>Created</th></tr></thead>
+            <tbody>{sourceLeads.map((lead) => {
+              const status = lead.status === "active" ? lead.stage : lead.status === "won" ? CONVERTED_STAGE : lead.status;
+              return <tr key={lead.id} onClick={() => onOpen(lead)}><td><strong>{lead.name}</strong><small>{lead.lead_id}</small></td>
+                <td><span className={`bd-stage-badge bd-stage-${stageClass(status)}`}>{status}</span></td>
+                <td>{lead.current_owner ? fullName(profiles[lead.current_owner]) : <span className="bd-pool-badge">Unassigned</span>}</td>
+                <td>{dateOnly(lead.created_at)}</td></tr>;
+            })}</tbody>
+          </table></div> : <div className="bd-muted-empty">No pipeline leads from this source yet.</div>}
+        </section>
+      )}
+    </section>
+  );
+}
+
+function ConvertedView({ leads, profiles, onOpen }) {
+  return (
+    <section>
+      <div className="bd-section-heading"><div><h2>Converted & Transfers</h2><p>Leads converted on the client's payment receipt, and the department leads created for them.</p></div><span className="bd-count-pill">{leads.length} converted</span></div>
+      {leads.length ? <div className="bd-table-wrap"><table className="bd-table">
+        <thead><tr><th>Lead</th><th>Converted</th><th>Receipt</th><th>Transferred to</th></tr></thead>
+        <tbody>{leads.map((lead) => {
+          const receipts = lead.bd_payment_receipts || [];
+          const transfers = lead.bd_department_transfers || [];
+          return (
+            <tr key={lead.id} onClick={() => onOpen(lead)}>
+              <td><strong>{lead.name}</strong><small>{lead.lead_id} · {lead.source}</small></td>
+              <td>{dateOnly(lead.won_at)}<small>{lead.current_owner ? fullName(profiles[lead.current_owner]) : ""}</small></td>
+              <td>{receipts.length ? currencyTotals(receipts.map((r) => ({ amount: r.amount, currency: r.currency }))) : "—"}<small>{receipts[0]?.reference || ""}</small></td>
+              <td>{transfers.length ? <div className="bd-transfer-chips">{transfers.map((t) => <span key={t.id}>{departmentLabel(t.department)} · {t.target_ref}{t.owner ? ` · ${fullName(profiles[t.owner])}` : ""}</span>)}</div> : <span className="bd-pool-badge">Not transferred</span>}</td>
+            </tr>
+          );
+        })}</tbody>
+      </table></div> : <Empty title="No converted leads yet" body="Leads appear here once a payment receipt is recorded." />}
+    </section>
+  );
+}
+
 function LeadListView({ title, leads, profiles, search, onSearch, sourceFilter, onSourceFilter, onOpen }) {
-  const isHandoverPage = title === "Won Leads & Onboarding Handover";
   return (
     <section>
       <div className="bd-section-heading"><div><h2>{title}</h2><p>Search and review the lead records you can access.</p></div><span className="bd-count-pill">{leads.length} leads</span></div>
       <div className="bd-list-tools"><input aria-label="Search leads" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search name, lead ID, phone, email…" /><select aria-label="Filter by source" value={sourceFilter} onChange={(event) => onSourceFilter(event.target.value)}><option value="">All sources</option>{BD_SOURCES.map((source) => <option key={source}>{source}</option>)}</select></div>
-      {leads.length ? <div className="bd-table-wrap"><table className="bd-table"><thead><tr><th>Lead</th><th>Stage / Status</th><th>Source</th><th>Current Owner</th>{isHandoverPage ? <th>Onboarding handover</th> : <th>Next Follow-up</th>}<th>Potential</th></tr></thead><tbody>{leads.map((lead) => { const relationship = lead.bd_onboarding_handoffs; const handoff = Array.isArray(relationship) ? relationship[0] : relationship; const value = currencyTotals(leadPotentialEntries(lead)); return <tr key={lead.id} onClick={() => onOpen(lead)}><td><strong>{lead.name}</strong><small>{lead.lead_id} · {lead.contact_name || lead.mobile || lead.email || "No contact"}</small></td><td><span className={`bd-stage-badge bd-stage-${stageClass(lead.stage)}`}>{lead.status === "active" ? lead.stage : lead.status}</span></td><td>{lead.source || "—"}</td><td>{profiles[lead.current_owner] ? fullName(profiles[lead.current_owner]) : "Unassigned"}</td><td>{isHandoverPage ? handoff?.status || "Handover pending" : <span className={isLate(lead.next_followup_at) ? "bd-overdue-text" : ""}>{dateOnly(lead.next_followup_at)}</span>}</td><td>{value === money(0) ? "—" : value}</td></tr>; })}</tbody></table></div> : <Empty title="No leads match this view" body="Try clearing filters or create a lead to get started." />}
+      {leads.length ? <div className="bd-table-wrap"><table className="bd-table"><thead><tr><th>Lead</th><th>Stage / Status</th><th>Source</th><th>Current Owner</th><th>Next Follow-up</th><th>Potential</th></tr></thead><tbody>{leads.map((lead) => { const value = currencyTotals(leadPotentialEntries(lead)); return <tr key={lead.id} onClick={() => onOpen(lead)}><td><strong>{lead.name}</strong><small>{lead.lead_id} · {lead.contact_name || lead.mobile || lead.email || "No contact"}</small></td><td><span className={`bd-stage-badge bd-stage-${stageClass(lead.stage)}`}>{lead.status === "active" ? lead.stage : lead.status}</span></td><td>{lead.source || "—"}</td><td>{profiles[lead.current_owner] ? fullName(profiles[lead.current_owner]) : "Unassigned"}</td><td><span className={isLate(lead.next_followup_at) ? "bd-overdue-text" : ""}>{dateOnly(lead.next_followup_at)}</span></td><td>{value === money(0) ? "—" : value}</td></tr>; })}</tbody></table></div> : <Empty title="No leads match this view" body="Try clearing filters or create a lead to get started." />}
     </section>
   );
 }
@@ -637,11 +938,11 @@ function LeadForm({ profiles, currentUserId, leads, busy, onClose, onSubmit, ini
       lead_type: form.lead_type, name: form.name.trim(), contact_name: form.contact_name.trim() || null,
       mobile: form.mobile.trim() || null, email: form.email.trim() || null, whatsapp: form.whatsapp.trim() || null,
       source: form.source, source_detail: form.source_detail.trim() || null, campaign_name: form.campaign_name.trim() || null,
-      acquired_by: form.acquired_by, current_owner: form.current_owner, acquired_at: form.acquired_at,
+      acquired_by: form.acquired_by, current_owner: form.current_owner || null, acquired_at: form.acquired_at,
       initial_service_interest: form.initial_service_interest.trim() || null, initial_summary: form.initial_summary.trim(),
       next_followup_at: uaeInputToIso(form.next_followup_at), estimated_budget: form.estimated_budget ? Number(form.estimated_budget) : null,
       budget_currency: form.budget_currency, priority: form.priority, notes: form.notes.trim() || null,
-      status: "active", stage: "New Lead", duplicate_exception: matches.length > 0,
+      status: "active", stage: "Prospect", duplicate_exception: matches.length > 0,
     };
     const activity = {
       occurred_at: now, channel: form.contact_channel, direction: "outbound", contact_person: form.contact_name.trim() || form.name.trim(),
@@ -673,7 +974,7 @@ function LeadForm({ profiles, currentUserId, leads, busy, onClose, onSubmit, ini
           <label>Source detail<input value={form.source_detail} onChange={(event) => set("source_detail", event.target.value)} placeholder="Platform / referrer / identifier" /></label>
           <label>Campaign name<input value={form.campaign_name} onChange={(event) => set("campaign_name", event.target.value)} /></label>
           <label>Acquired by<select value={form.acquired_by} onChange={(event) => set("acquired_by", event.target.value)} required><option value="">Select employee</option>{profiles.map((person) => <option key={person.id} value={person.id}>{fullName(person)}</option>)}</select></label>
-          <label>Assigned to<select value={form.current_owner} onChange={(event) => set("current_owner", event.target.value)} required><option value="">Select owner</option>{profiles.map((person) => <option key={person.id} value={person.id}>{fullName(person)}</option>)}</select></label>
+          <label>Assigned to<select value={form.current_owner} onChange={(event) => set("current_owner", event.target.value)}><option value="">Unassigned (All Leads pool)</option>{profiles.map((person) => <option key={person.id} value={person.id}>{fullName(person)}</option>)}</select></label>
           <label>Date acquired<input type="date" value={form.acquired_at} onChange={(event) => set("acquired_at", event.target.value)} required /></label>
           <label>Initial service interest<select value={form.initial_service_interest} onChange={(event) => set("initial_service_interest", event.target.value)}><option value="">Select a service</option>{BD_SERVICES.map((service) => <option key={service}>{service}</option>)}</select></label>
           <label>Estimated budget<input type="number" min="0" step="0.01" value={form.estimated_budget} onChange={(event) => set("estimated_budget", event.target.value)} placeholder="Optional" /></label>
@@ -688,7 +989,7 @@ function LeadForm({ profiles, currentUserId, leads, busy, onClose, onSubmit, ini
   );
 }
 
-function LeadWorkspace({ lead, profiles, currentUserId, onBack, onActivity, onFollowup, onService, onWon, onLost, onStage, error, notice, modal, busy, onCloseModal, onSubmitActivity, onSubmitFollowup, onSubmitService, onSubmitWon, onSubmitLost, selectedService }) {
+function LeadWorkspace({ lead, profiles, currentUserId, isManager, onBack, onActivity, onFollowup, onService, onQuote, onConvert, onAssign, onLost, onStage, error, notice, modal, busy, onCloseModal, onSubmitActivity, onSubmitFollowup, onSubmitService, onSubmitQuote, onSubmitConvert, onSubmitLost, selectedService }) {
   const [tab, setTab] = useState("Overview");
   const history = [...(lead.bd_lead_activities || [])].sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
   const followups = [...(lead.bd_lead_followups || [])].sort((a, b) => new Date(a.planned_at) - new Date(b.planned_at));
@@ -696,9 +997,26 @@ function LeadWorkspace({ lead, profiles, currentUserId, onBack, onActivity, onFo
   const owner = profiles.find((person) => person.id === lead.current_owner);
   const stageIndex = BD_STAGES.indexOf(lead.stage);
   const tabs = ["Overview", "Services & Budgets", "Discussion History", "Follow-ups & Activities"];
+  const transferred = (lead.bd_department_transfers || []).length > 0;
+  const progressStage = lead.status === "won" ? (transferred ? "Onboarding Completed" : CONVERTED_STAGE) : lead.stage;
   const stagePercent = ["lost", "disqualified", "on_hold"].includes(lead.status)
     ? null
-    : Math.round(((PROGRESS_INDEX[lead.stage] ?? Math.max(stageIndex, 0)) / 7) * 100);
+    : Math.round(((PROGRESS_INDEX[progressStage] ?? Math.max(stageIndex, 0)) / 7) * 100);
+  const step = nextStep(lead);
+  const runStep = () => {
+    if (!step) return;
+    if (step.action === "assign") onAssign(lead);
+    else if (step.action === "quote") onQuote();
+    else if (step.action === "convert") onConvert();
+    else onStage(lead, step.stage);
+  };
+  const statusLabel = lead.status === "active" ? lead.stage : lead.status === "won" ? CONVERTED_STAGE : lead.status;
+  const receipts = lead.bd_payment_receipts || [];
+  const transfers = lead.bd_department_transfers || [];
+  async function openReceipt(path) {
+    const { data, error: urlError } = await businessDevelopmentReceiptUrl(path);
+    if (!urlError && data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener");
+  }
 
   return (
     <div className="bd-workspace bd-lead-workspace">
@@ -707,20 +1025,26 @@ function LeadWorkspace({ lead, profiles, currentUserId, onBack, onActivity, onFo
       {notice && <div className="bd-alert bd-alert-success" role="status">{notice}</div>}
       <section className="bd-detail-hero">
         <div className="bd-detail-title"><div className="bd-company-mark">{lead.name?.slice(0, 2).toUpperCase()}</div><div><div className="bd-eyebrow">{lead.lead_id} · CREATED {dateOnly(lead.created_at)}</div><h1>{lead.name}</h1><p>{lead.contact_name || "Primary contact not added"}{lead.email ? ` · ${lead.email}` : ""}{lead.mobile ? ` · ${lead.mobile}` : ""}</p></div></div>
-        <div className="bd-detail-actions">{isOpen(lead) && <select aria-label="Change lead stage" value={lead.stage} onChange={(event) => onStage(lead, event.target.value)}>{BD_STAGES.map((stage) => <option key={stage}>{stage}</option>)}</select>}{lead.status === "active" && <><button className="bd-button bd-button-secondary" onClick={onLost}>Mark lost</button><button className="bd-button bd-button-primary" onClick={onWon}>Mark won</button></>}</div>
+        <div className="bd-detail-actions">
+          {isOpen(lead) && lead.current_owner && <select aria-label="Change lead stage" value={BD_STAGES.includes(lead.stage) ? lead.stage : ""} onChange={(event) => onStage(lead, event.target.value)}>{!BD_STAGES.includes(lead.stage) && <option value="">{lead.stage}</option>}{BD_STAGES.map((stage) => <option key={stage}>{stage}</option>)}<option value={CONVERTED_STAGE}>{CONVERTED_STAGE} (record receipt)</option></select>}
+          {lead.status === "active" && <button className="bd-button bd-button-secondary" onClick={onLost}>Mark lost</button>}
+          {step && <button className="bd-button bd-button-primary" onClick={runStep}>{step.label}</button>}
+        </div>
         <div className="bd-detail-summary">
-          <div><small>Overall status</small><span className={`bd-stage-badge bd-stage-${stageClass(lead.status === "active" ? lead.stage : lead.status)}`}>{lead.status === "active" ? lead.stage : lead.status}</span></div>
-          <div><small>Current owner</small><b>{owner ? fullName(owner) : "Unassigned"}</b></div>
+          <div><small>Overall status</small><span className={`bd-stage-badge bd-stage-${stageClass(statusLabel)}`}>{statusLabel}</span></div>
+          <div><small>Current owner</small>{isManager && isOpen(lead)
+            ? <select aria-label="Assign lead" className="bd-owner-select" value={lead.current_owner || ""} onChange={(event) => event.target.value && onAssign(lead, event.target.value)}><option value="">Unassigned</option>{profiles.map((person) => <option key={person.id} value={person.id}>{fullName(person)}</option>)}</select>
+            : <b>{owner ? fullName(owner) : <span className="bd-pool-badge">Unassigned</span>}</b>}</div>
           <div><small>Original source</small><b>{lead.source}{lead.campaign_name ? ` · ${lead.campaign_name}` : ""}</b></div>
           <div><small>Next follow-up</small><b className={isLate(lead.next_followup_at) ? "bd-overdue-text" : ""}>{when(lead.next_followup_at)}</b></div>
           <div><small>Potential value</small><b>{lead.estimated_budget ? money(lead.estimated_budget, lead.budget_currency) : "—"}</b></div>
         </div>
-        <div className="bd-progress-wrap"><div className="bd-progress-label"><span>Pipeline progress</span>{stagePercent === null ? <b className="bd-status-note">{lead.status === "on_hold" ? "On hold" : lead.status}</b> : <b>{stagePercent}%</b>}</div>{stagePercent !== null && <><div className="bd-progress-track"><i style={{ width: `${stagePercent}%` }} /></div><div className="bd-progress-steps">{["New Lead", "First Contact", "Requirement", "Qualified", "Proposal", "Negotiation", "Won", "Onboarding"].map((item, index) => <span key={item} className={index <= Math.floor(stagePercent / 14.28) ? "reached" : ""}>{item}</span>)}</div></>}</div>
+        <div className="bd-progress-wrap"><div className="bd-progress-label"><span>Pipeline progress</span>{stagePercent === null ? <b className="bd-status-note">{lead.status === "on_hold" ? "On hold" : lead.status}</b> : <b>{stagePercent}%</b>}</div>{stagePercent !== null && <><div className="bd-progress-track"><i style={{ width: `${stagePercent}%` }} /></div><div className="bd-progress-steps">{PROGRESS_STEPS.map((item, index) => <span key={item} className={index <= Math.floor(stagePercent / 14.28) ? "reached" : ""}>{item}</span>)}</div></>}</div>
       </section>
       <nav className="bd-detail-tabs">{tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}{item === "Discussion History" && <span>{history.length}</span>}</button>)}</nav>
       <div className="bd-detail-grid">
         <main className="bd-panel bd-detail-main">
-          {tab === "Overview" && <><div className="bd-panel-heading"><div><h3>Lead overview</h3><p>Qualification information and next steps.</p></div></div><div className="bd-overview-grid"><div><small>Lead type</small><b>{lead.lead_type}</b></div><div><small>Acquired by</small><b>{fullName(profiles.find((person) => person.id === lead.acquired_by))}</b></div><div><small>Acquired on</small><b>{dateOnly(lead.acquired_at)}</b></div><div><small>Priority</small><b>{lead.priority}</b></div><div><small>Lead age</small><b>{Math.max(0, Math.floor((Date.now() - new Date(lead.created_at).getTime()) / 86400000))} days</b></div><div><small>Source detail</small><b>{lead.source_detail || "—"}</b></div></div><div className="bd-description-block"><small>Initial discussion summary</small><p>{lead.initial_summary}</p></div><div className="bd-description-block"><small>Internal notes</small><p>{lead.notes || "No internal notes recorded."}</p></div>{lead.status === "active" && <div className="bd-inline-actions"><button className="bd-button bd-button-secondary" onClick={() => onService()}>＋ Add service</button><button className="bd-button bd-button-secondary" onClick={onActivity}>＋ Log discussion</button><button className="bd-button bd-button-secondary" onClick={onFollowup}>＋ Schedule follow-up</button></div>}</>}
+          {tab === "Overview" && <><div className="bd-panel-heading"><div><h3>Lead overview</h3><p>Qualification information and next steps.</p></div></div><div className="bd-overview-grid"><div><small>Lead type</small><b>{lead.lead_type}</b></div><div><small>Acquired by</small><b>{fullName(profiles.find((person) => person.id === lead.acquired_by))}</b></div><div><small>Acquired on</small><b>{dateOnly(lead.acquired_at)}</b></div><div><small>Priority</small><b>{lead.priority}</b></div><div><small>Lead age</small><b>{Math.max(0, Math.floor((Date.now() - new Date(lead.created_at).getTime()) / 86400000))} days</b></div><div><small>Source detail</small><b>{lead.source_detail || "—"}</b></div></div><div className="bd-description-block"><small>Initial discussion summary</small><p>{lead.initial_summary}</p></div><div className="bd-description-block"><small>Internal notes</small><p>{lead.notes || "No internal notes recorded."}</p></div>{(lead.quote_sent_at || receipts.length > 0 || transfers.length > 0) && <div className="bd-workflow-block">{lead.quote_sent_at && <div><small>Quote & engagement</small><b>{lead.quote_reference} · {lead.engagement_reference}</b><span>Sent to {lead.quote_sent_to} on {when(lead.quote_sent_at)}</span></div>}{receipts.map((receipt) => <div key={receipt.id}><small>Payment receipt</small><b>{receipt.amount != null ? money(receipt.amount, receipt.currency) : "Amount hidden"} · {dateOnly(receipt.received_on)}</b><span>{receipt.reference || "No reference"} · <button type="button" className="bd-text-button" onClick={() => openReceipt(receipt.file_path)}>{receipt.file_name || "View receipt"}</button></span></div>)}{transfers.length > 0 && <div><small>Transferred to</small><div className="bd-transfer-chips">{transfers.map((t) => <span key={t.id}>{departmentLabel(t.department)} · {t.target_ref}{t.owner ? ` · ${fullName(profiles.find((person) => person.id === t.owner))}` : ""}{t.services?.length ? ` · ${t.services.join(", ")}` : ""}</span>)}</div></div>}</div>}{lead.status === "active" && <div className="bd-inline-actions"><button className="bd-button bd-button-secondary" onClick={() => onService()}>＋ Add service</button><button className="bd-button bd-button-secondary" onClick={onActivity}>＋ Log discussion</button><button className="bd-button bd-button-secondary" onClick={onFollowup}>＋ Schedule follow-up</button></div>}</>}
           {tab === "Services & Budgets" && <><div className="bd-panel-heading"><div><h3>Services & budgets</h3><p>Each service has its own price, scope, and commercial outcome.</p></div>{lead.status === "active" && <button className="bd-button bd-button-secondary" onClick={() => onService()}>＋ Add service</button>}</div>{services.length ? <div className="bd-service-list">{services.map((service) => <article className="bd-service-card" key={service.id}><div><strong>{service.service_name}</strong><span>{service.status} · {service.billing_frequency || "Frequency not set"}</span>{lead.status === "active" && <button className="bd-text-button bd-service-edit" onClick={() => onService(service)}>Edit service</button>}</div><div><small>Client budget</small><b>{service.client_budget ? money(service.client_budget, service.currency) : "—"}</b></div><div><small>Proposed fee</small><b>{service.proposed_fee ? money(service.proposed_fee, service.currency) : "—"}</b></div><div><small>Agreed fee</small><b>{service.final_agreed_fee ? money(service.final_agreed_fee, service.currency) : "—"}</b></div></article>)}</div> : <Empty title="No services added" body="Add the prospect’s requirements and quote each service independently." />}</>}
           {tab === "Discussion History" && <Timeline activities={history} />}
           {tab === "Follow-ups & Activities" && <FollowupHistory items={followups} activities={history} />}
@@ -731,7 +1055,8 @@ function LeadWorkspace({ lead, profiles, currentUserId, onBack, onActivity, onFo
       {modal === "activity" && <ActivityForm lead={lead} currentUserId={currentUserId} busy={busy} onClose={onCloseModal} onSubmit={onSubmitActivity} />}
       {modal === "followup" && <FollowupForm lead={lead} currentUserId={currentUserId} busy={busy} onClose={onCloseModal} onSubmit={onSubmitFollowup} />}
       {modal === "service" && <ServiceForm lead={lead} service={selectedService} busy={busy} onClose={onCloseModal} onSubmit={onSubmitService} />}
-      {modal === "won" && <WonForm lead={lead} busy={busy} onClose={onCloseModal} onSubmit={onSubmitWon} />}
+      {modal === "quote" && <QuoteForm lead={lead} busy={busy} onClose={onCloseModal} onSubmit={onSubmitQuote} />}
+      {modal === "convert" && <ConvertForm lead={lead} profiles={profiles} currentUserId={currentUserId} busy={busy} error={error} onClose={onCloseModal} onSubmit={onSubmitConvert} />}
       {modal === "lost" && <LostForm busy={busy} onClose={onCloseModal} onSubmit={onSubmitLost} />}
     </div>
   );
@@ -856,16 +1181,142 @@ function ServiceForm({ lead, service, busy, onClose, onSubmit }) {
   );
 }
 
-function WonForm({ lead, busy, onClose, onSubmit }) {
+// Quote & engagement: the mail goes from the user's own mailbox (quotation and engagement letter attached there);
+// saving records it on the lead, schedules the follow-up and moves the lead to Quote & Engagement Sent.
+function QuoteForm({ lead, busy, onClose, onSubmit }) {
+  const quoted = (lead.bd_lead_services || []).filter((service) => service.status !== "rejected" && service.proposed_fee != null);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ confirmation_contact: lead.contact_name || "", handover_notes: "", onboarding_owner: "", agreement_reference: "" });
+  const [form, setForm] = useState(() => ({
+    quote_reference: lead.quote_reference || quoted.find((service) => service.quotation_reference)?.quotation_reference || "",
+    engagement_reference: lead.engagement_reference || "",
+    sent_to: lead.quote_sent_to || lead.email || "",
+    next_followup_at: toUaeInput(new Date(Date.now() + 3 * 86400000)),
+  }));
   const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
+  const serviceLines = quoted.map((service) => `- ${service.service_name}: ${money(service.proposed_fee, service.currency)}${service.billing_frequency && service.billing_frequency !== "one_time" ? ` (${service.billing_frequency})` : ""}`).join("\n");
+  const [message, setMessage] = useState(() => `Dear ${lead.contact_name || lead.name},\n\nThank you for your time. Please find attached our quotation and engagement letter for the following services:\n\n${serviceLines}\n\nKindly sign the engagement letter and share the payment receipt once the payment is made, so we can begin.\n\nKind regards,`);
+  const subject = `Quotation ${form.quote_reference || ""} & engagement letter – ${lead.name}`.replace(/\s+/g, " ");
+  const mailto = `mailto:${encodeURIComponent(form.sent_to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
   async function submit(event) {
     event.preventDefault();
-    if (!form.confirmation_contact.trim() || !form.handover_notes.trim()) return setError("Add a confirmation contact and handover notes.");
-    await onSubmit({ confirmation_contact: form.confirmation_contact.trim(), handover_notes: form.handover_notes.trim(), onboarding_owner: form.onboarding_owner || null, agreement_reference: form.agreement_reference.trim() || null });
+    if (!quoted.length) return setError("Add a proposed fee to at least one service (Services & Budgets) before sending the quote.");
+    if (!form.quote_reference.trim() || !form.engagement_reference.trim()) return setError("Enter the quotation and engagement letter references.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.sent_to.trim())) return setError("Enter the email address the quote is sent to.");
+    if (!form.next_followup_at) return setError("Set the date to follow up on the quote.");
+    await onSubmit({
+      quote_reference: form.quote_reference.trim(), engagement_reference: form.engagement_reference.trim(), sent_to: form.sent_to.trim(),
+      sent_at: new Date().toISOString(), next_followup_at: uaeInputToIso(form.next_followup_at),
+      summary: `Quotation ${form.quote_reference.trim()} and engagement letter ${form.engagement_reference.trim()} sent to ${form.sent_to.trim()}. Services: ${quoted.map((service) => service.service_name).join(", ")}.`,
+    });
   }
-  return <FormModal title="Mark lead as won" subtitle="This creates a pending onboarding handover; it does not create a client record." error={error} busy={busy} onClose={onClose} onSubmit={submit} submitLabel="Confirm won & hand over"><label>Decision-maker / confirmation contact<input value={form.confirmation_contact} onChange={(event) => set("confirmation_contact", event.target.value)} required /></label><label>Agreement / quotation reference<input value={form.agreement_reference} onChange={(event) => set("agreement_reference", event.target.value)} /></label><label className="bd-form-wide">Handover notes<textarea rows="3" value={form.handover_notes} onChange={(event) => set("handover_notes", event.target.value)} required /></label></FormModal>;
+  return (
+    <FormModal title="Send quote & engagement" subtitle="Open the mail in your mailbox, attach the quotation and engagement letter, send it, then record it here." error={error} busy={busy} onClose={onClose} onSubmit={submit} submitLabel="Record as sent">
+      <label>Quotation reference *<input value={form.quote_reference} onChange={(event) => set("quote_reference", event.target.value)} required /></label>
+      <label>Engagement letter reference *<input value={form.engagement_reference} onChange={(event) => set("engagement_reference", event.target.value)} required /></label>
+      <label>Send to *<input type="email" value={form.sent_to} onChange={(event) => set("sent_to", event.target.value)} required /></label>
+      <label>Follow up on *<input type="datetime-local" value={form.next_followup_at} onChange={(event) => set("next_followup_at", event.target.value)} required /></label>
+      <label className="bd-form-wide">Mail<textarea rows="8" value={message} onChange={(event) => setMessage(event.target.value)} /><small>{quoted.length ? `${quoted.length} quoted service${quoted.length === 1 ? "" : "s"}.` : "No service has a proposed fee yet."} Attachments are added in your mail app.</small></label>
+      <div className="bd-form-wide"><a className="bd-button bd-button-secondary" href={mailto} target="_blank" rel="noopener noreferrer">✉ Open in mail app</a></div>
+    </FormModal>
+  );
+}
+
+// Convert: the client's payment receipt plus the departments the lead is handed to.
+function ConvertForm({ lead, profiles, currentUserId, busy, error: pageError, onClose, onSubmit }) {
+  const candidates = (lead.bd_lead_services || []).filter((service) => service.status !== "rejected");
+  const [error, setError] = useState("");
+  const [file, setFile] = useState(null);
+  const [receipt, setReceipt] = useState(() => {
+    const quoted = candidates.filter((service) => service.proposed_fee != null);
+    const currencies = [...new Set(quoted.map((service) => service.currency || "AED"))];
+    return {
+      amount: currencies.length === 1 ? String(quoted.reduce((sum, service) => sum + Number(service.final_agreed_fee ?? service.proposed_fee ?? 0), 0) || "") : "",
+      currency: currencies[0] || "AED", received_on: localDate(), reference: "",
+    };
+  });
+  const [services, setServices] = useState(() => candidates.map((service) => ({
+    id: service.id, name: service.service_name, currency: service.currency,
+    checked: service.proposed_fee != null || service.final_agreed_fee != null,
+    fee: String(service.final_agreed_fee ?? service.proposed_fee ?? ""),
+    department: departmentForService(service.service_name),
+  })));
+  const [extraDepartments, setExtraDepartments] = useState([]);
+  const [owners, setOwners] = useState({});
+  const [contact, setContact] = useState(lead.contact_name || lead.name || "");
+  const [notes, setNotes] = useState("");
+  const setService = (id, patch) => setServices((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const accepted = services.filter((row) => row.checked);
+  const usedDepartments = DEPARTMENTS.filter((dept) => accepted.some((row) => row.department === dept.key) || extraDepartments.includes(dept.key));
+
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    if (!file) return setError("Attach the client's payment receipt.");
+    if (!(Number(receipt.amount) > 0)) return setError("Enter the amount on the receipt.");
+    if (!accepted.length) return setError("Tick the services the client has paid for.");
+    if (accepted.some((row) => row.fee === "" || Number(row.fee) < 0)) return setError("Enter the agreed fee for each ticked service.");
+    if (!usedDepartments.length) return setError("Choose at least one department to transfer the lead to.");
+    if (!contact.trim() || !notes.trim()) return setError("Add the confirming contact and handover notes for the departments.");
+    await onSubmit({
+      file,
+      receipt: { amount: Number(receipt.amount), currency: receipt.currency, received_on: receipt.received_on, reference: receipt.reference.trim() || null },
+      accepted_services: accepted.map((row) => ({ id: row.id, final_agreed_fee: Number(row.fee) })),
+      confirmation_contact: contact.trim(),
+      handover_notes: notes.trim(),
+      transfers: usedDepartments.map((dept) => ({
+        department: dept.key, owner: owners[dept.key] || null,
+        services: accepted.filter((row) => row.department === dept.key).map((row) => row.name),
+      })),
+    });
+  }
+
+  return (
+    <FormModal title="Record receipt & convert" subtitle="The lead is converted and handed to the departments below as their new lead." error={error || pageError} busy={busy} onClose={onClose} onSubmit={submit} submitLabel="Convert & transfer">
+      <label className="bd-form-wide">Payment receipt *<input type="file" accept=".pdf,image/*" onChange={(event) => setFile(event.target.files?.[0] || null)} required /></label>
+      <label>Amount received *<input type="number" min="0" step="0.01" value={receipt.amount} onChange={(event) => setReceipt((r) => ({ ...r, amount: event.target.value }))} required /></label>
+      <label>Currency<select value={receipt.currency} onChange={(event) => setReceipt((r) => ({ ...r, currency: event.target.value }))}>{["AED", "USD", "EUR", "GBP", "INR"].map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label>Received on *<input type="date" value={receipt.received_on} onChange={(event) => setReceipt((r) => ({ ...r, received_on: event.target.value }))} required /></label>
+      <label>Payment reference<input value={receipt.reference} onChange={(event) => setReceipt((r) => ({ ...r, reference: event.target.value }))} placeholder="Bank ref / cheque no." /></label>
+
+      <div className="bd-form-wide bd-convert-section">
+        <b>Services paid for</b>
+        {services.length ? services.map((row) => (
+          <div className="bd-convert-service" key={row.id}>
+            <label className="bd-check"><input type="checkbox" checked={row.checked} onChange={(event) => setService(row.id, { checked: event.target.checked })} /> {row.name}</label>
+            <input type="number" min="0" step="0.01" aria-label={`Agreed fee for ${row.name}`} value={row.fee} disabled={!row.checked} onChange={(event) => setService(row.id, { fee: event.target.value })} placeholder={`Agreed fee (${row.currency || "AED"})`} />
+            <select aria-label={`Department for ${row.name}`} value={row.department} disabled={!row.checked} onChange={(event) => setService(row.id, { department: event.target.value })}>
+              {DEPARTMENTS.map((dept) => <option key={dept.key} value={dept.key}>{dept.label}</option>)}
+            </select>
+          </div>
+        )) : <small>No services on this lead. Add them under Services & Budgets first.</small>}
+      </div>
+
+      <div className="bd-form-wide bd-convert-section">
+        <b>Transfer to</b>
+        {DEPARTMENTS.map((dept) => {
+          const fromServices = accepted.filter((row) => row.department === dept.key);
+          const on = fromServices.length > 0 || extraDepartments.includes(dept.key);
+          return (
+            <div className="bd-convert-dept" key={dept.key}>
+              <label className="bd-check">
+                <input type="checkbox" checked={on} disabled={fromServices.length > 0 || dept.key === "accounting"}
+                  onChange={(event) => setExtraDepartments((list) => (event.target.checked ? [...list, dept.key] : list.filter((key) => key !== dept.key)))} />
+                {dept.label}
+              </label>
+              <span>{on ? `${dept.record}${fromServices.length ? ` · ${fromServices.map((row) => row.name).join(", ")}` : ""}` : "Not transferred"}</span>
+              <select aria-label={`${dept.label} lead owner`} value={owners[dept.key] || ""} disabled={!on} onChange={(event) => setOwners((map) => ({ ...map, [dept.key]: event.target.value }))}>
+                <option value="">Unassigned (their pool)</option>
+                {profiles.map((person) => <option key={person.id} value={person.id}>{fullName(person)}{person.id === currentUserId ? " (me)" : ""}</option>)}
+              </select>
+            </div>
+          );
+        })}
+      </div>
+
+      <label>Confirmed by (client contact) *<input value={contact} onChange={(event) => setContact(event.target.value)} required /></label>
+      <label className="bd-form-wide">Handover notes for the departments *<textarea rows="3" value={notes} onChange={(event) => setNotes(event.target.value)} required placeholder="What was agreed, documents already received, KYC status, anything the team must know." /></label>
+    </FormModal>
+  );
 }
 
 function LostForm({ busy, onClose, onSubmit }) {

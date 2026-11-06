@@ -24,6 +24,37 @@ The Main Module imports this folder directly; there is no copy to keep in sync.
   `Database Module/docs/BD_*.md`). `Main Module/db/business_development.sql` is retired; do not run it.
 - The GitHub Pages build checks out the whole repo, so changes here deploy with the next push to `main`.
 
+## Lead workflow
+
+Database: `Database Module/migrations/bd/012_bd_lead_workflow.sql` (run after the Banking, Business Setup and
+Accounting base migrations). Rules shared by the screens: `logic/leadRules.js` (tests: `node --test "Business Development Module/tests/"`).
+
+1. **All Leads** lists every lead from every source in one place, tagged by source: pipeline leads plus platform
+   prospects (Explee and later platforms) not yet taken. A lead can be created unassigned ("All Leads pool").
+2. **Assign to me** takes an unassigned lead (`bd_assign_lead`); it becomes a **Prospect** owned by that person.
+   A prospect from a platform opens the New lead form prefilled, owned by you. Managers and team leaders assign
+   or reassign anyone from the lead's owner field.
+3. Pipeline: **Prospect → Contact → Convinced → Received Documents → Done KYC**. Each lead shows a next-step button;
+   stage rules are enforced by `bd_change_stage`.
+4. **Send quote & engagement** (`bd_record_quote_sent`): opens the mail in the user's mail app (quotation and
+   engagement letter are attached there), then records the references, recipient and a follow-up, and moves the lead
+   to **Quote & Engagement Sent**. The CRM does not send this mail itself.
+5. **Record receipt & convert** (`bd_convert_lead`): upload the client's payment receipt (stored in `hub-documents`
+   under `Business Development/receipts/<lead id>/`), amount, date and reference; tick the services paid for and their
+   agreed fees. Each service is routed to a department (suggested: Bank Account Opening → Business Banking; Company
+   Formation / Closure → Business Setup; everything else → Accounting), editable before saving, with a lead owner per
+   department. The lead becomes **Converted** and the departments receive:
+   - Business Banking: a `banking_leads` row (status New, source "Business Development")
+   - Business Setup: a `business_setup_cases` row (stage Lead, linked by `bd_handover_id`)
+   - Accounting: one `accounting_jobs` row (To Do) per service, at the agreed fee
+   Transfers are kept in `bd_department_transfers` and shown on **Converted & Transfers**.
+6. **Lead Generation** filters leads by source and shows source analytics (leads, unassigned, in pipeline, converted,
+   win rate, converted value, new leads by month), with the platform inbox (sync, replies) below.
+
+Migration 012 maps leads in the ten retired stages: New Lead / Contact Pending → Prospect; First Contact Attempted /
+Contact Established → Contact; Requirement Identified / Qualified → Convinced; Proposal / Quotation Preparation →
+Done KYC; Proposal Sent / Negotiation / Verbal Confirmation → Quote & Engagement Sent.
+
 ## Lead Generation tab (platform integrations)
 
 | Path | Purpose |

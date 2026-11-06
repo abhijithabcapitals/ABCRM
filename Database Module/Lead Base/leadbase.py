@@ -41,8 +41,8 @@ REPORT = DATA / "push_report.csv"
 ENV_FILE = HERE.parent.parent / "Main Module" / ".env"
 DUBAI = timezone(timedelta(hours=4))
 
-STAGES = ["New Lead", "Contact Pending", "First Contact Attempted", "Contact Established", "Requirement Identified",
-          "Qualified", "Proposal / Quotation Preparation", "Proposal Sent", "Follow-up / Negotiation", "Verbal Confirmation"]
+# Workflow stages (migrations/bd/012). Quote & Engagement Sent and Converted are recorded in the CRM, not here.
+STAGES = ["Prospect", "Contact", "Convinced", "Received Documents", "Done KYC", "Quote & Engagement Sent"]
 PRIORITIES = ["Low", "Medium", "High", "Urgent"]
 
 # Pipeline Leads sheet: (header, key in bd_ui_leads JSON, editable key for bd_update_lead or None)
