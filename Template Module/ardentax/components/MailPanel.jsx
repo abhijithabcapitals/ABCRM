@@ -1,12 +1,14 @@
 // A document's email draft. It leaves only when a person clicks Send and then confirms what will go.
+// Signing is optional: an Ardentax approver may tick "Sign before sending"; a signed document goes as its signed copy unless the
+// sender picks the unsigned one. onSign(doc) signs through the shared step and returns { error } or the signing.
 import { useEffect, useRef, useState } from "react";
-import { Button, ErrorNote, Modal, fmtDateTime } from "@banking/components/shared";
+import { Badge, Button, ErrorNote, Modal, fmtDate, fmtDateTime } from "@banking/components/shared";
+import { attachmentNames, initialCopy, sendPlan, signState, signStatus } from "../logic/signingUi.js";
 
 const signatureText = (html) => new DOMParser().parseFromString(html || "", "text/html").body.textContent.replace(/\s+/g, " ").trim();
 const BANNER_PATH = "ArdentTax (ASP)/assets/banner.png";
-const fileOf = (path) => String(path || "").split("/").pop();
 
-export default function MailPanel({ doc, api, onClose, onChanged }) {
+export default function MailPanel({ doc, api, canSign = false, onSign, onClose, onChanged }) {
   const [mail, setMail] = useState({ to: doc.mail_to || "", cc: doc.mail_cc || "", subject: doc.mail_subject || "", body: doc.mail_body || "", attachWord: !!doc.mail_attach_word });
   const [signature, setSignature] = useState("");
   const [banner, setBanner] = useState(null);
@@ -18,6 +20,13 @@ export default function MailPanel({ doc, api, onClose, onChanged }) {
   const sending = useRef(false);
   const set = (k) => (e) => setMail((m) => ({ ...m, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
   const pending = !doc.pdf_path;
+  const liveId = doc.signing?.live?.id || null;
+  const [copy, setCopy] = useState(() => initialCopy(doc.signing));
+  // A signing made or withdrawn while the panel is open starts the choice again.
+  useEffect(() => { setCopy(initialCopy(doc.signing)); }, [liveId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const state = signState(doc, { canSign, signing: doc.signing });
+  const plan = sendPlan(state, copy);
+  const status = signStatus(doc.signing, fmtDate);
 
   useEffect(() => {
     let live = true;
@@ -37,17 +46,25 @@ export default function MailPanel({ doc, api, onClose, onChanged }) {
     setBusy("send"); setError(null); setNote(null);
     try {
       await api.updateMail(doc.id, mail);
-      const r = await api.sendMail(doc.id, !!sentAt);
+      // Sign before sending signs first; a refused signing sends nothing. A signing that worked stays, even if the send then fails.
+      if (plan.signFirst) {
+        const s = await onSign(doc);
+        if (s?.error) throw new Error(`Not sent. Signing failed: ${s.error}`);
+      }
+      const r = await api.sendMail(doc.id, !!sentAt, { signed: plan.signed });
       setSentAt(r.sent_at || new Date().toISOString());
-      setNote(["Mail sent.", ...(r.warnings || [])].join(" "));
+      setNote([plan.signed ? "Mail sent with the signed copy." : "Mail sent.", ...(r.warnings || [])].join(" "));
       await onChanged();
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      setError(e.message);
+      try { await onChanged(); } catch { /* the list shows its own error */ }
+    }
     setConfirming(false);
     sending.current = false;
     setBusy(null);
   };
 
-  const attachments = [fileOf(doc.pdf_path), ...(mail.attachWord ? [fileOf(doc.word_path)] : [])];
+  const attachments = attachmentNames(doc, { attachWord: mail.attachWord, signed: plan.signed });
   return (
     <Modal title={`Email: ${doc.document_number}${doc.version > 1 ? ` v${doc.version}` : ""}`} onClose={onClose} wide>
       <ErrorNote message={error} />
@@ -61,6 +78,16 @@ export default function MailPanel({ doc, api, onClose, onChanged }) {
         <div className="bk-field at-wide"><label htmlFor="at-m-body">Email text</label><textarea id="at-m-body" rows={12} value={mail.body} onChange={set("body")} /></div>
       </div>
       <label className="at-check"><input type="checkbox" checked={mail.attachWord} onChange={set("attachWord")} /> Also attach the Word file</label>
+      <div className="at-check"><span>Ardentax signature: </span><Badge tone={status.tone}>{status.label}</Badge></div>
+      {state.chooseCopy && (
+        <div className="at-check">
+          <label><input type="radio" name="at-m-copy" checked={copy.copy === "signed"} onChange={() => setCopy({ ...copy, copy: "signed" })} /> Signed copy</label>{" "}
+          <label><input type="radio" name="at-m-copy" checked={copy.copy === "unsigned"} onChange={() => setCopy({ ...copy, copy: "unsigned" })} /> Unsigned copy</label>
+        </div>
+      )}
+      {state.signFirst && (
+        <label className="at-check"><input type="checkbox" checked={copy.signFirst} onChange={(e) => setCopy({ ...copy, signFirst: e.target.checked })} /> Sign before sending <small className="bk-muted">(adds the Ardentax signature, then sends the signed copy)</small></label>
+      )}
       <p className="bk-muted"><small>Attached: {attachments.filter(Boolean).join(", ") || "nothing yet"}. Added below the text when sent:</small></p>
       <div className="at-signature">
         {signature && <p>{signature}</p>}
@@ -79,6 +106,7 @@ export default function MailPanel({ doc, api, onClose, onChanged }) {
             <div><dt>CC</dt><dd>{mail.cc || "–"}</dd></div>
             <div><dt>Subject</dt><dd>{mail.subject || "–"}</dd></div>
             <div><dt>Attachments</dt><dd>{attachments.join(", ")}</dd></div>
+            {plan.signFirst && <div><dt>Signature</dt><dd>Signed by you before sending</dd></div>}
           </dl>
           <div className="at-actions at-go">
             <Button disabled={busy === "send"} onClick={() => setConfirming(false)}>Cancel</Button>

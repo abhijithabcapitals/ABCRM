@@ -1,5 +1,8 @@
 // ardentax-mail-send: sends one ArdentTax document's reviewed draft, when a person clicks Send in the tab.
-//   POST { document_id, resend? }  ->  { ok: true, sent_at, warnings } or { error }
+//   POST { document_id, resend?, signed? }  ->  { ok: true, sent_at, signed, warnings } or { error }
+// signed: true attaches the files of the document's live signature (document_signatures, read with the service role after the
+// ardentax_can check, paths checked under ArdentTax (ASP)/<id>/signed/) and refuses when there is none; the signature is checked again
+// just before the mail leaves. false or missing attaches the unsigned files as before. Signing is optional.
 // Only people with the ArdentTax tab may call it. Mail goes through the Ardentax mailbox's own SMTP server, with the same
 // password store as ceo-mail-reply, and a copy goes to its Sent folder. The sent mark is written with the service role
 // only after the mail server accepts the message, so nobody can mark a mail sent without sending it.
@@ -8,7 +11,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail, type MailPart } from "./mime.ts";
-import { ardentaxBodies, chooseLogin, isDocumentPath, MAX_ATTACHMENT_BYTES, parseRecipients, sendRefusal, totalAttachmentBytes } from "./rules.ts";
+import { ardentaxBodies, attachmentPlan, chooseLogin, isDocumentPath, MAX_ATTACHMENT_BYTES, NOT_SIGNED, parseRecipients, parseSigned, sendRefusal, totalAttachmentBytes } from "./rules.ts";
 
 const SENDER = "bharat@ardentaxit.tax";
 const SENDER_NAME = "Bharat Bajaj";
@@ -31,10 +34,10 @@ async function mailboxLogin(admin: any, address: string, loginUser?: string | nu
 }
 
 // deno-lint-ignore no-explicit-any
-async function download(admin: any, path: string, type: string): Promise<MailPart> {
+async function download(admin: any, path: string, type: string, name = path.split("/").pop()!): Promise<MailPart> {
   const { data, error } = await admin.storage.from(BUCKET).download(path);
-  if (error) throw new Error(`Could not read ${path.split("/").pop()}: ${error.message}`);
-  return { name: path.split("/").pop()!, type, bytes: new Uint8Array(await data.arrayBuffer()) };
+  if (error) throw new Error(`Could not read ${name}: ${error.message}`);
+  return { name, type, bytes: new Uint8Array(await data.arrayBuffer()) };
 }
 
 Deno.serve(async (req) => {
@@ -48,8 +51,10 @@ Deno.serve(async (req) => {
     const { data: allowed } = await userDb.rpc("ardentax_can");
     if (allowed !== true) return json({ error: "No access to the ArdentTax tab." }, 403);
 
-    const { document_id: id, resend } = await req.json();
+    const { document_id: id, resend, signed: signedFlag } = await req.json();
     if (typeof id !== "string") return json({ error: "A document is needed." }, 400);
+    const signed = parseSigned(signedFlag);
+    if (typeof signed !== "boolean") return json({ error: signed.error }, 400);
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
     const { data: doc, error: docError } = await admin.from("ardentax_documents").select("*").eq("id", id).maybeSingle();
     if (docError) throw new Error(docError.message);
@@ -62,6 +67,17 @@ Deno.serve(async (req) => {
     let cc: string[];
     try { to = parseRecipients(doc.mail_to); cc = parseRecipients(doc.mail_cc); } catch (e) { return json({ error: (e as Error).message }, 400); }
 
+    // The signed copy, when asked for: the live signature, read with the service role only now that the caller has the tab.
+    let live = null;
+    if (signed) {
+      const { data, error } = await admin.from("document_signatures").select("id, source_table, source_id, pdf_path, word_path, superseded_at")
+        .eq("source_table", "ardentax_documents").eq("source_id", doc.id).is("superseded_at", null).maybeSingle();
+      if (error) throw new Error(error.message);
+      live = data;
+    }
+    const plan = attachmentPlan(doc, signed, live);
+    if ("error" in plan) return json({ error: plan.error }, 409);
+
     const { data: settings, error: settingsError } = await admin.from("hub_settings").select("value").eq("key", "ardentax_mail").single();
     if (settingsError) throw new Error(settingsError.message);
     const signature = String(settings.value?.signature_html || "");
@@ -73,14 +89,20 @@ Deno.serve(async (req) => {
     const login = await mailboxLogin(admin, mailbox.address, mailbox.login_user);
     if (!login) return json({ error: `No password is saved for ${SENDER}. Add it in Settings > Email Accounts.` }, 400);
 
-    const attachments = [await download(admin, doc.pdf_path, "application/pdf")];
-    if (doc.mail_attach_word && doc.word_path) attachments.push(await download(admin, doc.word_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+    const attachments = [await download(admin, plan.pdf.path, "application/pdf", plan.pdf.name)];
+    if (plan.word) attachments.push(await download(admin, plan.word.path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", plan.word.name));
     if (totalAttachmentBytes(attachments) > MAX_ATTACHMENT_BYTES) return json({ error: "The attachments are too large to send." }, 400);
     const inline = signature.includes(`cid:${BANNER_CID}`) ? [{ ...(await download(admin, BANNER_PATH, "image/png")), cid: BANNER_CID }] : [];
 
     const bodies = ardentaxBodies(doc.mail_body || "", signature);
     const { messageId, raw } = buildMail({ from: mailbox.address, fromName: SENDER_NAME, to, cc, subject: doc.mail_subject, text: bodies.text, html: bodies.html, inline, attachments });
 
+    // A new file or a new signing since the read ends the signature: then nothing is sent.
+    if (plan.signatureId) {
+      const { data: still, error: stillError } = await admin.from("document_signatures").select("id").eq("id", plan.signatureId).is("superseded_at", null).maybeSingle();
+      if (stillError) throw new Error(stillError.message);
+      if (!still) return json({ error: NOT_SIGNED }, 409);
+    }
     try {
       await new SmtpClient(mailbox.smtp_host, mailbox.smtp_port || 465).send(login.user, login.pass, mailbox.address, [...to, ...cc], raw);
     } catch (e) {
@@ -107,7 +129,7 @@ Deno.serve(async (req) => {
       warnings.push("No Sent folder is known yet, so no copy was saved there.");
     }
     console.log("ardentax-mail-send", doc.document_number, messageId);
-    return json({ ok: true, sent_at: sentAt, warnings });
+    return json({ ok: true, sent_at: sentAt, signed: !!plan.signatureId, warnings });
   } catch (e) {
     console.error("ardentax-mail-send failed", (e as Error).message);
     return json({ error: (e as Error).message }, 500);

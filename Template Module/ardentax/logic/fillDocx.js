@@ -1,6 +1,8 @@
 // Fills the Ardentax Word templates by editing their XML, one step for each step of the workbook's MakeQuote macro.
 // deps: { JSZip, parse(string) -> document, serialize(document) -> string }, so this runs in the browser and in tests.
+// signature: null for every stored document; { bytes, type, width, height } only when an approver signs (the shared signing step).
 import { ROW_KEYS, TIERS, feeLabel, money, num as toNum } from "./quoteModel.js";
+import { IMAGE_TYPES, addSignature, signatureXml } from "../../logic/signDocx.js";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const RPR_ORDER = ["w:rStyle", "w:rFonts", "w:b", "w:bCs", "w:i", "w:iCs", "w:caps", "w:smallCaps", "w:strike", "w:dstrike", "w:outline", "w:shadow", "w:emboss", "w:imprint", "w:noProof", "w:snapToGrid", "w:vanish", "w:webHidden", "w:color", "w:spacing", "w:w", "w:kern", "w:position", "w:sz", "w:szCs", "w:highlight", "w:u", "w:effect", "w:bdr", "w:shd", "w:fitText", "w:vertAlign", "w:rtl", "w:cs", "w:em", "w:lang", "w:eastAsianLayout", "w:specVanish", "w:oMath"];
@@ -245,10 +247,48 @@ function setExclusions(doc, pricing) {
   }
 }
 
+// The company signature's place: {{SIGNATURE}}, alone in its paragraph in the Ardentax cell of the signatory table
+// (scripts/add_signature_tag.mjs). Unsigned it is a blank line; signed the paragraph becomes the picture (Template Module/logic/signDocx.js).
+const SIGNATURE_TAG = "{{SIGNATURE}}";
+const SIGNATURE_MARK = "ARDENTAX_SIGNATURE_PLACE";
+
+function markSignature(doc, signature) {
+  const places = tags(doc, "w:t").filter((t) => t.textContent.includes(SIGNATURE_TAG));
+  if (signature) {
+    if (!places.length) throw new Error("The template has no place for the signature.");
+    if (places.length > 1) throw new Error("The template has more than one place for the signature.");
+    if (!IMAGE_TYPES[String(signature.type || "").toLowerCase()]) throw new Error("The signature image must be a PNG or JPEG.");
+  }
+  for (const t of places) setText(t, signature ? SIGNATURE_MARK : "");
+}
+
+// The marked paragraph, from its <w:p> to its </w:p>, becomes the picture paragraph.
+function placeSignature(xml, signature) {
+  const at = xml.indexOf(SIGNATURE_MARK);
+  const start = Math.max(xml.lastIndexOf("<w:p>", at), xml.lastIndexOf("<w:p ", at));
+  const end = xml.indexOf("</w:p>", at) + "</w:p>".length;
+  return xml.slice(0, start) + signatureXml(signature) + xml.slice(end);
+}
+
+// addSignature (shared with Accounting) reads and writes through a PizZip-style zip; this lends it the two parts it changes.
+async function addSignatureFiles(zip, signature) {
+  const names = ["word/_rels/document.xml.rels", "[Content_Types].xml"];
+  const text = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await zip.file(n).async("string")])));
+  const lend = {
+    file(name, data) {
+      if (data === undefined) return { asText: () => text[name] };
+      if (name in text) text[name] = data;
+      zip.file(name, data);
+      return lend;
+    },
+  };
+  addSignature(lend, null, signature);
+}
+
 const withDeclaration = (xml) => (xml.startsWith("<?xml") ? xml : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${xml}`);
 const attr = (s) => clean(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-export async function fillDocx(templateBytes, d, t, reference, deps) {
+export async function fillDocx(templateBytes, d, t, reference, deps, signature = null) {
   const zip = await deps.JSZip.loadAsync(templateBytes);
   const doc = deps.parse(await zip.file("word/document.xml").async("string"));
   const c = d.client || {};
@@ -297,10 +337,14 @@ export async function fillDocx(templateBytes, d, t, reference, deps) {
   fillOrDrop(doc, "{{ONE_TIME_NOTE}}", t.oneTimeNote);
   setExclusions(doc, pricing);
 
+  markSignature(doc, signature);
+
   const left = [...new Set(tags(doc, "w:t").flatMap((x) => x.textContent.match(/\{\{[^}]*\}\}/g) || []))];
   if (left.length) throw new Error(`Template fields not filled: ${left.join(", ")}`);
 
-  zip.file("word/document.xml", withDeclaration(deps.serialize(doc)));
+  const xml = withDeclaration(deps.serialize(doc));
+  zip.file("word/document.xml", signature ? placeSignature(xml, signature) : xml);
+  if (signature) await addSignatureFiles(zip, signature);
 
   const core = deps.parse(await zip.file("docProps/core.xml").async("string"));
   const setCore = (name, value) => { const el = tags(core, name)[0]; if (el) el.textContent = clean(value); };

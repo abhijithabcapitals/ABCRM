@@ -5,7 +5,8 @@ import "@banking/components/banking.css";
 import "./ardentax.css";
 import { Button, ErrorNote, Panel, Spinner, useLoad } from "@banking/components/shared";
 import { computeQuote, defaultDetails, money, quoteBlockers, quoteChecks } from "../logic/quoteModel";
-import { generateDocument, makeLetter, regenerate, reviseDocument } from "../services/generate";
+import { generateDocument, makeLetter, regenerate, reviseDocument, signArdentax } from "../services/generate";
+import { withSignatures } from "../../logic/accountingUi.js";
 import QuoteForm from "./QuoteForm";
 import MailPanel from "./MailPanel";
 import Register from "./Register";
@@ -30,7 +31,15 @@ export default function ArdentTaxView({ api, clients = [], docType, embedded = f
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
   const [mailDoc, setMailDoc] = useState(null);
-  const docs = useLoad(() => api.list(), [api]);
+  // Each row with its signing ({ live, last }). Signing is optional: when the signatures cannot be read the list still shows.
+  const docs = useLoad(async () => {
+    const rows = await api.list();
+    let sigs = [];
+    try { sigs = await api.signatures(rows.map((d) => d.id)); } catch { sigs = []; }
+    return withSignatures(rows, sigs);
+  }, [api]);
+  const approver = useLoad(() => api.canSign().catch(() => false), [api]);
+  const canSign = approver.data === true;
   const requestId = useRef(crypto.randomUUID());
   const top = useRef(null);
   const running = useRef(false);
@@ -44,7 +53,8 @@ export default function ArdentTaxView({ api, clients = [], docType, embedded = f
 
   const startOver = () => { setRevising(null); setDetails(freshDetails()); };
   // formJob: this job came from the form, so the form clears when it is done. Register buttons leave the form alone.
-  const run = async (key, work, formJob = false) => {
+  // done(doc): the note shown when the job worked, instead of the generator's own.
+  const run = async (key, work, formJob = false, done = null) => {
     // A ref, because a second click can arrive before the page redraws with busy set.
     if (running.current) return;
     running.current = true;
@@ -52,7 +62,7 @@ export default function ArdentTaxView({ api, clients = [], docType, embedded = f
     let created = null;
     try {
       const { doc } = await work(await browserDeps(), (d) => { created = d; });
-      setNote({ ok: true, text: `${doc.document_number}${doc.version > 1 ? ` v${doc.version}` : ""} is ready. ${docType && doc.doc_type !== docType ? "Open its Word file, PDF or email under Engagement Letter." : "Open its Word file, PDF or email in the register below."}` });
+      setNote({ ok: true, text: done ? done(doc) : `${doc.document_number}${doc.version > 1 ? ` v${doc.version}` : ""} is ready. ${docType && doc.doc_type !== docType ? "Open its Word file, PDF or email under Engagement Letter." : "Open its Word file, PDF or email in the register below."}` });
       if (formJob) startOver();
     } catch (e) {
       // The number is issued and the details are saved. Clearing the form stops an edit from taking a second number.
@@ -72,6 +82,14 @@ export default function ArdentTaxView({ api, clients = [], docType, embedded = f
     ? reviseDocument(api, revising, details, requestId.current, deps, onCreated)
     : generateDocument(api, { details, requestId: requestId.current, onCreated }, deps)), true);
   const again = (d) => run(`again-${d.id}`, (deps) => regenerate(api, d, deps));
+  // An Ardentax approver signs the stored document: the signed copy is added beside it, and the row keeps its unsigned files.
+  const sign = (d) => run(`sign-${d.id}`, async (deps) => {
+    const r = await signArdentax(api, d, deps);
+    if (r.error) throw new Error(`Signing failed: ${r.error}`);
+    return { doc: d };
+  }, false, (doc) => `${doc.document_number}${doc.version > 1 ? ` v${doc.version}` : ""} is signed. Its signed PDF is in the Signature column.`);
+  // The mail panel signs through the same step when "Sign before sending" is ticked. Returns { error } or the signing.
+  const signForMail = async (d) => signArdentax(api, d, await browserDeps());
   const letter = (q) => run(`letter-${q.id}`, (deps) => makeLetter(api, q, crypto.randomUUID(), deps));
   const revise = (d) => {
     if ((revising || details.client.legal.trim()) && !window.confirm("Replace what is in the form with this document's details?")) return;
@@ -123,9 +141,9 @@ export default function ArdentTaxView({ api, clients = [], docType, embedded = f
 
         <Panel title="Generated documents">
           <ErrorNote message={docs.error} />
-          {docs.loading && !docs.data ? <Spinner /> : <Register docs={docs.data || []} docType={docType} busy={busy} onOpen={open} onAgain={again} onLetter={letter} onRevise={revise} onMail={setMailDoc} />}
+          {docs.loading && !docs.data ? <Spinner /> : <Register docs={docs.data || []} docType={docType} busy={busy} canSign={canSign} onOpen={open} onAgain={again} onLetter={letter} onRevise={revise} onMail={setMailDoc} onSign={sign} />}
         </Panel>
-        {mailDoc && <MailPanel doc={mailDoc} api={api} onClose={() => setMailDoc(null)} onChanged={docs.reload} />}
+        {mailDoc && <MailPanel doc={(docs.data || []).find((d) => d.id === mailDoc.id) || mailDoc} api={api} canSign={canSign} onSign={signForMail} onClose={() => setMailDoc(null)} onChanged={docs.reload} />}
       </div>
     </div>
   );

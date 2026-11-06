@@ -81,3 +81,39 @@ export function chooseLogin(c: { saved?: unknown; named?: string; legacyUser?: s
   if (legacyUser && c.legacyPass && legacyUser.toLowerCase() === address.toLowerCase()) return { user: legacyUser, pass: c.legacyPass };
   return null;
 }
+
+// ---- Signed copy (shared signing, Template Hub 011). Signing is optional: an unsigned send is unchanged. ----
+export const NOT_SIGNED = "This document is not signed. Sign it first or send unsigned.";
+
+export function parseSigned(v: unknown): boolean | { error: string } {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "boolean") return v;
+  return { error: "signed must be true or false." };
+}
+
+// Signed files are read with the service role too, so they must sit directly under ArdentTax (ASP)/<id>/signed/ (doc_sign_prefix).
+export function isSignedArdentaxPath(id: string | null | undefined, path: string | null | undefined, ext: "pdf" | "docx"): boolean {
+  if (!id || !path) return false;
+  const prefix = `ArdentTax (ASP)/${id}/signed/`;
+  if (!path.startsWith(prefix)) return false;
+  const name = path.slice(prefix.length);
+  return !name.includes("/") && !name.includes("..") && new RegExp(`^[A-Za-z0-9 _.-]+\.${ext}$`).test(name);
+}
+
+type SignableDoc = { id?: string | null; pdf_path?: string | null; word_path?: string | null; mail_attach_word?: boolean | null };
+type LiveSignature = { id?: string | null; source_table?: string | null; source_id?: string | null; pdf_path?: string | null; word_path?: string | null; superseded_at?: string | null };
+type Part = { path: string; name: string };
+const fileName = (path: string | null | undefined) => String(path || "").split("/").pop()!;
+
+// Which files go out. Signed: the live signature's files, named as the document's own. signatureId is the signature that must still be
+// live just before the mail leaves, or null for the unsigned copy. The Word file goes only when the draft asks for it.
+export function attachmentPlan(doc: SignableDoc, signed: boolean, live: LiveSignature | null | undefined): { pdf: Part; word: Part | null; signatureId: string | null } | { error: string } {
+  const wantWord = !!doc.mail_attach_word && !!doc.word_path;
+  if (!signed) {
+    return { pdf: { path: doc.pdf_path ?? "", name: fileName(doc.pdf_path) }, word: wantWord ? { path: doc.word_path!, name: fileName(doc.word_path) } : null, signatureId: null };
+  }
+  if (!live || live.superseded_at || !live.id || live.source_table !== "ardentax_documents" || !doc.id || live.source_id !== doc.id) return { error: NOT_SIGNED };
+  if (!isSignedArdentaxPath(doc.id, live.pdf_path, "pdf")) return { error: "The signed PDF's path is not valid." };
+  if (wantWord && !isSignedArdentaxPath(doc.id, live.word_path, "docx")) return { error: "The signed Word file's path is not valid." };
+  return { pdf: { path: live.pdf_path!, name: fileName(doc.pdf_path) }, word: wantWord ? { path: live.word_path!, name: fileName(doc.word_path) } : null, signatureId: live.id };
+}

@@ -1,9 +1,11 @@
 // Every quotation and engagement letter generated in the tab, newest first. Replaces the workbook's Quote Log.
 import { Badge, Button, DataTable, fmtDate } from "@banking/components/shared";
+import { signState, signStatus } from "../logic/signingUi.js";
 
 const aed = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
 
-export default function Register({ docs, docType, busy, onOpen, onAgain, onLetter, onRevise, onMail }) {
+// canSign: the user is an Ardentax approver (doc_sign_can). Each row carries signing = { live, last }. Signing is optional.
+export default function Register({ docs, docType, busy, canSign = false, onOpen, onAgain, onLetter, onRevise, onMail, onSign }) {
   // A quote's number has one letter, whichever version of the quote it came from.
   const hasLetter = (q) => docs.some((d) => d.doc_type === "letter" && docs.some((s) => s.id === d.source_quote_id && s.document_number === q.document_number));
   const latestOf = (d) => !docs.some((x) => x.document_number === d.document_number && x.version > d.version);
@@ -25,6 +27,17 @@ export default function Register({ docs, docType, busy, onOpen, onAgain, onLette
         { key: "files", label: "Files", render: (d) => (d.word_path
           ? <span className="at-actions"><button type="button" className="bk-link" onClick={() => onOpen(d.word_path)}>Word</button><button type="button" className="bk-link" onClick={() => onOpen(d.pdf_path)}>PDF</button></span>
           : <span className="at-actions"><Badge tone="warn">File pending</Badge><Button busy={busy === `again-${d.id}`} disabled={!!busy} onClick={() => onAgain(d)}>Generate again</Button></span>) },
+        { key: "signature", label: "Signature", render: (d) => {
+          const g = signStatus(d.signing, fmtDate);
+          const s = signState(d, { canSign, signing: d.signing });
+          return (
+            <span className="at-actions">
+              <Badge tone={g.tone}>{g.label}</Badge>
+              {s.signedPdf && <button type="button" className="bk-link" onClick={() => onOpen(s.signedPdf)}>Signed PDF</button>}
+              {s.sign && <Button busy={busy === `sign-${d.id}`} disabled={!!busy} onClick={() => onSign(d)}>Sign</Button>}
+            </span>
+          );
+        } },
         { key: "mail", label: "Email", render: (d) => (d.mail_sent_at ? <button type="button" className="bk-link" onClick={() => onMail(d)}>Sent {fmtDate(d.mail_sent_at)}</button> : <button type="button" className="bk-link" onClick={() => onMail(d)}>Draft</button>) },
         { key: "next", label: "Next", render: (d) => (
           <span className="at-actions">
