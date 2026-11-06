@@ -1,7 +1,7 @@
 // node --test "Template Module/tests/signingView.test.mjs"
 import test from "node:test";
 import assert from "node:assert/strict";
-import { signingView, validateSignatureFile } from "../logic/signingView.js";
+import { approversToSave, oldImageToRemove, signingView, validateSignatureFile } from "../logic/signingView.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -47,4 +47,29 @@ test("image rules", () => {
   assert.ok(validateSignatureFile({ type: "image/gif", size: 10 }).error);
   assert.ok(validateSignatureFile({ type: "image/png", size: 2 * 1024 * 1024 }).error);
   assert.equal(validateSignatureFile({ type: "image/png", size: 2 * 1024 * 1024 - 1 }).ext, "png");
+});
+
+test("approvers outside the staff choices are listed as extras and survive until removed", () => {
+  const st = [...staff];
+  const s2 = { document_signing: { companies: { ab_capital: { name: "X", approvers: [A, "c", "d", "99999999-9999-4999-8999-999999999999"], signature_path: null } } } };
+  const people = [{ id: A, role: "ADMIN" }, { id: "c", role: "client" }, { id: "d", role: null }];
+  const v = signingView(s2, { id: A, role: "admin" }, people)[0];
+  assert.deepEqual(v.extras, ["c", "d", "99999999-9999-4999-8999-999999999999"]);
+  assert.deepEqual(v.choices.map((u) => u.id), [A]);
+  assert.ok(st.length);
+});
+
+test("saving drops ids with no profile but keeps known non-staff ids", () => {
+  const s2 = { document_signing: { companies: { ab_capital: { name: "X", approvers: [], signature_path: null } } } };
+  const people = [{ id: A, role: "ADMIN" }, { id: "c", role: "client" }];
+  const v = signingView(s2, { id: A, role: "admin" }, people)[0];
+  assert.deepEqual(approversToSave(new Set([A, "c", "gone"]), v), [A, "c"]);
+});
+
+test("old image removal", () => {
+  assert.equal(oldImageToRemove("signatures/ab_capital/a.png", "signatures/ab_capital/b.png"), "signatures/ab_capital/a.png");
+  assert.equal(oldImageToRemove("accounting-signature/a.png", "signatures/ab_capital/b.png"), null);
+  assert.equal(oldImageToRemove(null, "x"), null);
+  assert.equal(oldImageToRemove("signatures/a.png", "signatures/a.png"), null);
+  assert.equal(oldImageToRemove("elsewhere/a.png", "signatures/b.png"), null);
 });

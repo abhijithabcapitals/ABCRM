@@ -4,10 +4,13 @@ import { useEffect, useState } from "react";
 import { profiles } from "@banking/services/bankingApi";
 import { Button, ErrorNote, FilePick, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { loadSigning, removeSigned, saveSigning, signatureLink, uploadSignature } from "../services/signingApi";
-import { signingView } from "../logic/signingView";
+import { approversToSave, oldImageToRemove, signingView } from "../logic/signingView";
 
 function Company({ view, onSaved }) {
   const [picked, setPicked] = useState(() => new Set(view.approvers));
+  const approverKey = view.approvers.join(",");
+  // A save reloads the settings; take the saved list back from props without remounting, so the notice stays.
+  useEffect(() => { setPicked(new Set(view.approvers)); }, [approverKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -25,7 +28,7 @@ function Company({ view, onSaved }) {
   const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const saveApprovers = async () => {
     setBusy("approvers"); setError(null); setNotice(null);
-    try { await saveSigning(view.company, { approvers: [...picked] }); await onSaved(); setNotice("Approvers saved."); } catch (e) { setError(e.message); }
+    try { await saveSigning(view.company, { approvers: approversToSave(picked, view) }); await onSaved(); setNotice("Approvers saved."); } catch (e) { setError(e.message); }
     setBusy(null);
   };
   const upload = async (file) => {
@@ -35,6 +38,8 @@ function Company({ view, onSaved }) {
       stored = await uploadSignature(view.company, file);
       try { await saveSigning(view.company, { signature_path: stored }); }
       catch (e) { await removeSigned([stored]).catch(() => {}); throw e; }
+      const old = oldImageToRemove(view.path, stored);
+      if (old) await removeSigned([old]).catch(() => {});   // best effort, only after the save succeeded
       await onSaved();
       setNotice("Signature saved.");
     } catch (e) { setError(e.message); }
@@ -53,6 +58,9 @@ function Company({ view, onSaved }) {
               const id = String(u.id).toLowerCase();
               return <label key={id} className="bk-check"><input type="checkbox" checked={picked.has(id)} onChange={() => toggle(id)} /> {u.full_name || "Unnamed user"}</label>;
             })}
+            {view.extras.map((id) => (
+              <label key={id} className="bk-check"><input type="checkbox" checked={picked.has(id)} onChange={() => toggle(id)} /> Not a current staff member</label>
+            ))}
           </div>
           <div className="bk-actions bk-mt"><Button variant="primary" busy={busy === "approvers"} onClick={saveApprovers}>Save approvers</Button></div>
         </>
@@ -78,7 +86,7 @@ export default function SigningSettings({ profile }) {
   return (
     <div>
       <ErrorNote message={settings.error || staff.error} />
-      {views.map((v) => <Company key={`${v.company}:${v.path || ""}:${v.approvers.join(",")}`} view={v} onSaved={settings.reload} />)}
+      {views.map((v) => <Company key={v.company} view={v} onSaved={settings.reload} />)}
     </div>
   );
 }

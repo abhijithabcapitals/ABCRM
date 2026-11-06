@@ -34,7 +34,22 @@ export function signingView(settings, profile, people) {
       canEdit: admin,
       canPreview: approvers.length ? !!me && approvers.includes(me) : admin,
       choices,
+      extras: approvers.filter((id) => !choices.some((u) => low(u.id) === id)),
+      known: (people || []).filter((u) => u && u.id).map((u) => low(u.id)),
+      legacyPath: !!c.signature_path && String(c.signature_path).startsWith("accounting-signature/"),
     };
   });
   return all.filter((c) => admin || c.canPreview);
+}
+
+// The list to save: the picked ids, lower case, without ids that have no profile at all (a deleted user would make the save fail).
+export function approversToSave(picked, view) {
+  const known = new Set(view.known);
+  return [...picked].map(low).filter((id) => known.has(id));
+}
+
+// The previous image to remove after a replacement was saved. Null when there is none, it is the same file, or it is the legacy Accounting path.
+export function oldImageToRemove(previous, saved) {
+  if (!previous || previous === saved || String(previous).startsWith("accounting-signature/")) return null;
+  return String(previous).startsWith("signatures/") ? previous : null;
 }
