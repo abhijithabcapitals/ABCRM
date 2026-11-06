@@ -16,6 +16,7 @@ export type DriveItem = {
   parentReference?: { path?: string; id?: string };
   lastModifiedDateTime?: string;
   deleted?: object;
+  remoteItem?: object;
 };
 
 export type CopyStatus = { status: "inProgress" | "completed" | "failed"; resourceId?: string; error?: string };
@@ -70,7 +71,9 @@ export type GraphOptions = {
   destRootPath: string;
 };
 
-type SendInit = { body?: unknown; auth?: boolean; okStatuses?: number[]; redirectManual?: boolean };
+type SendInit = { body?: unknown; auth?: boolean; okStatuses?: number[]; redirectManual?: boolean; retryOn?: number[] };
+
+const MAX_WAIT_MS = 30_000;
 
 export class Graph {
   private readonly o: GraphOptions;
@@ -80,6 +83,7 @@ export class Graph {
   // Folder ids known to be inside the destination: created or read during this run.
   private readonly safeIds = new Set<string>();
   private readonly folderIds = new Map<string, string>();
+  private rootVerified = false;
 
   constructor(opts: GraphOptions) {
     if (pathSegments(opts.destRootPath).length === 0) throw new Error("destRootPath must name a folder below the drive root");
@@ -87,7 +91,6 @@ export class Graph {
     this.fetchFn = opts.fetch ?? fetch;
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.drive = `${GRAPH}/drives/${encodeURIComponent(opts.driveId)}`;
-    this.safeIds.add(opts.destRootId);
   }
 
   // One HTTP call with retry on 429/502/503/504 (Retry-After honoured, 5 attempts). Returns the
@@ -103,9 +106,13 @@ export class Graph {
         body = JSON.stringify(init.body);
       }
       const res = await this.fetchFn(url, { method, headers, body, ...(init.redirectManual ? { redirect: "manual" as const } : {}) });
-      if (isRetryable(res.status) && attempt < MAX_ATTEMPTS - 1) {
+      const retryable = init.retryOn ? init.retryOn.includes(res.status) : isRetryable(res.status);
+      if (retryable && attempt < MAX_ATTEMPTS - 1) {
         await res.body?.cancel();
-        await this.sleep(retryDelayMs(res.headers.get("Retry-After"), attempt, Date.now()));
+        const wait = retryDelayMs(res.headers.get("Retry-After"), attempt, Date.now(), Number.POSITIVE_INFINITY);
+        // Never wait a shortened time: tell the caller to stop taking work instead.
+        if (wait > MAX_WAIT_MS) throw new GraphError(res.status, "throttled");
+        await this.sleep(wait);
         continue;
       }
       if (res.ok || init.okStatuses?.includes(res.status)) return res;
@@ -142,23 +149,45 @@ export class Graph {
     }
   }
 
-  // The write guard. The item must be the destination root or lie inside it. An item's own path is
-  // its parentReference.path plus its name, so a folder that is a copy target is checked by where
-  // it sits.
-  async assertUnderDestination(itemId: string): Promise<void> {
+  // The destination root id comes from configuration, so it is proven once before it is trusted:
+  // its own path must equal destRootPath exactly (same segments, same count).
+  private async verifyRoot(): Promise<void> {
+    if (this.rootVerified) return;
+    const item = await this.getItem(this.o.destRootId);
+    if (item.remoteItem) throw new WriteGuardError("destination root is a shortcut");
+    const want = pathSegments(this.o.destRootPath);
+    const got = pathSegments(`${item.parentReference?.path ?? ""}/${encodeURIComponent(item.name ?? "")}`);
+    if (!item.parentReference?.path || got.length !== want.length || !want.every((x, i) => got[i] === x)) {
+      throw new WriteGuardError("destination root id does not match the destination path");
+    }
+    this.rootVerified = true;
+    this.safeIds.add(this.o.destRootId);
+  }
+
+  // The write guard. The item must be the (verified) destination root or lie inside it; with
+  // strict it must lie strictly deeper than the root. An item's own path is its
+  // parentReference.path plus its name. Shortcuts and remote items are refused.
+  async assertUnderDestination(itemId: string, strict = false): Promise<void> {
+    if (itemId === this.o.destRootId) {
+      if (strict) throw new WriteGuardError("the destination root itself is not allowed here");
+      return await this.verifyRoot();
+    }
     if (this.safeIds.has(itemId)) return;
+    await this.verifyRoot();
     const item = await this.getItem(itemId);
+    if (item.remoteItem) throw new WriteGuardError("target is a shortcut or remote item");
     const parent = item.parentReference?.path;
     if (!parent) throw new WriteGuardError("item has no path; cannot prove it is inside the destination");
-    if (!isUnderPath(`${parent}/${encodeURIComponent(item.name ?? "")}`, this.o.destRootPath)) {
+    const own = `${parent}/${encodeURIComponent(item.name ?? "")}`;
+    if (!isUnderPath(own, this.o.destRootPath) || pathSegments(own).length <= pathSegments(this.o.destRootPath).length) {
       throw new WriteGuardError("target is outside the destination folder");
     }
     this.safeIds.add(itemId);
   }
 
   async ensureFolder(relPath: string): Promise<string> {
-    const segs = relPath.split("/");
-    if (segs.some((s) => s.trim() === "" || s === "." || s === "..")) throw new Error("folder path has an empty or dot segment");
+    const segs = relPath.split("/").map((x) => x.trim());
+    if (segs.some((x) => x === "" || x === "." || x === "..")) throw new Error("folder path has an empty or dot segment");
     let parentId = this.o.destRootId;
     let key = "";
     for (const name of segs) {
@@ -177,7 +206,8 @@ export class Graph {
       if (res.status === 409) {
         await res.body?.cancel();
         const existing = await this.json<DriveItem>("GET", `${this.itemUrl(parentId)}:/${encodeURIComponent(name)}`);
-        if (!existing.folder) throw new WriteGuardError(`"${name}" exists in the destination and is not a folder`);
+        if (existing.remoteItem) throw new WriteGuardError("existing destination entry is a shortcut or remote item");
+        if (!existing.folder) throw new WriteGuardError("existing destination entry is not a folder");
         id = existing.id;
       } else {
         id = (JSON.parse(await res.text()) as DriveItem).id;
@@ -193,6 +223,7 @@ export class Graph {
     await this.assertUnderDestination(destParentId);
     const res = await this.send("POST", `${this.itemUrl(sourceId)}/copy?@microsoft.graph.conflictBehavior=rename`, {
       body: { parentReference: { driveId: this.o.driveId, id: destParentId }, name },
+      retryOn: [429, 503], // copy is not idempotent: no retry on 502/504
     });
     await res.body?.cancel();
     const loc = res.headers.get("Location");
@@ -219,8 +250,7 @@ export class Graph {
   }
 
   async recycle(itemId: string): Promise<void> {
-    if (itemId === this.o.destRootId) throw new WriteGuardError("the destination root cannot be deleted");
-    await this.assertUnderDestination(itemId);
+    await this.assertUnderDestination(itemId, true);
     const res = await this.send("DELETE", this.itemUrl(itemId));
     await res.body?.cancel();
   }

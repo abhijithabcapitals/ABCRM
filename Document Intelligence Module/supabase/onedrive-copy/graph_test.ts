@@ -31,8 +31,11 @@ const ROOT_PATH = "/drive/root:/CRM AB CAPITAL";
 const DRIVE = "drv1";
 const BASE = `https://graph.microsoft.com/v1.0/drives/${DRIVE}`;
 
-function mk(handler: Handler) {
-  const f = fake(handler);
+const rootItem = (over: Record<string, unknown> = {}) =>
+  json({ id: ROOT_ID, name: "CRM AB CAPITAL", folder: {}, parentReference: { path: "/drive/root:" }, ...over });
+
+function mk(handler: Handler, root: Handler = () => rootItem()) {
+  const f = fake((c) => (c.method === "GET" && c.url === `${BASE}/items/${ROOT_ID}` ? root(c) : handler(c)));
   const sleeps: number[] = [];
   const graph = new Graph({
     token: () => Promise.resolve("TOKEN-XYZ"),
@@ -173,10 +176,10 @@ Deno.test("ensureFolder creates each level under the destination root and caches
     `${BASE}/items/F2/children`,
   ]);
   assertEquals(JSON.parse(posts[0].body!), { name: "Accounting", folder: {}, "@microsoft.graph.conflictBehavior": "fail" });
-  assertEquals(calls.length, 3, "no guard reads needed for ids this run created");
+  assertEquals(calls.length, 4, "one read to verify the root, none for ids this run created");
   assertEquals(await graph.ensureFolder("Accounting/X - CL900001/KYC"), "F3");
   assertEquals(await graph.ensureFolder("Accounting/X - CL900001"), "F2");
-  assertEquals(calls.length, 3);
+  assertEquals(calls.length, 4);
 });
 
 Deno.test("ensureFolder reuses the existing folder on 409", async () => {
@@ -188,7 +191,7 @@ Deno.test("ensureFolder reuses the existing folder on 409", async () => {
     return json({}, 404);
   });
   assertEquals(await graph.ensureFolder("Accounting"), "EXIST1");
-  assertEquals(calls.map((c) => c.method), ["POST", "GET"]);
+  assertEquals(calls.map((c) => c.method), ["GET", "POST", "GET"]);
 });
 
 Deno.test("ensureFolder rejects empty and dot segments before any request", async () => {
@@ -307,4 +310,82 @@ Deno.test("pollCopy sends no Authorization header and maps statuses", async () =
   assertEquals(await graph.pollCopy("https://monitor.example/job/1"), { status: "failed", error: "nameAlreadyExists" });
   assertEquals(await graph.pollCopy("https://monitor.example/job/1"), { status: "completed", resourceId: "NEW2" });
   for (const c of calls) assertEquals(c.headers.authorization, undefined);
+});
+
+// ---------- fix round 1 ----------
+Deno.test("a destination root id that is not the destination folder is refused before any write", async () => {
+  for (const wrong of [
+    { name: "Old Source Folder", parentReference: { path: "/drive/root:" } }, // wrong folder
+    { name: "root", parentReference: undefined }, // drive root, no path
+    { name: "CRM AB CAPITAL OLD", parentReference: { path: "/drive/root:" } }, // sibling
+    { name: "CRM AB CAPITAL", parentReference: { path: "/drive/root:/Elsewhere" } }, // same name, deeper
+  ]) {
+    const { graph, calls } = mk(() => json({}, 500), () => rootItem(wrong));
+    await assertRejects(() => graph.ensureFolder("Accounting"), WriteGuardError);
+    await assertRejects(() => graph.startCopy("S", ROOT_ID, "a.pdf"), WriteGuardError);
+    assertEquals(calls.filter((c) => c.method !== "GET").length, 0);
+  }
+});
+
+Deno.test("shortcuts and remote items are refused as targets and on 409 reuse", async () => {
+  const { graph, calls } = mk((c) => {
+    if (c.method === "GET" && c.url.includes("/items/LINK")) {
+      return json({ id: "LINK", name: "KYC", remoteItem: { id: "x" }, folder: {}, parentReference: { path: ROOT_PATH } });
+    }
+    if (c.method === "POST") return json({ error: { code: "nameAlreadyExists" } }, 409);
+    if (c.method === "GET" && c.url.includes(":/Accounting")) {
+      return json({ id: "EX", name: "Accounting", folder: {}, remoteItem: { id: "y" }, parentReference: { path: ROOT_PATH } });
+    }
+    return json({}, 500);
+  });
+  await assertRejects(() => graph.startCopy("S", "LINK", "a"), WriteGuardError);
+  await assertRejects(() => graph.recycle("LINK"), WriteGuardError);
+  await assertRejects(() => graph.ensureFolder("Accounting"), WriteGuardError);
+  assertEquals(calls.filter((c) => c.method === "DELETE").length, 0);
+});
+
+Deno.test("recycle needs an item strictly deeper than the root; guard errors carry no names", async () => {
+  const { graph, calls } = mk((c) => {
+    if (c.url.includes("/items/SHALLOW")) return json({ id: "SHALLOW", name: "CRM AB CAPITAL", parentReference: { path: "/drive/root:" } });
+    if (c.url.includes("/items/SECRET")) return json({ id: "SECRET", name: "Acme Client Ltd", parentReference: { path: "/drive/root:/Old Source Folder" } });
+    return json({}, 500);
+  });
+  await assertRejects(() => graph.recycle("SHALLOW"), WriteGuardError);
+  const e = (await assertRejects(() => graph.recycle("SECRET"), WriteGuardError)) as Error;
+  assert(!e.message.includes("Acme") && !e.message.includes("Old Source"));
+  assertEquals(calls.filter((c) => c.method === "DELETE").length, 0);
+});
+
+Deno.test("copy POST is not retried on 502/504 but is on 429/503; other requests retry 504", async () => {
+  for (const status of [502, 504]) {
+    const { graph, calls } = mk((c) => (c.method === "POST" ? json({ error: { code: "gw" } }, status) : json({}, 500)), undefined);
+    const e = (await assertRejects(() => graph.startCopy("S", ROOT_ID, "a"), GraphError)) as GraphError;
+    assertEquals(e.status, status);
+    assertEquals(calls.filter((c) => c.method === "POST").length, 1);
+  }
+  let n = 0;
+  const r = mk((c) => (c.method === "POST" ? (++n === 1 ? json({}, 503) : new Response(null, { status: 202, headers: { Location: "https://m.example/1" } })) : json({}, 500)));
+  assertEquals(await r.graph.startCopy("S", ROOT_ID, "a"), "https://m.example/1");
+  assertEquals(r.calls.filter((c) => c.method === "POST").length, 2);
+  let k = 0;
+  const g = mk(() => (++k === 1 ? json({}, 504) : json({ id: "i", name: "n" })));
+  assertEquals((await g.graph.getItem("i")).id, "i");
+});
+
+Deno.test("Retry-After above the cap throws GraphError instead of a shortened wait", async () => {
+  for (const status of [429, 503]) {
+    const { graph, sleeps, calls } = mk(() => json({ error: { code: "x" } }, status, { "Retry-After": "600" }));
+    const e = (await assertRejects(() => graph.getItem("i"), GraphError)) as GraphError;
+    assertEquals([e.status, e.code], [status, "throttled"]);
+    assertEquals(sleeps, []);
+    assertEquals(calls.length, 1);
+  }
+});
+
+Deno.test("ensureFolder trims segments and rejects whitespace-only ones", async () => {
+  const { graph, calls } = mk((c) => (c.method === "POST" ? json({ id: "T1", name: "x" }, 201) : json({}, 404)));
+  await assertRejects(() => graph.ensureFolder("A/   /B"), Error);
+  assertEquals(calls.length, 0);
+  assertEquals(await graph.ensureFolder("  KYC "), "T1");
+  assertEquals(JSON.parse(calls.find((c) => c.method === "POST")!.body!).name, "KYC");
 });
