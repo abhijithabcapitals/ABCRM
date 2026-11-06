@@ -117,6 +117,17 @@ test("mail draft has the Ref and each option's authority and total, no sum", asy
   assert.equal(proposalMail(created).body, mail.body);
 });
 
+test("mail draft ends with the proposal contact from Settings as its signature", () => {
+  const contact = { name: "Sam Signer", phone: "+971-500000000", email: "sam@example.com", website: "www.example.com" };
+  const body = proposalMail(created, { proposal_defaults: { contact }, company: { short_name: "Example Co FZE" } }).body;
+  assert.match(body, /Kind regards\nSam Signer\nExample Co FZE\n\+971-500000000\nsam@example\.com\nwww\.example\.com$/);
+});
+
+test("mail draft without a contact in Settings ends at Kind regards", () => {
+  assert.match(proposalMail(created).body, /Kind regards$/);
+  assert.match(proposalMail(created, { proposal_defaults: { contact: { name: "", phone: "" } } }).body, /Kind regards$/);
+});
+
 test("a mail failure keeps the files and reports the error with the doc", async () => {
   const { deps } = fakes({ createMail: new Error("mail row failed") });
   const out = await generateProposal(input(), deps);

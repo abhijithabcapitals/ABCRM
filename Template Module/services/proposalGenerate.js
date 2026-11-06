@@ -11,16 +11,19 @@ const plain = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDig
 const message = (e) => e?.message || String(e);
 
 // The mail draft: the Ref, then each option with its own total. Options are alternatives, so no sum is shown.
-export function proposalMail(doc) {
+// It is signed with the proposal contact in Settings, the same one the document prints; blank parts are left out.
+export function proposalMail(doc, settings) {
   const options = doc.field_values?.proposal?.options || [];
   const lines = options.map((o, i) => `Option ${i + 1}: ${o.authority_name || o.authority_key}, AED ${plain(optionTotal(o))}`);
+  const contact = settings?.proposal_defaults?.contact || {};
+  const signature = contact.name ? [contact.name, settings?.company?.short_name, contact.phone, contact.email, contact.website].map((s) => String(s || "").trim()).filter(Boolean) : [];
   return {
     subject: `Business Formation Proposal ${doc.document_number}`,
     body: [
       `Dear ${doc.contact_name || "Sir/Madam"},`, "",
       `Please find attached our Business Formation Proposal, Ref ${doc.document_number}.`, "",
       ...(lines.length ? ["The options are:", ...lines, "", "Each option is an alternative; the fees of one option are not added to another.", ""] : []),
-      "Please let us know which option you would like to take forward.", "", "Kind regards",
+      "Please let us know which option you would like to take forward.", "", "Kind regards", ...signature,
     ].join("\n"),
   };
 }
@@ -38,7 +41,7 @@ async function makeFiles(doc, template, images, settings, deps) {
     if (onedrive) {
       try { await deps.markSaved(doc.id, onedrive); } catch { /* the folder has the files; View still works */ }
     }
-    await deps.createMail(saved, proposalMail(saved));
+    await deps.createMail(saved, proposalMail(saved, settings));
     return { doc: saved, wordBlob, pdfBlob, onedrive };
   } catch (e) {
     return { doc, error: message(e) };
