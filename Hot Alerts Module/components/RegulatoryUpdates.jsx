@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Note, box, btn, btnDark } from "./ui";
-import { EVIDENCE_LEVELS, LEGAL_STATUSES, REG_CATEGORIES, applicabilityFromForm, applicabilityToForm, nextRegStep } from "../logic/alertLogic";
+import { EVIDENCE_LEVELS, LEGAL_STATUSES, REG_CATEGORIES, applicabilityFromForm, applicabilityToForm, isHttpsUrl, nextRegStep } from "../logic/alertLogic";
 import {
   regulatoryCreateTasks, regulatoryDecideClient, regulatoryDetail, regulatoryList, regulatoryProposeList, regulatorySave, regulatoryStartReview, regulatoryVerify,
 } from "../services/alertsApi";
@@ -14,10 +14,11 @@ function Field({ label, children }) {
   return <label style={{ display: "block", fontSize: 11, color: "#666", marginBottom: 8 }}>{label}{children}</label>;
 }
 
-function UpdateForm({ value, onChange, onSave, onCancel, busy }) {
+function UpdateForm({ value, error, onChange, onSave, onCancel, busy }) {
   const set = (k) => (e) => onChange({ ...value, [k]: e.target.value });
   return (
     <div style={box}>
+      {error && <Note tone="bad">{error}</Note>}
       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{value.id ? "Edit update" : "New update"}</div>
       <Field label="Title"><input style={input} value={value.title || ""} onChange={set("title")} /></Field>
       <Field label="Category"><select style={input} value={value.category} onChange={set("category")}>{REG_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
@@ -75,7 +76,7 @@ function UpdateDetail({ supabase, id, onBack, onChanged }) {
     tasks: () => regulatoryCreateTasks(supabase, id),
   };
   if (editing) {
-    return <UpdateForm value={editing} busy={busy} onChange={setEditing} onCancel={() => setEditing(null)}
+    return <UpdateForm value={editing} error={error} busy={busy} onChange={setEditing} onCancel={() => setEditing(null)}
       onSave={() => run(async () => { await regulatorySave(supabase, editing); setEditing(null); })} />;
   }
   return (
@@ -89,7 +90,7 @@ function UpdateDetail({ supabase, id, onBack, onChanged }) {
           <div>Authority: {u.issuing_authority || "-"}. Document: {u.document_number || "-"}.</div>
           <div>Published: {u.publication_date || "-"}. Issued: {u.issue_date || "-"}. <b>Effective: {u.effective_date || "not confirmed"}</b>.</div>
           <div>Legal status: {u.legal_status}. Evidence: {u.evidence_level}.</div>
-          <div>Source: {u.official_url ? <a href={u.official_url} target="_blank" rel="noreferrer">{u.official_url}</a> : "not recorded"}</div>
+          <div>Source: {u.official_url ? (isHttpsUrl(u.official_url) ? <a href={u.official_url} target="_blank" rel="noreferrer">{u.official_url}</a> : u.official_url) : "not recorded"}</div>
           {u.summary && <div style={{ marginTop: 6 }}>{u.summary}</div>}
           {data.tasks_total > 0 && <div style={{ marginTop: 6 }}>Client tasks: {data.tasks_total - data.tasks_open} of {data.tasks_total} finished.</div>}
         </div>
@@ -169,7 +170,7 @@ export default function RegulatoryUpdates({ supabase }) {
 
   if (openId) return <UpdateDetail supabase={supabase} id={openId} onBack={() => setOpenId(null)} onChanged={() => setReload((n) => n + 1)} />;
   if (creating) {
-    return <UpdateForm value={creating} busy={busy} onChange={setCreating} onCancel={() => setCreating(null)} onSave={async () => {
+    return <UpdateForm value={creating} error={error} busy={busy} onChange={setCreating} onCancel={() => setCreating(null)} onSave={async () => {
       setBusy(true); setError("");
       try { const id = await regulatorySave(supabase, creating); setCreating(null); setReload((n) => n + 1); setOpenId(id); } catch (e) { setError(e.message); }
       setBusy(false);

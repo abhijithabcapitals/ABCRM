@@ -208,3 +208,6 @@ export function applicabilityFromForm(f) {
 export function applicabilityToForm(a) {
   return { all: !!a?.all_clients, jurisdictions: (a?.jurisdictions || []).join(", "), visa: a?.has_visa === true ? "yes" : a?.has_visa === false ? "no" : "" };
 }
+
+// A source link is followed only when it is https. The database refuses anything else; older rows may still hold it.
+export const isHttpsUrl = (url) => typeof url === "string" && url.startsWith("https://");

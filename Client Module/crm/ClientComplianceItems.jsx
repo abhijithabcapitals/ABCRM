@@ -1,6 +1,6 @@
 // A client's active compliance register items, recent contacts and open document requests, shown in the client detail.
 // A refused, missing or empty result shows nothing and never breaks the panel.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fmtDate } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
 
@@ -12,10 +12,14 @@ export default function ClientComplianceItems({ clientId }) {
   const [rows, setRows] = useState([]);
   const [work, setWork] = useState({ contacts: [], requests: [] });
   const [error, setError] = useState("");
+  const latest = useRef(clientId);
+  latest.current = clientId;
 
   async function loadWork() {
+    const asked = clientId;
     try {
-      const w = await rpc("client_work_list", { p_client: clientId });
+      const w = await rpc("client_work_list", { p_client: asked });
+      if (latest.current !== asked) return;
       setWork({ contacts: w?.contacts || [], requests: w?.requests || [] });
     } catch { /* not switched on, or refused: show nothing */ }
   }
