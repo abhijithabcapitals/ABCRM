@@ -24,3 +24,13 @@ export function secretMatches(given: string | null, expected: string | undefined
 }
 
 export const passwordSecretName = (address: string) => `MAIL_PASSWORD_${address.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+
+// Recording a delivery comes after the mail went out. A failure is logged and goes no further, so nothing retries the send in this run.
+export async function recordDelivery(record: () => PromiseLike<{ error: unknown }>) {
+  try {
+    const { error } = await record();
+    if (!error) return true;
+  } catch { /* logged below */ }
+  console.error("alert-digest: could not record a delivery");
+  return false;
+}

@@ -76,7 +76,18 @@ case "$OUT" in "ok "*) ;; *) exit 1 ;; esac
 "${PSQL[@]}" -c "insert into public.notifications (user_id, type, title) select id, 'other', 'keep me' from public.profiles limit 1" || exit 1
 BEFORE="$("${PSQL[@]}" -t -A -c "select count(*) from public.notifications where type = 'alert_centre'")"
 [ "$BEFORE" -gt 0 ] || { echo "FAILED no alert_centre bell rows to roll back"; exit 1; }
-# 006 to 009 first (newest migration first): they restore 004's read functions and drop what Phase 2 added. Twice, to prove it is safe.
+# 015 to 018 first (newest first), twice. Then prove it put back every function body and grant exactly: reapplying 001 to 014 must change nothing.
+SNAPSHOT="select md5(string_agg(p.oid::regprocedure::text || pg_get_functiondef(p.oid) || coalesce(p.proacl::text, ''), '|' order by p.oid::regprocedure::text)) || has_table_privilege('authenticated', 'public.client_compliance_items', 'select')::text from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prokind = 'f'"
+for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/015_018_rollback.sql" || { echo "FAILED rollback 015_018"; exit 1; }; done
+ROLLED="$("${PSQL[@]}" -t -A -c "$SNAPSHOT")"
+for f in "${MIGS[@]}"; do
+  case "$(basename "$f")" in 015_*|016_*|017_*|018_*) continue ;; esac
+  "${PSQL[@]}" -f "$f" >/dev/null 2>&1 || { echo "FAILED reapply of $f after rollback 015_018"; exit 1; }
+done
+FRESH="$("${PSQL[@]}" -t -A -c "$SNAPSHOT")"
+[ "$ROLLED" = "$FRESH" ] || { echo "FAILED rollback 015_018 did not restore the bodies of 001 to 014"; exit 1; }
+echo "ok rollback 015_018 restores every function body and grant exactly"
+# 006 to 009 next (newest migration first): they restore 004's read functions and drop what Phase 2 added. Twice, to prove it is safe.
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/014_rollback.sql" || { echo "FAILED rollback 014"; exit 1; }; done
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/011_013_rollback.sql" || { echo "FAILED rollback 011_013"; exit 1; }; done
 for i in 1 2; do "${PSQL[@]}" -f "$HERE/../rollback/010_rollback.sql" || { echo "FAILED rollback 010"; exit 1; }; done

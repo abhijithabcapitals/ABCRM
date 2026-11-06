@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { digestSubject, digestText, passwordSecretName, secretMatches } from "./rules.ts";
+import { digestSubject, digestText, passwordSecretName, secretMatches , recordDelivery } from "./rules.ts";
 
 const alert = { id: "1", number: "ALT-000001", title: "Licence expiry: Acme", due_date: "2026-12-01", priority: "High", action: "Start the renewal." };
 
@@ -28,4 +28,9 @@ Deno.test("secret must match exactly and must exist", () => {
 });
 Deno.test("password secret name matches the other mail functions", () => {
   assertEquals(passwordSecretName("info@abcapital.ae"), "MAIL_PASSWORD_INFO_ABCAPITAL_AE");
+});
+Deno.test("a failed record after a send is logged and never thrown, so the send is not retried", async () => {
+  assertEquals(await recordDelivery(() => Promise.resolve({ error: null })), true);
+  assertEquals(await recordDelivery(() => Promise.resolve({ error: { message: "no" } })), false);
+  assertEquals(await recordDelivery(() => Promise.reject(new Error("network"))), false);
 });

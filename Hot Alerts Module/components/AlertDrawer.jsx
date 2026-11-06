@@ -23,6 +23,8 @@ export default function AlertDrawer({ supabase, alertId, today, fmtDate, access,
   const [person, setPerson] = useState("");
   const [date, setDate] = useState("");
 
+  useEffect(() => { setText(""); setPerson(""); setDate(""); }, [mode]);
+
   async function load() {
     try {
       setError("");

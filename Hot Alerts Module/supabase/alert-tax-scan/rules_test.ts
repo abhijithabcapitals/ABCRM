@@ -18,3 +18,12 @@ Deno.test("items asking for data are left out", () => {
     { clientId: "", category: "CT", title: "No client", daysLeft: 3, status: "due_14" },
   ], now), []);
 });
+Deno.test("only VAT and Corporate Tax items raise tax alerts", () => {
+  const stored = taxItemsToStore([
+    { clientId: "C1", category: "Trade Licence", title: "Trade licence renewal", daysLeft: 10, status: "due_14" },
+    { clientId: "C1", category: "Engagement", title: "Engagement renewal", daysLeft: 10, status: "due_14" },
+    { clientId: "C1", category: "VAT", title: "VAT return & payment", daysLeft: 10, status: "due_14" },
+    { clientId: "C1", category: "Corporate Tax", title: "Corporate Tax return & payment", daysLeft: 10, status: "due_14" },
+  ], now);
+  assertEquals(stored.map((i) => i.title), ["VAT return & payment", "Corporate Tax return & payment"]);
+});

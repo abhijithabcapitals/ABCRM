@@ -5,7 +5,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { buildMessage, SmtpClient } from "../../../Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ceo-mail-reply/smtp.ts";
 import { chooseLogin } from "../../../Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ardentax-mail-send/rules.ts";
-import { type DigestAlert, digestSubject, digestText, passwordSecretName, secretMatches } from "./rules.ts";
+import { type DigestAlert, digestSubject, digestText, passwordSecretName, recordDelivery, secretMatches } from "./rules.ts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -44,10 +44,9 @@ Deno.serve(async (req) => {
         detail = (e as Error).message;
         failed++;
       }
-      const { error: recordError } = await admin.rpc("alert_email_record", {
+      await recordDelivery(() => admin.rpc("alert_email_record", {
         p_items: person.alerts.map((a) => ({ alert_id: a.id, user_id: person.user_id, kind, status, error: detail })),
-      });
-      if (recordError) console.error("alert-digest: could not record a delivery");
+      }));
     }
     console.log(`alert-digest ${kind}: sent ${sent}, failed ${failed}`);
     return json({ sent, failed });

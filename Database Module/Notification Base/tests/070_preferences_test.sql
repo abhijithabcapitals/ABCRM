@@ -25,6 +25,8 @@ set role anon;
 select t.fails('anon refused', $q$select alert_preferences_get()$q$, 'permission denied');
 reset role;
 
+-- 030 turned job_due off and on with no scan since, which leaves it waiting for its baseline (016).
+update alert_rules set baseline_pending = false where code = 'job_due';
 -- f01 has Licence bells off.
 select alert_raise('licence_expiry', 'pref-high', null, 'Pref High', 'Business Setup', current_date + 20, 30, 'High', '00000000-0000-0000-0000-000000000f01', 't', 'p1') as high_id \gset
 select t.ok('an off category writes no bell', (select count(*) = 0 from notifications where link_scope->>'alert_id' = :'high_id'));

@@ -21,6 +21,7 @@ export default function ComplianceRegister({ supabase, today, fmtDate }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [client, setClient] = useState("");
+  const [clientQuery, setClientQuery] = useState("");
   const [type, setType] = useState("");
   const [status, setStatus] = useState("Active");
   const [form, setForm] = useState(null);       // null = closed; object = add or edit
@@ -33,7 +34,7 @@ export default function ComplianceRegister({ supabase, today, fmtDate }) {
   async function load(append = false) {
     setLoading(true); setError("");
     try {
-      const r = await clientComplianceList(supabase, client.trim() || null, type || null, status, PAGE, append ? rows.length : 0);
+      const r = await clientComplianceList(supabase, clientQuery.trim() || null, type || null, status, PAGE, append ? rows.length : 0);
       setRows((prev) => (append ? [...prev, ...(r?.rows || [])] : r?.rows || []));
       setTotal(Number(r?.total || 0));
     } catch (e) {
@@ -41,7 +42,11 @@ export default function ComplianceRegister({ supabase, today, fmtDate }) {
     }
     setLoading(false);
   }
-  useEffect(() => { load(false); }, [supabase, client, type, status, reload]);
+  useEffect(() => {
+    const t = setTimeout(() => setClientQuery(client), 300);
+    return () => clearTimeout(t);
+  }, [client]);
+  useEffect(() => { load(false); }, [supabase, clientQuery, type, status, reload]);
 
   async function save() {
     const problem = validateItem(form);
@@ -105,10 +110,10 @@ export default function ComplianceRegister({ supabase, today, fmtDate }) {
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{form.id ? "Edit item" : "Add item"}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
             <label style={lab}>Client code
-              <input value={form.client_id} onChange={(e) => field("client_id", e.target.value)} style={full} placeholder="CL000001" />
+              <input value={form.client_id} readOnly={!!form.id} onChange={(e) => field("client_id", e.target.value)} style={full} placeholder="CL000001" />
             </label>
             <label style={lab}>Item type
-              <select value={form.item_type} onChange={(e) => field("item_type", e.target.value)} style={full}>
+              <select value={form.item_type} disabled={!!form.id} onChange={(e) => field("item_type", e.target.value)} style={full}>
                 <option value="">Choose</option>
                 {ITEM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
@@ -116,7 +121,7 @@ export default function ComplianceRegister({ supabase, today, fmtDate }) {
             <label style={lab}>Person (if it belongs to one)
               <input value={form.person_name} onChange={(e) => field("person_name", e.target.value)} style={full} />
             </label>
-            <label style={lab}>Reference (shown on this screen only)
+            <label style={lab}>Reference (shown on the register and client page only)
               <input value={form.reference} onChange={(e) => field("reference", e.target.value)} style={full} />
             </label>
             <label style={lab}>Issue date
@@ -168,7 +173,7 @@ export default function ComplianceRegister({ supabase, today, fmtDate }) {
                 <td style={td}>{r.reference || "-"}</td>
                 <td style={td}>{r.issue_date ? show(r.issue_date) : "-"}</td>
                 <td style={td}>{r.expiry_date ? show(r.expiry_date) : "-"}</td>
-                <td style={td}>{r.status === "Active" ? daysLabel(r.expiry_date, today) : "-"}</td>
+                <td style={td}>{r.status === "Active" ? daysLabel(r.next_review_date || r.expiry_date, today) : "-"}</td>
                 <td style={td}>{r.next_review_date ? show(r.next_review_date) : "-"}</td>
                 <td style={td}>{r.status}</td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
