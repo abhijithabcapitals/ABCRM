@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOLS="$HERE/../tools"
 cd "$TOOLS"
 
-for m in 009_onedrive_archive 010_archive_retention; do
+for m in 009_onedrive_archive 010_archive_retention 011_archive_batches; do
   echo "== $m"
   out=$(npx --no-install supabase db query --linked --project-ref "$REF" -f "$HERE/migrations/$m.sql" 2>&1) || true
   if echo "$out" | grep -q '"_tag":"Error"'; then echo "$out"; exit 1; fi
