@@ -353,7 +353,8 @@ def proposal_app(tmp_path, **kw):
 
 
 def post_proposal(c, client="Acme", cid="CL000001", word=("p.docx", b"w"), pdf=("p.pdf", b"%PDF"), headers=None):
-    return c.post("/api/proposal-folder", data={"client": client, "client_id": cid}, files={"word": word, "pdf": pdf}, headers=headers or {})
+    # The CRM's origin by default: the route refuses any other.
+    return c.post("/api/proposal-folder", data={"client": client, "client_id": cid}, files={"word": word, "pdf": pdf}, headers={"Origin": PROPOSAL_CRM} if headers is None else headers)
 
 
 def test_proposal_folder_saves_both(tmp_path):
@@ -418,7 +419,7 @@ def test_proposal_folder_size(tmp_path):
 
 
 def test_proposal_folder_not_configured(tmp_path):
-    c = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", proposal_root=None)))
+    c = TestClient(create_app(Settings.load(storage_root=tmp_path, data_dir=tmp_path / "d", proposal_root=None, embed_origins=[PROPOSAL_CRM])))
     assert post_proposal(c).status_code == 503
 
 
@@ -430,3 +431,18 @@ def test_proposal_folder_cors(tmp_path):
     assert pre.status_code == 204 and pre.headers["access-control-allow-origin"] == PROPOSAL_CRM
     bad = post_proposal(c, headers={"Origin": "https://evil.example"})
     assert "access-control-allow-origin" not in bad.headers
+
+
+def test_proposal_folder_refuses_other_or_missing_origin(tmp_path):
+    c, root = proposal_app(tmp_path)
+    assert post_proposal(c, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert post_proposal(c, headers={}).status_code == 403
+    assert not root.exists()  # nothing was written
+    ok = post_proposal(c, headers={"Origin": PROPOSAL_CRM})
+    assert ok.status_code == 200 and (root / "Business Setup" / "Acme - CL000001" / "Proposals" / "p.pdf").exists()
+
+
+def test_clients_folder_keeps_its_origin_rule(tmp_path):
+    # Only /api/proposal-folder gained the Origin refusal: other routes answer a request without Origin as before.
+    c, _ = proposal_app(tmp_path)
+    assert c.post("/api/clients-folder", json={}).status_code != 403

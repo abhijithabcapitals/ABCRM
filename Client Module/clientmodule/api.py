@@ -143,6 +143,10 @@ def create_app(settings: Settings) -> FastAPI:
         host = (request.headers.get("host") or "").split(":")[0]
         if host not in LOCAL_HOSTS:  # blocks DNS-rebinding pages from reaching the API
             return JSONResponse({"error": "Local access only."}, status_code=403)
+        # A multipart POST needs no preflight, so any website open in the browser could write files through this route.
+        # Only the listed CRM origins may save a proposal; a missing or other Origin is refused before anything is written.
+        if path == "/api/proposal-folder" and request.method != "OPTIONS" and origin not in settings.embed_origins:
+            return JSONResponse({"error": "This CRM origin is not allowed."}, status_code=403)
         # The CRM's Business Banking page reads documents and looks up clients here; only listed origins may.
         shared = origin in settings.embed_origins and path.startswith(("/api/batches", "/api/clients", "/api/generated", "/api/proposal-folder"))
         if request.method == "OPTIONS" and shared:
