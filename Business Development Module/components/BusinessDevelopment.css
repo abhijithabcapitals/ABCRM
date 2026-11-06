@@ -174,7 +174,7 @@
 .bd-calendar-date b { color: #4a6066; font-size: 10px; }
 .bd-calendar-date span { color: #273f46; font-size: 17px; font-weight: 750; }
 .bd-calendar-date small { color: #91a0a5; font-size: 9px; }
-.bd-calendar-event { margin-top: 8px; padding: 8px; border: 1px solid #e5eeee; border-left: 3px solid #2886ed; border-radius: 7px; background: #f9fcfc; }
+.bd-calendar-event { margin-top: 8px; padding: 8px; border: 1px solid #d6e6f6; border-radius: 7px; background: #f4f9fe; }
 .bd-calendar-open { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .bd-calendar-open b { color: #40575d; font-size: 9px; }
 .bd-calendar-open small, .bd-calendar-open span { color: #819096; font-size: 8px; line-height: 1.4; }
@@ -570,7 +570,6 @@
 @media (max-width: 720px) { .bd-convert-service, .bd-convert-dept { grid-template-columns: 1fr; } }
 
 /* All Leads: fixed columns that fit the box; long text wraps instead of scrolling sideways */
-.bd-fit-wrap { overflow-x: hidden; }
 .bd-fit-table { table-layout: fixed; }
 .bd-fit-table th, .bd-fit-table td { white-space: normal; overflow-wrap: anywhere; }
 .bd-fit-table td:first-child { min-width: 0; }
@@ -580,4 +579,6 @@
 /* Small columns have fixed widths; Lead takes the rest. Tighter cells so the action button always fits. */
 .bd-fit-table th, .bd-fit-table td { padding-left: 10px; padding-right: 10px; }
 .bd-fit-table td.bd-row-action { padding-left: 4px; padding-right: 10px; }
-.bd-fit-table .bd-row-action .bd-button { padding: 0 10px; }
+.bd-fit-table .bd-row-action .bd-button { padding: 5px 8px; min-height: 32px; white-space: normal; line-height: 1.2; text-align: center; }
+/* Columns are percentages so the table scales with the box at any zoom; the button wraps rather than being cut off. */
+.bd-fit-wrap { overflow-x: hidden; }
