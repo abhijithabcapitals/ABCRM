@@ -98,7 +98,7 @@ export default function ProposalDocuments({ profile, settings, refresh }) {
             if (stage !== "letter") return (
               <span className="bk-actions">
                 {(d.field_values?.proposal?.options || []).length > 1 && <Button variant={stage === "choose" ? "primary" : undefined} onClick={() => setChoiceFor(d)}>Record client&apos;s choice</Button>}
-                <small className="bk-muted">{stage === "choose" ? "Record the option the client chose before it can be accepted." : "To accept: confirm the signed copy in the client's workspace (Quotes & Agreements), or the client accepts in the portal."}</small>
+                <small className="bk-muted">{stage === "choose" ? "Record the option the client chose before it can be accepted." : "To accept: confirm the signed copy in the client's workspace (Quotes & Agreements), or the client accepts in the portal."}{!d.client_id && " This proposal has no client yet, and acceptance needs one."}</small>
               </span>);
             const l = letterOf(d), act = letterAction(l);
             if (act === "done") return <span className="bk-actions"><Badge tone="good">Letter generated</Badge><button type="button" className="bk-link" onClick={() => openStored(l.storage_path).catch((e) => setError(e.message))}>View</button></span>;
