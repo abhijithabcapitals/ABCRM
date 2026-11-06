@@ -581,4 +581,9 @@
 .bd-fit-table td.bd-row-action { padding-left: 4px; padding-right: 10px; }
 .bd-fit-table .bd-row-action .bd-button { padding: 5px 8px; min-height: 32px; white-space: normal; line-height: 1.2; text-align: center; }
 /* Columns are percentages so the table scales with the box at any zoom; the button wraps rather than being cut off. */
-.bd-fit-wrap { overflow-x: hidden; }
+/* Words break only between words; headers stay on one line and end in "…" when tight. Below 820px the table keeps
+   that width and scrolls sideways instead of squeezing columns until text stacks one letter per line. */
+.bd-fit-table { min-width: 820px; }
+.bd-fit-table th, .bd-fit-table td { overflow-wrap: break-word; }
+.bd-fit-table th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-fit-wrap { overflow-x: auto; }
