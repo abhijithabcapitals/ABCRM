@@ -15,7 +15,7 @@ import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail } from "../ardentax-mail-send/mime.ts";
 import { chooseLogin, htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients, plainText } from "../ardentax-mail-send/rules.ts";
-import { attachmentChoice, attachmentFileName, CLAIM_REFUSED, chooseSender, claimRule, composeText, DEFAULT_SENDER, NOT_SIGNED, parseSigned, refusal, senderName, signatureFits, signatureHtml } from "./rules.ts";
+import { attachmentChoice, attachmentFileName, CLAIM_REFUSED, chooseSender, claimRule, composeText, DEFAULT_SENDER, NOT_SIGNED, parseSigned, refusal, senderName, sentNotRecorded, signatureFits, signatureHtml } from "./rules.ts";
 
 const BUCKET = "hub-documents";
 
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
     const { data: claimed, error: claimError } = await claim.select("id");
     if (claimError) throw new Error(claimError.message);
     if (!claimed?.length) return json({ error: CLAIM_REFUSED }, 409);
-    let released = false; // the success update clears the claim itself
+    let released = false; // true once the mail server accepted the message: the claim is then kept, and the sent mark clears it
     try {
       // An edit or a new signing between the read and the claim ends the signature: then nothing is sent.
       if (choice.signatureId) {
@@ -137,11 +137,12 @@ Deno.serve(async (req) => {
         return json({ error: `The mail was not sent: ${(e as Error).message}` }, 502);
       }
 
+      // The mail is out: from here the claim is never given back, so a failed sent mark cannot lead to a second copy.
+      released = true;
       const warnings: string[] = [];
       const sentAt = new Date().toISOString();
       const { error: sentError } = await admin.from("hub_documents").update({ mail_sent_at: sentAt, mail_sent_by: user.id, mail_sent_to: doc.contact_email, mail_sent_from: mailbox.address, mail_claimed_at: null }).eq("id", doc.id);
-      if (sentError) warnings.push(`The mail was sent, but the CRM could not record it: ${sentError.message}`);
-      else released = true;
+      const notRecorded = sentError ? sentNotRecorded(sentError.message) : null;
 
       const { data: sentFolder } = await eb.from("mailbox_folders").select("name").eq("mailbox_id", mailbox.id).eq("role", "sent").order("name").limit(1).maybeSingle();
       if (sentFolder) {
@@ -159,9 +160,10 @@ Deno.serve(async (req) => {
         warnings.push("No Sent folder is known yet, so no copy was saved there.");
       }
       console.log("accounting-proposal-mail-send", doc.document_number, messageId);
+      if (notRecorded) return json({ error: notRecorded, sent: true, warnings }, 500);
       return json({ ok: true, sent_at: sentAt, signed: !!choice.signatureId, warnings });
     } finally {
-      // Every failure path gives the claim back, but only our own claim, never one taken over after it went stale.
+      // Every failure before the mail server accepted the message gives the claim back, but only our own claim, never one taken over after it went stale.
       if (!released) await admin.from("hub_documents").update({ mail_claimed_at: null }).eq("id", doc.id).eq("mail_claimed_at", claimedAt.toISOString());
     }
   } catch (e) {

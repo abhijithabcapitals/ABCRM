@@ -173,11 +173,11 @@ select hub_acct_attach(:'ag1', 'Accounting/ag1-draft.pdf', 'Accounting/ag1-draft
 select at_check('an unsigned, unapproved agreement with a PDF can be sent', (select storage_path = 'Accounting/ag1-draft.pdf' from hub_documents where id = :'ag1') and hub_acct_can_send(:'ag1'));
 select at_check('OneDrive and signed records are kept',
   (select onedrive_path = 'Proposals/Test' and onedrive_saved_at is not null from hub_acct_saved(:'new1', 'Proposals/Test'))
-  and (select signed_at = date '2026-11-06' and signed_path = 'Accounting/signed/q1.pdf' from hub_acct_signed(:'new1', date '2026-11-06', 'Accounting/signed/q1.pdf'))
+  and (select signed_at = date '2026-11-06' and signed_path = 'Accounting/' || :'new1' || '/q1.pdf' from hub_acct_signed(:'new1', date '2026-11-06', 'Accounting/' || :'new1' || '/q1.pdf'))
   and at_refused(format($f$select hub_acct_signed(%L, null, 'x')$f$, :'new1'), 'date'));
 select at_check('an unapproved agreement records the client''s signed copy too',
-  (select signed_at = date '2026-11-06' and signed_path = 'Accounting/signed/ag1.pdf' from hub_acct_signed(:'ag1', date '2026-11-06', 'Accounting/signed/ag1.pdf')));
-select at_check('a quote still needs no approval to record its signed copy', (select signed_path = 'Accounting/signed/q1.pdf' from hub_documents where id = :'new1'));
+  (select signed_at = date '2026-11-06' and signed_path = 'Accounting/' || :'ag1' || '/ag1.pdf' from hub_acct_signed(:'ag1', date '2026-11-06', 'Accounting/' || :'ag1' || '/ag1.pdf')));
+select at_check('a quote still needs no approval to record its signed copy', (select signed_path = 'Accounting/' || :'new1' || '/q1.pdf' from hub_documents where id = :'new1'));
 
 -- ── mail drafts: any staff member may change them ────────────────────
 select id as mail1 from hub_document_create(jsonb_build_object('doc_type', 'mail', 'parent_id', :'new1', 'department', 'Accounting', 'client_name', 'Acct Test Client LLC',
@@ -285,7 +285,7 @@ select at_check('the file flag does not outlast the statement', coalesce(current
 
 -- ── signed agreements ────────────────────────────────────────────────
 select at_check('an agreement records its client-signed copy',
-  (select signed_at = date '2026-11-06' from hub_acct_signed(:'ag_self', date '2026-11-06', 'Accounting/signed/self.pdf')));
+  (select signed_at = date '2026-11-06' from hub_acct_signed(:'ag_self', date '2026-11-06', 'Accounting/' || :'ag_self' || '/self.pdf')));
 select at_check('a signed agreement cannot be edited',
   at_refused(format($f$select hub_acct_agreement_update(%L, at_aga())$f$, :'ag_self'), 'is signed and cannot be edited')
   and (select storage_path = 'Accounting/self-other.pdf' from hub_documents where id = :'ag_self'));

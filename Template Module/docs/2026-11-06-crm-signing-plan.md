@@ -10,7 +10,7 @@
 
 **Spec:** `Template Module/docs/2026-11-06-crm-signing-design.md`
 
-**Worktree:** `D:\Abhijith Projects\CRM-accounting-proposal`, branch `crm-signing`, from `main` 6f0165f.
+**Worktree:** `CRM-accounting-proposal` (a worktree beside the main checkout), branch `crm-signing`, from `main` 6f0165f.
 
 ## Global Constraints
 
@@ -68,7 +68,7 @@
   - Supersede on a content edit.
   - Non-approver refused.
   - Image read, insert and delete per company for approver, non-approver and admin.
-  - The settings move keeps GEO and the existing path.
+  - The settings move keeps the Accounting approver and the existing path.
   - Migration runs twice, and rollback restores `accounting_proposal_defaults` approvers and path.
 - [ ] **Step 2:** Add the files to the runner and run `bash "Database Module/Template Hub Base/tests/run-local.sh"`. Expected: fail on the missing `doc_sign_can`.
 - [ ] **Step 3:** Write the migration and rollback. Find the prefix and bucket of each table from where its files are written today: `Banking Module/services/bankingApi.js` (bucket `banking-documents`), `Template Module/ardentax/services/generate.js`, `Template Module/services/hubApi.js`. If a family does not store its generated file today, its signed prefix is `<family>/<id>/signed/` in its bucket. Record each choice in the README.
@@ -183,5 +183,5 @@ The same shape for each family, done in this order:
   3. Redeploy the three mail functions.
   4. Merge to `main`, then `npm run deploy:cloudflare`, and confirm both sites.
   5. Ardentax image and approvers, set by an admin.
-  6. A live signed send by GEO with the test client to `abhijith.abcapitals@gmail.com`.
+  6. A live signed send by the Accounting approver with the test client to `<test mailbox>`.
 - [ ] **Step 4:** Update memory and the ledger.

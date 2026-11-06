@@ -115,3 +115,8 @@ export const signatureHtml = (signature: { body_text?: string | null; logo_url?:
   signature?.logo_url ? `<p><img src="${escapeHtml(signature.logo_url)}" alt="" style="max-width:480px;height:auto"></p>` : "";
 
 export const senderName = (mailbox: { display_name?: string | null } | null | undefined): string => String(mailbox?.display_name ?? "").trim() || DEFAULT_SENDER_NAME;
+
+// The mail server accepted the message but the sent mark could not be written. The claim is kept (it lapses on its own), so a retry
+// within the claim window is refused instead of sending a second copy.
+export const sentNotRecorded = (message: string): string =>
+  `The mail was sent, but the CRM could not record it (${message}). Do not send it again; check the recipient's inbox and the Sent folder.`;

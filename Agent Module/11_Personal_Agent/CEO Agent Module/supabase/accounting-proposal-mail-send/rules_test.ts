@@ -151,3 +151,16 @@ Deno.test("no signature keeps the closing and drops only the mark", () => {
 Deno.test("a saved draft without the mark sends as before", () => {
   assertEquals(composeText("Hello\nKind regards", { body_text: "Sig" }), "Hello\nKind regards\n\nSig");
 });
+
+import { sentNotRecorded } from "./rules.ts";
+
+// SMTP accepted, sent mark failed: the claim is kept (released before the mark is written) and the reply is an error that says the mail went out.
+Deno.test("a sent mail whose mark fails keeps the claim and says it went out", async () => {
+  const msg = sentNotRecorded("timeout");
+  if (!/was sent/i.test(msg) || !/not record/i.test(msg) || !/timeout/.test(msg) || !/Do not send it again/.test(msg)) throw new Error(msg);
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  const smtp = src.indexOf(".send(login.user"), keep = src.indexOf("released = true", smtp), mark = src.indexOf("mail_sent_at: sentAt", smtp);
+  if (!(smtp > 0 && keep > smtp && mark > keep)) throw new Error("the claim must be kept once SMTP accepted the mail, before the sent mark");
+  if ((src.match(/released = true/g) || []).length !== 1) throw new Error("only the accepted send keeps the claim");
+  if (!/if \(notRecorded\) return json\(\{ error: notRecorded/.test(src)) throw new Error("a failed mark must reply with an error");
+});

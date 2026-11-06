@@ -80,6 +80,24 @@ select at_as(:'plain');
 select at_check('an unsigned or company-signed agreement records the client''s signed copy',
   (select signed_at = date '2026-11-06' from hub_acct_signed(:'ag', date '2026-11-06', 'Accounting/' || :'ag' || '/client.pdf')));
 select at_check('recording it does not end the company signature', (select id is not null from doc_sign_live('hub_documents', :'ag')));
+select at_check('the client''s copy is refused outside the document''s own Accounting/<id>/ folder',
+  at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, :'ag', 'Accounting/' || :'q' || '/client.pdf'), 'must be stored under')
+  and at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, :'ag', 'Accounting/' || :'ag' || '/signed/client.pdf'), 'must be stored under')
+  and at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, :'ag', 'Accounting/' || :'ag' || '/../' || :'q' || '/x.pdf'), 'must be stored under')
+  and at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, :'ag', 'Accounting/' || :'ag' || '//client.pdf'), 'must be stored under')
+  and at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, :'ag', 'Accounting/' || :'ag' || '/..'), 'must be stored under')
+  and at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, :'ag', 'Accounting/' || :'ag' || '/'), 'must be stored under')
+  and at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, :'ag', 'Accounting/signed/client.pdf'), 'must be stored under')
+  and (select signed_path = 'Accounting/' || :'ag' || '/client.pdf' from hub_documents where id = :'ag'));
+select at_check('a client copy at the screen''s path (Accounting/<id>/<uuid>.pdf) is accepted',
+  (select signed_path = 'Accounting/' || :'q' || '/' || x || '.pdf' from (select gen_random_uuid()::text x) u,
+     lateral hub_acct_signed(:'q', date '2026-11-06', 'Accounting/' || :'q' || '/' || x || '.pdf')));
+select set_config('request.jwt.claim.sub', '', false);
+select at_check('a caller with no session cannot record a client copy',
+  at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, :'ag', 'Accounting/' || :'ag' || '/x.pdf'), 'Sign in first'));
+select at_as(:'plain');
+select at_check('nor on a document that is not an Accounting quote or agreement',
+  at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', %L)$f$, gen_random_uuid(), 'Accounting/x/y.pdf'), 'not found'));
 
 -- ── Accounting's image: the 011 policies only ────────────────────────
 select at_as(null);

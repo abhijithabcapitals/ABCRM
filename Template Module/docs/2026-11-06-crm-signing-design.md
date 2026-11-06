@@ -46,7 +46,7 @@ One setting, `hub_settings` key `document_signing`:
     "ardentax":   { "name": "Ardentax", "approvers": [], "signature_path": null, "uploaded_at": null, "uploaded_by": null } } }
 ```
 
-- The migration moves Accounting's approvers (GEO) and signature path out of `accounting_proposal_defaults` into `ab_capital`, and Accounting reads from here afterwards.
+- The migration moves the Accounting approver and signature path out of `accounting_proposal_defaults` into `ab_capital`, and Accounting reads from here afterwards.
 - **Approver rule:** a listed approver for that company, or, while the list is empty, a CRM administrator (`admin_is()`). Hub admins and managers do not count.
 - Only a CRM administrator edits approver lists and uploads images, in Template Hub > Settings > Signing, which replaces the Accounting section's approver and signature fields.
 - **Images:** private bucket `hub-documents`, under `signatures/<company>/`. Restrictive storage policies let only that company's approvers read, and only administrators insert, update or delete. Accounting's existing image and policies under `accounting-signature/` move to `signatures/ab_capital/` in the migration, and the old policies are dropped.

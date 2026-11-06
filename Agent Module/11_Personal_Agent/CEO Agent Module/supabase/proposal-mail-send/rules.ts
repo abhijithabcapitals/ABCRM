@@ -81,3 +81,8 @@ export function attachmentChoice(doc: Doc, signed: boolean, live: LiveSignature 
 // The two parts of the mail. No mail signature is added here, so the draft's marked closing stays; the mark itself never goes,
 // and the plain part loses the *bold* asterisks.
 export const mailBodies = (body: string): { text: string; html: string } => ({ text: plainText(body, false), html: htmlBody(body, "") });
+
+// The mail server accepted the message but the sent mark could not be written. The claim is kept (it lapses on its own), so a retry
+// within the claim window is refused instead of sending a second copy.
+export const sentNotRecorded = (message: string): string =>
+  `The mail was sent, but the CRM could not record it (${message}). Do not send it again; check the recipient's inbox and the Sent folder.`;

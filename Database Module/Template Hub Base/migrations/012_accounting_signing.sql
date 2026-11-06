@@ -87,16 +87,24 @@ end $$;
 
 -- ── The client's signed copy ─────────────────────────────────────────
 -- Signing by AB Capital is optional, so the client's copy can be recorded on any agreement or quote with the date it was signed.
+-- The caller must be able to read the row (011: doc_sign_readable, the rule of the Accounting screens). The copy must sit where the
+-- screen uploads it (accountingApi.recordSigned): one file name directly under the document's own Accounting/<id>/ folder. So it is
+-- never another document's folder, never Accounting/<id>/signed/ (AB Capital's signed copies, 011), and has no '..' or empty part.
 create or replace function public.hub_acct_signed(p_id uuid, p_date date, p_path text) returns public.hub_documents
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare d hub_documents; r hub_documents;
+declare d hub_documents; r hub_documents; v_path text := btrim(coalesce(p_path, '')); v_name text;
 begin
   if auth.uid() is null then raise exception 'Sign in first'; end if;
   if p_date is null then raise exception 'Enter the date it was signed'; end if;
-  if nullif(btrim(coalesce(p_path, '')), '') is null then raise exception 'Upload the signed copy'; end if;
+  if v_path = '' then raise exception 'Upload the signed copy'; end if;
   select * into d from hub_documents where id = p_id and library_template in ('AB Capital/Accounting Quote', 'AB Capital/Accounting Agreement') for update;
-  if d.id is null then raise exception 'The Accounting document was not found'; end if;
-  update hub_documents set signed_at = p_date, signed_path = btrim(p_path) where id = d.id returning * into r;
+  if d.id is null or not doc_sign_readable('hub_documents', d.id) then raise exception 'The Accounting document was not found'; end if;
+  v_name := substr(v_path, length('Accounting/' || d.id::text || '/') + 1);
+  if left(v_path, length('Accounting/' || d.id::text || '/')) <> 'Accounting/' || d.id::text || '/'
+     or v_name = '' or v_name in ('.', '..') or position('/' in v_name) > 0 or position(chr(92) in v_name) > 0 then
+    raise exception 'The signed copy must be stored under Accounting/%/', d.id;
+  end if;
+  update hub_documents set signed_at = p_date, signed_path = v_path where id = d.id returning * into r;
   return r;
 end $$;
 

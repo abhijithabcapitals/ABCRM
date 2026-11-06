@@ -1,5 +1,5 @@
 // Adds the company signature place to both Ardentax Word templates, in place. The templates have no builder (they came from
-// D:\Abhijith Projects\Quote Generator), so this edits their XML once and the result is committed; re-running changes nothing.
+// the old Quote Generator folder), so this edits their XML once and the result is committed; re-running changes nothing.
 //   node "Template Module/ardentax/scripts/add_signature_tag.mjs"
 // The tag {{SIGNATURE}} is its own paragraph in the Ardentax (left) cell of the signatory table, just above "Signature: ____".
 // fillDocx leaves it as a blank line when unsigned and puts the signature picture there when an approver signs (signing.js).
