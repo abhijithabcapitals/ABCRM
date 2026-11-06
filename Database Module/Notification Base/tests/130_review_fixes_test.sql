@@ -319,7 +319,7 @@ select t.ok('closed client: no document chase', (select count(*) = 0 from alerts
 select t.ok('a job with no status still follows up', (select count(*) = 1 from alerts where rule_code = 'job_followup' and client_id = 'W5' and status = 'Open'));
 select t.ok('a job with no status still chases payment', (select count(*) = 1 from alerts where rule_code = 'job_payment_due' and client_id = 'W5' and status = 'Open'));
 select t.ok('a cancelled job chases no payment', (select count(*) = 0 from alerts where rule_code = 'job_payment_due' and client_id = 'W2'));
-select t.ok('a completed job follows the job rules', (select count(*) = 0 from alerts where rule_code = 'job_payment_due' and client_id = 'W1'));
+select t.ok('a completed job with a balance chases payment', (select count(*) = 1 from alerts where rule_code = 'job_payment_due' and client_id = 'W1' and status = 'Open'));
 select t.ok('titles join names with concat_ws', (select bool_and(pg_get_functiondef(f) like '%concat_ws(%') from unnest(array['alert_manual_raise(text,text,text,date)', 'alert_rule_document_request()', 'alert_rule_tax_deadline()', 'regulatory_create_tasks(uuid)']::regprocedure[]) f));
 select t.ok('the browser may not read the register table', not has_table_privilege('authenticated', 'public.client_compliance_items', 'select'));
 set role authenticated;

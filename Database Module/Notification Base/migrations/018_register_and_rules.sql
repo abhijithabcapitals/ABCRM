@@ -176,7 +176,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
   where r.status = 'Open' and coalesce(k.client_status, '') !~* 'liquidated|cancel|rejected'
 $$;
 
--- As the job rules in 002: a Completed or Client Cancelled job raises nothing, here as well.
+-- A Client Cancelled job chases no payment. A Completed job with a balance does: Accounting invoices only Completed jobs.
 create or replace function public.alert_rule_job_payment_due() returns setof public.alert_candidate
 language sql stable security definer set search_path = public, pg_temp as $$
   select 'jobpayment:' || j.id || ':' || coalesce((j.invoice_date + alert_payment_terms())::text, ''), j.client_id, concat_ws(' - ', j.service_name, j.client_name),
@@ -185,7 +185,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
          'accounting_jobs', j.id::text, null::uuid, null::text
   from accounting_job_list j
   cross join lateral (select array(select u.uid from unnest(j.assignee_ids) with ordinality as u(uid, ord) join profiles p on p.id = u.uid order by u.ord) as ids) v
-  where coalesce(j.balance, 0) > 0 and coalesce(j.work_status, '') not in ('Completed', 'Client Cancelled')
+  where coalesce(j.balance, 0) > 0 and coalesce(j.work_status, '') <> 'Client Cancelled'
 $$;
 
 -- Payments cover the oldest invoices first, so what stays unpaid sits on the newest. Worked back from the newest:
