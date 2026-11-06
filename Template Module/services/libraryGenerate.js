@@ -7,10 +7,12 @@ import { libraryContext, toLines } from "../logic/libraryContext.js";
 import { cleanSections, designContext } from "../logic/libraryLetter.js";
 import { clientLinkProblem } from "../logic/libraryOcr.js";
 import { fileNameFor } from "../logic/serviceDocs.js";
+import { designFileData, libraryFillData } from "../logic/librarySigning.js";
 
-async function makeFile(doc, buffer, values, rows, usdRate, deps) {
+// data(doc) is what the file is filled with once the document has its Ref.
+async function makeFile(doc, buffer, data, deps) {
   try {
-    const blob = await deps.render(buffer, libraryContext(values, rows, usdRate, doc.document_number));
+    const blob = await deps.render(buffer, data(doc));
     const name = fileNameFor(doc.document_number, doc.client_name);
     await deps.save(doc, blob, name);
     return { doc, file: { blob, name } };
@@ -51,26 +53,25 @@ export async function generateLibraryDocument({ template, fileId, fields, values
   } catch (e) {
     return { error: e.message };
   }
-  return makeFile(doc, buffer, kept, rows, usdRate, deps);
+  return makeFile(doc, buffer, (d) => libraryContext(kept, rows, usdRate, d.document_number), deps);
 }
 
+// Retry rebuilds from what was stored, the same way signing does (logic/librarySigning.js).
 export async function retryLibraryDocument(doc, deps) {
-  const { usd_rate: usdRate, ...values } = doc.field_values || {};
-  const rows = (doc.lines || []).map((l) => ({ label: l.description, amount: l.amount, remarks: l.remarks, rate: l.rate }));
   let buffer;
   try {
     buffer = await deps.loadFile(doc.library_file_id);
   } catch (e) {
     return { doc, error: e.message };
   }
-  return makeFile(doc, buffer, values, rows, usdRate, deps);
+  return makeFile(doc, buffer, libraryFillData, deps);
 }
 
 // ── AB Capital quotes and letters, on the built-in designs ───────────
 // deps: { loadSettings(), create(p), render(data), save(doc, blob, fileName) }. Same order as above: a document that cannot render uses no number.
-async function makeDesignFile(kind, doc, settings, date, deps) {
+async function makeDesignFile(doc, data, deps) {
   try {
-    const blob = await deps.render(designContext(kind, doc, settings.company, settings.engagement_terms, date));
+    const blob = await deps.render(data);
     const name = fileNameFor(doc.document_number, doc.client_name);
     await deps.save(doc, blob, name);
     return { doc, file: { blob, name } };
@@ -103,7 +104,7 @@ export async function generateDesign({ kind, template, fields, values, sections,
   } catch (e) {
     return { error: e.message };
   }
-  return makeDesignFile(kind, doc, settings, kept.date, deps);
+  return makeDesignFile(doc, designContext(kind, doc, settings.company, settings.engagement_terms, kept.date), deps);
 }
 
 export const generateLetter = (input, deps) => generateDesign({ ...input, kind: "letter" }, deps);
@@ -115,7 +116,7 @@ export async function retryDesign(doc, deps) {
   } catch (e) {
     return { doc, error: e.message };
   }
-  return makeDesignFile(doc.doc_type === "letter" ? "letter" : "quote", doc, settings, doc.field_values?.date, deps);
+  return makeDesignFile(doc, designFileData(doc, settings), deps);
 }
 
 export const retryLetter = retryDesign;

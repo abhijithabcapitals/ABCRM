@@ -1,6 +1,8 @@
+import { renderSigned } from "./signDocx.js";
+
 // Trimming parser so both {{ key }} and {{key}} work (docxtemplater doesn't
 // trim tag whitespace by default), with dotted-path + scope-climbing support.
-const trimParser = (tag) => {
+export const trimParser = (tag) => {
   const path = tag.trim().split(".");
   return {
     get(scope, context) {
@@ -20,23 +22,19 @@ const trimParser = (tag) => {
   };
 };
 
-// Fill a template (ArrayBuffer) with a context → docx Blob. Loads pizzip +
-// docxtemplater on demand.
-export async function renderDocx(arrayBuffer, data) {
+// How a Company Library template is read: {{ key }} tags with the parser above. The signatory place, where a template has one, is
+// {{@signature_xml}} on a line of its own.
+export const LIBRARY_TAGS = { delimiters: { start: "{{", end: "}}" }, parser: trimParser };
+export const LIBRARY_NO_PLACE = "This template has no place for the signature. Add {{@signature_xml}} on a line of its own where the signature goes, upload the file again in Template Hub > Settings > Library Templates, and make a new document from it to sign.";
+
+// Fill a template (ArrayBuffer) with a context → docx Blob. Loads pizzip + docxtemplater on demand.
+// signature: null (every normal fill) or the company image { bytes, type, width, height } when an approver signs (logic/signDocx.js).
+export async function renderDocx(arrayBuffer, data, { signature = null } = {}) {
   const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([
     import("pizzip"),
     import("docxtemplater"),
   ]);
-  const zip = new PizZip(arrayBuffer);
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    delimiters: { start: "{{", end: "}}" },
-    parser: trimParser,
-    nullGetter: () => "",
-  });
-  doc.render(data);
-  return doc.getZip().generate({
+  return renderSigned({ PizZip, Docxtemplater }, arrayBuffer, data, signature, "library", { ...LIBRARY_TAGS, missing: LIBRARY_NO_PLACE }).generate({
     type: "blob",
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });

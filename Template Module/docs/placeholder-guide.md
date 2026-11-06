@@ -14,6 +14,7 @@ docxtemplater, using `{{ }}` delimiters. Whitespace inside the braces is ignored
 | `{{ date }}` | today's date, unless a field with key `date` is provided |
 | `{{ quotation_no }}` | `QT-<year>-001` …, unless provided |
 | `{{ usd_rate }}` | the rate used |
+| `{{@signature_xml}}` | Company Library templates only: where the company signature goes when an approver signs. Put it on a line of its own. It prints blank lines when the document is unsigned. A template without it can still be filled, but its documents cannot be signed. |
 
 ## Fee table that grows with extra rows
 
