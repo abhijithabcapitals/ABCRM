@@ -23,7 +23,7 @@ function TeamTree({ teams, error, loaded, selected, managing, onSelect, onManage
           <li key={t.id}>
             <div className="abm-team-head">
               <strong className="abm-clip" title={t.name}>{t.name}</strong>
-              <button type="button" className="abm-btn-quiet" aria-current={managing === t.id ? "true" : undefined} aria-label={`Manage ${t.name}`} onClick={() => onManage(t.id)}>Manage</button>
+              <button type="button" className="abm-btn-quiet" aria-current={managing === t.id ? "true" : undefined} aria-label={`Manage ${t.name}`} title={t.role === "owner" ? "Rename the team, edit what it is for, and manage channels and people" : "See the team's channels and people"} onClick={() => onManage(t.id)}>Manage</button>
             </div>
             <ul className="abm-list">
               {t.channels.map((c) => {
