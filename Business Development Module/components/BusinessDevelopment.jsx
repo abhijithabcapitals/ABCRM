@@ -30,21 +30,28 @@ import TeamsPanel from "@messenger/components/TeamsPanel";
 import "./BusinessDevelopment.css";
 
 const CONVERTED_PAGE = "Converted & Transfers";
-const PAGES = [
+const LEAD_GEN_PAGE = "Lead Generation";
+// Every lead assigned to the user, from Prospect to Converted & Transferred, with progress.
+const MY_LEADS_PAGE = "My Leads";
+// Top tab row: team-wide views.
+const TEAM_PAGES = [
   "BD Dashboard",
   "All Leads",
-  "My Leads",
-  "Lead Pipeline",
-  "Lead Generation",
+  "Reports & Analytics",
+  LEAD_GEN_PAGE,
   "Team Leads",
   "Lead Calendar",
-  "Follow-up Center",
+  "Lost Leads Analysis",
   "Campaigns & Sources",
+  "Settings & Master Data",
+];
+// Second tab row, kept apart so the user's own working views stay in focus.
+const MY_WORK_PAGES = [
+  MY_LEADS_PAGE,
+  "Lead Pipeline",
+  "Follow-up Center",
   "Proposals & Quotations",
   CONVERTED_PAGE,
-  "Lost Leads Analysis",
-  "Reports & Analytics",
-  "Settings & Master Data",
 ];
 const MANAGER_ROLES = ["super_admin", "bd_manager", "team_leader"];
 const CHANNELS = ["Phone Call", "WhatsApp", "Email", "Face-to-Face Meeting", "Video Meeting", "Instagram / Social Media", "Website / Form", "Other"];
@@ -202,9 +209,12 @@ export default function BusinessDevelopment({ profile }) {
   }, [leads, selectedLead?.id]);
 
   const activeLeads = useMemo(() => leads.filter(isOpen), [leads]);
+  // The "My work" tabs (My Leads, Lead Pipeline, Follow-up Center, Proposals, Converted) show only the user's own leads.
+  const myLeads = useMemo(() => leads.filter((lead) => lead.current_owner === currentUserId), [leads, currentUserId]);
+  const myActiveLeads = useMemo(() => myLeads.filter(isOpen), [myLeads]);
   const filteredLeads = useMemo(() => {
     let rows = leads;
-    if (page === "My Leads") rows = rows.filter((lead) => lead.current_owner === currentUserId);
+    if (MY_WORK_PAGES.includes(page)) rows = myLeads;
     if (page === "Team Leads") rows = rows.filter((lead) => lead.current_owner && lead.current_owner !== currentUserId);
     if (page === CONVERTED_PAGE) rows = rows.filter((lead) => lead.status === "won");
     if (page === "Lost Leads Analysis") rows = rows.filter((lead) => lead.status === "lost" || lead.status === "disqualified");
@@ -212,13 +222,15 @@ export default function BusinessDevelopment({ profile }) {
     const needle = search.trim().toLowerCase();
     if (needle) rows = rows.filter((lead) => [lead.lead_id, lead.name, lead.contact_name, lead.mobile, lead.email, lead.source].some((value) => String(value || "").toLowerCase().includes(needle)));
     return rows;
-  }, [leads, page, currentUserId, sourceFilter, search]);
+  }, [leads, myLeads, page, currentUserId, sourceFilter, search]);
 
-  const dueFollowups = useMemo(() => leads.flatMap((lead) =>
+  const openFollowups = (rows) => rows.flatMap((lead) =>
     (lead.bd_lead_followups || [])
       .filter((followup) => followup.status !== "completed" && followup.status !== "cancelled")
       .map((followup) => ({ ...followup, lead })),
-  ).sort((a, b) => new Date(a.planned_at) - new Date(b.planned_at)), [leads]);
+  ).sort((a, b) => new Date(a.planned_at) - new Date(b.planned_at));
+  const dueFollowups = useMemo(() => openFollowups(leads), [leads]);
+  const myDueFollowups = useMemo(() => openFollowups(myLeads), [myLeads]);
   const forecastEntries = activeLeads.flatMap((lead) => leadPotentialEntries(lead).map((entry) => ({ ...entry, amount: Number(entry.amount) * (PROBABILITY[lead.stage] || 0) })));
   const totalPotential = currencyTotals(activeLeads.flatMap(leadPotentialEntries));
   const weightedPipeline = currencyTotals(forecastEntries);
@@ -431,7 +443,6 @@ export default function BusinessDevelopment({ profile }) {
   const isDashboard = page === "BD Dashboard";
   const isFollowups = page === "Follow-up Center" || page === "Lead Calendar";
   const isCalendar = page === "Lead Calendar";
-  const isSources = page === "Campaigns & Sources";
   const isProposals = page === "Proposals & Quotations";
 
   return withAgent(
@@ -448,8 +459,16 @@ export default function BusinessDevelopment({ profile }) {
         </div>
       </header>
 
-      <nav className="bd-nav" aria-label="Business Development pages">
-        {PAGES.map((item) => (
+      <nav className="bd-nav" aria-label="Business Development team pages">
+        {TEAM_PAGES.map((item) => (
+          <button key={item} type="button" onClick={() => { setPage(item); setSearch(""); setSourceFilter(""); }} className={page === item ? "active" : ""}>
+            {item}
+          </button>
+        ))}
+      </nav>
+      <nav className="bd-nav bd-nav-mywork" aria-label="My work">
+        <span className="bd-nav-label">My work</span>
+        {MY_WORK_PAGES.map((item) => (
           <button key={item} type="button" onClick={() => { setPage(item); setSearch(""); setSourceFilter(""); }} className={page === item ? "active" : ""}>
             {item}
           </button>
@@ -477,8 +496,8 @@ export default function BusinessDevelopment({ profile }) {
           )}
           {isPipeline && (
             <PipelineView
-              leads={leads}
-              activeLeads={activeLeads}
+              leads={myLeads}
+              activeLeads={myActiveLeads}
               profiles={profiles}
               unassignedCount={unassignedCount}
               onOpen={openLead}
@@ -490,9 +509,8 @@ export default function BusinessDevelopment({ profile }) {
             isCalendar
               ? <BdCalendarView leads={leads} profiles={profiles} currentUserId={currentUserId} followups={dueFollowups}
                 onOpenLead={openLead} onCompleteFollowup={completeFollowup} />
-              : <FollowupView items={dueFollowups} onOpen={openLead} onComplete={completeFollowup} />
+              : <FollowupView items={myDueFollowups} onOpen={openLead} onComplete={completeFollowup} />
           )}
-          {!isDashboard && !isPipeline && isSources && <SourcesView leads={leads} />}
           {page === "All Leads" && (
             <AllLeadsView
               leads={leads}
@@ -508,7 +526,7 @@ export default function BusinessDevelopment({ profile }) {
               onAssignProspect={assignProspect}
             />
           )}
-          {page === "Lead Generation" && (
+          {page === LEAD_GEN_PAGE && (
             <>
               <SourceAnalyticsView
                 leads={leads}
@@ -524,11 +542,23 @@ export default function BusinessDevelopment({ profile }) {
               />
             </>
           )}
+          {page === "Campaigns & Sources" && <SourcesView leads={leads} />}
           {page === CONVERTED_PAGE && <ConvertedView leads={filteredLeads} profiles={profilesById} onOpen={openLead} />}
-          {!isDashboard && !isPipeline && isProposals && <ProposalView leads={leads} onOpen={openLead} />}
+          {!isDashboard && !isPipeline && isProposals && <ProposalView leads={myLeads} onOpen={openLead} />}
           {!isDashboard && !isPipeline && page === "Reports & Analytics" && <ReportsView leads={leads} />}
           {!isDashboard && !isPipeline && page === "Settings & Master Data" && <MasterDataView />}
-          {["My Leads", "Team Leads", "Lost Leads Analysis"].includes(page) && (
+          {page === MY_LEADS_PAGE && (
+            <MyLeadsView
+              leads={filteredLeads}
+              profiles={profilesById}
+              search={search}
+              onSearch={setSearch}
+              sourceFilter={sourceFilter}
+              onSourceFilter={setSourceFilter}
+              onOpen={openLead}
+            />
+          )}
+          {["Team Leads", "Lost Leads Analysis"].includes(page) && (
             <LeadListView
               title={page}
               leads={filteredLeads}
@@ -843,6 +873,52 @@ function ConvertedView({ leads, profiles, onOpen }) {
           );
         })}</tbody>
       </table></div> : <Empty title="No converted leads yet" body="Leads appear here once a payment receipt is recorded." />}
+    </section>
+  );
+}
+
+// Where a lead sits on the Prospect → Transferred track. percent is null for lost / disqualified / on-hold leads.
+function leadProgress(lead) {
+  const transferred = (lead.bd_department_transfers || []).length > 0;
+  const stage = lead.status === "won" ? (transferred ? "Onboarding Completed" : CONVERTED_STAGE) : lead.stage;
+  if (["lost", "disqualified", "on_hold"].includes(lead.status)) return { stage, step: -1, percent: null, transferred };
+  const step = PROGRESS_INDEX[stage] ?? Math.max(BD_STAGES.indexOf(lead.stage), 0);
+  return { stage, step, percent: Math.round((step / (PROGRESS_STEPS.length - 1)) * 100), transferred };
+}
+
+function MyLeadsView({ leads, profiles, search, onSearch, sourceFilter, onSourceFilter, onOpen }) {
+  const rows = leads.map((lead) => ({ lead, progress: leadProgress(lead) }))
+    .sort((a, b) => (b.progress.step - a.progress.step) || new Date(b.lead.updated_at || b.lead.created_at || 0) - new Date(a.lead.updated_at || a.lead.created_at || 0));
+  const stepCounts = PROGRESS_STEPS.map((_, index) => rows.filter((row) => row.progress.step === index).length);
+  const closed = rows.filter((row) => row.progress.percent === null).length;
+  return (
+    <section>
+      <div className="bd-section-heading"><div><h2>My Leads</h2><p>Every lead assigned to you, from first contact to converted and transferred.</p></div><span className="bd-count-pill">{leads.length} leads</span></div>
+      <div className="bd-myleads-steps">
+        {PROGRESS_STEPS.map((step, index) => <div key={step}><b>{stepCounts[index]}</b><span>{step}</span></div>)}
+        <div className="bd-myleads-closed"><b>{closed}</b><span>Lost / on hold</span></div>
+      </div>
+      <div className="bd-list-tools"><input aria-label="Search leads" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search name, lead ID, phone, email…" /><select aria-label="Filter by source" value={sourceFilter} onChange={(event) => onSourceFilter(event.target.value)}><option value="">All sources</option>{BD_SOURCES.map((source) => <option key={source}>{source}</option>)}</select></div>
+      {rows.length ? <div className="bd-table-wrap"><table className="bd-table">
+        <thead><tr><th>Lead</th><th>Stage / Status</th><th>Progress</th><th>Next Follow-up</th><th>Transferred to</th><th>Potential</th></tr></thead>
+        <tbody>{rows.map(({ lead, progress }) => {
+          const value = currencyTotals(leadPotentialEntries(lead));
+          const transfers = lead.bd_department_transfers || [];
+          return (
+            <tr key={lead.id} onClick={() => onOpen(lead)}>
+              <td><strong>{lead.name}</strong><small>{lead.lead_id} · {lead.source || "No source"}</small></td>
+              <td><span className={`bd-stage-badge bd-stage-${stageClass(lead.stage)}`}>{lead.status === "active" ? lead.stage : lead.status === "won" ? (progress.transferred ? "Transferred" : "Converted") : lead.status}</span></td>
+              <td className="bd-myleads-progress">{progress.percent === null ? <span className="bd-status-note">{lead.status === "on_hold" ? "On hold" : lead.status}</span> : <>
+                <div className="bd-progress-label"><span>{PROGRESS_STEPS[progress.step]}</span><b>{progress.percent}%</b></div>
+                <div className="bd-progress-track"><i style={{ width: `${progress.percent}%` }} /></div>
+              </>}</td>
+              <td><span className={lead.status === "active" && isLate(lead.next_followup_at) ? "bd-overdue-text" : ""}>{lead.status === "active" ? dateOnly(lead.next_followup_at) : "—"}</span></td>
+              <td>{transfers.length ? <div className="bd-transfer-chips">{transfers.map((t) => <span key={t.id}>{departmentLabel(t.department)} · {t.target_ref}{t.owner ? ` · ${fullName(profiles[t.owner])}` : ""}</span>)}</div> : "—"}</td>
+              <td>{value === money(0) ? "—" : value}</td>
+            </tr>
+          );
+        })}</tbody>
+      </table></div> : <Empty title="No leads assigned to you" body="Assign yourself a lead from All Leads or create a new one." />}
     </section>
   );
 }

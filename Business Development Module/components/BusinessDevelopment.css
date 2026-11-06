@@ -26,6 +26,13 @@
 .bd-header h1 { margin: 5px 0 4px; color: #13363d; font-size: clamp(24px, 3vw, 32px); letter-spacing: -.04em; }
 .bd-header p, .bd-section-heading p, .bd-panel-heading p, .bd-welcome p { margin: 0; color: #7b8990; font-size: 13px; }
 .bd-header-actions { gap: 9px; flex-shrink: 0; }
+.bd-myleads-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.bd-myleads-steps div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid #e3e9eb; border-radius: 8px; background: #fff; }
+.bd-myleads-steps b { color: #13363d; font-size: 18px; }
+.bd-myleads-steps span { color: #7b8990; font-size: 11px; }
+.bd-myleads-steps .bd-myleads-closed { background: #f7f8fa; }
+.bd-myleads-progress { min-width: 150px; }
+.bd-myleads-progress .bd-progress-track { margin-top: 5px; }
 .bd-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 37px; padding: 0 14px; border: 1px solid transparent; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: .15s ease; }
 .bd-button:disabled { opacity: .6; cursor: wait; }
 .bd-button-primary { color: #fff; background: #0d7d82; box-shadow: 0 3px 8px #0d7d822e; }
@@ -36,6 +43,9 @@
 .bd-nav button { flex: 0 0 auto; padding: 9px 11px; border: 0; border-radius: 7px; color: #718087; background: transparent; font-size: 11px; font-weight: 650; white-space: nowrap; cursor: pointer; }
 .bd-nav button:hover { color: #0d7d82; background: #f5fafa; }
 .bd-nav button.active { color: #0d7277; background: #e8f6f6; }
+.bd-nav:has(+ .bd-nav-mywork) { margin-bottom: 10px; }
+.bd-nav-mywork { align-items: center; border-color: #d3e8e8; background: #fbfefe; }
+.bd-nav-label { padding: 0 10px 0 6px; color: #7b8b92; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .bd-content { min-width: 0; }
 .bd-alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding: 11px 14px; border: 1px solid; border-radius: 9px; font-size: 12px; }
 .bd-alert button { border: 0; color: inherit; background: transparent; font-size: 20px; cursor: pointer; }
