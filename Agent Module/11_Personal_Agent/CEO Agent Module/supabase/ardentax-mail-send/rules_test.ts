@@ -1,6 +1,6 @@
 // deno test "Agent Module/11_Personal_Agent/CEO Agent Module/supabase/ardentax-mail-send/"
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { applyClosing, boldLines, CLOSING_MARK, plainText, chooseLogin, htmlBody, isDocumentPath, parseRecipients, sendRefusal, totalAttachmentBytes, MAX_ATTACHMENT_BYTES } from "./rules.ts";
+import { ardentaxBodies, applyClosing, boldLines, CLOSING_MARK, plainText, chooseLogin, htmlBody, isDocumentPath, parseRecipients, sendRefusal, totalAttachmentBytes, MAX_ATTACHMENT_BYTES } from "./rules.ts";
 
 const ready = { pdf_path: "a.pdf", word_path: "a.docx", mail_to: "pat@sample.example", mail_subject: "S", mail_body: "B", mail_sent_at: null };
 
@@ -84,4 +84,41 @@ Deno.test("text without the mark is unchanged", () => {
 Deno.test("htmlBody makes bold lines bold and keeps escaping", () => {
   const h = htmlBody("<a>\n*Regards,*", "");
   assert(h.includes("&lt;a&gt;<br><b>Regards,</b>"));
+});
+
+Deno.test("text typed after the closing block survives under a signature", () => {
+  const t = "Body\n\n-- closing --\nKind regards,\nAB\n\nP.S. Call me";
+  assertEquals(applyClosing(t, true), "Body\n\nP.S. Call me");
+  assertEquals(applyClosing(t, false), "Body\n\nKind regards,\nAB\n\nP.S. Call me");
+});
+Deno.test("every mark is removed, with and without a signature", () => {
+  const t = "A\n\n-- closing --\nRegards\n\nB\n\n-- closing --\nThanks";
+  assertEquals(applyClosing(t, true), "A\n\nB");
+  assertEquals(applyClosing(t, false), "A\n\nRegards\n\nB\n\nThanks");
+  assert(!plainText(t).includes("closing --"));
+});
+Deno.test("a mark with trailing spaces and CRLF is still a mark", () => {
+  assertEquals(applyClosing("A\r\n\r\n-- closing --  \r\nRegards", true), "A");
+  assertEquals(applyClosing("A\n-- closing --  \nRegards", false), "A\nRegards");
+});
+Deno.test("lines that are not bold stay as typed", () => {
+  for (const t of ["**", "* *", "* item *", "* item", "*a* and *b*", "*a*b"]) assertEquals(boldLines(t), { html: t, plain: t });
+});
+Deno.test("escaped text can still be bolded", () => {
+  assertEquals(boldLines("*<b>*").html, "<b>&lt;b&gt;</b>");
+  assertEquals(boldLines("*a*").plain, "a");
+});
+Deno.test("CRLF stays on bold lines", () => {
+  assertEquals(boldLines("Hi\r\n*Regards,*\r\nB").plain, "Hi\r\nRegards,\r\nB");
+  assertEquals(boldLines("*Regards,*\r\nB").html, "<b>Regards,</b>\r\nB");
+});
+Deno.test("Ardentax mail: plain keeps the closing, HTML drops it only under a signature", () => {
+  const body = "Dear X\n\n-- closing --\nKind regards";
+  const withSig = ardentaxBodies(body, "<p>Sig</p>");
+  assertEquals(withSig.text, "Dear X\n\nKind regards");
+  assert(!withSig.html.includes("Kind regards") && withSig.html.includes("<p>Sig</p>") && !withSig.html.includes("closing --"));
+  const none = ardentaxBodies(body, "  ");
+  assertEquals(none.text, "Dear X\n\nKind regards");
+  assert(none.html.includes("Kind regards") && !none.html.includes("closing --"));
+  assertEquals(ardentaxBodies("*Hi*", "").text, "Hi");
 });

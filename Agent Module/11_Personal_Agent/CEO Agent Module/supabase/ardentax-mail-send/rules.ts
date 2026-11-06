@@ -21,24 +21,40 @@ const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "
 
 // A whole line wrapped in asterisks (signature lines such as *Regards,*) is bold in HTML and bare in plain text.
 // Same rule as BOLD_LINE in ceo-mail-reply/smtp.ts.
-const BOLD_LINE = /^[ \t]*\*([^*\n]+)\*[ \t\r]*$/gm;
+const BOLD_LINE = /^[ \t]*\*([^\s*](?:[^*\n]*[^\s*])?)\*[ \t]*(\r?)$/gm;
 
 export function boldLines(text: string): { html: string; plain: string } {
   const src = String(text ?? "");
-  return { html: escapeHtml(src).replace(BOLD_LINE, "<b>$1</b>"), plain: src.replace(BOLD_LINE, "$1") };
+  return { html: escapeHtml(src).replace(BOLD_LINE, "<b>$1</b>$2"), plain: src.replace(BOLD_LINE, "$1$2") };
 }
 
 // Draft builders put this line above their closing block. The mark is never sent; the closing below it is dropped
 // when a signature is chosen. Text without the mark is returned as it is.
 export const CLOSING_MARK = "-- closing --";
-const MARK_LINE = /^[ \t]*-- closing --[ \t]*\r?$/m;
+const isMark = (line: string) => line.trim() === CLOSING_MARK;
 
+// Every mark line goes. With a signature, the closing block under each mark (up to the next blank line, or the end) goes too;
+// anything typed after that block stays.
 export function applyClosing(text: string, hasSignature: boolean): string {
   const src = String(text ?? "");
-  const m = MARK_LINE.exec(src);
-  if (!m) return src;
-  if (hasSignature) return src.slice(0, m.index).trimEnd();
-  return src.slice(0, m.index) + src.slice(m.index + m[0].length).replace(/^\r?\n/, "");
+  if (!src.split("\n").some(isMark)) return src;
+  const lines = src.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!isMark(lines[i])) { out.push(lines[i]); continue; }
+    if (!hasSignature) continue;
+    while (out.length && out[out.length - 1].trim() === "") out.pop();
+    while (i + 1 < lines.length && lines[i + 1].trim() !== "") i++;
+    if (i + 1 < lines.length && out.length) out.push(lines[i + 1]);
+    else if (out.length) out[out.length - 1] = out[out.length - 1].replace(/\r$/, "");
+    i++;
+  }
+  return out.join("\n");
+}
+
+// The two parts of an Ardentax mail. The signature is HTML only, so the plain part keeps the closing; the HTML part drops it under a signature.
+export function ardentaxBodies(body: string, signatureHtml: string): { text: string; html: string } {
+  return { text: plainText(body, false), html: htmlBody(applyClosing(body, signatureHtml.trim() !== ""), signatureHtml) };
 }
 
 // Plain-text part: mark and bold asterisks removed.
