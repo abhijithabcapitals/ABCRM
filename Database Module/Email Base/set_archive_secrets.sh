@@ -11,8 +11,8 @@ TENANT="${1:?tenant id (Entra > Overview > Directory (tenant) ID)}"
 CLIENT="${2:?client id (App registration > Application (client) ID)}"
 THUMB="${3:?certificate thumbprint as shown in Entra}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-KEYS="$(cd "$HERE/../.." && pwd)/Api Secrets/CRM-Email-Archive"
-TOOLS="$HERE/../tools"
+KEYS="${ARCHIVE_KEYS:-D:/Abhijith Projects/CRM/Api Secrets/CRM-Email-Archive}"
+TOOLS="${SUPABASE_TOOLS:-D:/Abhijith Projects/CRM/Database Module/tools}"
 
 [ -f "$KEYS/archive.pk8.pem" ] || { echo "missing $KEYS/archive.pk8.pem"; exit 1; }
 [ -f "$KEYS/archive-secret.txt" ] || { echo "missing $KEYS/archive-secret.txt"; exit 1; }
