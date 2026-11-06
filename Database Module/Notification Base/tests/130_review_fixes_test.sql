@@ -244,6 +244,91 @@ reset role;
 select t.ok('the status stays as it was', (select workflow_status = 'Under review' from regulatory_updates where id = :'r5'));
 rollback;
 
+-- ── I5: locked fields
+set role authenticated;
+set test.uid = :'adm';
+select t.fails('the client of an entry cannot change', format($q$select client_compliance_save(jsonb_build_object('id', %L, 'client_id', 'W2'))$q$, :'e1'), 'Close this entry and add a new one');
+select t.fails('the type of an entry cannot change', format($q$select client_compliance_save(jsonb_build_object('id', %L, 'item_type', 'Passport'))$q$, :'e1'), 'Close this entry and add a new one');
+select t.ok('sending the same client and type is fine', client_compliance_save(jsonb_build_object('id', :'e1', 'client_id', 'W3', 'item_type', 'Emirates ID')) = :'e1');
+reset role;
+reset test.uid;
+
+-- ── I6, I7: period keys and rolling rules ────────────────────────────────────────────────
+select to_char((now() at time zone 'Asia/Dubai')::date, 'YYYY-MM') as ym, to_char((now() at time zone 'Asia/Dubai')::date, 'YYYY') as yyyy,
+       (date_trunc('month', (now() at time zone 'Asia/Dubai')::date) + interval '1 month - 1 day')::date as month_end,
+       make_date(extract(year from (now() at time zone 'Asia/Dubai')::date)::int, 12, 31) as year_end \gset
+select t.ok('the four rolling rules have one wide step, priority kept', (select count(*) = 4 and bool_and(jsonb_array_length(steps) = 1 and (steps->0->>'days')::int = 366) from alert_rules where code in ('multiple_services', 'client_not_contacted', 'client_inactive', 'ct_dereg_review'))
+  and (select steps->0->>'priority' = 'Normal' from alert_rules where code = 'multiple_services') and (select steps->0->>'priority' = 'Medium' from alert_rules where code = 'ct_dereg_review'));
+insert into business_setup_services (client_id, name, status, historical) values ('W5', 'Renewal', 'In progress', false), ('W5', 'Ejari Renewal', 'Not started', false), ('W6', 'Renewal', 'In progress', false), ('W6', 'Ejari Renewal', 'Not started', false);
+update alert_rules set enabled = true where code in ('client_not_contacted', 'client_inactive', 'ct_dereg_review');
+select public.alert_scan();
+select t.ok('multiple services key has its month', (select count(*) = 1 from alerts where dedupe_key = 'multiservices:W5:' || :'ym' and status = 'Open'));
+select t.ok('not contacted key has the last contact date', (select count(*) = 1 from alerts where dedupe_key = 'notcontacted:W3:' || (:'today'::date - 200)));
+select t.ok('inactive key has the last contact date', (select count(*) = 1 from alerts where dedupe_key = 'inactive:W3:' || (:'today'::date - 200)));
+select t.ok('CT deregistration key has its year', (select count(*) = 1 from alerts where dedupe_key = 'ctdereg:W6:' || :'yyyy'));
+select t.ok('monthly rules are due at the end of the month', (select bool_and(due_date = :'month_end') and count(*) = 3 from alerts where dedupe_key in ('multiservices:W5:' || :'ym', 'notcontacted:W3:' || (:'today'::date - 200), 'inactive:W3:' || (:'today'::date - 200))));
+select t.ok('the CT rule is due at the end of the year', (select due_date = :'year_end' from alerts where dedupe_key = 'ctdereg:W6:' || :'yyyy'));
+select t.ok('they raise on the wide step', (select bool_and(current_step = 366) from alerts where status = 'Open' and rule_code in ('multiple_services', 'client_not_contacted', 'client_inactive', 'ct_dereg_review')));
+-- A person closes the not contacted alert; a later contact that also lapses raises a new one.
+update alerts set status = 'Resolved', resolved_at = now(), resolved_by = :'adm' where dedupe_key = 'notcontacted:W3:' || (:'today'::date - 200);
+select public.alert_scan();
+select t.ok('a person''s close holds for that contact date', (select status = 'Resolved' and not resolved_by_system from alerts where dedupe_key = 'notcontacted:W3:' || (:'today'::date - 200)));
+insert into client_contacts (client_id, channel, contacted_on) values ('W3', 'Call', :'today'::date - 150);
+select public.alert_scan();
+select t.ok('a later lapse raises again', (select status = 'Open' from alerts where dedupe_key = 'notcontacted:W3:' || (:'today'::date - 150)));
+
+-- What 015 does to open alerts on live: old keys move, steps move, no bell and no new row.
+update alerts set dedupe_key = 'multiservices:W5', current_step = 0, due_date = :'today' where dedupe_key = 'multiservices:W5:' || :'ym' returning id as ms_id \gset
+update alert_rules set steps = '[{"days":0,"priority":"Normal"}]' where code = 'multiple_services';
+select count(*) as bells2 from notifications where type = 'alert_centre' \gset
+\ir ../migrations/018_register_and_rules.sql
+select t.ok('015 moves an open alert to its period key', (select dedupe_key = 'multiservices:W5:' || :'ym' and current_step = 366 and due_date = :'month_end' from alerts where id = :'ms_id'));
+select t.ok('015 replaces a seed that is unedited', (select steps = '[{"days":366,"priority":"Normal"}]'::jsonb from alert_rules where code = 'multiple_services'));
+select public.alert_scan();
+select t.ok('the next scan neither re-raises nor bells', (select status = 'Open' from alerts where id = :'ms_id') and (select count(*) = 1 from alerts where client_id = 'W5' and rule_code = 'multiple_services') and (select count(*) = :bells2 from notifications where type = 'alert_centre'));
+update alert_rules set steps = '[{"days":5,"priority":"High"}]' where code = 'client_inactive';
+\ir ../migrations/018_register_and_rules.sql
+select t.ok('015 leaves edited steps alone', (select steps = '[{"days":5,"priority":"High"}]'::jsonb from alert_rules where code = 'client_inactive'));
+update alert_rules set steps = '[{"days":366,"priority":"Medium"}]' where code = 'client_inactive';
+update alert_rules set enabled = false where code in ('client_not_contacted', 'client_inactive', 'ct_dereg_review');
+
+-- ── Minors: rule filters, invoices, titles, table grant, rule codes ──────────────────────
+select t.ok('closed client: no multiple services alert', (select count(*) = 0 from alerts where rule_code = 'multiple_services' and client_id = 'W6'));
+insert into client_contacts (client_id, channel, contacted_on, follow_up_on) values ('W6', 'Call', current_date - 3, current_date - 1);
+insert into client_document_requests (client_id, what, due_on) values ('W6', 'Closed papers', current_date - 1);
+insert into accounting_job_list (client_id, client_name, service_name, service_department, work_status, next_follow_up_on, invoice_date, balance) values
+  ('W6', 'Work Closed', 'Closed job', 'Accounting', 'In Progress', current_date - 1, current_date - 40, 100),
+  ('W5', 'Work Five', 'No status job', 'Accounting', null, current_date - 1, current_date - 40, 100),
+  ('W2', 'Work Two', 'Cancelled job', 'Accounting', 'Client Cancelled', current_date - 1, current_date - 40, 100),
+  ('W1', 'Work One', 'Completed job', 'Accounting', 'Completed', current_date - 1, current_date - 40, 100);
+insert into business_setup_invoices (client_id, quote_id, invoice_number, issued_on, amount) values
+  ('W5', '00000000-0000-0000-0000-00000001f001', 'OLD-1', current_date - 50, 1000),
+  ('W5', '00000000-0000-0000-0000-00000001f001', 'NEW-2', current_date - 40, 1000),
+  ('W4', '00000000-0000-0000-0000-00000001f002', 'A-1', current_date - 50, 500),
+  ('W4', '00000000-0000-0000-0000-00000001f002', 'A-2', current_date - 45, 500),
+  ('W4', '00000000-0000-0000-0000-00000001f002', 'A-3', current_date - 40, 500),
+  ('W6', '00000000-0000-0000-0000-00000001f003', 'CL-1', current_date - 50, 1000);
+insert into stub_net_paid (quote_id, amount) values ('00000000-0000-0000-0000-00000001f001', 1000), ('00000000-0000-0000-0000-00000001f002', 700);
+select public.alert_scan();
+select t.ok('only the newest invoice past net paid raises', (select count(*) = 1 and bool_and(subject like 'NEW-2%') from alerts where rule_code = 'setup_invoice_due' and client_id = 'W5' and status = 'Open'));
+select t.ok('worked back from the newest, a part-covered invoice still raises', (select count(*) = 2 and bool_and(subject like 'A-2%' or subject like 'A-3%') from alerts where rule_code = 'setup_invoice_due' and client_id = 'W4' and status = 'Open'));
+select t.ok('closed client: no invoice alert', (select count(*) = 0 from alerts where rule_code = 'setup_invoice_due' and client_id = 'W6'));
+select t.ok('closed client: no contact follow-up', (select count(*) = 0 from alerts where rule_code = 'contact_followup' and client_id = 'W6'));
+select t.ok('closed client: no job follow-up', (select count(*) = 0 from alerts where rule_code = 'job_followup' and client_id = 'W6'));
+select t.ok('closed client: no document chase', (select count(*) = 0 from alerts where rule_code = 'document_request' and client_id = 'W6'));
+select t.ok('a job with no status still follows up', (select count(*) = 1 from alerts where rule_code = 'job_followup' and client_id = 'W5' and status = 'Open'));
+select t.ok('a job with no status still chases payment', (select count(*) = 1 from alerts where rule_code = 'job_payment_due' and client_id = 'W5' and status = 'Open'));
+select t.ok('a cancelled job chases no payment', (select count(*) = 0 from alerts where rule_code = 'job_payment_due' and client_id = 'W2'));
+select t.ok('a completed job follows the job rules', (select count(*) = 0 from alerts where rule_code = 'job_payment_due' and client_id = 'W1'));
+select t.ok('titles join names with concat_ws', (select bool_and(pg_get_functiondef(f) like '%concat_ws(%') from unnest(array['alert_manual_raise(text,text,text,date)', 'alert_rule_document_request()', 'alert_rule_tax_deadline()', 'regulatory_create_tasks(uuid)']::regprocedure[]) f));
+select t.ok('the browser may not read the register table', not has_table_privilege('authenticated', 'public.client_compliance_items', 'select'));
+set role authenticated;
+set test.uid = :'adm';
+select t.fails('workflow rules cannot be saved: regulatory', $q$select alert_rule_save('regulatory_new', true, '[{"days":1,"priority":"High"}]')$q$, 'cannot be changed here');
+select t.fails('workflow rules cannot be saved: manual', $q$select alert_rule_save('manual_tax', true, '[{"days":1,"priority":"High"}]')$q$, 'cannot be changed here');
+reset role;
+reset test.uid;
+
 reset role;
 reset test.uid;
 update alert_settings set value = '"Live"' where key = 'alert_mode';

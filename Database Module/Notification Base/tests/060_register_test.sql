@@ -171,13 +171,13 @@ select t.fails('untagged member cannot save', $q$select client_compliance_save('
 select t.fails('untagged member cannot close', format($q$select client_compliance_close(%L, 'x')$q$, :'s4'), 'permission');
 select t.fails('untagged member cannot import', $q$select client_compliance_import('[]')$q$, 'permission');
 select t.fails('untagged member cannot list', $q$select client_compliance_list()$q$, 'permission');
-select t.ok('untagged member reads no rows from the table', (select count(*) = 0 from client_compliance_items));
+select t.fails('an untagged member cannot read the table', $q$select count(*) from client_compliance_items$q$, 'permission denied');
 select t.fails('no browser role may write the table', $q$insert into client_compliance_items (client_id, item_type) values ('R1', 'Passport')$q$, 'permission denied');
 select t.fails('no browser role may update the table', $q$update client_compliance_items set notes = 'x'$q$, 'permission denied');
 select t.fails('no browser role may delete from the table', $q$delete from client_compliance_items$q$, 'permission denied');
 select t.ok('alert_my_access says the untagged member cannot register', (alert_my_access()->>'can_register')::boolean = false);
 set test.uid = '00000000-0000-0000-0000-0000000006a3';
-select t.ok('the Clients tab member reads the table through the policy', (select count(*) > 0 from client_compliance_items));
+select t.fails('a Clients tab member cannot read the table either: screens use client_compliance_list', $q$select count(*) from client_compliance_items$q$, 'permission denied');
 select t.ok('alert_my_access says the Clients tab member can register', (alert_my_access()->>'can_register')::boolean = true);
 set test.uid = '00000000-0000-0000-0000-0000000006a4';
 select t.ok('a tagged Manager may use the register', client_compliance_can_read() and client_compliance_can_write() and jsonb_array_length(client_compliance_list(null, null, 'All', 1, 0)->'rows') = 1
