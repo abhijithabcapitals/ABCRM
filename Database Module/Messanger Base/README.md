@@ -52,3 +52,10 @@ Row security on all three tables: members read only their own chats, and there i
 Typing goes over private Realtime Broadcast and is never stored. The migration also adds `messenger_members` to the `supabase_realtime` publication, so ticks change live, and makes `audit_trail_capture` skip member updates that change only these two times, so ticks add nothing to the audit trail. That function is shared across the CRM: the only change from `004b` is that one condition.
 
 `messenger_read_state` stays, so screens already open keep working until they reload. `tests/080_receipts_test.sql` runs after the migration twice; `migrations/rollback/008_rollback.sql` undoes it.
+
+## Archive and delete group chats (`migrations/009_chat_archive_delete.sql`)
+
+- `messenger_members.archived`: per person. `messenger_set_archived(conversation, archived)` lets anyone in a direct chat or group hide it from their own list and bring it back. `messenger_chat_list` now returns `archived`.
+- `messenger_delete_group(conversation)`: the group owner deletes the group, its members and messages for everyone. No admin exception, as for rename and add. Stored files stay until the storage prune.
+
+`tests/090_archive_delete_test.sql` runs after the migration twice; `migrations/rollback/009_rollback.sql` undoes it.

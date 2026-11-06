@@ -17,7 +17,7 @@ const oldestFirst = (list) => [...list].reverse();
 const addAll = (cur, page) => oldestFirst(page).reduce((acc, m) => mergeMessage(acc, m), cur);
 
 // Open chat. The panel gives it key={conversationId}, so every chat starts with clean state.
-export default function Conversation({ row, profile, visible, connected, onMessage, reload, draft, onDraft, onClose, onInfo, attachSlot, status, onFlags, noPin, threaded, onOpenThread, replyLabel, thread, topSlot, title, placeholder }) {
+export default function Conversation({ row, profile, visible, connected, onMessage, reload, draft, onDraft, onClose, onInfo, attachSlot, status, onFlags, onArchive, noPin, threaded, onOpenThread, replyLabel, thread, topSlot, title, placeholder }) {
   const cid = row.id;
   const threadId = thread?.id;
   // A channel lists its top-level posts, a thread lists the replies to one post, and a chat lists everything.
@@ -273,6 +273,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
         {!channel && !thread && !personLeft(row) && <button type="button" className="msgr-link msgr-flag" onClick={() => startCall({ conversationId: cid, media: "video", title: chatTitle(row) })}>Video</button>}
         {onFlags && !noPin && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.pinned} onClick={() => onFlags({ pinned: !row.pinned })}>{row.pinned ? "Unpin" : "Pin"}</button>}
         {onFlags && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.muted} onClick={() => onFlags({ muted: !row.muted })}>{row.muted ? "Unmute" : "Mute"}</button>}
+        {onArchive && !channel && !thread && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.archived} onClick={() => onArchive(!row.archived)}>{row.archived ? "Restore" : "Archive"}</button>}
         {group && onInfo && <button type="button" className="msgr-icon-btn" onClick={onInfo} aria-label="Group info">ⓘ</button>}
         <button type="button" className="msgr-close" onClick={onClose} aria-label={thread ? "Close thread" : channel ? "Close channel" : "Close chat"}>×</button>
       </header>

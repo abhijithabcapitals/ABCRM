@@ -5,7 +5,7 @@ import "@banking/components/banking.css";
 import "./messenger.css";
 import { Button, Empty, ErrorNote, Panel, Spinner, useLoad } from "@banking/components/shared";
 import { referenceText } from "../logic/deepLink.js";
-import { groupTitle, messengerLinks, openRecordGroup, requestOpenChat } from "../logic/recordChat.js";
+import { groupTitle, messengerLinks, openRecordGroup, requestOpenChat, savedChatState } from "../logic/recordChat.js";
 import chatApi from "../services/chatClient.js";
 import { currentUserId as fetchUserId, deleteLink, listLinks, listStaff, saveChatLink } from "../services/messengerApi.js";
 
@@ -13,7 +13,11 @@ const byName = (a, b) => String(a.full_name ?? "").localeCompare(String(b.full_n
 
 export default function RecordChatPanel({ recordType, recordId, displayId, label, currentUserId }) {
   const staff = useLoad(async () => ({ rows: await listStaff(), me: currentUserId || (await fetchUserId()) }), [currentUserId]);
-  const links = useLoad(() => listLinks(recordType, recordId), [recordType, recordId]);
+  // My chat list says which saved groups I can still open and which I archived.
+  const links = useLoad(async () => {
+    const [rows, chats] = await Promise.all([listLinks(recordType, recordId), chatApi.chatList().catch(() => null)]);
+    return { rows, chats };
+  }, [recordType, recordId]);
   const defaultMessage = useMemo(() => referenceText({ recordType, id: displayId }), [recordType, displayId]);
   const title = useMemo(() => groupTitle({ recordType, id: displayId, label }), [recordType, displayId, label]);
   const [search, setSearch] = useState("");
@@ -28,7 +32,7 @@ export default function RecordChatPanel({ recordType, recordId, displayId, label
   const match = (p) => !q || `${p.full_name ?? ""} ${p.email ?? ""}`.toLowerCase().includes(q);
   const toggle = (id) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
   const nameOf = (id) => people.find((p) => p.id === id)?.full_name || "Unnamed";
-  const saved = messengerLinks(links.data);
+  const saved = messengerLinks(links.data?.rows).map((l) => ({ ...l, state: links.data?.chats ? savedChatState(l, links.data.chats) : "open" }));
 
   const start = async () => {
     if (working) return;
@@ -81,7 +85,13 @@ export default function RecordChatPanel({ recordType, recordId, displayId, label
       {links.loading ? <Spinner /> : saved.length === 0 ? <Empty>No chats saved for this record.</Empty> : (
         <ul className="msg-list">
           {saved.map((l) => (
-            <li key={l.id}>{l.label} <Button onClick={() => requestOpenChat(l.conversationId)}>Open again</Button> <Button onClick={() => remove(l)}>Remove</Button></li>
+            <li key={l.id}>
+              {l.label}
+              {l.state === "archived" && <small> (archived)</small>}
+              {l.state === "gone" && <small> (deleted, or you are no longer in it)</small>}
+              {" "}{l.state !== "gone" && <><Button onClick={() => requestOpenChat(l.conversationId)}>Open again</Button>{" "}</>}
+              <Button onClick={() => remove(l)}>Remove</Button>
+            </li>
           ))}
         </ul>
       )}

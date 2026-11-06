@@ -49,7 +49,7 @@
 .msgr-panel { position: relative; }
 .msgr-screen { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: #fff; min-height: 0; }
 .msgr-screen .msgr-head-title { margin: 0 8px; font-weight: 600; }
-.msgr-screen-foot { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid #e6ebed; margin-top: auto; }
+.msgr-screen-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid #e6ebed; margin-top: auto; }
 .msgr-new { margin-left: auto; margin-right: 8px; padding: 4px 10px; border: 1px solid #0F6E56; border-radius: 8px; background: #fff; color: #0F6E56; font: inherit; font-size: 12px; cursor: pointer; }
 .msgr-icon-btn { flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: #0F6E56; font-size: 20px; line-height: 1; cursor: pointer; }
 .msgr-icon-btn:hover { background: #eef3f3; }
@@ -65,9 +65,15 @@
 .msgr-danger { padding: 6px 12px; border: 0; border-radius: 8px; background: #A32D2D; color: #fff; font: inherit; cursor: pointer; }
 .msgr-screen .msgr-problem { margin: 6px 12px; }
 .msgr-attach-wrap { position: relative; flex: none; align-self: center; }
-.msgr-popover { position: absolute; left: 0; bottom: 100%; margin-bottom: 8px; width: 260px; max-width: calc(100vw - 40px); padding-bottom: 8px; background: #fff; border: 1px solid #d5dee1; border-radius: 10px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); z-index: 3; }
+.msgr-popover { position: absolute; left: 0; bottom: 100%; margin-bottom: 8px; box-sizing: border-box; width: min(420px, calc(100vw - 32px), calc(var(--msgr-pane-w, 100vw) - 24px)); padding-bottom: 8px; background: #fff; border: 1px solid #d5dee1; border-radius: 10px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); z-index: 3; }
 .msgr-pop-body { display: flex; flex-direction: column; }
 .msgr-pop-body .msgr-send { margin: 0 12px; }
+/* The search box fills the popup's inner width, so its edge and focus ring stay inside the border. */
+.msgr-popover .msgr-search { box-sizing: border-box; width: calc(100% - 24px); }
+/* Record names wrap to two lines instead of being cut; the full name is in the tooltip. Rows share the 12px side padding of the chips and search box. */
+.msgr-popover .msgr-pick-rows { max-height: 220px; }
+.msgr-popover .msgr-row { padding: 8px 12px; }
+.msgr-popover .msgr-row-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.3; }
 .msgr-popover .msgr-problem { margin: 6px 12px 0; }
 .msgr-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 140px; padding: 3px 4px 3px 10px; border-radius: 14px; background: #d7ebe5; color: #0F6E56; font-size: 12px; }
 .msgr-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

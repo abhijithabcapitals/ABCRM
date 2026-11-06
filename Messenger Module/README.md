@@ -13,7 +13,7 @@ The full page (`MessengerApp`, view `team-messenger`) has Chats, Activity and Fi
 
 | Folder | Holds |
 |---|---|
-| `components/` | `MessengerDock`, `ChatRail` and the chat screens, `RecordChatPanel` (record panel: picks staff, then creates or reopens a Messenger group for the record and opens it in the dock), `MicrosoftConnection` (admin: connection, people review, test, secret expiry; shown under the microsoft row in Settings > Integrations), `SyncLogs` (admin log, shown below it) |
+| `components/` | `MessengerDock`, `ChatRail` and the chat screens, `RecordChatPanel` (record panel: picks staff, then creates or reopens a Messenger group for the record and opens it in the dock; saved chats show archived or gone groups), `MicrosoftConnection` (admin: connection, people review, test, secret expiry; shown under the microsoft row in Settings > Integrations), `SyncLogs` (admin log, shown below it) |
 | `logic/` | Pure rules: Teams deep link and message text, staff list, sentences for the Microsoft return and secret expiry |
 | `services/messengerApi.js` | The only file that talks to Supabase and the `ms365` function |
 | `supabase/ms365/` | The Edge Function: Microsoft sign-in, token storage in Vault, Graph client |

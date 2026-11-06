@@ -97,7 +97,7 @@ export default function AttachPicker({ link, setLink }) {
               <input className="msgr-search" type="search" placeholder="Search" aria-label="Search records" value={query} onChange={(e) => setQuery(e.target.value)} />
               <ul className="msgr-rows msgr-pick-rows">
                 {results.map((r) => (
-                  <li key={r.ref}><button type="button" className="msgr-row" onClick={() => choose(r)}><span className="msgr-row-title">{labelFor(kind, r)}</span></button></li>
+                  <li key={r.ref}><button type="button" className="msgr-row" title={labelFor(kind, r)} onClick={() => choose(r)}><span className="msgr-row-title">{labelFor(kind, r)}</span></button></li>
                 ))}
               </ul>
               {!busy && !problem && results.length === 0 && <p className="msgr-note">Nothing found</p>}
