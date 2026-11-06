@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { signDocument } from "../services/signing.js";
 import { addSignature, signatureXml } from "../logic/signDocx.js";
 
@@ -137,4 +138,27 @@ test("deps receive the right arguments", async () => {
   assert.equal(seen.doc, DOC);
   assert.equal(seen.img, IMG);
   assert.equal(seen.pdfIn, wordBlob);
+});
+
+// The picture keeps with the signature line under it, so a page end never leaves the line and "Authorized Signatory" alone on the next page.
+test("the signature paragraph keeps with the next one", () => {
+  const xml = signatureXml(IMG);
+  const ppr = xml.match(/^<w:p><w:pPr>(.*?)<\/w:pPr>/);
+  assert.ok(ppr, "the signature paragraph has paragraph properties");
+  assert.ok(ppr[1].includes("<w:keepNext/>"), "keepNext is in the signature paragraph's pPr");
+  assert.equal((xml.match(/<w:p>/g) || []).length, 1, "it is a single paragraph");
+});
+
+// Every built template keeps the "For AB CAPITAL SERVICES (FZE)" heading with the paragraph after it.
+test("the AB Capital signatory heading keeps with its signing place in every built template", () => {
+  const files = ["Template Module/templates/Service_Quotation_Template.docx", "Template Module/templates/Service_Engagement_Template.docx",
+    "Template Module/templates/AB_Capital_Accounting_Quote_Template.docx", "Template Module/templates/AB_Capital_Accounting_Agreement_Template.docx",
+    "Template Module/templates/AB_Capital_Proposal_Template.docx", "Banking Module/templates/Quotation_Template.docx", "Banking Module/templates/Engagement_Letter_Template.docx"];
+  for (const f of files) {
+    const xml = new PizZip(readFileSync(new URL(`../../${f}`, import.meta.url))).file("word/document.xml").asText();
+    const at = xml.indexOf("For AB CAPITAL SERVICES (FZE)");
+    assert.ok(at > 0, f);
+    const start = Math.max(xml.lastIndexOf("<w:p>", at), xml.lastIndexOf("<w:p ", at));
+    assert.ok(xml.slice(start, at).includes("<w:keepNext/>"), `${f}: the heading keeps with the next paragraph`);
+  }
 });

@@ -138,7 +138,8 @@ def add_letter_signatory(xml, name):
         raise DesignError(f"{name}: the AB Capital signing cell changed shape")
     ppr = re.search(r"<w:pPr>.*?</w:pPr>", para, re.S).group(0)
     rpr = re.search(r"<w:rPr>.*?</w:rPr>", para, re.S).group(0)
-    first = para.split(head)[0] + "<w:t>For AB CAPITAL SERVICES (FZE)</w:t></w:r></w:p>"
+    # The heading keeps with the signature place below it (keepNext), so they never part at a page end.
+    first = para.split(head)[0].replace(ppr, ppr.replace("<w:pPr>", "<w:pPr><w:keepNext/>", 1), 1) + "<w:t>For AB CAPITAL SERVICES (FZE)</w:t></w:r></w:p>"
     rest = f"<w:p>{ppr}<w:r>{rpr}" + para.split(head)[1]
     return xml[: m.start()] + first + SIGN_TAG + rest + xml[m.end() :]
 

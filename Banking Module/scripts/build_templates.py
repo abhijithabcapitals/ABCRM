@@ -126,7 +126,7 @@ RECEIPT = LETTERHEAD + para("Fee Receipt Voucher", bold=True, size=32, color="13
     [cell("Reference", 2600, True, fill="EEF2F3"), cell("{reference}", 6400)],
     [cell("Payment ref", 2600, True, fill="EEF2F3"), cell("{payment_ref}", 6400)],
     [cell("Description", 2600, True, fill="EEF2F3"), cell("{description}", 6400)],
-], [2600, 6400]) + para("\u00a0", after=200) + para("Received by, for {company_short}", after=40) + SIGN_TAG + para("____________________________", after=0) + para("Authorized Signatory")
+], [2600, 6400]) + para("\u00a0", after=200) + para("Received by, for {company_short}", after=40, keep=True) + SIGN_TAG + para("____________________________", after=0, keep=True) + para("Authorized Signatory")
 
 NS = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
       'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"')

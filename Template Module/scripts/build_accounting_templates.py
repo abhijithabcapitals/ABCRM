@@ -162,10 +162,11 @@ def offer_group(title, items):
 
 
 def signature_block():
-    left = (para(run("Yours sincerely,"), after=40, jc="left") + para(run("For AB CAPITAL SERVICES (FZE)", b=True), after=60, jc="left")
-            + block("draft_mark", para(run("Draft, not approved", b=True, color="C00000"), jc="left", after=0))
+    # keepNext from the heading to the signature line, so the block never splits at a page end.
+    left = (para(run("Yours sincerely,"), after=40, jc="left", keep=True) + para(run("For AB CAPITAL SERVICES (FZE)", b=True), after=60, jc="left", keep=True)
+            + block("draft_mark", para(run("Draft, not approved", b=True, color="C00000"), jc="left", after=0, keep=True))
             + para(run("{@signature_xml}"), jc="left", after=0)
-            + para(run("______________________________"), jc="left", before=240, after=0) + para(run("Authorized Signatory"), jc="left", after=0))
+            + para(run("______________________________"), jc="left", before=240, after=0, keep=True) + para(run("Authorized Signatory"), jc="left", after=0))
     right = (para(run("We hereby confirm the above assignment."), after=40, jc="left") + para(run("Accepted by", b=True), after=60, jc="left")
              + para(run(""), jc="left", after=0, before=480)
              + para(run("______________________________"), jc="left", before=240, after=0)

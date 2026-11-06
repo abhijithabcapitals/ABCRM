@@ -5,13 +5,13 @@ export const REL_ID = "rIdAccountingSignature";
 const MAX_W = 2011680; // 2.2 in, in EMU
 const MAX_H = 822960; // 0.9 in
 
-// Inline picture, scaled to fit the box and keeping the image's own proportions.
+// Inline picture, scaled to fit the box and keeping the image's own proportions. keepNext holds it on the page of the signature line below it.
 export function signatureXml(sig) {
   const scale = Math.min(MAX_W / sig.width, MAX_H / sig.height);
   const cx = Math.round(sig.width * scale);
   const cy = Math.round(sig.height * scale);
   return (
-    `<w:p><w:pPr><w:spacing w:before="120" w:after="0"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="9001" name="Approved signature"/>` +
+    `<w:p><w:pPr><w:keepNext/><w:spacing w:before="120" w:after="0"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="9001" name="Approved signature"/>` +
     `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
     `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
     `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="9001" name="signature"/><pic:cNvPicPr/></pic:nvPicPr>` +

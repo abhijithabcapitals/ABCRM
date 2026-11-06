@@ -35,7 +35,7 @@ const quoteCtx = { client, c: kase, company, preparedBy: "Sam Sample", deps };
 const zipOf = async (blob) => new PizZip(new Uint8Array(await blob.arrayBuffer()));
 const xmlOf = async (blob) => (await zipOf(blob)).file("word/document.xml").asText();
 const textOf = (xml) => xml.replace(/<w:drawing>.*?<\/w:drawing>/gs, "").replace(/<[^>]+>/g, "");
-const unsignedOf = (xml) => xml.replace(/<w:p><w:pPr><w:spacing w:before="120" w:after="0"\/><\/w:pPr><w:r><w:drawing>.*?<\/w:drawing><\/w:r><\/w:p>/s, UNSIGNED_SPACE);
+const unsignedOf = (xml) => xml.replace(/<w:p><w:pPr><w:keepNext\/><w:spacing w:before="120" w:after="0"\/><\/w:pPr><w:r><w:drawing>.*?<\/w:drawing><\/w:r><\/w:p>/s, UNSIGNED_SPACE);
 
 // ── templates ────────────────────────────────────────────────────────
 test("each template has the Authorized Signatory place: {@signature_xml} alone in its paragraph", () => {
