@@ -64,7 +64,8 @@ export function checkAgreement(a) {
   return null;
 }
 
-// Data for the agreement template. signed false prints a draft mark and no signature.
+// Data for the agreement template. signed adds the signature picture. An unsigned agreement can be sent (Template Hub 012), so the
+// template's "Draft, not approved" mark is no longer printed: draft_mark stays false.
 export function agreementContext(doc, settings, signed) {
   const a = doc?.field_values?.agreement || {};
   const defs = settings?.accounting_proposal_defaults || {};
@@ -84,6 +85,6 @@ export function agreementContext(doc, settings, signed) {
     effective_months: a.effective_months, notice_days: a.notice_days,
     contact: { name: "", phone: "", email: "", website: "", ...(defs.contact || {}) },
     bank: { account_name: "", bank: "", account_no: "", iban: "", swift: "", currency: "", ...(settings?.company?.bank || {}) },
-    draft_mark: !signed, has_signature: !!signed,
+    draft_mark: false, has_signature: !!signed,
   };
 }

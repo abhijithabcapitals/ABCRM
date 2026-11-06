@@ -59,3 +59,16 @@ export function pdfName(doc) {
   const clean = (s) => String(s || "").replace(/[\r\n\t]+/g, " ").replace(/[/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim();
   return `${[clean(doc?.document_number), clean(doc?.client_name)].filter(Boolean).join(" ") || "Document"}.pdf`;
 }
+
+// ---- Signing in the Send dialog ----
+// live: the document's live signature or null. canSign: the user is an AB Capital approver.
+// Unsigned: approvers get "Sign before sending", unticked. Signed: the signed copy is chosen, and the sender may pick the unsigned one.
+export function signChoice(live, canSign) {
+  return { showTick: !live && !!canSign, showCopy: !!live, copy: live ? "signed" : "unsigned", signFirst: false };
+}
+
+// signFirst: sign, then send the signed copy. signed: the request's flag for accounting-proposal-mail-send.
+export function signOptions(c) {
+  const signFirst = !!(c.showTick && c.signFirst);
+  return { signFirst, signed: signFirst || !!(c.showCopy && c.copy === "signed") };
+}

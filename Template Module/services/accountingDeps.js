@@ -1,8 +1,8 @@
-// Wires the deps that accountingGenerate.js asks for: the server calls, the Word and PDF makers, the template and the signature image.
+// Wires the deps that accountingGenerate.js asks for: the server calls, the Word and PDF makers, the template and the shared signing step.
 // One shared guard covers every generate call on screen, so a double click takes one number.
-import { supabase } from "@app/supabase";
-import { BUCKET, createDocument, storedBlob } from "./hubApi";
-import { approveDoc, attachDoc, createAgreement, createQuote, markSaved, removeDocs, saveFolder, updateAgreement, uploadDoc } from "./accountingApi";
+import { createDocument, storedBlob } from "./hubApi";
+import { attachDoc, createAgreement, createQuote, markSaved, removeDocs, saveFolder, updateAgreement, uploadDoc } from "./accountingApi";
+import { signHubDocument } from "./signingApi";
 import { checkQuote } from "../logic/accountingQuote.js";
 import { mailRowLines } from "../logic/accountingUi.js";
 import { checkAgreement } from "../logic/accountingAgreement.js";
@@ -23,18 +23,6 @@ async function loadTemplate(kind) {
   return res.arrayBuffer();
 }
 
-// The approver's browser reads the image from private storage; the storage policy refuses everyone else.
-const signatureLoader = (settings) => async () => {
-  const path = settings?.accounting_proposal_defaults?.signature_path;
-  if (!path) throw new Error("No signature image has been uploaded in Settings.");
-  const { data, error } = await supabase.storage.from(BUCKET).download(path);
-  if (error) throw new Error(error.message);
-  const bitmap = await createImageBitmap(data);
-  const size = { width: bitmap.width, height: bitmap.height };
-  bitmap.close?.();
-  return { bytes: new Uint8Array(await data.arrayBuffer()), type: path.split(".").pop().toLowerCase(), ...size };
-};
-
 async function render(buffer, context, signature) {
   const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
   return renderAccountingDoc(buffer, context, signature, { PizZip, Docxtemplater });
@@ -54,13 +42,13 @@ export function accountingDeps(settings) {
     check: (kind, a, b) => (kind === "agreement" ? checkAgreement(a) : checkQuote(a, b)),
     create: (p) => ("quote_id" in p ? createAgreement(p) : createQuote(p)),
     loadTemplate,
-    loadSignature: signatureLoader(settings),
     render,
     toPdf,
     upload: uploadDoc,
     remove: removeDocs,
     attach: attachDoc,
-    approve: approveDoc,
+    // The shared signing step: the image comes from Settings > Signing (AB Capital), the files go under Accounting/<id>/signed/.
+    sign: (args) => signHubDocument(args, { toPdf }),
     update: updateAgreement,
     saveLocal: saveFolder,
     markSaved,

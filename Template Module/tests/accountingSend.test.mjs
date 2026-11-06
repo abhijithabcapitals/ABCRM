@@ -44,3 +44,28 @@ test("the PDF name matches the server's", () => {
   assert.equal(pdfName({ document_number: "ACQ-1", client_name: "Sample/Co: LLC" }), "ACQ-1 Sample-Co- LLC.pdf");
   assert.equal(pdfName({}), "Document.pdf");
 });
+
+// ---- Signing in the Send dialog ----
+import { signChoice, signOptions } from "../logic/accountingSend.js";
+const LIVE = { id: "s1", pdf_path: "Accounting/d/signed/x.pdf" };
+
+test("an approver sees Sign before sending on an unsigned document, unticked", () => {
+  const c = signChoice(null, true);
+  assert.deepEqual(c, { showTick: true, showCopy: false, copy: "unsigned", signFirst: false });
+  assert.deepEqual(signOptions(c), { signFirst: false, signed: false });
+  assert.deepEqual(signOptions({ ...c, signFirst: true }), { signFirst: true, signed: true });
+});
+test("a non-approver sees no tick and sends unsigned, even if a tick is forced", () => {
+  const c = signChoice(null, false);
+  assert.deepEqual(c, { showTick: false, showCopy: false, copy: "unsigned", signFirst: false });
+  assert.deepEqual(signOptions({ ...c, signFirst: true }), { signFirst: false, signed: false });
+});
+test("with a live signature the signed copy is the default and the sender may still pick unsigned", () => {
+  for (const canSign of [true, false]) {
+    const c = signChoice(LIVE, canSign);
+    assert.deepEqual(c, { showTick: false, showCopy: true, copy: "signed", signFirst: false });
+    assert.deepEqual(signOptions(c), { signFirst: false, signed: true });
+    assert.deepEqual(signOptions({ ...c, copy: "unsigned" }), { signFirst: false, signed: false });
+    assert.deepEqual(signOptions({ ...c, signFirst: true }), { signFirst: false, signed: true });
+  }
+});

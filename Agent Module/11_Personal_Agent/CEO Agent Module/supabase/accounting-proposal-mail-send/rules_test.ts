@@ -12,7 +12,7 @@ Deno.test("no PDF means nothing to attach", () => assertEquals(attachmentsFor({ 
 
 Deno.test("a quote needs no approval", () => assertEquals(refusal(quote, { resend: false }), null));
 Deno.test("an approved agreement may be sent", () => assertEquals(refusal(agreement, { resend: false }), null));
-Deno.test("an unapproved agreement is refused", () => assert(/approv/i.test(refusal({ ...agreement, approved_at: null }, { resend: false })!)));
+Deno.test("an unapproved, unsigned agreement may be sent too: signing is optional", () => assertEquals(refusal({ ...agreement, approved_at: null }, { resend: false }), null));
 Deno.test("another template is refused", () => {
   assert(refusal({ ...quote, library_template: "AB Capital/Other" }, { resend: false }));
   assert(refusal({ ...quote, library_template: null }, { resend: false }));
@@ -45,15 +45,60 @@ Deno.test("the file name is built from number and client, and is safe", () => {
 
 Deno.test("the claim matches only unclaimed or stale rows, and never-sent rows unless resending", () => {
   const now = new Date("2026-11-05T12:00:00.000Z");
-  assertEquals(claimRule(now, { resend: false }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: null, requireApproved: false });
-  assertEquals(claimRule(now, { resend: true }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: null, requireApproved: false });
+  assertEquals(claimRule(now, { resend: false }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: null });
+  assertEquals(claimRule(now, { resend: true }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: null });
   assert(/in progress/i.test(CLAIM_REFUSED));
 });
 
-Deno.test("the claim must still match the PDF that was read, and an agreement must still be approved", () => {
+Deno.test("the claim must still match the PDF that was read; no approval is asked for", () => {
   const now = new Date("2026-11-05T12:00:00.000Z");
-  assertEquals(claimRule(now, { resend: false }, quote), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: PDF, requireApproved: false });
-  assertEquals(claimRule(now, { resend: true }, agreement), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: PDF, requireApproved: true });
+  assertEquals(claimRule(now, { resend: false }, quote), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: PDF });
+  assertEquals(claimRule(now, { resend: true }, { ...agreement, approved_at: null }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: PDF });
+});
+
+// ---- Signed or unsigned copy (Review Focus 4) ----
+import { attachmentChoice, isSignedAccountingPath, NOT_SIGNED, parseSigned } from "./rules.ts";
+const SIGNED = `Accounting/${ID}/signed/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.pdf`;
+const live = { id: "s1", source_table: "hub_documents", source_id: ID, pdf_path: SIGNED, superseded_at: null };
+
+Deno.test("signed missing, null or false sends the unsigned PDF exactly as before", () => {
+  for (const v of [undefined, null, false]) assertEquals(attachmentChoice(quote, parseSigned(v) as boolean, live), { path: PDF, signatureId: null });
+  assertEquals(attachmentChoice({ ...agreement, approved_at: null }, false, null), { path: PDF, signatureId: null });
+});
+Deno.test("signed true sends the live signature's PDF", () => assertEquals(attachmentChoice(agreement, true, live), { path: SIGNED, signatureId: "s1" }));
+Deno.test("signed true with no live signature is refused, and the unsigned send still works", () => {
+  assertEquals(attachmentChoice(agreement, true, null), { error: NOT_SIGNED });
+  assertEquals(NOT_SIGNED, "This document is not signed. Sign it first or send unsigned.");
+  assertEquals(attachmentChoice(agreement, false, null), { path: PDF, signatureId: null });
+});
+Deno.test("signed true with a superseded signature is refused, and the unsigned send still works", () => {
+  assertEquals(attachmentChoice(agreement, true, { ...live, superseded_at: "2026-11-06T10:00:00Z" }), { error: NOT_SIGNED });
+  assertEquals(attachmentChoice(agreement, false, { ...live, superseded_at: "2026-11-06T10:00:00Z" }), { path: PDF, signatureId: null });
+});
+Deno.test("a signature of another document is refused", () => {
+  assertEquals(attachmentChoice(agreement, true, { ...live, source_id: "99999999-2222-3333-4444-555555555555" }), { error: NOT_SIGNED });
+  assertEquals(attachmentChoice(agreement, true, { ...live, source_table: "ardentax_documents" }), { error: NOT_SIGNED });
+});
+Deno.test("a signed PDF outside Accounting/<id>/signed/ is refused", () => {
+  for (const p of [PDF, `Accounting/${ID}/signed/x.docx`, `Accounting/${ID}/signed/a/x.pdf`, `Accounting/99999999-2222-3333-4444-555555555555/signed/x.pdf`,
+                   `Accounting/${ID}/signed/../x.pdf`, `Accounting/${ID}/signed/`, `ArdentTax (ASP)/${ID}/signed/x.pdf`, null]) {
+    assert(!isSignedAccountingPath(ID, p), String(p));
+    assert("error" in attachmentChoice(agreement, true, { ...live, pdf_path: p }), String(p));
+  }
+  assert(isSignedAccountingPath(ID, SIGNED));
+});
+Deno.test("signed must be true, false or missing", () => {
+  assertEquals(parseSigned(true), true);
+  assertEquals(parseSigned(false), false);
+  assertEquals(parseSigned(undefined), false);
+  assertEquals(parseSigned(null), false);
+  for (const v of ["true", 1, "yes", {}]) assert(typeof parseSigned(v) === "object");
+});
+Deno.test("the mail function no longer asks for approval anywhere", async () => {
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  assert(!/approved_at|requireApproved/.test(src));
+  assert(src.includes("attachmentChoice("));
+  assert(/document_signatures/.test(src));
 });
 
 // ---- From mailbox and signature ----

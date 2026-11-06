@@ -73,3 +73,20 @@ test("old image removal", () => {
   assert.equal(oldImageToRemove("signatures/a.png", "signatures/a.png"), null);
   assert.equal(oldImageToRemove("elsewhere/a.png", "signatures/b.png"), null);
 });
+
+// ---- signing deps: company and signed folder from the row (same rules as Template Hub 011 doc_company and doc_sign_prefix) ----
+import { docCompany, signedPrefix } from "../logic/signingView.js";
+test("the company of a document comes from its row", () => {
+  assert.equal(docCompany("hub_documents", { library_template: "AB Capital/Accounting Quote" }), "ab_capital");
+  assert.equal(docCompany("hub_documents", { library_template: null }), "ab_capital");
+  assert.equal(docCompany("hub_documents", { library_template: "Ardentax/Letter" }), "ardentax");
+  assert.equal(docCompany("ardentax_documents", {}), "ardentax");
+  assert.equal(docCompany("banking_quotations", {}), "ab_capital");
+});
+test("signed files go under the document's own signed/ folder", () => {
+  assert.equal(signedPrefix("hub_documents", { id: "d1", department: "Accounting" }), "Accounting/d1/signed/");
+  assert.equal(signedPrefix("ardentax_documents", { id: "a1" }), "ArdentTax (ASP)/a1/signed/");
+  assert.throws(() => signedPrefix("hub_documents", { id: "d1", department: "" }), /department/);
+  assert.throws(() => signedPrefix("hub_documents", { id: "", department: "Accounting" }), /document/);
+  assert.throws(() => signedPrefix("banking_quotations", { id: "b1" }), /not supported/);
+});

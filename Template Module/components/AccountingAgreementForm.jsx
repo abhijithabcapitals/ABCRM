@@ -8,7 +8,7 @@ import { cleanLines, fromLines, moveRow, toLines } from "../logic/accountingUi";
 const BILLING = [["monthly", "Monthly"], ["quarterly", "Quarterly"], ["commencement", "On commencement"]];
 const INDENT = { marginLeft: 16, width: "calc(100% - 16px)" };
 
-export default function AccountingAgreementForm({ title, initial, approved, onSubmit, onClose }) {
+export default function AccountingAgreementForm({ title, initial, signed, onSubmit, onClose }) {
   const [a, setA] = useState(initial);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -42,7 +42,7 @@ export default function AccountingAgreementForm({ title, initial, approved, onSu
   return (
     <Modal title={title} onClose={onClose} wide>
       <form onSubmit={submit}>
-        {approved && <div className="bk-alert bk-alert-warn">This agreement is already approved. Saving a change clears the approval, removes the approved files and builds a new draft that must be approved again.</div>}
+        {signed && <div className="bk-alert bk-alert-warn">This agreement is signed. Saving a change withdraws the signature and builds a new unsigned copy. An approver can sign it again.</div>}
         <ErrorNote message={error} />
         <div className="bk-grid">
           <div className="bk-field bk-full"><label htmlFor="ag-address">Client address, one line per row <em>*</em></label><textarea id="ag-address" rows={3} value={fromLines(a.address)} onChange={setLines("address")} /></div>
@@ -92,7 +92,7 @@ export default function AccountingAgreementForm({ title, initial, approved, onSu
           <div className="bk-field"><label htmlFor="ag-notice">Notice (days)</label><input id="ag-notice" type="number" min="0" step="1" value={a.notice_days} onChange={set("notice_days")} /></div>
           <div className="bk-field bk-full"><label htmlFor="ag-bn">Billing notes (one per line; blank uses the standard text for this billing)</label><textarea id="ag-bn" rows={3} value={fromLines(a.billing_notes)} onChange={setLines("billing_notes")} /></div>
         </div>
-        <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy}>{approved ? "Save and clear approval" : "Save agreement"}</Button></div>
+        <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy}>{signed ? "Save and withdraw signature" : "Save agreement"}</Button></div>
       </form>
     </Modal>
   );

@@ -1,9 +1,10 @@
-// Server calls for the Accounting quote and agreement. The generate and approve steps in accountingGenerate.js take these as deps.
+// Server calls for the Accounting quote and agreement. The generate and sign steps in accountingGenerate.js take these as deps.
 import { supabase } from "@app/supabase";
 import { shapeSharedSignatures } from "@app/replySignature";
 import { BUCKET, CLIENT_MODULE_URL, check, openStored } from "./hubApi";
 import { fileNameFor } from "../logic/serviceDocs";
 import { ACCOUNTING_TEMPLATES, loadAccountingDocs } from "./accountingList.js";
+import { withSignatures } from "../logic/accountingUi.js";
 
 export const loadPackages = async () => check(await supabase.from("hub_accounting_packages").select("*").order("name"));
 export const savePackage = async (p) => check(await supabase.rpc("hub_acct_package_save", { p }));
@@ -13,14 +14,12 @@ export const createQuote = async (p) => check(await supabase.rpc("hub_acct_quote
 export const acceptOption = async (id, i) => check(await supabase.rpc("hub_acct_accept", { p_quote: id, p_option: i }));
 export const createAgreement = async (p) => check(await supabase.rpc("hub_acct_agreement_create", { p }));
 export const updateAgreement = async (id, a) => check(await supabase.rpc("hub_acct_agreement_update", { p_id: id, p_agreement: a }));
-export const approveDoc = async (id, pdf, word, seen) => check(await supabase.rpc("hub_acct_approve", { p_id: id, p_pdf: pdf, p_word: word, p_seen: seen }));
 export const attachDoc = async (id, pdf, word) => check(await supabase.rpc("hub_acct_attach", { p_id: id, p_pdf: pdf, p_word: word }));
 export const markSaved = async (id, path) => check(await supabase.rpc("hub_acct_saved", { p_id: id, p_path: path }));
-export const canApprove = async () => check(await supabase.rpc("hub_acct_can_approve"));
 // The mail draft of an Accounting quote or agreement; any staff member may change it. Raises when the draft is not found.
 export const updateAccountingMail = async (id, subject, body) => check(await supabase.rpc("hub_acct_mail_update", { p_id: id, p_subject: subject, p_body: body }));
 
-// Removes uploaded files, for example signed files whose approval was refused.
+// Removes uploaded files.
 export async function removeDocs(paths) {
   const list = (paths || []).filter(Boolean);
   if (!list.length) return;
@@ -36,6 +35,24 @@ export const listAccountingDocuments = () => loadAccountingDocs({
   readMail: async (ids, from, to) => check(await supabase.from("hub_documents").select("*").eq("doc_type", "mail").in("parent_id", ids)
     .order("created_at", { ascending: false }).order("id").range(from, to)),
 });
+
+// The signatures of these documents (document_signatures, read under the caller's own rules), newest first, with the signer's name.
+export async function loadAccountingSignatures(ids) {
+  const out = [];
+  for (let i = 0; i < (ids || []).length; i += 100) {
+    out.push(...(check(await supabase.from("document_signatures")
+      .select("id, source_id, signed_at, signed_by, pdf_path, word_path, superseded_at, superseded_reason, signer:profiles!signed_by(full_name)")
+      .eq("source_table", "hub_documents").in("source_id", ids.slice(i, i + 100)).order("signed_at", { ascending: false })) || []));
+  }
+  return out;
+}
+
+// The Accounting list with each quote and agreement's signing state ({ live, last }, see withSignatures).
+export async function listAccountingWithSignatures() {
+  const docs = await listAccountingDocuments();
+  const ids = docs.filter((d) => ACCOUNTING_TEMPLATES.includes(d.library_template)).map((d) => d.id);
+  return withSignatures(docs, ids.length ? await loadAccountingSignatures(ids) : []);
+}
 
 // The PDF is stored under Accounting/<id>/<uuid>.pdf and the Word file beside it. Returns the storage path.
 export async function uploadDoc(doc, blob, ext) {
@@ -70,8 +87,9 @@ export async function saveFolder(doc, wordBlob, pdfBlob) {
   } catch { return null; }
 }
 
+// options.signed true sends the live signature's PDF; the function refuses when there is none. Otherwise the unsigned PDF goes, as before.
 export async function sendDoc(id, resend, options = {}) {
-  const body = { document_id: id, resend: !!resend, from: options.from, signature_id: options.signature_id || null };
+  const body = { document_id: id, resend: !!resend, from: options.from, signature_id: options.signature_id || null, signed: options.signed === true };
   const { data, error } = await supabase.functions.invoke("accounting-proposal-mail-send", { body });
   if (error) {
     // The function explains a refusal in its response; the client's own message is generic.

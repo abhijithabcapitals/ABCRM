@@ -1,15 +1,16 @@
 // The Accounting quotes and agreements made so far, with every next step: View, Word, OneDrive, mail and Send, accept an option,
-// make the agreement, edit, approve and record the signed copy. After every action the list is read again from the server.
+// make the agreement, edit, sign (AB Capital approvers, optional) and record the client's signed copy. After every action the list is read again.
 import { useEffect, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FilePick, Modal, Panel, fmtDate, fmtDateTime, today, useLoad } from "@banking/components/shared";
 import { openStored } from "../services/hubApi";
-import { acceptOption, canApprove as canApproveApi, listAccountingDocuments, loadSendOptions, openWord, recordSigned, sendDoc, updateAccountingMail } from "../services/accountingApi";
+import { acceptOption, listAccountingWithSignatures, loadSendOptions, openWord, recordSigned, sendDoc, updateAccountingMail } from "../services/accountingApi";
+import { canSign } from "../services/signingApi";
 import { accountingDeps, generateGuard } from "../services/accountingDeps";
-import { approveAgreement, editAgreement, generateAgreement, retryDocument, saveToOneDrive } from "../services/accountingGenerate";
+import { editAgreement, generateAgreement, retryDocument, saveToOneDrive, signAccounting } from "../services/accountingGenerate";
 import { BASES, isAccountingAgreement, isAccountingQuote, registerLabel, totalsByBasis } from "../logic/accountingQuote";
 import { agreementFromQuote } from "../logic/accountingAgreement";
-import { fromOptions, initialChoice, pdfName, pickFrom, pickSignature, sendOptions, sendProblem } from "../logic/accountingSend";
-import { agreementUnder, docActions, docStatus, rejectedAgreementNote } from "../logic/accountingUi";
+import { fromOptions, initialChoice, pdfName, pickFrom, pickSignature, sendOptions, sendProblem, signChoice, signOptions } from "../logic/accountingSend";
+import { agreementUnder, docActions, docStatus, legacyApproved, rejectedAgreementNote, signatureStatus } from "../logic/accountingUi";
 import AccountingAgreementForm from "./AccountingAgreementForm";
 
 const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -72,9 +73,12 @@ function RecordSigned({ doc, onSubmit, onClose }) {
 }
 
 // Who the mail comes from and which signature it carries, then the recipient and file for a last look.
-function SendMail({ doc, resend, onSubmit, onClose }) {
+// Signing is optional: approvers may tick "Sign before sending"; a signed document goes as its signed copy unless the sender picks the unsigned one.
+function SendMail({ doc, resend, approver, onSubmit, onClose }) {
   const [opts, setOpts] = useState(null);
   const [choice, setChoice] = useState({ from: "info@abcapital.ae", signatureId: "" });
+  const [copy, setCopy] = useState(() => signChoice(doc.signing?.live || null, approver));
+  const status = signatureStatus(doc, doc.signing, fmtDate);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -92,7 +96,7 @@ function SendMail({ doc, resend, onSubmit, onClose }) {
     e.preventDefault();
     if (!opts || problem || busy) return;
     setBusy(true); setError(null);
-    const failed = await onSubmit(sendOptions(choice));
+    const failed = await onSubmit(sendOptions(choice), signOptions(copy));
     if (failed) { setError(failed); setBusy(false); }
   };
   return (
@@ -110,7 +114,16 @@ function SendMail({ doc, resend, onSubmit, onClose }) {
           </select>
           {sig?.logo_url && <small className="bk-muted">Its logo is added below the text.</small>}</div>
         <div className="bk-field bk-mb"><label>To</label><div>{doc.contact_email}</div></div>
-        <div className="bk-field"><label>Attachment</label><div>{pdfName(doc)}</div></div>
+        <div className="bk-field bk-mb"><label>Signature status</label><div><Badge tone={status.tone}>{status.label}</Badge></div></div>
+        {copy.showCopy && (
+          <div className="bk-field bk-mb"><label>Copy to send</label>
+            <label style={{ display: "block" }}><input type="radio" name="sm-copy" checked={copy.copy === "signed"} onChange={() => setCopy({ ...copy, copy: "signed" })} /> Signed copy</label>
+            <label style={{ display: "block" }}><input type="radio" name="sm-copy" checked={copy.copy === "unsigned"} onChange={() => setCopy({ ...copy, copy: "unsigned" })} /> Unsigned copy</label>
+          </div>)}
+        {copy.showTick && (
+          <div className="bk-field bk-mb"><label><input type="checkbox" checked={copy.signFirst} onChange={(e) => setCopy({ ...copy, signFirst: e.target.checked })} /> Sign before sending</label>
+            <small className="bk-muted">Adds the AB Capital signature and stamp, then sends the signed copy.</small></div>)}
+        <div className="bk-field"><label>Attachment</label><div>{pdfName(doc)}{signOptions(copy).signed ? " (signed copy)" : ""}</div></div>
         {resend && <p className="bk-muted">This was already sent{doc.mail_sent_to ? ` to ${doc.mail_sent_to}` : ""}. Sending again mails it a second time.</p>}
         <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy} disabled={!opts || !!problem}>{resend ? "Send again" : "Send"}</Button></div>
       </form>
@@ -119,8 +132,8 @@ function SendMail({ doc, resend, onSubmit, onClose }) {
 }
 
 export default function AccountingDocuments({ settings, packages, reloadKey }) {
-  const docs = useLoad(listAccountingDocuments, []);
-  const approver = useLoad(canApproveApi, []);
+  const docs = useLoad(listAccountingWithSignatures, []);
+  const approver = useLoad(() => canSign("ab_capital"), []);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
@@ -202,20 +215,27 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
     if (!d.contact_email) { setError("This document has no contact email."); return; }
     setDialog({ kind: "send", doc: d, resend: !!d.mail_sent_at });
   };
-  const submitSend = async (options) => {
+  // Sign before sending signs first; a refused signing sends nothing. A signing that worked stays, even if the send then fails.
+  const submitSend = async (options, sign) => {
     if (busy) return "Wait for the current action to finish.";
     const d = dialog.doc, to = d.contact_email;
     setBusy("send"); setError(null); setNote(null);
-    try { await updateAccountingMail(mail.id, mail.subject, mail.body); await sendDoc(d.id, dialog.resend, options); }
-    catch (e) { setBusy(null); return e.message; }
+    try {
+      await updateAccountingMail(mail.id, mail.subject, mail.body);
+      if (sign.signFirst) {
+        const r = await signAccounting(d, deps());
+        if (r.error) { setBusy(null); try { await docs.reload(); } catch { /* shown by the list */ } return `Not sent. Signing failed: ${r.error}`; }
+      }
+      await sendDoc(d.id, dialog.resend, { ...options, signed: sign.signed });
+    } catch (e) { setBusy(null); try { await docs.reload(); } catch { /* shown by the list */ } return e.message; }
     try { await docs.reload(); } catch { /* shown by the list */ }
-    setBusy(null); setDialog(null); setNote({ ok: true, text: `${d.document_number} sent to ${to}.` });
+    setBusy(null); setDialog(null); setNote({ ok: true, text: `${d.document_number} sent to ${to}${sign.signed ? " (signed copy)" : ""}.` });
     return null;
   };
 
   const actionsCell = (d) => {
     const under = isAccountingAgreement(d) ? null : agreementOf(d);
-    const a = docActions(d, { canApprove: approver.data === true, hasAgreement: !!under, busy: !!busy });
+    const a = docActions(d, { canSign: approver.data === true, signature: d.signing?.live || null, hasAgreement: !!under, busy: !!busy });
     const rejected = rejectedAgreementNote(under);
     const off = a.busy;
     const key = (k) => `${k}-${d.id}`;
@@ -223,11 +243,12 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
       <span className="bk-actions">
         {a.view && <button type="button" className="bk-link" onClick={() => openStored(d.storage_path).catch((e) => setError(e.message))}>View</button>}
         {a.word && <button type="button" className="bk-link" onClick={() => openWord(d.word_path).catch((e) => setError(e.message))}>Word</button>}
-        {d.signed_path && <button type="button" className="bk-link" onClick={() => openStored(d.signed_path).catch((e) => setError(e.message))}>Signed copy</button>}
+        {a.signedCopy && <button type="button" className="bk-link" onClick={() => openStored(d.signing.live.pdf_path).catch((e) => setError(e.message))}>Signed PDF</button>}
+        {d.signed_path && <button type="button" className="bk-link" onClick={() => openStored(d.signed_path).catch((e) => setError(e.message))}>Client copy</button>}
         {a.accept && <Button disabled={off} onClick={() => setDialog({ kind: "accept", doc: d })}>Accept option</Button>}
         {a.makeAgreement && <Button disabled={off} onClick={() => openAgreement(d)}>Agreement</Button>}
         {a.edit && <Button disabled={off} onClick={() => setDialog({ kind: "edit", doc: d, initial: d.field_values?.agreement })}>Edit</Button>}
-        {a.approve && <Button variant="primary" disabled={off} busy={busy === key("approve")} onClick={() => run(key("approve"), async () => report(await approveAgreement(d, deps()), "Approval"))}>Approve</Button>}
+        {a.sign && <Button disabled={off} busy={busy === key("sign")} onClick={() => run(key("sign"), async () => report(await signAccounting(d, deps()), "Signing"))}>Sign</Button>}
         {a.retry && <Button disabled={off} busy={busy === key("retry")} onClick={() => run(key("retry"), async () => report(await retryDocument(d, deps(), { mail: !mailOf(d) }), "Files rebuilt for"))}>Retry</Button>}
         {a.recordSigned && !d.signed_path && <Button disabled={off} onClick={() => setDialog({ kind: "signed", doc: d })}>Record signed</Button>}
         {rejected && <span className="bk-muted">{rejected}</span>}
@@ -256,7 +277,7 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
         return (
           <Panel title={`Mail for ${typeLabel(mailDoc)} ${mailDoc.document_number}`} sub={`Sends the PDF only, to ${mailDoc.contact_email || "no email on file"}.${mailDoc.mail_sent_at ? ` Already sent ${fmtDateTime(mailDoc.mail_sent_at)} to ${mailDoc.mail_sent_to || "the client"}.` : ""}`}
             actions={<><Button disabled={a.busy} busy={busy === "mail-save"} onClick={saveDraft}>Save changes</Button>
-              {a.send ? <Button variant="primary" disabled={a.busy || !mailDoc.contact_email} busy={busy === "send"} onClick={() => send(mailDoc)}>{a.resend ? "Resend" : "Send"}</Button> : <Button disabled>{a.awaitingApproval ? "Awaiting approval" : "No PDF yet"}</Button>}
+              {a.send ? <Button variant="primary" disabled={a.busy || !mailDoc.contact_email} busy={busy === "send"} onClick={() => send(mailDoc)}>{a.resend ? "Resend" : "Send"}</Button> : <Button disabled>No PDF yet</Button>}
               <Button onClick={() => setMail(null)}>Close</Button></>}>
             <div className="bk-field bk-mb"><label htmlFor="am-subj">Subject</label><input id="am-subj" value={mail.subject} onChange={(e) => setMail({ ...mail, subject: e.target.value })} /></div>
             <div className="bk-field"><label htmlFor="am-body">Message</label><textarea id="am-body" rows={10} value={mail.body} onChange={(e) => setMail({ ...mail, body: e.target.value })} /></div>
@@ -270,7 +291,7 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
           { key: "client_name", label: "Client" },
           { key: "fee", label: "Fee", render: (d) => (d.field_values?.quote ? registerLabel(d) : "–") },
           { key: "created_at", label: "Date", render: (d) => fmtDate(d.created_at) },
-          { key: "status", label: "Status", render: (d) => { const s = docStatus(d); return <Badge tone={s.tone}>{s.label}</Badge>; } },
+          { key: "status", label: "Status", render: (d) => { const s = docStatus(d); const g = signatureStatus(d, d.signing, fmtDate); return <span className="bk-actions"><Badge tone={s.tone}>{s.label}</Badge><Badge tone={g.tone}>{g.label}</Badge></span>; } },
           { key: "onedrive", label: "OneDrive", render: oneDriveCell },
           { key: "mail", label: "Mail", render: mailCell },
           { key: "actions", label: "Actions", render: actionsCell },
@@ -278,8 +299,8 @@ export default function AccountingDocuments({ settings, packages, reloadKey }) {
       </Panel>
       {dialog?.kind === "accept" && <AcceptOption doc={dialog.doc} onSubmit={submitAccept} onClose={() => setDialog(null)} />}
       {dialog?.kind === "agreement" && <AccountingAgreementForm title={`Agreement for ${dialog.doc.document_number}`} initial={dialog.initial} onSubmit={submitAgreement} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "edit" && <AccountingAgreementForm title={`Edit agreement ${dialog.doc.document_number}`} initial={dialog.initial} approved={!!dialog.doc.approved_at} onSubmit={submitEdit} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "send" && <SendMail doc={dialog.doc} resend={dialog.resend} onSubmit={submitSend} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "edit" && <AccountingAgreementForm title={`Edit agreement ${dialog.doc.document_number}`} initial={dialog.initial} signed={!!dialog.doc.signing?.live || legacyApproved(dialog.doc)} onSubmit={submitEdit} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "send" && <SendMail doc={dialog.doc} resend={dialog.resend} approver={approver.data === true} onSubmit={submitSend} onClose={() => setDialog(null)} />}
       {dialog?.kind === "signed" && <RecordSigned doc={dialog.doc} onSubmit={submitSigned} onClose={() => setDialog(null)} />}
     </>
   );

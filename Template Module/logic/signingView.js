@@ -53,3 +53,22 @@ export function oldImageToRemove(previous, saved) {
   if (!previous || previous === saved || String(previous).startsWith("accounting-signature/")) return null;
   return String(previous).startsWith("signatures/") ? previous : null;
 }
+
+// The signing company of a document, from its row: as Template Hub 011 doc_company. The server derives it again and never trusts this.
+export function docCompany(table, doc) {
+  if (table === "ardentax_documents") return "ardentax";
+  if (table === "hub_documents" && String(doc?.library_template || "").startsWith("Ardentax")) return "ardentax";
+  return "ab_capital";
+}
+
+// Where the signed files go, as Template Hub 011 doc_sign_prefix; doc_sign_record refuses any other folder. Banking uses its own bucket
+// and is added with that family.
+export function signedPrefix(table, doc) {
+  if (!doc?.id) throw new Error("The document is needed to sign it.");
+  if (table === "hub_documents") {
+    if (!doc.department) throw new Error("The document has no department, so it cannot be signed.");
+    return `${doc.department}/${doc.id}/signed/`;
+  }
+  if (table === "ardentax_documents") return `ArdentTax (ASP)/${doc.id}/signed/`;
+  throw new Error(`Signing ${table} is not supported yet.`);
+}

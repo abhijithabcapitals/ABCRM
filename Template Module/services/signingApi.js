@@ -1,7 +1,8 @@
 // Server calls for document signing: Settings > Signing and the deps the shared signing step (signing.js) needs.
 import { supabase } from "@app/supabase";
 import { BUCKET, check } from "./hubApi";
-import { validateSignatureFile } from "../logic/signingView";
+import { docCompany, signedPrefix, validateSignatureFile } from "../logic/signingView";
+import { signDocument } from "./signing.js";
 
 export const loadSigning = async () => {
   const rows = check(await supabase.from("hub_settings").select("value").eq("key", "document_signing"));
@@ -39,3 +40,28 @@ export async function signatureLink(path) {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
   return error ? null : data?.signedUrl || null;
 }
+
+// ---- The shared signing step's deps (signing.js) ----
+// The company image, read by the approver's browser; the storage policies refuse everyone else. Null when no image is set.
+export async function loadCompanyImage(company) {
+  const path = (await loadSigning())?.companies?.[company]?.signature_path;
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from(BUCKET).download(path);
+  if (error) throw new Error(error.message);
+  const bitmap = await createImageBitmap(data);
+  const size = { width: bitmap.width, height: bitmap.height };
+  bitmap.close?.();
+  return { bytes: new Uint8Array(await data.arrayBuffer()), type: path.split(".").pop().toLowerCase(), ...size };
+}
+
+export async function uploadSigned(path, blob, type) {
+  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: type });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
+// signDocument with the hub-documents deps. toPdf is the family's PDF maker.
+export const signHubDocument = (args, { toPdf }) => signDocument(args, {
+  canSign, company: async (table, doc) => docCompany(table, doc), loadImage: loadCompanyImage, toPdf,
+  upload: uploadSigned, record: recordSignature, remove: removeSigned, bucketPrefix: signedPrefix,
+});

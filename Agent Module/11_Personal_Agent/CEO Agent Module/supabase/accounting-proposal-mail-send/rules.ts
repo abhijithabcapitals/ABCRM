@@ -2,7 +2,6 @@
 import { applyClosing, parseRecipients } from "../ardentax-mail-send/rules.ts";
 
 export const TEMPLATES = ["AB Capital/Accounting Quote", "AB Capital/Accounting Agreement"];
-const AGREEMENT = "AB Capital/Accounting Agreement";
 
 // Document fields, plus mail_subject taken from the child 'mail' row.
 export type AccountingDoc = {
@@ -25,7 +24,6 @@ export function isAccountingPath(id: string | null | undefined, path: string | n
 export function refusal(doc: AccountingDoc, opts: { resend?: boolean }): string | null {
   if (!doc.library_template || !TEMPLATES.includes(doc.library_template)) return "Only an Accounting quote or agreement can be mailed here.";
   if (!doc.storage_path) return "This document has no PDF yet. Generate it first.";
-  if (doc.library_template === AGREEMENT && !doc.approved_at) return "Approve the agreement before it is mailed.";
   if (!isAccountingPath(doc.id, doc.storage_path)) return "This document's file path is not valid.";
   if (!String(doc.mail_subject || "").trim()) return "Enter a subject in the mail draft first.";
   let to: string[];
@@ -46,12 +44,39 @@ export function attachmentFileName(doc: { document_number?: string | null; clien
 export const CLAIM_MINUTES = 5;
 
 // What the claim update may match: unclaimed or stale-claimed rows, and (unless resending) rows never sent. The row must still hold the PDF
-// that was read, and an agreement must still be approved, so an edit between the read and the claim refuses instead of sending stale files.
+// that was read, so an edit between the read and the claim refuses instead of sending stale files. Signing is optional: no approval is asked for.
 export function claimRule(now: Date, opts: { resend?: boolean }, doc: AccountingDoc = {}) {
-  return {
-    staleBefore: new Date(now.getTime() - CLAIM_MINUTES * 60_000).toISOString(), requireUnsent: !opts.resend,
-    storagePath: doc.storage_path ?? null, requireApproved: doc.library_template === AGREEMENT,
-  };
+  return { staleBefore: new Date(now.getTime() - CLAIM_MINUTES * 60_000).toISOString(), requireUnsent: !opts.resend, storagePath: doc.storage_path ?? null };
+}
+
+// ---- Signed or unsigned copy ----
+// signed: true sends the PDF of the document's live signature (document_signatures, Template Hub 011); false or missing sends the unsigned PDF.
+export const NOT_SIGNED = "This document is not signed. Sign it first or send unsigned.";
+
+export type LiveSignature = { id?: string | null; source_table?: string | null; source_id?: string | null; pdf_path?: string | null; superseded_at?: string | null };
+
+// The request's signed flag: only true, false or missing. Anything else is refused rather than guessed.
+export function parseSigned(v: unknown): boolean | { error: string } {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "boolean") return v;
+  return { error: "signed must be true or false." };
+}
+
+// The signed files are read with the service role too, so they must sit directly under Accounting/<id>/signed/ (doc_sign_prefix) as a PDF.
+export function isSignedAccountingPath(id: string | null | undefined, path: string | null | undefined): boolean {
+  if (!id || !path) return false;
+  const prefix = `Accounting/${id}/signed/`;
+  if (!path.startsWith(prefix)) return false;
+  const name = path.slice(prefix.length);
+  return name !== "" && !name.includes("/") && name !== "." && name !== ".." && /^[A-Za-z0-9 _.,&()'-]+\.pdf$/.test(name);
+}
+
+// Which PDF goes out. signatureId is the live signature the claim must still find live, or null for the unsigned copy.
+export function attachmentChoice(doc: AccountingDoc, signed: boolean, live: LiveSignature | null | undefined): { path: string; signatureId: string | null } | { error: string } {
+  if (!signed) return { path: doc.storage_path ?? "", signatureId: null };
+  if (!live || live.superseded_at || !live.id || live.source_table !== "hub_documents" || !doc.id || live.source_id !== doc.id) return { error: NOT_SIGNED };
+  if (!isSignedAccountingPath(doc.id, live.pdf_path)) return { error: "The signed PDF's path is not valid." };
+  return { path: live.pdf_path!, signatureId: live.id };
 }
 
 export const CLAIM_REFUSED = "Another send of this document is already in progress, or it was just sent. Wait a few minutes and check its mail status.";
