@@ -10,7 +10,8 @@ import { ClientLists, listIdFor, useClientLookup } from "@banking/components/Cli
 import { applyClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
 import { withLineVat } from "@business-setup/logic/quoteData";
-import { addLine, checkReady, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
+import AccountingDesk from "./AccountingDesk";
+import { addLine, checkReady, oldDeskRows, showAccountingDesk, showViewSwitch, feeItemFor, DEPARTMENTS, deskTotals, deskVatMode, fileNameFor, fixedVat, folderKind, letterData, mailDraft, quoteData } from "../logic/serviceDocs";
 
 const LABEL = { quote: "Quotation", letter: "Engagement Letter", mail: "Mail" };
 const MailIcon = () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>;
@@ -34,7 +35,8 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
   const [mail, setMail] = useState(null);
-  const docs = useLoad(() => listDocuments(department || null), [department]);
+  const [view, setView] = useState("quote"); // Accounting only: the new Quote or the Old Quotation form
+  const docs = useLoad(async () => oldDeskRows(await listDocuments(department || null)), [department]);
   const mailPanel = useRef(null);
   useEffect(() => { if (mail) mailPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); }, [mail?.id]);
 
@@ -129,12 +131,17 @@ export default function ServiceDesk({ department, profile, initial, onDocument }
   };
   const mailto = mail ? `mailto:${encodeURIComponent(mail.email || form.email)}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}` : "#";
 
+  const deptTabs = !department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>;
+  // The switch is for Accounting only, and not inside a job, which passes onDocument and keeps the old form.
+  const viewTabs = showViewSwitch({ department: dept, onDocument }) && <div className="bk-tabs" role="tablist" aria-label="Quotation format">{[["quote", "Quote"], ["old", "Old Quotation"]].map(([k, l]) => <button type="button" role="tab" aria-selected={view === k} key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{l}</button>)}</div>;
+  if (showAccountingDesk({ department: dept, onDocument, mode: view })) return <div>{deptTabs}{viewTabs}<AccountingDesk profile={profile} /></div>;
   if (catalogue.loading && !catalogue.data) return <Spinner />;
   return (
     <div>
       <ErrorNote message={catalogue.error || settings.error || (dept === "Business Setup" && fees.error ? `The fee list could not be loaded, so VAT rates are unknown: ${fees.error}` : null) || error} onClose={error ? () => setError(null) : undefined} />
       {note && <div className={`bk-alert ${note.ok ? "bk-alert-ok" : "bk-alert-warn"}`}>{note.text}</div>}
-      {!department && <div className="bk-tabs" role="tablist" aria-label="Department">{DEPARTMENTS.map((d) => <button type="button" role="tab" aria-selected={dept === d} key={d} className={dept === d ? "active" : ""} onClick={() => chooseDept(d)}>{d}</button>)}</div>}
+      {deptTabs}
+      {viewTabs}
       <Panel title="1. Client details" sub="Choose any detail of an existing client to fill in the rest, or type them for a new one.">
         <div className="bk-grid">
           <div className="bk-field"><label htmlFor="d-client">Client name <em>*</em></label><ClientPicker id="d-client" value={form.client} clients={clients} onChange={(v, picked) => setForm((f) => (picked ? pickClient(f, CLIENT_MAP, "client", picked, clients) : applyClient(f, CLIENT_MAP, "client", v, clients)))} /><ClientLists clients={clients} keys={["email", "phone", "license", "trn"]} /></div>

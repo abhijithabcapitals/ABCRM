@@ -6,11 +6,12 @@ import { numberingStatus, saveNumbering } from "../services/hubApi";
 import { NUMBERING_DEPARTMENTS } from "../logic/serviceDocs";
 import MasterTemplates from "./MasterTemplates";
 import LibrarySettings from "./LibrarySettings";
+import AccountingSettings from "./AccountingSettings";
 
 const KINDS = [["quote", "Quotations"], ["letter", "Engagement Letters"], ["document", "Documents"]];
 const RESTART = { never: "Never: runs on continuously", year: "Each year", month: "Each month" };
 
-export default function HubNumbering() {
+export default function HubNumbering({ profile }) {
   const status = useLoad(numberingStatus, []);
   const [edit, setEdit] = useState(null);
   if (status.loading && !status.data) return <Spinner />;
@@ -20,6 +21,7 @@ export default function HubNumbering() {
       <ErrorNote message={status.error} />
       <MasterTemplates manage={manage} />
       <LibrarySettings />
+      <AccountingSettings profile={profile} />
       <p className="bk-note">Reference numbers are given automatically, in order. A mail carries the number of its document. In a format, {"{YYYY}"} is the year, {"{MM}"} the month and {"{SERIAL}"} the serial number. Business Banking shares the numbering of its own quotes and letters.</p>
       {NUMBERING_DEPARTMENTS.map((dept) => (
         <Panel key={dept} title={dept}>

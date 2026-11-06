@@ -1,5 +1,6 @@
 // Quotation, engagement letter and mail draft content for any service. Pure, so it is tested.
 import { lineTotals } from "../../Business Setup Module/logic/lines.js";
+import { isAccountingAgreement, isAccountingQuote } from "./accountingQuote.js";
 // The database recalculates totals when a document is created, and its figures are the ones stored.
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const plain = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -127,3 +128,10 @@ export function mailDraft({ type, client, contact, services, number, total, vali
     : `Thank you for your interest in ${co}. Please find attached our ${TITLES.quote}${number ? ` ${number}` : ""} for:\n\n${list}\n\nThe total fee is AED ${plain(total)}${validUntil ? `, valid until ${dmy(validUntil)}` : ""}. Please let us know if you would like to proceed or discuss anything in it.`;
   return { subject, body: `Dear ${name},\n\n${middle}\n\nKind regards,\n${sender || ""}\n${co}` };
 }
+
+// The old desk, job screen and library lists never show the new Accounting quote and agreement rows. Rows with no template are kept.
+export const oldDeskRows = (rows) => (rows || []).filter((d) => !isAccountingQuote(d) && !isAccountingAgreement(d));
+
+// The Quote / Old Quotation switch is for Accounting only, and not inside a job, which passes onDocument and keeps the old form.
+export const showViewSwitch = ({ department, onDocument }) => department === "Accounting" && !onDocument;
+export const showAccountingDesk = ({ department, onDocument, mode }) => showViewSwitch({ department, onDocument }) && mode === "quote";
