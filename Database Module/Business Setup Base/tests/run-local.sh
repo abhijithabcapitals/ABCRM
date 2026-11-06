@@ -62,6 +62,14 @@ if [ -n "${ROLLBACK_TEST:-}" ]; then
   "${PSQL[@]}" -f "$HERE/../rollback/015_018_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK 015-018 FAILED"; cat "$DATA/err"; exit 1; }
   "${PSQL[@]}" -f "$HERE/rollback-check-015.sql" 2>&1 | grep -E "ok|ERROR" ; [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
   for f in "${P2[@]}"; do pass=phase2-again; run_sql "$f"; done
+  # 024 alone, on top of 018: record the two functions it replaces, apply it, roll it back with rollback/024_rollback.sql, and compare text and grants.
+  FN024="select string_agg(p.proname || ':' || md5(pg_get_functiondef(p.oid)) || ':' || coalesce(p.proacl::text, ''), ',' order by p.proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('business_setup_portal_file', 'business_setup_portal_view')"
+  PRE024="$("${PSQL[@]}" -At -c "$FN024")" || exit 1
+  pass=024; run_sql "$DB/Business Setup Base/migrations/024_portal_file_names.sql"
+  [ "$("${PSQL[@]}" -At -c "$FN024")" != "$PRE024" ] || { echo "024 CHECK FAILED: 024 changed nothing"; exit 1; }
+  "${PSQL[@]}" -f "$HERE/../rollback/024_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK 024 FAILED"; cat "$DATA/err"; exit 1; }
+  [ "$("${PSQL[@]}" -At -c "$FN024")" = "$PRE024" ] || { echo "ROLLBACK 024 CHECK FAILED: the functions differ from 010 and 018"; exit 1; }
+  echo "rollback 024 restores 010's file function and 018's view with their grants ok"
   "${PSQL[@]}" -c "drop table public.bs_pre015_fn, public.bs_pre015_col, public.bs_pre015_trg, public.bs_pre015_pol, public.bs_pre015_idx, public.bs_pre015_kept" >/dev/null || exit 1
   # Payments are append-only, so this cleanup runs with triggers off (test only).
   "${PSQL[@]}" -c "set session_replication_role = replica; delete from public.business_setup_payments where note = 'rollback-015-advance'; delete from public.business_setup_invoices where invoice_number = 'RB-015'; delete from public.business_setup_signed_quotes where quote_id in (select id from public.hub_documents where document_number = 'RB-015-Q'); delete from public.hub_documents where document_number = 'RB-015-Q'; delete from public.business_setup_cases where lead_name = 'rollback-015' or lead_name like 'rollback-016%'; delete from public.client_portal_accounts where username = 'rb.portal015'; delete from public.client_master where client_id = 'CL990015'; delete from public.business_setup_fee_items where grp = 'RB015'; set session_replication_role = origin" >/dev/null 2>"$DATA/err" || { echo "ROLLBACK 015 CLEANUP FAILED"; cat "$DATA/err"; exit 1; }
