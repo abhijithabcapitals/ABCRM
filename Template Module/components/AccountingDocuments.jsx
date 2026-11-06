@@ -90,7 +90,7 @@ function SendMail({ doc, resend, onSubmit, onClose }) {
   const sig = opts?.signatures.find((s) => s.id === choice.signatureId);
   const submit = async (e) => {
     e.preventDefault();
-    if (!opts || problem) return;
+    if (!opts || problem || busy) return;
     setBusy(true); setError(null);
     const failed = await onSubmit(sendOptions(choice));
     if (failed) { setError(failed); setBusy(false); }

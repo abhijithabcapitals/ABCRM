@@ -74,7 +74,7 @@ export function chooseSender(opts: { from?: unknown; owned: boolean }): { addres
 
 // A signature tied to a mailbox may only go out from that mailbox.
 export const signatureFits = (signature: { sender_mailbox_address?: string | null }, from: string): boolean =>
-  !signature.sender_mailbox_address || signature.sender_mailbox_address.trim().toLowerCase() === from.trim().toLowerCase();
+  !(signature.sender_mailbox_address ?? "").trim() || signature.sender_mailbox_address!.trim().toLowerCase() === from.trim().toLowerCase();
 
 // Signature text goes after the draft body with one blank line.
 export const composeText = (body: string, signature: { body_text?: string | null } | null | undefined): string => {

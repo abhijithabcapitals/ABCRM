@@ -57,6 +57,7 @@ Deno.test("the claim must still match the PDF that was read, and an agreement mu
 });
 
 // ---- From mailbox and signature ----
+import { htmlBody } from "../ardentax-mail-send/rules.ts";
 import { chooseSender, composeText, DEFAULT_SENDER, DEFAULT_SENDER_NAME, senderName, signatureFits, signatureHtml } from "./rules.ts";
 
 Deno.test("no from means info@abcapital.ae", () => assertEquals(chooseSender({ from: undefined, owned: false }), { address: DEFAULT_SENDER, needsOwnership: false }));
@@ -74,7 +75,13 @@ Deno.test("a signature tied to another mailbox is refused", () => assert(!signat
 
 Deno.test("signature text follows the body after one blank line", () => assertEquals(composeText("Hello\n\n", { body_text: "  Regards\nAB  " }), "Hello\n\nRegards\nAB"));
 Deno.test("no signature leaves the body as it is", () => assertEquals(composeText("Hello", null), "Hello"));
-Deno.test("signature HTML text is escaped", () => assert(!signatureHtml({ body_text: "<script>x</script> & co", logo_url: null }).includes("<script>")));
+Deno.test("signature text is escaped in the HTML actually sent", () => {
+  const sig = { body_text: '<b>&"', logo_url: null };
+  const html = htmlBody(composeText("Hello", sig), signatureHtml(sig));
+  assert(html.includes("&lt;b&gt;&amp;&quot;"));
+  assert(!html.includes('<b>&"'));
+});
+Deno.test("a whitespace-only signature mailbox counts as no mailbox", () => assert(signatureFits({ sender_mailbox_address: "   " }, "info@abcapital.ae")));
 Deno.test("the logo is optional and escaped", () => {
   assertEquals(signatureHtml({ body_text: "x", logo_url: null }).includes("<img"), false);
   const h = signatureHtml({ body_text: "x", logo_url: 'https://e.example/l.png"onerror="a' });
