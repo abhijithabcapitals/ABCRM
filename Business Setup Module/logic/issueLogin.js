@@ -7,5 +7,5 @@ const KEPT = "The quote stays issued.";
 export function issueNotice(result, error) {
   if (error) return { tone: "error", text: String(error.message || error), note: KEPT, resend: false };
   if (result?.emailed) return { tone: "ok", text: "The login was emailed to the client.", resend: false };
-  return { tone: "warn", text: "The login is saved, but it was not emailed.", note: KEPT, resend: true };
+  return { tone: "warn", text: "The login was not emailed to the client.", note: KEPT, resend: true };
 }

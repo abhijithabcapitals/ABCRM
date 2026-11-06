@@ -1,7 +1,7 @@
 // Accept or Reject one quote or letter. Accept shows the document first, then asks for confirmation. Reject needs a note.
 // The server has the last word: if the quote expired or was revised while this page was open, its sentence is shown and the view reloads.
 import { useRef, useState } from "react";
-import { Button, ErrorNote, Panel } from "@banking/components/shared";
+import { Button, ErrorNote, Modal } from "@banking/components/shared";
 import { decisionProblem } from "../logic/decisions";
 
 const WHAT = { quote: "quote", letter: "letter" };
@@ -34,7 +34,7 @@ export default function DecisionPanel({ kind, doc, decision, api, openFile, onDo
     setBusy(false);
   };
   return (
-    <Panel title={`${accepting ? "Accept" : "Reject"} ${WHAT[kind]} ${doc.number}`}>
+    <Modal title={`${accepting ? "Accept" : "Reject"} ${WHAT[kind]} ${doc.number}`} onClose={onCancel}>
       <ErrorNote message={error} onClose={() => setError(null)} />
       {accepting ? <>
         {doc.has_file
@@ -51,6 +51,6 @@ export default function DecisionPanel({ kind, doc, decision, api, openFile, onDo
           ? <Button variant="primary" busy={busy} disabled={!seen} onClick={send}>Confirm acceptance</Button>
           : <Button variant="primary" busy={busy} disabled={!note.trim()} onClick={send}>Send rejection</Button>}
       </div>
-    </Panel>
+    </Modal>
   );
 }

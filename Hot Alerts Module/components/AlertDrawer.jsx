@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { alertDetail, alertMarkRead, alertAssign, alertEscalate, alertResolve } from "../services/alertsApi";
+import { alertDetail, alertMarkRead, alertAssign, alertEscalate, alertResolve, clientContactLog, clientDocumentRequest } from "../services/alertsApi";
 import { BACKLOG_STYLE, PRIORITY_STYLES, TAG_STYLES, resolvePlaceholder, tagFor, daysLabel } from "../logic/alertLogic";
 
 const btn = { padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid #d4d4d4", background: "#fff", cursor: "pointer" };
@@ -21,6 +21,9 @@ export default function AlertDrawer({ supabase, alertId, today, fmtDate, access,
   const [mode, setMode] = useState(null); // "assign" | "escalate" | "resolve"
   const [text, setText] = useState("");
   const [person, setPerson] = useState("");
+  const [date, setDate] = useState("");
+
+  useEffect(() => { setText(""); setPerson(""); setDate(""); }, [mode]);
 
   async function load() {
     try {
@@ -63,6 +66,7 @@ export default function AlertDrawer({ supabase, alertId, today, fmtDate, access,
       setMode(null);
       setText("");
       setPerson("");
+      setDate("");
       await load();
       onChanged?.(true);
     } catch (e) {
@@ -108,11 +112,33 @@ export default function AlertDrawer({ supabase, alertId, today, fmtDate, access,
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "14px 0" }}>
               {a.client_id && onOpenClient && <button type="button" style={btn} onClick={() => onOpenClient(a.client_id)}>Open Client</button>}
+              {open && a.client_id && <button type="button" style={btn} onClick={() => setMode("contact")}>Contact Client</button>}
+              {open && a.client_id && <button type="button" style={btn} onClick={() => setMode("request")}>Request Documents</button>}
               {open && canManage && <button type="button" style={btn} onClick={() => setMode("assign")}>Assign Employee</button>}
               {open && canManage && <button type="button" style={btn} onClick={() => setMode("escalate")}>Escalate</button>}
               {open && <button type="button" style={btn} onClick={() => setMode("resolve")}>Mark Resolved</button>}
             </div>
 
+            {mode === "contact" && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Log a contact you made. This sends nothing to the client.</div>
+                <select aria-label="Channel" value={person} onChange={(e) => setPerson(e.target.value)} style={{ padding: 6, fontSize: 12, marginRight: 8 }}>
+                  <option value="">Choose channel</option>
+                  {["Email", "Call", "WhatsApp", "Meeting", "Other"].map((c) => <option key={c}>{c}</option>)}
+                </select>
+                <input aria-label="Follow-up date" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ padding: 6, fontSize: 12 }} />
+                <textarea aria-label="Note" value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="What was said" style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box", margin: "6px 0" }} />
+                <button type="button" style={btn} disabled={busy || !person} onClick={() => run(() => clientContactLog(supabase, { client_id: a.client_id, channel: person, note: text, follow_up_on: date || null }))}>Save contact</button>
+              </div>
+            )}
+            {mode === "request" && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Log a request you made, so it is chased if unanswered. This sends nothing to the client.</div>
+                <input aria-label="Due date" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ padding: 6, fontSize: 12 }} />
+                <textarea aria-label="Documents" value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Which documents" style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box", margin: "6px 0" }} />
+                <button type="button" style={btn} disabled={busy || !text.trim()} onClick={() => run(() => clientDocumentRequest(supabase, { client_id: a.client_id, what: text, due_on: date || null }))}>Save request</button>
+              </div>
+            )}
             {mode === "assign" && (
               <div style={{ marginBottom: 14 }}>
                 <select value={person} onChange={(e) => setPerson(e.target.value)} style={{ padding: 6, fontSize: 12, marginRight: 8 }}>

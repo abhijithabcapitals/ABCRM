@@ -79,3 +79,30 @@ test("Send in the decision and claim screens is guarded by a ref, so a fast doub
     assert.ok(send.lastIndexOf("sending.current = false") > send.indexOf("catch"), f);
   }
 });
+
+test("Accept and I have paid open as a pop-up, because their buttons sit far down the page", () => {
+  for (const f of ["../portal/DecisionPanel.jsx", "../portal/ClaimForm.jsx"]) {
+    assert.match(read(f), /<Modal title=/, f);
+    assert.doesNotMatch(read(f), /<Panel/, f);
+  }
+});
+
+test("until the Terms are agreed, the server opens only reading them, agreeing and signing out, before any client action", () => {
+  const i = read("../supabase/client-portal/index.ts");
+  assert.match(i, /TERMS_OPEN_ACTIONS = \["logout", "terms_get", "terms_accept"\]/);
+  assert.ok(i.indexOf("TERMS_OPEN_ACTIONS.includes(action)") > i.indexOf('client_portal_session"'));
+  assert.ok(i.indexOf("TERMS_OPEN_ACTIONS.includes(action)") < i.indexOf("switch (action)"));
+  assert.match(i, /terms_required: true \}, 403/);
+  // The account comes from the session, never the request.
+  assert.match(i, /client_portal_terms_accept", \{ p_account: accountId, p_terms: termsId \}/);
+});
+
+test("the Terms screen needs the tick, shows plain text and imports no staff code", () => {
+  const g = read("../portal/TermsGate.jsx");
+  assert.match(g, /disabled=\{!ticked\}/);
+  assert.doesNotMatch(g, /dangerouslySetInnerHTML/);
+  assert.doesNotMatch(g, /@client-login\/admin|\.\.\/admin|supabase/);
+  const p = read("../portal/ClientPortal.jsx");
+  assert.ok(p.indexOf("terms.data.required") < p.indexOf("<PortalScreen"));
+  assert.match(p, /readOnly \? Promise\.resolve\(\{ required: false \}\)/);
+});

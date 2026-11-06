@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, ErrorNote, Panel } from "@banking/components/shared";
 import { formProgress, visibleDocuments, visibleSections } from "@business-setup/logic/formDefinition";
+import BulkUpload from "@business-setup/components/BulkUpload";
 
 const STATUS = { Draft: "Not submitted", Submitted: "Submitted: waiting for review", "In review": "Under review", Returned: "Returned: please fix and resubmit", Validated: "Accepted: KYC done" };
 const DOC = { pending: "Received", in_review: "Under review", validated: "Accepted", rejected: "Please re-upload" };
@@ -26,6 +27,10 @@ export default function SetupForm({ form, api, onChange }) {
   const latest = useRef(answers);
   const editable = ["Draft", "Returned"].includes(form.status);
   const progress = formProgress(form.definition, answers, form.documents);
+  const labels = Object.fromEntries((form.definition?.sections || []).flatMap((s) => (s.type === "repeat" ? [[s.key, s.title]] : (s.fields || []).map((f) => [f.key, f.label]))));
+  // A file sorted under a type this form does not list right now, such as a licence under Other, is still shown.
+  const listed = visibleDocuments(form.definition, answers).flatMap((g) => g.types.map((t) => t.type));
+  const others = (form.documents || []).filter((d) => !listed.includes(d.doc_type));
 
   useEffect(() => () => clearTimeout(timer.current), []);
   const update = (next) => {
@@ -56,6 +61,7 @@ export default function SetupForm({ form, api, onChange }) {
     <Panel title="Your details and documents" sub={STATUS[form.status]} actions={saving ? <small className="bk-muted" role="status">Saving…</small> : null}>
       <ErrorNote message={error} onClose={() => setError(null)} />
       {form.status === "Returned" && form.return_note && <div className="bk-alert bk-alert-warn">Message from AB Capital Services FZE: {form.return_note}</div>}
+      {editable && <BulkUpload answers={answers} labels={labels} upload={(file, type) => api.formUpload(file, type)} fill={update} onUploaded={onChange} />}
       {visibleSections(form.definition, answers).map((s) => (
         <fieldset className="bk-fieldset" key={s.key} disabled={!editable}>
           <legend>{s.title}</legend>
@@ -88,6 +94,9 @@ export default function SetupForm({ form, api, onChange }) {
           })}
         </fieldset>
       ))}
+      {others.length > 0 && <fieldset className="bk-fieldset"><legend>Other documents</legend>
+        {others.map((d) => <div className="bk-row" key={d.id}><span>{d.file_name} <Badge tone={d.status === "validated" ? "good" : d.status === "rejected" ? "bad" : undefined}>{DOC[d.status] || d.status}</Badge></span></div>)}
+      </fieldset>}
       {editable && <>
         {!progress.complete && <p className="bk-note">Still needed: {progress.missing.join(", ")}.</p>}
         <div className="bk-modal-actions"><Button variant="primary" busy={busy === "submit"} disabled={!progress.complete} onClick={submit}>Submit</Button></div>
