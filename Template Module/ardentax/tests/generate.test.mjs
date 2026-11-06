@@ -285,14 +285,31 @@ test("a revision with a blank date saves the day it is made; a set date is kept"
   assert.equal(api.lastCreate.details.date, "2026-10-01");
 });
 
-test("an older row with a blank saved date: the signed copy uses created_at, not the signing day", async (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-05T10:00:00Z") });
+test("an older row with a blank saved date: Generate again and the signed copy both print its created_at day", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-06T10:00:00Z") });
   const api = fakeApi();
   const old = { id: "old-1", version: 1, document_number: "Ardentax/2026/11/ADTQ050", created_at: "2026-11-05T10:00:00Z", details: details((d) => { d.date = ""; }) };
   const stored = await regenerate(api, old, deps());
-  t.mock.timers.setTime(Date.parse("2026-11-06T10:00:00Z"));
+  t.mock.timers.setTime(Date.parse("2026-11-07T10:00:00Z"));
   const signed = await rebuildArdentax(stored.doc, SIG, { api, ...deps() });
-  assert.ok((await textIn(stored.wordBlob)).includes("05/11/2026"));
-  assert.ok((await textIn(signed)).includes("05/11/2026"));
-  assert.ok(!(await textIn(signed)).includes("06/11/2026"));
+  for (const blob of [stored.wordBlob, signed]) {
+    const x = await textIn(blob);
+    assert.ok(x.includes("05/11/2026"));
+    assert.ok(!x.includes("06/11/2026") && !x.includes("07/11/2026"));
+  }
+  assert.equal(old.details.date, "", "the saved details are not changed");
+});
+
+test("a whitespace-only date counts as blank; a missing or invalid created_at falls back to today", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-09T10:00:00Z") });
+  const api = fakeApi();
+  const base = { id: "old-2", version: 1, document_number: "Ardentax/2026/11/ADTQ051" };
+  const spaced = await regenerate(api, { ...base, created_at: "2026-11-05T10:00:00Z", details: details((d) => { d.date = "   "; }) }, deps());
+  assert.ok((await textIn(spaced.wordBlob)).includes("05/11/2026"));
+  for (const created_at of ["not a date", undefined]) {
+    const r = await regenerate(api, { ...base, created_at, details: details((d) => { d.date = ""; }) }, deps());
+    assert.ok((await textIn(r.wordBlob)).includes("09/11/2026"));
+  }
+  await generateDocument(api, { details: details((d) => { d.date = "  "; }), requestId: "r" }, deps());
+  assert.equal(api.lastCreate.details.date, "2026-11-09", "a new document gets today");
 });

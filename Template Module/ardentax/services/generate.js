@@ -29,9 +29,18 @@ async function trialFill(api, details, totals, deps) {
   await fillDocx(await api.loadTemplate(details.docType), details, totals, "TRIAL", deps);
 }
 
+// The date every render of an existing row prints: its saved date; for an older row saved with a blank one, its created_at as a Dubai
+// date; today only when created_at is missing or not a date. So Generate again and the signed copy agree with each other.
+function rowDate(doc) {
+  const saved = String(doc.details?.date ?? "").trim();
+  if (saved) return saved;
+  const made = Date.parse(doc.created_at ?? "");
+  return dubaiDate(Number.isNaN(made) ? Date.now() : made);
+}
+
 // The stored document drawn from its saved details: unsigned (signature null) as filed, or with the company signature.
 async function render(api, doc, signature, deps) {
-  const details = doc.details;
+  const details = { ...doc.details, date: rowDate(doc) };
   const bytes = await fillDocx(await api.loadTemplate(details.docType), details, computeQuote(details), doc.document_number, deps, signature);
   return new Blob([bytes], { type: WORD_TYPE });
 }
@@ -85,12 +94,8 @@ export function makeLetter(api, quote, requestId, deps, onCreated) {
 }
 
 // The family's rebuild for the shared signing step: the stored document with the company signature, by the same fill.
-// ctx: { api, JSZip, parse, serialize }. Returns the Word blob. It prints details.date. A row filed before dates were saved may have a
-// blank one; then its created_at, as a Dubai date, stands in, so the signed copy does not print the signing day.
-export function rebuildArdentax(doc, signature, ctx) {
-  const dated = !doc.details?.date && doc.created_at ? { ...doc, details: { ...doc.details, date: dubaiDate(doc.created_at) } } : doc;
-  return render(ctx.api, dated, signature, ctx);
-}
+// ctx: { api, JSZip, parse, serialize }. Returns the Word blob. The date is the row's own (rowDate), as for Generate again.
+export const rebuildArdentax = (doc, signature, ctx) => render(ctx.api, doc, signature, ctx);
 
 // An approver signs a document. seen is the change stamp the server reads now (doc_changed_at); the server refuses the record if
 // the row changed after it. api.sign is signing.js signDocument with its deps. Returns { signature, wordBlob, pdfBlob } or { error }.
