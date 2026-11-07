@@ -37,7 +37,7 @@ SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 AFTER=("$DB/ArdentTax Base/migrations/001_ardentax.sql" "$DB/Template Hub Base/migrations/003_brand_name.sql" "$DB/../Template Module/database/01_quotation_maker.sql" "$DB/../Template Module/database/02_quotation_templates_access.sql" "$DB/Template Hub Base/migrations/004_hub_admin.sql")
 MINE=("$HERE/../migrations/005_library_fill.sql" "$HERE/../migrations/006_library_letter.sql" "$HERE/../migrations/007_work_types.sql" "$HERE/../migrations/008_accounting_proposals.sql"
   "$HERE/../migrations/009_proposals.sql" "$HERE/../migrations/010_accounting_send_from.sql" "$HERE/../migrations/011_document_signing.sql" "$HERE/../migrations/012_accounting_signing.sql"
-  "$HERE/../migrations/013_banking_signing.sql")
+  "$HERE/../migrations/013_banking_signing.sql" "$HERE/../migrations/014_proposal_replies.sql")
 
 run_sql() { "${PSQL[@]}" -f "$1" >/dev/null 2>"$DATA/err" || { echo "FAILED: $1"; cat "$DATA/err"; exit 1; }; }
 for f in "${BASE[@]}"; do run_sql "$f"; done
@@ -69,7 +69,14 @@ if [ -n "${PROPOSAL_SEED:-}" ] && [ -f "$PROPOSAL_SEED" ]; then
   if [ -n "${PROPOSAL_SEED_CHECK:-}" ] && [ -f "$PROPOSAL_SEED_CHECK" ]; then BIN="$BIN" PORT="$PORT" bash "$PROPOSAL_SEED_CHECK" || { RC=1; echo "TESTS FAILED: proposal seed check"; }; fi
 fi
 
-# 013 undone first: Business Banking goes back to 011 alone (no filing or line item rule); signing records are kept.
+# 014 undone first: the replies go; a chosen option set on a proposal stays (it is 009's field).
+CHOSEN14="$("${PSQL[@]}" -At -c "select count(*) from hub_documents where field_values #>> '{proposal,accepted_option}' is not null")"
+"${PSQL[@]}" -f "$HERE/../rollback/014_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL proposal replies rollback: $(cat "$DATA/err")"; RC=1; }
+LEFT14="$("${PSQL[@]}" -At -c "select (to_regclass('public.hub_proposal_replies') is not null)::int
+  + (select count(*) from pg_proc where proname in ('hub_proposal_reply', 'hub_proposal_reply_body', 'hub_proposal_portal_open', 'business_setup_portal_proposals', 'business_setup_portal_proposal_reply'))
+  + (select (count(*) <> $CHOSEN14)::int from hub_documents where field_values #>> '{proposal,accepted_option}' is not null)")"
+if [ "$LEFT14" = "0" ]; then echo "ok   proposal replies rollback leaves nothing behind and keeps the chosen options"; else echo "FAIL proposal replies rollback left $LEFT14 items"; RC=1; fi
+# 013 undone next: Business Banking goes back to 011 alone (no filing or line item rule); signing records are kept.
 SIGS13="$("${PSQL[@]}" -At -c "select count(*) from document_signatures")"
 "${PSQL[@]}" -f "$HERE/../rollback/013_rollback.sql" >/dev/null 2>"$DATA/err" || { echo "FAIL banking signing rollback: $(cat "$DATA/err")"; RC=1; }
 LEFT13="$("${PSQL[@]}" -At -c "select (select count(*) from pg_trigger where tgname in ('doc_sign_banking_filed', 'doc_sign_banking_items'))

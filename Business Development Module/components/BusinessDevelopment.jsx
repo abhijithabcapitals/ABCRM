@@ -140,28 +140,70 @@ function Empty({ title, body }) {
   return <div className="bd-empty"><div className="bd-empty-mark">↗</div><strong>{title}</strong><span>{body}</span></div>;
 }
 
-function LeadCard({ lead, profiles, onOpen, draggable = false, onDragStart }) {
+const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3 };
+const timeOf = (date) => (date ? new Date(date).getTime() : null);
+// Missing dates sort last whichever direction is chosen.
+const byTime = (a, b, dir = 1) => (a === null ? (b === null ? 0 : 1) : b === null ? -1 : (a - b) * dir);
+const leadValue = (lead) => leadPotentialEntries(lead).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+const byName = (a, b) => (a || "").localeCompare(b || "", undefined, { sensitivity: "base" });
+
+const LEAD_SORTS = {
+  followup: { label: "Next follow-up", compare: (a, b) => byTime(timeOf(a.next_followup_at), timeOf(b.next_followup_at)) },
+  priority: { label: "Priority", compare: (a, b) => (PRIORITY_RANK[(a.priority || "medium").toLowerCase()] ?? 2) - (PRIORITY_RANK[(b.priority || "medium").toLowerCase()] ?? 2) },
+  value: { label: "Value (high → low)", compare: (a, b) => leadValue(b) - leadValue(a) },
+  name: { label: "Name (A → Z)", compare: (a, b) => byName(a.name, b.name) },
+  newest: { label: "Newest first", compare: (a, b) => byTime(timeOf(a.created_at), timeOf(b.created_at), -1) },
+  oldest: { label: "Oldest first", compare: (a, b) => byTime(timeOf(a.created_at), timeOf(b.created_at)) },
+};
+
+const FOLLOWUP_SORTS = {
+  soonest: { label: "Due (soonest)", compare: (a, b) => byTime(timeOf(a.planned_at), timeOf(b.planned_at)) },
+  latest: { label: "Due (latest)", compare: (a, b) => byTime(timeOf(a.planned_at), timeOf(b.planned_at), -1) },
+  name: { label: "Lead (A → Z)", compare: (a, b) => byName(a.lead?.name, b.lead?.name) },
+  priority: { label: "Lead priority", compare: (a, b) => LEAD_SORTS.priority.compare(a.lead || {}, b.lead || {}) },
+  channel: { label: "Channel", compare: (a, b) => byName(a.channel, b.channel) },
+};
+
+function SortSelect({ value, options, onChange }) {
+  return (
+    <label className="bd-sort">
+      <span>Sort</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {Object.entries(options).map(([key, option]) => <option key={key} value={key}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+const shortDate = (date) => new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "Asia/Dubai" });
+
+// One-line pipeline entry so a stage column can hold ~50 leads; full details sit in the tooltip and the lead drawer.
+function LeadRow({ lead, profiles, onOpen, draggable = false, onDragStart }) {
   const owner = profiles.find((person) => person.id === lead.current_owner);
   const followup = lead.next_followup_at;
   const amount = currencyTotals(leadPotentialEntries(lead));
+  const priority = (lead.priority || "medium").toLowerCase();
+  const late = isLate(followup);
+  const details = [
+    `${lead.lead_id} · ${lead.priority || "Medium"} priority`,
+    lead.contact_name || lead.email || lead.mobile || "No contact details",
+    `${lead.initial_service_interest || "Service not specified"} · ${lead.source || "No source"}`,
+    `Owner: ${owner ? fullName(owner) : "Unassigned"} · ${amount === money(0) ? "Value not set" : amount}`,
+    `Next follow-up: ${followup ? dateOnly(followup) : "Not scheduled"}${late ? " (overdue)" : ""}`,
+  ].join("\n");
   return (
     <article
-      className="bd-lead-card"
+      className="bd-lead-row"
+      title={details}
       draggable={draggable}
       onDragStart={(event) => onDragStart?.(event, lead)}
       onClick={() => onOpen(lead)}
       tabIndex={0}
       onKeyDown={(event) => event.key === "Enter" && onOpen(lead)}
     >
-      <div className="bd-card-topline"><span className="bd-lead-id">{lead.lead_id}</span><span className={`bd-priority bd-priority-${(lead.priority || "medium").toLowerCase()}`}>{lead.priority || "Medium"}</span></div>
-      <strong className="bd-card-name">{lead.name}</strong>
-      <span className="bd-card-contact">{lead.contact_name || lead.email || lead.mobile || "No contact details"}</span>
-      <div className="bd-card-meta"><span>{lead.initial_service_interest || "Service not specified"}</span><span>{lead.source}</span></div>
-      <div className="bd-card-footer"><span>{owner ? fullName(owner) : "Unassigned"}</span><strong>{amount === money(0) ? "Value not set" : amount}</strong></div>
-      <div className="bd-card-footer bd-card-dates">
-        <span>Next: {followup ? dateOnly(followup) : "Not scheduled"}</span>
-        {followup && <span className={isLate(followup) ? "bd-overdue-text" : ""}>{isLate(followup) ? "Overdue" : "Follow-up"}</span>}
-      </div>
+      <span className={`bd-row-priority bd-row-priority-${priority}`} aria-label={`${lead.priority || "Medium"} priority`} />
+      <strong className="bd-row-name">{lead.name}</strong>
+      <span className={`bd-row-date${late ? " bd-overdue-text" : ""}`}>{followup ? shortDate(followup) : "—"}</span>
     </article>
   );
 }
@@ -319,12 +361,20 @@ export default function BusinessDevelopment({ profile }) {
     setModal("complete-followup");
   }
 
-  async function confirmFollowupComplete(completion) {
+  // "Client agreed" completes the follow-up and goes straight on to the quote (or, if the quote is already out,
+  // the receipt) so the lead lands in Proposals & Quotations and then Converted & Transfers.
+  async function confirmFollowupComplete({ advance, ...completion }) {
+    const lead = leads.find((item) => item.id === selectedFollowup.lead?.id) || selectedFollowup.lead;
     const { error: saveError } = await completeBusinessDevelopmentFollowup(selectedFollowup.id, completion);
     if (saveError) { setError(errorText(saveError)); return; }
     setSelectedFollowup(null);
     setModal("");
-    setStatus("Follow-up marked completed.");
+    if (advance && lead) {
+      setStatus(lead.quote_sent_at ? "Follow-up completed. Record the payment receipt to convert." : "Follow-up completed. Record the quote & engagement letter.");
+      openLeadWith(lead, lead.quote_sent_at ? "convert" : "quote");
+    } else {
+      setStatus("Follow-up marked completed.");
+    }
     await load();
   }
 
@@ -558,7 +608,7 @@ export default function BusinessDevelopment({ profile }) {
           )}
           {page === "Campaigns & Sources" && <SourcesView leads={leads} />}
           {page === CONVERTED_PAGE && <ConvertedView leads={filteredLeads} profiles={profilesById} onOpen={openLead} />}
-          {!isDashboard && !isPipeline && isProposals && <ProposalView leads={myLeads} onOpen={openLead} />}
+          {!isDashboard && !isPipeline && isProposals && <ProposalView leads={myActiveLeads} onOpen={openLead} onConvert={(lead) => openLeadWith(lead, "convert")} />}
           {!isDashboard && !isPipeline && page === "Reports & Analytics" && <ReportsView leads={leads} />}
           {!isDashboard && !isPipeline && page === "Settings & Master Data" && <MasterDataView />}
           {page === MY_LEADS_PAGE && (
@@ -642,18 +692,23 @@ function DashboardView({ leads, activeLeads, totalPotential, weightedPipeline, o
 }
 
 function PipelineView({ leads, activeLeads, profiles, unassignedCount, onOpen, onMove, onViewPool }) {
+  const [sortKey, setSortKey] = useState("followup");
+  const compare = LEAD_SORTS[sortKey].compare;
   const assigned = activeLeads.filter((lead) => lead.current_owner);
   const converted = leads.filter((lead) => lead.status === "won")
     .sort((a, b) => new Date(b.won_at) - new Date(a.won_at)).slice(0, 30);
   const columns = [
-    ...BD_STAGES.map((stage) => ({ stage, cards: assigned.filter((lead) => lead.stage === stage) })),
-    { stage: CONVERTED_STAGE, cards: converted, done: true },
+    ...BD_STAGES.map((stage) => ({ stage, cards: assigned.filter((lead) => lead.stage === stage).sort(compare) })),
+    { stage: CONVERTED_STAGE, cards: [...converted].sort(compare), done: true },
   ];
   return (
     <section>
       <div className="bd-section-heading">
         <div><h2>Lead Pipeline</h2><p>Prospect → Contact → Convinced → Received Documents → Done KYC → Quote & Engagement Sent → Converted. Drop a lead on Converted to record the client's payment receipt.</p></div>
-        <span className="bd-count-pill">{assigned.length} in progress</span>
+        <div className="bd-heading-actions">
+          <SortSelect value={sortKey} options={LEAD_SORTS} onChange={setSortKey} />
+          <span className="bd-count-pill">{assigned.length} in progress</span>
+        </div>
       </div>
       {unassignedCount > 0 && (
         <div className="bd-pool-note">
@@ -672,7 +727,7 @@ function PipelineView({ leads, activeLeads, profiles, unassignedCount, onOpen, o
             }}>
             <div className="bd-stage-heading"><span className="bd-stage-dot" /><div><strong>{stage}</strong><small>{done ? "Payment received" : `Step ${index + 1}`}</small></div><b>{cards.length}</b></div>
             <div className="bd-stage-cards">
-              {cards.map((lead) => <LeadCard key={lead.id} lead={lead} profiles={profiles} onOpen={onOpen} draggable={!done}
+              {cards.map((lead) => <LeadRow key={lead.id} lead={lead} profiles={profiles} onOpen={onOpen} draggable={!done}
                 onDragStart={(event, item) => event.dataTransfer.setData("text/plain", item.id)} />)}
               {cards.length === 0 && <div className="bd-stage-empty">{done ? "Drop a lead here to convert" : "Drop a lead here"}</div>}
             </div>
@@ -939,7 +994,7 @@ function MyLeadsView({ leads, profiles, search, onSearch, sourceFilter, onSource
       </div>
       <div className="bd-list-tools"><input aria-label="Search leads" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search name, lead ID, phone, email…" /><select aria-label="Filter by source" value={sourceFilter} onChange={(event) => onSourceFilter(event.target.value)}><option value="">All sources</option>{BD_SOURCES.map((source) => <option key={source}>{source}</option>)}</select></div>
       {openRows.length ? leadsTable(openRows) : <Empty title={rows.length ? "No open leads" : "No leads assigned to you"} body="Assign yourself a lead from All Leads or create a new one." />}
-      {closedRows.length > 0 && <details className="bd-closed"><summary>Completed and cancelled ({closedRows.length})</summary><div className="bd-closed-body">{leadsTable(closedRows)}</div></details>}
+      {<details className="bd-closed"><summary>Completed and cancelled ({closedRows.length})</summary><div className="bd-closed-body">{leadsTable(closedRows)}</div></details>}
     </section>
   );
 }
@@ -955,13 +1010,15 @@ function LeadListView({ title, leads, profiles, search, onSearch, sourceFilter, 
 }
 
 function FollowupView({ items, onOpen, onComplete }) {
+  const [sortKey, setSortKey] = useState("soonest");
+  const compare = FOLLOWUP_SORTS[sortKey].compare;
   const today = localDate();
   const sections = [
     { title: "Overdue", rows: items.filter((item) => isLate(item.planned_at) && uaeDate(item.planned_at) !== today) },
     { title: "Due Today", rows: items.filter((item) => uaeDate(item.planned_at) === today) },
     { title: "Upcoming", rows: items.filter((item) => uaeDate(item.planned_at) > today) },
-  ];
-  return <section><div className="bd-section-heading"><div><h2>Follow-up Center</h2><p>Chronological action queue across your leads.</p></div><span className="bd-count-pill">{items.length} open</span></div>{sections.map((group) => <div className="bd-panel bd-followup-group" key={group.title}><h3>{group.title}<span>{group.rows.length}</span></h3>{group.rows.length ? group.rows.map((item) => <div key={item.id} className="bd-followup-row"><button type="button" className="bd-followup-open" onClick={() => onOpen(item.lead)}><span className="bd-followup-time">{when(item.planned_at)}</span><span className="bd-followup-details"><b>{item.lead.name}</b><small>{item.objective || "Follow-up"} · {item.channel || "No channel"}</small></span><span className="bd-followup-status">{isLate(item.planned_at) ? "Overdue" : item.status}</span></button><button type="button" className="bd-followup-complete" onClick={() => onComplete(item)} aria-label={`Complete follow-up for ${item.lead.name}`}>Complete</button></div>) : <div className="bd-muted-empty">No follow-ups in this section.</div>}</div>)}</section>;
+  ].map((group) => ({ ...group, rows: [...group.rows].sort(compare) }));
+  return <section><div className="bd-section-heading"><div><h2>Follow-up Center</h2><p>Chronological action queue across your leads.</p></div><div className="bd-heading-actions"><SortSelect value={sortKey} options={FOLLOWUP_SORTS} onChange={setSortKey} /><span className="bd-count-pill">{items.length} open</span></div></div>{sections.map((group) => <div className="bd-panel bd-followup-group" key={group.title}><h3>{group.title}<span>{group.rows.length}</span></h3>{group.rows.length ? group.rows.map((item) => <div key={item.id} className="bd-followup-row"><button type="button" className="bd-followup-open" onClick={() => onOpen(item.lead)}><span className="bd-followup-time">{when(item.planned_at)}</span><span className="bd-followup-details"><b>{item.lead.name}</b><small>{item.objective || "Follow-up"} · {item.channel || "No channel"}</small></span><span className={`bd-followup-status${isLate(item.planned_at) ? " bd-overdue-text" : ""}`}>{isLate(item.planned_at) ? "Overdue" : item.status}</span></button><button type="button" className="bd-followup-complete" onClick={() => onComplete(item)} aria-label={`Complete follow-up for ${item.lead.name}`}>Complete</button></div>) : <div className="bd-muted-empty">No follow-ups in this section.</div>}</div>)}</section>;
 }
 
 function SourcesView({ leads }) {
@@ -980,9 +1037,41 @@ function SourcesView({ leads }) {
   return <section><div className="bd-section-heading"><div><h2>Campaigns & Sources</h2><p>Original acquisition attribution is preserved separately from follow-up channels.</p></div></div><div className="bd-table-wrap"><table className="bd-table"><thead><tr><th>Source</th><th>Campaign</th><th>Leads</th><th>Won</th><th>Conversion</th><th>Won value</th></tr></thead><tbody>{sources.map(([key, stats]) => <tr key={key}><td><strong>{stats.source}</strong></td><td>{stats.campaign}</td><td>{stats.total}</td><td>{stats.won}</td><td>{stats.total ? `${Math.round(stats.won / stats.total * 100)}%` : "—"}</td><td>{currencyTotals(stats.value)}</td></tr>)}</tbody></table></div>{!sources.length && <Empty title="No acquisition data yet" body="Sources will be reported from saved lead records." />}</section>;
 }
 
-function ProposalView({ leads, onOpen }) {
-  const rows = leads.flatMap((lead) => (lead.bd_lead_services || []).map((service) => ({ lead, service }))).filter(({ service }) => service.status !== "rejected");
-  return <section><div className="bd-section-heading"><div><h2>Proposals & Quotations</h2><p>Service-level commercial opportunities and current proposal status.</p></div><span className="bd-count-pill">{rows.length} services</span></div>{rows.length ? <div className="bd-table-wrap"><table className="bd-table"><thead><tr><th>Lead</th><th>Service</th><th>Status</th><th>Proposed fee</th><th>Agreed fee</th></tr></thead><tbody>{rows.map(({ lead, service }) => <tr key={service.id} onClick={() => onOpen(lead)}><td><strong>{lead.name}</strong><small>{lead.lead_id}</small></td><td>{service.service_name}</td><td><span className={`bd-stage-badge bd-stage-${stageClass(service.status)}`}>{service.status}</span></td><td>{service.proposed_fee ? money(service.proposed_fee, service.currency) : "—"}</td><td>{service.final_agreed_fee ? money(service.final_agreed_fee, service.currency) : "—"}</td></tr>)}</tbody></table></div> : <Empty title="No service proposals yet" body="Open a lead and add service opportunities to manage quotes." />}</section>;
+// Leads whose quote & engagement letter is out. Recording the payment receipt converts the lead and hands it to
+// Accounting, Business Setup or Business Banking, which moves it to Converted & Transfers.
+function ProposalView({ leads, onOpen, onConvert }) {
+  const [sortKey, setSortKey] = useState("followup");
+  const rows = leads.filter((lead) => lead.stage === QUOTE_STAGE).sort(LEAD_SORTS[sortKey].compare);
+  return (
+    <section>
+      <div className="bd-section-heading">
+        <div><h2>Proposals & Quotations</h2><p>Quotes awaiting payment. Record the client's receipt to convert and transfer the lead.</p></div>
+        <div className="bd-heading-actions">
+          <SortSelect value={sortKey} options={LEAD_SORTS} onChange={setSortKey} />
+          <span className="bd-count-pill">{rows.length} awaiting payment</span>
+        </div>
+      </div>
+      {rows.length ? (
+        <div className="bd-table-wrap"><table className="bd-table bd-table-compact">
+          <thead><tr><th>Lead</th><th>Services</th><th>Quote sent</th><th>Quoted</th><th>Next follow-up</th><th aria-label="Action" /></tr></thead>
+          <tbody>{rows.map((lead) => {
+            const services = (lead.bd_lead_services || []).filter((service) => service.status !== "rejected");
+            const value = currencyTotals(leadPotentialEntries(lead));
+            return (
+              <tr key={lead.id} onClick={() => onOpen(lead)}>
+                <td><strong>{lead.name}</strong><small>{lead.lead_id}</small></td>
+                <td>{services.length ? services.map((service) => service.service_name).join(", ") : (lead.initial_service_interest || "—")}</td>
+                <td>{lead.quote_sent_at ? dateOnly(lead.quote_sent_at) : "—"}</td>
+                <td>{value === money(0) ? "—" : value}</td>
+                <td><span className={isLate(lead.next_followup_at) ? "bd-overdue-text" : ""}>{lead.next_followup_at ? dateOnly(lead.next_followup_at) : "—"}</span></td>
+                <td><button type="button" className="bd-followup-complete" onClick={(event) => { event.stopPropagation(); onConvert(lead); }}>Payment received</button></td>
+              </tr>
+            );
+          })}</tbody>
+        </table></div>
+      ) : <Empty title="No quotes awaiting payment" body="Complete a follow-up with “Client agreed” to send a quote, and the lead will appear here." />}
+    </section>
+  );
 }
 
 function ReportsView({ leads }) {
@@ -1299,15 +1388,19 @@ function CompleteFollowupForm({ followup, busy, onClose, onSubmit }) {
   const [nextAction, setNextAction] = useState("");
   const [nextDate, setNextDate] = useState("");
   const [noFollowupReason, setNoFollowupReason] = useState("");
+  const [advance, setAdvance] = useState(false);
   const [error, setError] = useState("");
+  const quoteOut = Boolean(followup.lead?.quote_sent_at);
   async function submit(event) {
     event.preventDefault();
     if (!isMeaningfulSummary(summary)) return setError("Enter a specific outcome summary (at least 20 characters).");
     if (Boolean(nextDate) !== Boolean(nextAction.trim())) return setError("Add both a next action and date, or leave both blank.");
-    if (!nextDate && !noFollowupReason.trim()) return setError("Add another follow-up or explain why no further follow-up is required.");
-    await onSubmit({ discussion_summary: summary.trim(), next_action: nextAction.trim() || null, next_followup_at: nextDate ? uaeInputToIso(nextDate) : null, no_followup_reason: noFollowupReason.trim() || null });
+    if (!advance && !nextDate && !noFollowupReason.trim()) return setError("Add another follow-up or explain why no further follow-up is required.");
+    // Moving on: the quote form schedules its own follow-up, so no further one is needed here.
+    const reason = noFollowupReason.trim() || (advance && !nextDate ? (quoteOut ? "Client paid; recording receipt and converting." : "Client agreed; moving to quote & engagement.") : "");
+    await onSubmit({ advance, discussion_summary: summary.trim(), next_action: nextAction.trim() || null, next_followup_at: nextDate ? uaeInputToIso(nextDate) : null, no_followup_reason: reason || null });
   }
-  return <FormModal title="Complete follow-up" subtitle={`${followup.lead.name} · ${when(followup.planned_at)}`} error={error} busy={busy} onClose={onClose} onSubmit={submit} submitLabel="Complete follow-up"><label className="bd-form-wide">Outcome / discussion summary<textarea rows="3" value={summary} onChange={(event) => setSummary(event.target.value)} required /><small>A clear completion note is required for the activity history.</small></label><label>Next action, if any<input value={nextAction} onChange={(event) => setNextAction(event.target.value)} /></label><label>Next follow-up date, if any<input type="datetime-local" value={nextDate} onChange={(event) => setNextDate(event.target.value)} /></label><label className="bd-form-wide">Reason for no further follow-up<input value={noFollowupReason} onChange={(event) => setNoFollowupReason(event.target.value)} /></label></FormModal>;
+  return <FormModal title="Complete follow-up" subtitle={`${followup.lead.name} · ${when(followup.planned_at)}`} error={error} busy={busy} onClose={onClose} onSubmit={submit} submitLabel={advance ? (quoteOut ? "Complete & record receipt" : "Complete & send quote") : "Complete follow-up"}><label className="bd-form-wide">Outcome / discussion summary<textarea rows="3" value={summary} onChange={(event) => setSummary(event.target.value)} required /><small>A clear completion note is required for the activity history.</small></label><label className="bd-form-wide bd-check-row"><input type="checkbox" checked={advance} onChange={(event) => setAdvance(event.target.checked)} /><span>{quoteOut ? "Client has paid. Record the receipt and move the lead to Converted & Transfers." : "Client agreed. Send the quote & engagement letter and move the lead to Proposals & Quotations."}</span></label>{!advance && <><label>Next action, if any<input value={nextAction} onChange={(event) => setNextAction(event.target.value)} /></label><label>Next follow-up date, if any<input type="datetime-local" value={nextDate} onChange={(event) => setNextDate(event.target.value)} /></label><label className="bd-form-wide">Reason for no further follow-up<input value={noFollowupReason} onChange={(event) => setNoFollowupReason(event.target.value)} /></label></>}</FormModal>;
 }
 
 function ServiceForm({ lead, service, busy, onClose, onSubmit }) {

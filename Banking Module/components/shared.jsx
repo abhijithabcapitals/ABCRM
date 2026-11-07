@@ -257,8 +257,7 @@ export function BarList({ data, format = (v) => v, extra }) {
   );
 }
 
-// Finished records stay reachable but out of the way, greyed under the main table.
+// Finished records stay reachable but out of the way, greyed under the main table. Shown even at (0), so the place is known.
 export function ClosedSection({ count, label = "Closed", children }) {
-  if (!count) return null;
   return <details className="bk-closed"><summary>{label} ({count})</summary><div className="bk-closed-body">{children}</div></details>;
 }
