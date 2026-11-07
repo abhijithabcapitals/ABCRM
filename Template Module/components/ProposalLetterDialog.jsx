@@ -1,10 +1,10 @@
-// A proposal's client choice and engagement letter. The choice is recorded while the proposal is issued; the letter is made once it is accepted
+// A proposal's engagement letter. The client's choice is recorded while the proposal is issued (ProposalReplies.jsx); the letter is made once it is accepted
 // (signed copy in the workspace or the client portal) and takes the recorded option.
 import { useState } from "react";
 import { Button, ErrorNote, Modal } from "@banking/components/shared";
 import { withLineVat } from "@business-setup/logic/quoteData";
 import { createDocument, renderTemplate, saveFile } from "../services/hubApi";
-import { chooseProposalOption, createProposalLetter } from "../services/proposalApi";
+import { createProposalLetter } from "../services/proposalApi";
 import { fileNameFor, folderKind, letterData, mailDraft } from "../logic/serviceDocs";
 import { chosenOption, optionTotal } from "../logic/proposalModel";
 
@@ -24,40 +24,6 @@ export async function fileLetter(doc, { settings, catalogue, profile }, mailExis
   const draft = mailDraft({ type: "letter", client: doc.client_name, contact: doc.contact_name, services: doc.services, number: doc.document_number, total: doc.total_amount, validUntil: doc.valid_until, sender: profile?.full_name, company: company?.short_name });
   await createDocument({ doc_type: "mail", parent_id: doc.id, department: doc.department, client_name: doc.client_name, contact_name: doc.contact_name, contact_email: doc.contact_email, services: doc.services, lines: doc.lines, vat_mode: doc.vat_mode, vat_rate: doc.vat_rate, mail_subject: draft.subject, mail_body: draft.body });
   return saved;
-}
-
-// Records the option the client chose on an issued proposal. The quote then carries that option until the client accepts.
-export function ProposalChoiceDialog({ quote, onClose, onDone }) {
-  const options = quote.field_values?.proposal?.options || [];
-  const current = quote.field_values?.proposal?.accepted_option;
-  const [option, setOption] = useState(current === null || current === undefined ? "" : String(current));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const submit = async (e) => {
-    e.preventDefault();
-    if (option === "") return setError("Choose the option the client accepted.");
-    setBusy(true); setError(null);
-    try {
-      await chooseProposalOption(quote.id, Number(option));
-      await onDone(`Option ${Number(option) + 1} recorded as the client's choice on ${quote.document_number}.`);
-    } catch (err) { setError(err.message); }
-    setBusy(false);
-  };
-  return (
-    <Modal title={`Record client's choice for ${quote.document_number}`} onClose={onClose}>
-      <form onSubmit={submit}>
-        <ErrorNote message={error} onClose={() => setError(null)} />
-        <fieldset className="bk-field bk-full">
-          <legend>Option the client chose <em>*</em></legend>
-          {options.map((o, i) => (
-            <label key={i} className="bk-check"><input type="radio" name="chosen" value={String(i)} checked={option === String(i)} onChange={(e) => setOption(e.target.value)} /> Option {i + 1}: {o.authority_name || o.authority_key}, AED {plain(optionTotal(o))}</label>
-          ))}
-        </fieldset>
-        <p className="bk-note">The proposal stays issued and the choice can change until it is accepted. To accept it, confirm the client&apos;s signed copy in the client&apos;s workspace (Quotes &amp; Agreements), or the client accepts it in the portal.</p>
-        <div className="bk-modal-actions"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" busy={busy}>Record choice</Button></div>
-      </form>
-    </Modal>
-  );
 }
 
 // The engagement letter of an accepted proposal: the option is the one recorded on the quote; the dialog only adds the letter's missing details.

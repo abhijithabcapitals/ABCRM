@@ -52,7 +52,7 @@ test("the portal screens call the actions with the session only, and import noth
   assert.match(api, /setupClaim: .*call\("setup_payment_claim"/s);
   assert.match(api, /for_claim: true/);
   assert.doesNotMatch(api, /account_id|client_id/);
-  for (const f of ["SetupView.jsx", "DecisionPanel.jsx", "ClaimForm.jsx"]) {
+  for (const f of ["SetupView.jsx", "DecisionPanel.jsx", "ClaimForm.jsx", "ProposalsPanel.jsx"]) {
     const s = read(`../portal/${f}`);
     for (const m of s.matchAll(/from "(@[^"]+)"/g)) assert.ok(["@banking/components/shared", "@business-setup/logic/formDefinition"].includes(m[1]), `${f} imports ${m[1]}`);
     assert.doesNotMatch(s, /staffCall|staffPost|admin_/, `${f} reaches for a staff action`);
@@ -105,4 +105,18 @@ test("the Terms screen needs the tick, shows plain text and imports no staff cod
   const p = read("../portal/ClientPortal.jsx");
   assert.ok(p.indexOf("terms.data.required") < p.indexOf("<PortalScreen"));
   assert.match(p, /readOnly \? Promise\.resolve\(\{ required: false \}\)/);
+});
+
+test("the client's proposals: every option, a choice or comment through proposal_reply, Accept and Decline through the decision panel", () => {
+  const api = read("../portal/portalApi.js");
+  assert.match(api, /proposals: .*call\("proposals"\)/s);
+  assert.match(api, /proposalReply: .*call\("proposal_reply"/s);
+  const p = read("../portal/ProposalsPanel.jsx");
+  assert.match(p, /p\.options/); assert.match(p, /can_reply/); assert.match(p, /proposalReply/);
+  assert.match(p, /onDecide\(doc, "Accepted"\)/); assert.match(p, /onDecide\(doc, "Rejected"\)/);
+  assert.match(read("../portal/SetupView.jsx"), /<ProposalsPanel/);
+  const fn = read("../supabase/client-portal/index.ts");
+  assert.ok(fn.indexOf('case "proposal_reply":') > fn.indexOf('"client_portal_session"'), "proposal_reply runs after the session check");
+  const b = fn.slice(fn.indexOf('case "proposal_reply":'), fn.indexOf('case "setup_payment_claim":'));
+  assert.match(b, /p_account: accountId/); assert.doesNotMatch(b, /body\.(account|client)/);
 });

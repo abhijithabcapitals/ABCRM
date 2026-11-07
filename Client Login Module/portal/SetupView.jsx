@@ -5,6 +5,7 @@ import { portalSections } from "@business-setup/logic/formDefinition";
 import SetupForm from "./SetupForm";
 import DecisionPanel from "./DecisionPanel";
 import ClaimForm from "./ClaimForm";
+import ProposalsPanel from "./ProposalsPanel";
 import { invoiceClaimState } from "../logic/decisions";
 
 const money = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -44,17 +45,17 @@ export default function SetupView({ api }) {
   const view = useLoad(() => api.setupView(), [api]);
   const [error, setError] = useState(null);
   const [acting, setActing] = useState(null);   // { type: "decide", kind, doc, decision } or { type: "claim", invoice }
+  const [tick, setTick] = useState(0);           // reloads the proposals after a decision
   if (view.loading && !view.data) return <Spinner />;
   const v = view.data;
   const sections = portalSections(v);
   if (view.error) return <ErrorNote message={view.error} />;
-  if (!sections.length) return null;
   const open = async (kind, id) => {
     setError(null);
     try { window.location.assign(await api.setupFile(kind, id)); } catch (e) { setError(e.message); }
   };
-  const failWith = (message) => { setActing(null); setError(message); view.reload(); };
-  const doneWith = async () => { setActing(null); setError(null); await view.reload(); };
+  const failWith = (message) => { setActing(null); setError(message); setTick((t) => t + 1); view.reload(); };
+  const doneWith = async () => { setActing(null); setError(null); setTick((t) => t + 1); await view.reload(); };
   const decide = (kind, doc, decision) => { setError(null); setActing({ type: "decide", kind, doc, decision }); };
   const openFile = (kind, id) => api.setupFile(kind, id).then((url) => { window.location.assign(url); });
   const file = (kind, id, label) => <button type="button" className="bk-link" onClick={() => open(kind, id)}>{label}</button>;
@@ -63,6 +64,7 @@ export default function SetupView({ api }) {
       <ErrorNote message={error} onClose={() => setError(null)} />
       {acting?.type === "decide" && <DecisionPanel key={acting.doc.id + acting.decision} {...acting} api={api} openFile={openFile} onDone={doneWith} onFail={failWith} onCancel={() => setActing(null)} />}
       {acting?.type === "claim" && <ClaimForm key={acting.invoice.id} invoice={acting.invoice} api={api} onDone={doneWith} onFail={failWith} onCancel={() => setActing(null)} />}
+      <ProposalsPanel api={api} refresh={tick} onChanged={view.reload} onDecide={(doc, decision) => decide("quote", doc, decision)} open={open} />
       {sections.includes("form") && <SetupForm form={v.form} api={api} onChange={view.reload} />}
       {sections.includes("services") && (
         <Panel title="Your services">
@@ -123,7 +125,7 @@ export default function SetupView({ api }) {
           <DataTable rows={v.documents} columns={[{ key: "file_name", label: "File", render: (d) => file("output", d.id, d.file_name) }, { key: "kind", label: "Kind" }, { key: "date", label: "Date", render: (d) => fmtDate(d.date) }]} />
         </Panel>
       )}
-      <div className="bk-actions bk-mb"><Button onClick={view.reload}>Refresh</Button></div>
+      {sections.length > 0 && <div className="bk-actions bk-mb"><Button onClick={view.reload}>Refresh</Button></div>}
     </div>
   );
 }

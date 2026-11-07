@@ -18,6 +18,19 @@ export const attachProposal = async (id, pdf, word) => check(await supabase.rpc(
 export const markProposalSaved = async (id, path) => check(await supabase.rpc("hub_proposal_saved", { p_id: id, p_path: path }));
 export const chooseProposalOption = async (id, option) => check(await supabase.rpc("hub_proposal_choose", { p: { quote_id: id, option } }));
 export const createProposalLetter = async (p) => check(await supabase.rpc("hub_proposal_letter_create", { p }));
+// The client's reply to a shared proposal (Template Hub 014): { quote_id, kind: option | accepted | declined | comment, option?, comment? }.
+// It writes to the proposal itself, as the client does in the portal; a proposal without a client (a lead) takes replies too.
+export const recordProposalReply = async (p) => check(await supabase.rpc("hub_proposal_reply", { p }));
+
+// The activity of the given proposals: their replies (portal and CRM) and their formal decisions (Accept or Reject).
+export async function loadProposalActivity(ids) {
+  if (!ids.length) return { replies: [], decisions: [] };
+  const [replies, decisions] = await Promise.all([
+    supabase.from("hub_proposal_replies").select("id, quote_id, kind, option_index, comment, source, username, created_at").in("quote_id", ids).order("created_at"),
+    supabase.from("business_setup_acceptances").select("id, document_id, decision, note, source, created_at").in("document_id", ids).order("created_at"),
+  ]);
+  return { replies: check(replies), decisions: check(decisions) };
+}
 
 // Stores one file of a proposal. The PDF carries its content type so the signed link opens in the browser.
 export async function uploadProposalFile(doc, blob, ext) {

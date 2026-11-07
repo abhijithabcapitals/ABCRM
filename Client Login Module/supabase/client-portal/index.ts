@@ -17,6 +17,8 @@
 //     override: the only staff words a client reads are the note on a refused signed copy and the note on a refused payment claim.
 //   form_get, form_save { answers }, form_submit, setup_file { kind, id }
 //   setup_decide { document_id, decision, note? }   Accepted or Rejected on the client's own quote or letter; the account comes from the session
+//   proposals -> { proposals }   the client's own Business Formation Proposals with every option and the replies on them (Template Hub 014)
+//   proposal_reply { document_id, kind: option | comment, option?, comment? }   the client chooses an option or comments; Accept and Reject stay setup_decide
 //   setup_payment_claim { invoice_id, amount, paid_on, reference?, proof_id? } -> { id }   "I have paid" on the client's own invoice; the account comes from the
 //     session, never the body. proof_id is the id of a finished upload_start { for_claim: true } upload of this login. The claim changes no balance: staff confirm
 //     it (a payment and a receipt) or refuse it with a note, and the client sees the claim's status (and the refusal note, only when Refused) in setup_view.
@@ -425,6 +427,30 @@ Deno.serve(async (req) => {
         const note = String(body.note ?? "").trim().slice(0, 1000);
         // The account is the one of the live session. The database works out the client and refuses a document that is not theirs.
         const { error } = await admin.rpc("business_setup_portal_decide", { p_account: accountId, p_document: documentId, p_decision: decision, p_note: note || null });
+        if (error) {
+          if (error.code === "P0001") throw new InputError(error.message);
+          throw new Error(error.message);
+        }
+        return json({ ok: true });
+      }
+      case "proposals": {
+        const { data, error } = await admin.rpc("business_setup_portal_proposals", { p_account: accountId });
+        if (error) {
+          if (error.code === "P0001") throw new InputError(error.message);
+          throw new Error(error.message);
+        }
+        return json({ proposals: data });
+      }
+      case "proposal_reply": {
+        const documentId = String(body.document_id || "");
+        if (!UUID.test(documentId)) throw new InputError("Proposal not found.");
+        const kind = String(body.kind || "");
+        if (kind !== "option" && kind !== "comment") throw new InputError("Choose an option or write a comment.");
+        const option = body.option === undefined || body.option === null || body.option === "" ? null : Number(body.option);
+        if (option !== null && (!Number.isInteger(option) || option < 0 || option > 999)) throw new InputError("Choose the option.");
+        const comment = String(body.comment ?? "").trim().slice(0, 1000);
+        // The account is the one of the live session; the database refuses a proposal that is not this client's.
+        const { error } = await admin.rpc("business_setup_portal_proposal_reply", { p_account: accountId, p_document: documentId, p: { kind, option, comment: comment || null } });
         if (error) {
           if (error.code === "P0001") throw new InputError(error.message);
           throw new Error(error.message);

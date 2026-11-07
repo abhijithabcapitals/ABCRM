@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, Modal, Panel, fmtDate, fmtDateTime, useLoad } from "@banking/components/shared";
 import { loadCatalogue, openStored, updateMail } from "../services/hubApi";
-import { listProposalsWithSignatures, openWord, sendProposal } from "../services/proposalApi";
+import { listProposalsWithSignatures, loadProposalActivity, openWord, sendProposal } from "../services/proposalApi";
 import { canSign } from "../services/signingApi";
 import { retryProposal, saveToOneDrive, signProposal } from "../services/proposalGenerate";
 import { oneDriveDeps, proposalDeps } from "../services/proposalDeps";
 import { proposalAmount } from "../logic/proposalModel";
-import ProposalLetterDialog, { ProposalChoiceDialog, fileLetter } from "./ProposalLetterDialog";
+import ProposalLetterDialog, { fileLetter } from "./ProposalLetterDialog";
+import SharedProposals, { ProposalReplyDialog } from "./ProposalReplies";
+import { replyHistory } from "../logic/proposalReplies";
 import { letterAction, proposalStage } from "../logic/proposalLetter";
 import { proposalSendChoice, proposalSignActions, sendSummary } from "../logic/proposalUi";
 import { signOptions } from "../logic/accountingSend";
@@ -70,6 +72,9 @@ export default function ProposalDocuments({ profile, settings, refresh }) {
 
   const all = docs.data || [];
   const rows = all.filter((d) => d.doc_type === "quote" && d.library_template === PROPOSAL);
+  // Replies (portal and CRM) and decisions of the listed proposals: one line of activity each, read from the proposals themselves.
+  const ids = rows.map((d) => d.id).join(",");
+  const activity = useLoad(() => loadProposalActivity(ids ? ids.split(",") : []), [ids]);
   const mailOf = (d) => all.find((x) => x.doc_type === "mail" && x.parent_id === d.id);
   const letterOf = (d) => all.find((x) => x.doc_type === "letter" && x.parent_id === d.id && x.status !== "rejected");
   // A letter the client rejected stays on its quote until a new letter replaces it.
@@ -161,8 +166,8 @@ export default function ProposalDocuments({ profile, settings, refresh }) {
             if (stage === "closed") return "–";
             if (stage !== "letter") return (
               <span className="bk-actions">
-                {(d.field_values?.proposal?.options || []).length > 1 && <Button variant={stage === "choose" ? "primary" : undefined} onClick={() => setChoiceFor(d)}>Record client&apos;s choice</Button>}
-                <small className="bk-muted">{stage === "choose" ? "Record the option the client chose before it can be accepted." : "To accept: confirm the signed copy in the client's workspace (Quotes & Agreements), or the client accepts in the portal."}{!d.client_id && " This proposal has no client yet, and acceptance needs one."}</small>
+                <Button variant={stage === "choose" ? "primary" : undefined} onClick={() => setChoiceFor(d)}>Record reply</Button>
+                <small className="bk-muted">{stage === "choose" ? "Record the client's reply (the option they chose), or the client chooses in the portal." : "To accept: confirm the signed copy in the client's workspace (Quotes & Agreements), or the client accepts in the portal."}{!d.client_id && " This proposal has no client yet: record the lead's reply here. Formal acceptance needs a client."}</small>
               </span>);
             const l = letterOf(d), act = letterAction(l);
             if (act === "done") return <span className="bk-actions"><Badge tone="good">Letter generated</Badge><button type="button" className="bk-link" onClick={() => openStored(l.storage_path).catch((e) => setError(e.message))}>View</button></span>;
@@ -172,6 +177,7 @@ export default function ProposalDocuments({ profile, settings, refresh }) {
           } },
         ]} />
       </Panel>
+      <SharedProposals proposals={rows} activity={activity.data} error={activity.error} onReply={(d) => setChoiceFor(d)} />
       {mail && (
         <div ref={panel}>
           <Panel title={`Mail for proposal ${mail.doc.document_number}`} sub={`Goes to ${mail.doc.contact_email || "no email on file"} with the PDF attached. The Word file is never sent.${mail.doc.mail_sent_at ? ` Already sent ${fmtDateTime(mail.doc.mail_sent_at)}.` : ""}`}
@@ -182,8 +188,8 @@ export default function ProposalDocuments({ profile, settings, refresh }) {
         </div>
       )}
       {sendFor && <SendProposal doc={sendFor} approver={approver.data === true} onSubmit={submitSend} onClose={() => setSendFor(null)} />}
-      {choiceFor && <ProposalChoiceDialog quote={choiceFor} onClose={() => setChoiceFor(null)}
-        onDone={async (text) => { await docs.reload(); setNote({ ok: true, text }); setChoiceFor(null); }} />}
+      {choiceFor && <ProposalReplyDialog quote={choiceFor} history={replyHistory(choiceFor.id, activity.data?.replies, activity.data?.decisions)} onClose={() => setChoiceFor(null)}
+        onDone={async (text) => { await docs.reload(); await activity.reload(); setNote({ ok: true, text }); setChoiceFor(null); }} />}
       {letterFor && <ProposalLetterDialog quote={letterFor} context={context} onClose={() => setLetterFor(null)}
         onDone={async (text) => { await docs.reload(); if (text) { setNote({ ok: true, text }); setLetterFor(null); } }} />}
     </>

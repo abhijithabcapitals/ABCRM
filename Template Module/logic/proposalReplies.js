@@ -59,7 +59,7 @@ export function sharedVia(doc) {
 export function sharedOptionRows(proposals) {
   return (proposals || []).filter((d) => sharedVia(d).length > 0).flatMap((d) => {
     const options = d.field_values?.proposal?.options || [];
-    return options.map((o, i) => ({ key: `${d.id}-${i}`, doc: d, index: i, option: o, first: i === 0, count: options.length }));
+    return options.map((o, i) => ({ key: `${d.id}-${i}`, id: `${d.id}-${i}`, doc: d, index: i, option: o, first: i === 0, count: options.length }));
   });
 }
 

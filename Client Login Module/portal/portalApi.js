@@ -60,6 +60,9 @@ export const portalApi = {
   formSave: (answers) => call("form_save", { answers }),
   formSubmit: () => call("form_submit"),
   setupDecide: (document_id, decision, note) => call("setup_decide", { document_id, decision, note }),
+  // The client's own proposals with every option, and their reply: choose an option or comment. Accept and Reject go through setupDecide.
+  proposals: async () => (await call("proposals")).proposals,
+  proposalReply: (document_id, kind, option, comment) => call("proposal_reply", { document_id, kind, option, comment }),
   // "I have paid". The optional proof goes up first as this login's own upload, then the claim names it.
   setupClaim: async ({ invoice_id, amount, paid_on, reference }, file) => {
     let proof_id;
