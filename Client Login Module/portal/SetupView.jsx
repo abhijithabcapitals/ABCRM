@@ -6,6 +6,7 @@ import SetupForm from "./SetupForm";
 import DecisionPanel from "./DecisionPanel";
 import ClaimForm from "./ClaimForm";
 import ProposalsPanel from "./ProposalsPanel";
+import BdQuotesPanel from "./BdQuotesPanel";
 import { invoiceClaimState } from "../logic/decisions";
 
 const money = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
@@ -64,6 +65,7 @@ export default function SetupView({ api }) {
       <ErrorNote message={error} onClose={() => setError(null)} />
       {acting?.type === "decide" && <DecisionPanel key={acting.doc.id + acting.decision} {...acting} api={api} openFile={openFile} onDone={doneWith} onFail={failWith} onCancel={() => setActing(null)} />}
       {acting?.type === "claim" && <ClaimForm key={acting.invoice.id} invoice={acting.invoice} api={api} onDone={doneWith} onFail={failWith} onCancel={() => setActing(null)} />}
+      <BdQuotesPanel api={api} />
       <ProposalsPanel api={api} refresh={tick} onChanged={view.reload} onDecide={(doc, decision) => decide("quote", doc, decision)} open={open} />
       {sections.includes("form") && <SetupForm form={v.form} api={api} onChange={view.reload} />}
       {sections.includes("services") && (

@@ -30,6 +30,7 @@ import { CONVERTED_STAGE, DEPARTMENTS, QUOTE_STAGE, departmentForService, depart
 import BdMiniCalendar from "./BdMiniCalendar";
 import { BrunoExtra } from "@router-agent";
 import BdCalendarView from "./BdCalendarView";
+import { LeadQuotesPanel, QuoteDialog, loadLeadQuotes } from "./LeadQuotes";
 import LeadGenerationView, { prospectLeadValues, prospectSourceName } from "./LeadGenerationView";
 import RecordChatPanel from "@messenger/components/RecordChatPanel";
 import "./BusinessDevelopment.css";
@@ -414,13 +415,16 @@ export default function BusinessDevelopment({ profile }) {
     setModal("lead");
   }
 
-  async function confirmQuote(quote) {
+  // portal: the result of the portal login sent with the quote ({ emailed, username } or { error }), or null.
+  async function confirmQuote(quote, portal = null) {
     setBusy(true);
     const { error: saveError } = await recordBusinessDevelopmentQuoteSent(selectedLead.id, quote);
     setBusy(false);
     if (saveError) { setError(errorText(saveError)); return; }
     setModal("");
-    setStatus("Quote & engagement letter recorded as sent. A follow-up has been scheduled.");
+    const login = !portal ? "" : portal.error ? ` The portal login was not sent: ${portal.error}` : portal.emailed ? ` Portal login ${portal.username} emailed to the client.` : ` Portal login ${portal.username || ""} is ready, but its mail was not sent.`;
+    setError(portal?.error ? `Quote recorded, but the portal login was not sent: ${portal.error}` : "");
+    setStatus(`Quote ${quote.quote_reference} recorded as sent. A follow-up has been scheduled. The engagement letter follows once the client accepts.${portal?.error ? "" : login}`);
     await load();
   }
 
@@ -1259,6 +1263,13 @@ function LeadWorkspace({ lead, profiles, currentUserId, isManager, onBack, onAct
     if (loadError) setDocError(errorText(loadError)); else setDocuments(data || []);
   }, [lead.id]);
   useEffect(() => { loadDocuments(); }, [loadDocuments]);
+  // The lead's Template Hub quote and engagement letter (LeadQuotes.jsx); reloaded when the lead changes.
+  const [quotes, setQuotes] = useState(null);
+  const loadQuotes = useCallback(async () => {
+    try { setQuotes(await loadLeadQuotes(lead.id)); } catch (e) { setDocError(e.message); }
+  }, [lead.id, lead.updated_at]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadQuotes(); }, [loadQuotes]);
+  const sender = fullName(profiles.find((person) => person.id === currentUserId));
   async function attachDocuments(list) {
     const { files, rejected } = addLeadFiles([], [...list]);
     setDocError(rejected.length ? `Not added: ${rejected.join("; ")}.` : "");
@@ -1320,7 +1331,7 @@ function LeadWorkspace({ lead, profiles, currentUserId, isManager, onBack, onAct
       <nav className="bd-detail-tabs">{tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}{item === "Discussion History" && <span>{history.length}</span>}{item === "Documents" && documents.length > 0 && <span>{documents.length}</span>}</button>)}</nav>
       <div className="bd-detail-grid">
         <main className="bd-panel bd-detail-main">
-          {tab === "Overview" && <><div className="bd-panel-heading"><div><h3>Lead overview</h3><p>Qualification information and next steps.</p></div></div><div className="bd-overview-grid"><div><small>Lead type</small><b>{lead.lead_type}</b></div><div><small>Acquired by</small><b>{fullName(profiles.find((person) => person.id === lead.acquired_by))}</b></div><div><small>Acquired on</small><b>{dateOnly(lead.acquired_at)}</b></div><div><small>Priority</small><b>{lead.priority}</b></div><div><small>Lead age</small><b>{Math.max(0, Math.floor((Date.now() - new Date(lead.created_at).getTime()) / 86400000))} days</b></div><div><small>Source detail</small><b>{lead.source_detail || "—"}</b></div></div><div className="bd-description-block"><small>Initial discussion summary</small><p>{lead.initial_summary}</p></div><div className="bd-description-block"><small>Internal notes</small><p>{lead.notes || "No internal notes recorded."}</p></div>{(lead.quote_sent_at || receipts.length > 0 || transfers.length > 0) && <div className="bd-workflow-block">{lead.quote_sent_at && <div><small>Quote & engagement</small><b>{lead.quote_reference} · {lead.engagement_reference}</b><span>Sent to {lead.quote_sent_to} on {when(lead.quote_sent_at)}</span></div>}{receipts.map((receipt) => <div key={receipt.id}><small>Payment receipt</small><b>{receipt.amount != null ? money(receipt.amount, receipt.currency) : "Amount hidden"} · {dateOnly(receipt.received_on)}</b><span>{receipt.reference || "No reference"} · <button type="button" className="bd-text-button" onClick={() => openReceipt(receipt.file_path)}>{receipt.file_name || "View receipt"}</button></span></div>)}{transfers.length > 0 && <div><small>Transferred to</small><div className="bd-transfer-chips">{transfers.map((t) => <span key={t.id}>{departmentLabel(t.department)} · {t.target_ref}{t.owner ? ` · ${fullName(profiles.find((person) => person.id === t.owner))}` : ""}{t.services?.length ? ` · ${t.services.join(", ")}` : ""}</span>)}</div></div>}</div>}{lead.status === "active" && <div className="bd-inline-actions"><button className="bd-button bd-button-secondary" onClick={() => onService()}>＋ Add service</button><button className="bd-button bd-button-secondary" onClick={onActivity}>＋ Log discussion</button><button className="bd-button bd-button-secondary" onClick={onFollowup}>＋ Schedule follow-up</button></div>}</>}
+          {tab === "Overview" && <><div className="bd-panel-heading"><div><h3>Lead overview</h3><p>Qualification information and next steps.</p></div></div><div className="bd-overview-grid"><div><small>Lead type</small><b>{lead.lead_type}</b></div><div><small>Acquired by</small><b>{fullName(profiles.find((person) => person.id === lead.acquired_by))}</b></div><div><small>Acquired on</small><b>{dateOnly(lead.acquired_at)}</b></div><div><small>Priority</small><b>{lead.priority}</b></div><div><small>Lead age</small><b>{Math.max(0, Math.floor((Date.now() - new Date(lead.created_at).getTime()) / 86400000))} days</b></div><div><small>Source detail</small><b>{lead.source_detail || "—"}</b></div></div><div className="bd-description-block"><small>Initial discussion summary</small><p>{lead.initial_summary}</p></div><div className="bd-description-block"><small>Internal notes</small><p>{lead.notes || "No internal notes recorded."}</p></div>{(lead.quote_sent_at || receipts.length > 0 || transfers.length > 0) && <div className="bd-workflow-block">{lead.quote_sent_at && <div><small>Quote sent</small><b>{lead.quote_reference}{lead.engagement_reference ? ` · ${lead.engagement_reference}` : ""}</b><span>Sent to {lead.quote_sent_to} on {when(lead.quote_sent_at)}</span></div>}{receipts.map((receipt) => <div key={receipt.id}><small>Payment receipt</small><b>{receipt.amount != null ? money(receipt.amount, receipt.currency) : "Amount hidden"} · {dateOnly(receipt.received_on)}</b><span>{receipt.reference || "No reference"} · <button type="button" className="bd-text-button" onClick={() => openReceipt(receipt.file_path)}>{receipt.file_name || "View receipt"}</button></span></div>)}{transfers.length > 0 && <div><small>Transferred to</small><div className="bd-transfer-chips">{transfers.map((t) => <span key={t.id}>{departmentLabel(t.department)} · {t.target_ref}{t.owner ? ` · ${fullName(profiles.find((person) => person.id === t.owner))}` : ""}{t.services?.length ? ` · ${t.services.join(", ")}` : ""}</span>)}</div></div>}</div>}<LeadQuotesPanel lead={lead} data={quotes} sender={sender} onChanged={loadQuotes} />{lead.status === "active" && <div className="bd-inline-actions"><button className="bd-button bd-button-secondary" onClick={() => onService()}>＋ Add service</button><button className="bd-button bd-button-secondary" onClick={onActivity}>＋ Log discussion</button><button className="bd-button bd-button-secondary" onClick={onFollowup}>＋ Schedule follow-up</button></div>}</>}
           {tab === "Services & Budgets" && <><div className="bd-panel-heading"><div><h3>Services & budgets</h3><p>Each service has its own price, scope, and commercial outcome.</p></div>{lead.status === "active" && <button className="bd-button bd-button-secondary" onClick={() => onService()}>＋ Add service</button>}</div>{services.length ? <div className="bd-service-list">{services.map((service) => <article className="bd-service-card" key={service.id}><div><strong>{service.service_name}</strong><span>{service.status} · {service.billing_frequency || "Frequency not set"}</span>{lead.status === "active" && <button className="bd-text-button bd-service-edit" onClick={() => onService(service)}>Edit service</button>}</div><div><small>Client budget</small><b>{service.client_budget ? money(service.client_budget, service.currency) : "—"}</b></div><div><small>Proposed fee</small><b>{service.proposed_fee ? money(service.proposed_fee, service.currency) : "—"}</b></div><div><small>Agreed fee</small><b>{service.final_agreed_fee ? money(service.final_agreed_fee, service.currency) : "—"}</b></div></article>)}</div> : <Empty title="No services added" body="Add the prospect’s requirements and quote each service independently." />}</>}
           {tab === "Documents" && <><div className="bd-panel-heading"><div><h3>Documents</h3><p>Files attached when the lead was captured or added since.</p></div><button className="bd-button bd-button-secondary" disabled={docBusy} onClick={() => docInput.current?.click()}>{docBusy ? "Uploading…" : "＋ Attach documents"}</button></div>
             <input ref={docInput} className="bd-file-input" type="file" multiple accept=".pdf,image/*" onChange={(event) => { attachDocuments(event.target.files); event.target.value = ""; }} />
@@ -1335,7 +1346,7 @@ function LeadWorkspace({ lead, profiles, currentUserId, isManager, onBack, onAct
       {modal === "activity" && <ActivityForm lead={lead} currentUserId={currentUserId} busy={busy} onClose={onCloseModal} onSubmit={onSubmitActivity} />}
       {modal === "followup" && <FollowupForm lead={lead} currentUserId={currentUserId} busy={busy} onClose={onCloseModal} onSubmit={onSubmitFollowup} />}
       {modal === "service" && <ServiceForm lead={lead} service={selectedService} busy={busy} onClose={onCloseModal} onSubmit={onSubmitService} />}
-      {modal === "quote" && <QuoteForm lead={lead} busy={busy} onClose={onCloseModal} onSubmit={onSubmitQuote} />}
+      {modal === "quote" && <QuoteDialog lead={lead} docs={quotes?.docs} sender={sender} busy={busy} onClose={() => { onCloseModal(); loadQuotes(); }} onSubmit={async (quote, portal) => { await onSubmitQuote(quote, portal); loadQuotes(); }} />}
       {modal === "convert" && <ConvertForm lead={lead} profiles={profiles} currentUserId={currentUserId} busy={busy} error={error} onClose={onCloseModal} onSubmit={onSubmitConvert} />}
       {modal === "lost" && <LostForm busy={busy} onClose={onCloseModal} onSubmit={onSubmitLost} />}
     </div>
@@ -1461,46 +1472,6 @@ function ServiceForm({ lead, service, busy, onClose, onSubmit }) {
       <label>Expected start date<input type="date" value={form.expected_start_date} onChange={(event) => set("expected_start_date", event.target.value)} /></label>
       <label>Expected closing date<input type="date" value={form.expected_closing_date} onChange={(event) => set("expected_closing_date", event.target.value)} /></label>
       <label className="bd-form-wide">Internal service notes<textarea rows="2" value={form.notes} onChange={(event) => set("notes", event.target.value)} /></label>
-    </FormModal>
-  );
-}
-
-// Quote & engagement: the mail goes from the user's own mailbox (quotation and engagement letter attached there);
-// saving records it on the lead, schedules the follow-up and moves the lead to Quote & Engagement Sent.
-function QuoteForm({ lead, busy, onClose, onSubmit }) {
-  const quoted = (lead.bd_lead_services || []).filter((service) => service.status !== "rejected" && service.proposed_fee != null);
-  const [error, setError] = useState("");
-  const [form, setForm] = useState(() => ({
-    quote_reference: lead.quote_reference || quoted.find((service) => service.quotation_reference)?.quotation_reference || "",
-    engagement_reference: lead.engagement_reference || "",
-    sent_to: lead.quote_sent_to || lead.email || "",
-    next_followup_at: toUaeInput(new Date(Date.now() + 3 * 86400000)),
-  }));
-  const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
-  const serviceLines = quoted.map((service) => `- ${service.service_name}: ${money(service.proposed_fee, service.currency)}${service.billing_frequency && service.billing_frequency !== "one_time" ? ` (${service.billing_frequency})` : ""}`).join("\n");
-  const [message, setMessage] = useState(() => `Dear ${lead.contact_name || lead.name},\n\nThank you for your time. Please find attached our quotation and engagement letter for the following services:\n\n${serviceLines}\n\nKindly sign the engagement letter and share the payment receipt once the payment is made, so we can begin.\n\nKind regards,`);
-  const subject = `Quotation ${form.quote_reference || ""} & engagement letter – ${lead.name}`.replace(/\s+/g, " ");
-  const mailto = `mailto:${encodeURIComponent(form.sent_to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
-  async function submit(event) {
-    event.preventDefault();
-    if (!quoted.length) return setError("Add a proposed fee to at least one service (Services & Budgets) before sending the quote.");
-    if (!form.quote_reference.trim() || !form.engagement_reference.trim()) return setError("Enter the quotation and engagement letter references.");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.sent_to.trim())) return setError("Enter the email address the quote is sent to.");
-    if (!form.next_followup_at) return setError("Set the date to follow up on the quote.");
-    await onSubmit({
-      quote_reference: form.quote_reference.trim(), engagement_reference: form.engagement_reference.trim(), sent_to: form.sent_to.trim(),
-      sent_at: new Date().toISOString(), next_followup_at: uaeInputToIso(form.next_followup_at),
-      summary: `Quotation ${form.quote_reference.trim()} and engagement letter ${form.engagement_reference.trim()} sent to ${form.sent_to.trim()}. Services: ${quoted.map((service) => service.service_name).join(", ")}.`,
-    });
-  }
-  return (
-    <FormModal title="Send quote & engagement" subtitle="Open the mail in your mailbox, attach the quotation and engagement letter, send it, then record it here." error={error} busy={busy} onClose={onClose} onSubmit={submit} submitLabel="Record as sent">
-      <label>Quotation reference *<input value={form.quote_reference} onChange={(event) => set("quote_reference", event.target.value)} required /></label>
-      <label>Engagement letter reference *<input value={form.engagement_reference} onChange={(event) => set("engagement_reference", event.target.value)} required /></label>
-      <label>Send to *<input type="email" value={form.sent_to} onChange={(event) => set("sent_to", event.target.value)} required /></label>
-      <label>Follow up on *<input type="datetime-local" value={form.next_followup_at} onChange={(event) => set("next_followup_at", event.target.value)} required /></label>
-      <label className="bd-form-wide">Mail<textarea rows="8" value={message} onChange={(event) => setMessage(event.target.value)} /><small>{quoted.length ? `${quoted.length} quoted service${quoted.length === 1 ? "" : "s"}.` : "No service has a proposed fee yet."} Attachments are added in your mail app.</small></label>
-      <div className="bd-form-wide"><a className="bd-button bd-button-secondary" href={mailto} target="_blank" rel="noopener noreferrer">✉ Open in mail app</a></div>
     </FormModal>
   );
 }

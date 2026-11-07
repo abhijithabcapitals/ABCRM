@@ -1,6 +1,8 @@
 // Talks to the client-portal Edge Function. Clients are not Supabase users: their session is a token
 // kept in this browser tab only, so closing the tab signs them out.
 const FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/client-portal`;
+// Business Development quotes have their own function (Business Development Module/supabase/bd-quote-portal), with the same session.
+const BD_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bd-quote-portal`;
 const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const KEY = "crm_client_portal_token";
 
@@ -10,8 +12,8 @@ export function getPortalToken() {
   try { return sessionStorage.getItem(KEY); } catch { return null; }
 }
 
-async function post(body, bearer = ANON) {
-  const res = await fetch(FN, { method: "POST", headers: { "Content-Type": "application/json", apikey: ANON, Authorization: `Bearer ${bearer}` }, body: JSON.stringify(body) });
+async function post(body, bearer = ANON, fn = FN) {
+  const res = await fetch(fn, { method: "POST", headers: { "Content-Type": "application/json", apikey: ANON, Authorization: `Bearer ${bearer}` }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || "Something went wrong. Please try again."), { termsRequired: !!data.terms_required, signedOut: !!data.signed_out });
   return data;
@@ -36,9 +38,9 @@ function signOutLocally() {
   window.location.reload();
 }
 
-async function call(action, body = {}) {
+async function call(action, body = {}, fn = FN) {
   try {
-    return await post({ action, token: getPortalToken(), ...body });
+    return await post({ action, token: getPortalToken(), ...body }, ANON, fn);
   } catch (e) {
     if (e.signedOut) signOutLocally();
     // New Terms were published while this page was open: reload, and the gate asks for agreement.
@@ -75,6 +77,10 @@ export const portalApi = {
     }
     return call("setup_payment_claim", { invoice_id, amount, paid_on, reference, proof_id });
   },
+  // Business Development quotes: the client accepts or rejects them here; the engagement letter follows acceptance.
+  bdQuotes: async () => (await call("bd_quotes", {}, BD_FN)).quotes,
+  bdDecide: (document_id, decision, note) => call("bd_decide", { document_id, decision, note }, BD_FN),
+  bdFile: async (id) => (await call("bd_file", { id }, BD_FN)).url,
   setupFile: async (kind, id) => (await call("setup_file", { kind, id })).url,
   formUpload: async (file, doc_type) => {
     const { id, upload_url, mime } = await call("upload_start", { file_name: file.name, size: file.size, doc_type, for_form: true });

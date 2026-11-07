@@ -51,7 +51,7 @@ export function nextStep(lead) {
   if (!lead.current_owner) return { action: "assign", label: "Assign to me" };
   const index = WORKFLOW_STAGES.indexOf(lead.stage);
   if (lead.stage === QUOTE_STAGE) return { action: "convert", label: "Record receipt & convert" };
-  if (lead.stage === "Done KYC") return { action: "quote", label: "Send quote & engagement" };
+  if (lead.stage === "Done KYC") return { action: "quote", label: "Send quote" };
   if (index < 0) return { action: "stage", stage: WORKFLOW_STAGES[0], label: `Move to ${WORKFLOW_STAGES[0]}` };
   const next = WORKFLOW_STAGES[index + 1];
   return { action: "stage", stage: next, label: `Move to ${next}` };
