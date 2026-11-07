@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import chatApi from "../services/chatClient.js";
 
-// Members of a group. Owners (from the member list) can rename, add and remove; everyone can leave.
+// Members of a group. Owners (from the member list) can rename, add, remove and delete the group; everyone can archive it for themselves or leave.
 // The database enforces the same rules, so hiding the controls is only for tidiness.
-export default function GroupInfo({ row, me, reload, onBack, onClose, onLeft }) {
+export default function GroupInfo({ row, me, reload, onBack, onClose, onLeft, onArchive }) {
   const cid = row.id;
   const [members, setMembers] = useState(null);
   const [staff, setStaff] = useState([]);
   const [title, setTitle] = useState(row.title || "");
   const [adding, setAdding] = useState([]);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState(null); // "leave", "delete" or null
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState("");
 
@@ -41,6 +41,7 @@ export default function GroupInfo({ row, me, reload, onBack, onClose, onLeft }) 
   const remove = (id) => act(() => chatApi.removeMember(cid, id), "Could not remove this person. Please try again.", refresh);
   const add = () => act(() => chatApi.addMembers(cid, adding), "Could not add these people. Please try again.", async () => { setAdding([]); await refresh(); });
   const leave = () => act(() => chatApi.leave(cid), "Could not leave the group. Please try again.", async () => { await reload(); onLeft(); });
+  const destroy = () => act(() => chatApi.deleteGroup(cid), "Could not delete the group. Please try again.", async () => { await reload(); onLeft(); });
 
   return (
     <section className="msgr-screen" aria-label="Group info">
@@ -84,14 +85,26 @@ export default function GroupInfo({ row, me, reload, onBack, onClose, onLeft }) 
         </div>
       )}
       <div className="msgr-screen-foot">
-        {confirming ? (
+        {confirming === "leave" && (
           <>
             <span>Leave this group?</span>
             <button type="button" className="msgr-danger" disabled={working} onClick={leave}>Leave</button>
-            <button type="button" className="msgr-link" onClick={() => setConfirming(false)}>Cancel</button>
+            <button type="button" className="msgr-link" onClick={() => setConfirming(null)}>Cancel</button>
           </>
-        ) : (
-          <button type="button" className="msgr-danger" onClick={() => setConfirming(true)}>Leave group</button>
+        )}
+        {confirming === "delete" && (
+          <>
+            <span>Delete this group and all its messages for everyone? This cannot be undone.</span>
+            <button type="button" className="msgr-danger" disabled={working} onClick={destroy}>Delete</button>
+            <button type="button" className="msgr-link" onClick={() => setConfirming(null)}>Cancel</button>
+          </>
+        )}
+        {!confirming && (
+          <>
+            {onArchive && <button type="button" className="msgr-link" disabled={working} onClick={() => onArchive(!row.archived)}>{row.archived ? "Restore chat" : "Archive chat"}</button>}
+            <button type="button" className="msgr-danger" onClick={() => setConfirming("leave")}>Leave group</button>
+            {owner && <button type="button" className="msgr-danger" onClick={() => setConfirming("delete")}>Delete group</button>}
+          </>
         )}
       </div>
     </section>

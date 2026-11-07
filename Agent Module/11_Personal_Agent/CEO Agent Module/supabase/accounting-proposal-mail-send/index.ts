@@ -1,5 +1,8 @@
-// accounting-proposal-mail-send: mails one Accounting quote or approved agreement, with only its PDF attached.
-//   POST { document_id, resend?, from?, signature_id? }  ->  { ok: true, sent_at, warnings } or { error }
+// accounting-proposal-mail-send: mails one Accounting quote or agreement, with only its PDF attached. Signing is optional.
+//   POST { document_id, resend?, from?, signature_id?, signed? }  ->  { ok: true, sent_at, signed, warnings } or { error }
+// signed: true attaches the PDF of the document's live signature (document_signatures, read with the service role after
+// hub_acct_can_send, path checked under Accounting/<id>/signed/), and refuses when there is none. false or missing attaches the
+// unsigned PDF as before.
 // The caller must pass hub_acct_can_send(document_id). Subject and body come from the document's child 'mail' draft and the
 // recipient from the document's contact email. Mail goes through the accounts mailbox's own SMTP server, with the same
 // password store as ardentax-mail-send, and a copy goes to its Sent folder. The sent mark is written with the service role
@@ -11,8 +14,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapClient } from "../ceo-mail-sync/imap.ts";
 import { SmtpClient } from "../ceo-mail-reply/smtp.ts";
 import { buildMail } from "../ardentax-mail-send/mime.ts";
-import { chooseLogin, htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients } from "../ardentax-mail-send/rules.ts";
-import { attachmentFileName, attachmentsFor, CLAIM_REFUSED, chooseSender, claimRule, composeText, DEFAULT_SENDER, refusal, senderName, signatureFits, signatureHtml } from "./rules.ts";
+import { chooseLogin, htmlBody, MAX_ATTACHMENT_BYTES, parseRecipients, plainText } from "../ardentax-mail-send/rules.ts";
+import { attachmentChoice, attachmentFileName, CLAIM_REFUSED, chooseSender, claimRule, composeText, DEFAULT_SENDER, NOT_SIGNED, parseSigned, refusal, senderName, sentNotRecorded, signatureFits, signatureHtml } from "./rules.ts";
 
 const BUCKET = "hub-documents";
 
@@ -39,10 +42,12 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userDb.auth.getUser();
     if (!user) return json({ error: "Sign in first." }, 401);
 
-    const { document_id: id, resend, from, signature_id: signatureId } = await req.json();
+    const { document_id: id, resend, from, signature_id: signatureId, signed: signedFlag } = await req.json();
     if (typeof id !== "string") return json({ error: "A document is needed." }, 400);
+    const signed = parseSigned(signedFlag);
+    if (typeof signed !== "boolean") return json({ error: signed.error }, 400);
     const { data: allowed } = await userDb.rpc("hub_acct_can_send", { p_id: id });
-    if (allowed !== true) return json({ error: "You cannot mail this document. It needs a PDF, and an agreement needs its approval." }, 403);
+    if (allowed !== true) return json({ error: "You cannot mail this document. It needs a PDF first." }, 403);
 
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
     const { data: doc, error: docError } = await admin.from("hub_documents").select("*").eq("id", id).maybeSingle();
@@ -55,6 +60,17 @@ Deno.serve(async (req) => {
     const refused = refusal(full, { resend: !!resend });
     if (refused) return json({ error: refused }, doc.mail_sent_at && !resend ? 409 : 400);
     const to = parseRecipients(doc.contact_email);
+
+    // The signed copy, when asked for: the live signature, read with the service role only now that the caller may send this document.
+    let live = null;
+    if (signed) {
+      const { data, error } = await admin.from("document_signatures").select("id, source_table, source_id, pdf_path, superseded_at")
+        .eq("source_table", "hub_documents").eq("source_id", doc.id).is("superseded_at", null).maybeSingle();
+      if (error) throw new Error(error.message);
+      live = data;
+    }
+    const choice = attachmentChoice(doc, signed, live);
+    if ("error" in choice) return json({ error: choice.error }, 409);
 
     // Who the mail comes from and which signature it carries, checked before anything is claimed.
     const MAILBOX_COLUMNS = "id, address, display_name, login_user, smtp_host, smtp_port, imap_host, imap_port";
@@ -88,26 +104,30 @@ Deno.serve(async (req) => {
     if (!rule.storagePath) return json({ error: CLAIM_REFUSED }, 409);
     let claim = admin.from("hub_documents").update({ mail_claimed_at: claimedAt.toISOString() }).eq("id", doc.id).or(`mail_claimed_at.is.null,mail_claimed_at.lt.${rule.staleBefore}`)
       .eq("storage_path", rule.storagePath);
-    if (rule.requireApproved) claim = claim.not("approved_at", "is", null);
     if (rule.requireUnsent) claim = claim.is("mail_sent_at", null);
     const { data: claimed, error: claimError } = await claim.select("id");
     if (claimError) throw new Error(claimError.message);
     if (!claimed?.length) return json({ error: CLAIM_REFUSED }, 409);
-    let released = false; // the success update clears the claim itself
+    let released = false; // true once the mail server accepted the message: the claim is then kept, and the sent mark clears it
     try {
+      // An edit or a new signing between the read and the claim ends the signature: then nothing is sent.
+      if (choice.signatureId) {
+        const { data: still, error: stillError } = await admin.from("document_signatures").select("id").eq("id", choice.signatureId).is("superseded_at", null).maybeSingle();
+        if (stillError) throw new Error(stillError.message);
+        if (!still) return json({ error: NOT_SIGNED }, 409);
+      }
       const eb = admin.schema("email_base");
       const login = await mailboxLogin(admin, mailbox.address, mailbox.login_user);
       if (!login) return json({ error: `No password is saved for ${mailbox.address}. Add it in Settings > Email Accounts.` }, 400);
 
-      const [path] = attachmentsFor(doc);
-      const { data: file, error: fileError } = await admin.storage.from(BUCKET).download(path);
+      const { data: file, error: fileError } = await admin.storage.from(BUCKET).download(choice.path);
       if (fileError) throw new Error(`Could not read the PDF: ${fileError.message}`);
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (bytes.length > MAX_ATTACHMENT_BYTES) return json({ error: "The PDF is too large to send." }, 400);
 
       const body = composeText(draft?.mail_body || "", signature);
       const { messageId, raw } = buildMail({
-        from: mailbox.address, fromName: senderName(mailbox), to, cc: [], subject: draft!.mail_subject, text: body, html: htmlBody(body, signatureHtml(signature)), inline: [],
+        from: mailbox.address, fromName: senderName(mailbox), to, cc: [], subject: draft!.mail_subject, text: plainText(body), html: htmlBody(body, signatureHtml(signature)), inline: [],
         attachments: [{ name: attachmentFileName(doc), type: "application/pdf", bytes }],
       });
 
@@ -117,11 +137,12 @@ Deno.serve(async (req) => {
         return json({ error: `The mail was not sent: ${(e as Error).message}` }, 502);
       }
 
+      // The mail is out: from here the claim is never given back, so a failed sent mark cannot lead to a second copy.
+      released = true;
       const warnings: string[] = [];
       const sentAt = new Date().toISOString();
       const { error: sentError } = await admin.from("hub_documents").update({ mail_sent_at: sentAt, mail_sent_by: user.id, mail_sent_to: doc.contact_email, mail_sent_from: mailbox.address, mail_claimed_at: null }).eq("id", doc.id);
-      if (sentError) warnings.push(`The mail was sent, but the CRM could not record it: ${sentError.message}`);
-      else released = true;
+      const notRecorded = sentError ? sentNotRecorded(sentError.message) : null;
 
       const { data: sentFolder } = await eb.from("mailbox_folders").select("name").eq("mailbox_id", mailbox.id).eq("role", "sent").order("name").limit(1).maybeSingle();
       if (sentFolder) {
@@ -139,9 +160,10 @@ Deno.serve(async (req) => {
         warnings.push("No Sent folder is known yet, so no copy was saved there.");
       }
       console.log("accounting-proposal-mail-send", doc.document_number, messageId);
-      return json({ ok: true, sent_at: sentAt, warnings });
+      if (notRecorded) return json({ error: notRecorded, sent: true, warnings }, 500);
+      return json({ ok: true, sent_at: sentAt, signed: !!choice.signatureId, warnings });
     } finally {
-      // Every failure path gives the claim back, but only our own claim, never one taken over after it went stale.
+      // Every failure before the mail server accepted the message gives the claim back, but only our own claim, never one taken over after it went stale.
       if (!released) await admin.from("hub_documents").update({ mail_claimed_at: null }).eq("id", doc.id).eq("mail_claimed_at", claimedAt.toISOString());
     }
   } catch (e) {

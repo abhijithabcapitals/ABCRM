@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { checkProposal } from "../logic/proposalModel.js";
-import { generateProposal, retryProposal, saveToOneDrive, proposalMail } from "../services/proposalGenerate.js";
+import { generateProposal, retryProposal, saveToOneDrive, proposalMail, rebuildProposal, signProposal } from "../services/proposalGenerate.js";
 
 const form = { client: "Sample Client", contact: "Sam", email: "s@example.com", phone: "050" };
 const option = (key, name, amount) => ({ authority_key: key, authority_name: name, activity: "Consulting", title: "", description: "", logo_path: `logos/${key}.png`, timeline_path: null, package_includes: [], red_notes: [], services: [{ name: "Licence", remarks: "", amount, subs: [] }] });
@@ -148,4 +148,83 @@ test("saveToOneDrive reloads the stored files and records the path", async () =>
   assert.deepEqual(calls.find((c) => c[0] === "save"), ["save", "BLOB:a.docx", "BLOB:a.pdf"]);
   const off = await saveToOneDrive({ id: "d1", storage_path: "a.pdf", word_path: "a.docx" }, { ...deps, saveLocal: async () => null });
   assert.equal(off, null);
+});
+
+test("mail draft marks its closing, so the sender can drop it under a mail signature", () => {
+  const contact = { name: "Sam Signer", phone: "+971-500000000", email: "sam@example.com", website: "" };
+  const body = proposalMail(created, { proposal_defaults: { contact }, company: { short_name: "Example Co FZE" } }).body;
+  assert.match(body, /forward\.\n\n-- closing --\nKind regards\nSam Signer\nExample Co FZE\n\+971-500000000\nsam@example\.com$/);
+  assert.equal(body.split("-- closing --").length - 1, 1);
+  assert.match(proposalMail(created).body, /\n-- closing --\nKind regards$/);
+});
+
+// ---- Signing (shared step, services/signing.js) ----
+const SIG = { bytes: new Uint8Array([1]), type: "png", width: 10, height: 5 };
+const stored = { ...created, storage_path: "Business Setup/d1/p.pdf", word_path: "Business Setup/d1/p.docx", content_changed_at: "2026-11-05T09:00:00.123456Z" };
+
+test("rebuildProposal renders the stored proposal with the signature: stored Ref, stored date, stored options; nothing is created or uploaded", async () => {
+  const { calls, deps } = fakes({ render: "SIGNED WORD" });
+  const settings = { company: {}, proposal_defaults: { usd_rate: 9 } };
+  const out = await rebuildProposal(stored, SIG, deps, settings);
+  assert.equal(out, "SIGNED WORD");
+  assert.deepEqual(names(calls), ["loadTemplate", "loadImages", "render"]);
+  assert.deepEqual(calls[1].args[0], stored.field_values.proposal);
+  const [buffer, ctx, images, signature] = calls[2].args;
+  assert.equal(buffer, "BUFFER");
+  assert.deepEqual(images, {});
+  assert.equal(signature, SIG);
+  assert.equal(ctx.ref_no, stored.document_number);
+  assert.equal(ctx.date, "05/11/2026", "the date it was made, never today");
+  assert.equal(ctx.usd_rate, "3.6725", "the stored rate, not the one in Settings now");
+  assert.deepEqual(ctx.options.map((o) => o.total_aed), ["1,000", "2,500"]);
+});
+
+test("rebuildProposal renders exactly the context the stored files were made with", async () => {
+  const made = fakes();
+  await retryProposal(stored, made.deps, { company: {} });
+  const signed = fakes();
+  await rebuildProposal(stored, SIG, signed.deps, { company: {} });
+  const a = made.calls.find((c) => c.name === "render").args, b = signed.calls.find((c) => c.name === "render").args;
+  assert.deepEqual(b[1], a[1]);
+  assert.equal(a[3], undefined, "the unsigned files carry no signature");
+});
+
+test("rebuildProposal without a signature is refused", async () => {
+  const { deps } = fakes();
+  await assert.rejects(rebuildProposal(stored, null, deps, {}), /signature/i);
+});
+
+test("signProposal signs through the shared step with the row's change stamp and copies the signed files to the office folder", async () => {
+  let args;
+  const { calls, deps } = fakes();
+  deps.sign = async (a) => { args = a; return { signature: { id: "s1", pdf_path: "Business Setup/d1/signed/x.pdf" }, wordBlob: await a.rebuild(a.doc, SIG), pdfBlob: "SPDF" }; };
+  const out = await signProposal(stored, deps, { company: {} });
+  assert.equal(args.table, "hub_documents");
+  assert.equal(args.doc, stored);
+  assert.equal(args.seen, stored.content_changed_at);
+  assert.equal(out.signature.id, "s1");
+  assert.equal(out.onedrive, "C:/Office/Prop");
+  assert.deepEqual(calls.find((c) => c.name === "saveLocal").args.slice(1), ["WORD", "SPDF"]);
+  assert.equal(calls.find((c) => c.name === "render").args[3], SIG);
+  for (const n of ["create", "upload", "attach", "createMail"]) assert.ok(!names(calls).includes(n), n);
+});
+
+test("signProposal: the stamp is created_at while nothing changed; a refusal is passed back and nothing is copied", async () => {
+  let seen;
+  const { calls, deps } = fakes();
+  deps.sign = async (a) => { seen = a.seen; return { error: "You are not an approver of ab_capital" }; };
+  const out = await signProposal(created, deps, {});
+  assert.equal(seen, created.created_at);
+  assert.deepEqual(out, { error: "You are not an approver of ab_capital" });
+  assert.ok(!names(calls).includes("saveLocal"));
+  deps.sign = async () => { throw new Error("network down"); };
+  assert.deepEqual(await signProposal(created, deps, {}), { error: "network down" });
+});
+
+test("signProposal: the office folder being off still signs", async () => {
+  const { deps } = fakes({ saveLocal: null });
+  deps.sign = async () => ({ signature: { id: "s1" }, wordBlob: "W", pdfBlob: "P" });
+  const out = await signProposal(stored, deps, {});
+  assert.equal(out.error, undefined);
+  assert.equal(out.onedrive, null);
 });

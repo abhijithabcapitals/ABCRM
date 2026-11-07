@@ -1,5 +1,5 @@
 -- =====================================================================
--- Notification Base - Changes Made                                    019
+-- Notification Base - Changes Made                                    020
 -- =====================================================================
 -- Every change to a client's key registration and ownership data lands in changes_made_log, with who made it
 -- and when. The Notification Centre shows it as the CHANGES MADE card.
@@ -11,7 +11,7 @@
 --   Banking KYC: licence number, authority, issue and expiry dates; each shareholder as above.
 -- Passport numbers and Emirates IDs are stored masked (last 4 characters only), never in full.
 -- Read: Notification Centre admin or manager, or anyone with the Accounting or Clients tab.
--- Re-runnable. Triggers attach only to tables that exist. Rollback: rollback/019_rollback.sql.
+-- Re-runnable. Triggers attach only to tables that exist. Rollback: rollback/020_rollback.sql.
 -- =====================================================================
 
 create table if not exists public.changes_made_log (

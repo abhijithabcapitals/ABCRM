@@ -1,6 +1,7 @@
 // Wires the real server calls into the deps that proposalGenerate.js asks for. Shared by the form and the documents list.
 import { renderProposal } from "../logic/proposalDocx.js";
 import { checkProposal } from "../logic/proposalModel.js";
+import { signHubDocument } from "./signingApi";
 import { attachProposal, createProposal, createProposalMail, loadProposalImages, markProposalSaved, saveProposalFolder, storedBlob, uploadProposalFile } from "./proposalApi";
 
 async function loadTemplate() {
@@ -9,9 +10,10 @@ async function loadTemplate() {
   return res.arrayBuffer();
 }
 
-async function render(template, context, images) {
+// signature: only when signing (the shared step's rebuild); the stored files are made without one.
+async function render(template, context, images, signature) {
   const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
-  return renderProposal(template, context, images, { PizZip, Docxtemplater });
+  return renderProposal(template, context, images, { PizZip, Docxtemplater }, signature || null);
 }
 
 async function toPdf(wordBlob) {
@@ -23,6 +25,8 @@ async function toPdf(wordBlob) {
 export const proposalDeps = {
   checkFirst: checkProposal, create: createProposal, loadTemplate, loadImages: loadProposalImages, render, toPdf,
   upload: uploadProposalFile, attach: attachProposal, saveLocal: saveProposalFolder, markSaved: markProposalSaved, createMail: createProposalMail,
+  // The shared signing step: the image comes from Settings > Signing (AB Capital), the files go under Business Setup/<id>/signed/.
+  sign: (args) => signHubDocument(args, { toPdf }),
 };
 
 // For "Save now": the stored files are copied into the office folder again.

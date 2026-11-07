@@ -65,6 +65,9 @@ export const clientDocumentRequest = (s, p) => call(s, "client_document_request"
 export const alertManualTypes = (s) => call(s, "alert_manual_types", {});
 export const alertManualRaise = (s, type, client, detail, due) => call(s, "alert_manual_raise", { p_type: type, p_client: client, p_detail: detail || null, p_due: due || null });
 
-// CHANGES MADE (019)
+// Business Setup's own checklist function (migration 022): it checks who may work the item. The alert closes at the next scan.
+export const checklistItemDone = (s, id) => call(s, "business_setup_checkpoint_set", { p_id: id, p_status: "Completed", p_note: null });
+
+// CHANGES MADE (020)
 export const changesMadeList = (s, days = 30, limit = 200) => call(s, "changes_made_list", { p_days: days, p_limit: limit });
 export const changesMadeMarkSeen = (s) => call(s, "changes_made_mark_seen", {});

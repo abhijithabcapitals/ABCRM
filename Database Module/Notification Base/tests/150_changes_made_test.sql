@@ -1,4 +1,4 @@
--- CHANGES MADE (migration 019). Prints "ok ..." per check and stops at the first failure.
+-- CHANGES MADE (migration 020). Prints "ok ..." per check and stops at the first failure.
 \set ON_ERROR_STOP on
 
 \set acc '00000000-0000-0000-0000-000000014001'

@@ -13,6 +13,8 @@ import { fromClientMaster, mergeAutofill } from "../logic/libraryOcr";
 import { renderDocx } from "../logic/renderDocx";
 import { createLibraryDocument, createLibraryLetter, libraryFileBuffer, loadHubSettings, renderTemplate, saveFile, searchClients } from "../services/hubApi";
 import { generateDesign, generateLibraryDocument } from "../services/libraryGenerate";
+import { fileAndWithdraw } from "../logic/hubSigning";
+import { supersedeSignature } from "../services/signingApi";
 
 const dubaiToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date());
 const emptyRow = () => ({ label: "", amount: "", remarks: "", rate: "" });
@@ -25,18 +27,26 @@ const readingOf = (r, docs) => {
   return doc ? r.slice(0, -(doc.name.length + 3)) : r;
 };
 
+// Files the Word file, then ends any live signature (Retry): the database already did when the file changed, and this second line
+// only warns, so the save and download never wait on signing.
+const fileThenWithdraw = async (doc, save) => {
+  const { saved, warning } = await fileAndWithdraw(doc, save, supersedeSignature);
+  if (warning) console.warn(warning);
+  return saved;
+};
+
 export const libraryDeps = (company) => ({
   loadFile: libraryFileBuffer,
   create: createLibraryDocument,
   render: renderDocx,
-  save: (doc, blob, name) => saveFile(doc, pcKind(company), blob, name),
+  save: (doc, blob, name) => fileThenWithdraw(doc, () => saveFile(doc, pcKind(company), blob, name)),
 });
 
 export const designDeps = (kind) => ({
   loadSettings: loadHubSettings,
   create: kind === "letter" ? createLibraryLetter : createLibraryDocument,
   render: (data) => renderTemplate(kind === "letter" ? LETTER_TEMPLATE : QUOTE_TEMPLATE, data),
-  save: (doc, blob, name) => saveFile(doc, kind === "letter" ? "setup_letter" : "setup_quote", blob, name),
+  save: (doc, blob, name) => fileThenWithdraw(doc, () => saveFile(doc, kind === "letter" ? "setup_letter" : "setup_quote", blob, name)),
 });
 
 export default function LibraryForm({ template, fileId, kind, start, onClose, onDone, onFailed }) {

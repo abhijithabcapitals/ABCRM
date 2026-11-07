@@ -62,6 +62,16 @@ Quotations and letters are numbered from the format in Settings > Document Numbe
 
 A quotation is saved when issued, a letter when generated and a fee receipt voucher when its payment is recorded, as Word files. Vouchers keep their `RC-` numbers. Each goes to private storage and, through the Client Module, to `Database Module/Generated Documents/Banking Business` on this PC (`generatedFolders` in its `config.json`). `banking_generated_documents` records the number, serial and both locations. On a PC without the Client Module, the local path stays empty until someone presses Save to folder there.
 
+## AB Capital signature (optional)
+
+Quotations, engagement letters and fee receipt vouchers can carry the AB Capital signature through the CRM-wide signing (Template Hub 011). Signing is optional: generate, Word, Save to folder and Send work as before on an unsigned document.
+
+- The three templates have an Authorized Signatory place, `{@signature_xml}`: blank lines for a hand signature when unsigned, the image from Settings > Signing once signed. The quotation and letter come from `Template Module/scripts/build_ab_capital_templates.py`, the voucher from `scripts/build_templates.py`. A master template uploaded in Settings without that tag still renders unsigned but is refused for signing.
+- **Sign** shows for an AB Capital approver (`doc_sign_can('ab_capital')`) who may file that kind (`quotes.manage`, `agreements.manage`, `payments.manage`), on an issued quotation, a letter that is not cancelled, or a payment with a voucher. It redraws the stored document (its own number, version and date) with the signature, makes the PDF, and stores both under `<case id>/generated/<document id>/signed/` in `banking-documents`. The signature is recorded in `document_signatures` against the quotation, letter or receipt row; `banking_generated_documents` keeps only the unsigned files.
+- Each row shows "Signed by ... on ..." or "Not signed", the signed copy (Word and PDF), and the plain Word as the unsigned copy.
+- A new file for the same document (Issue, Save to folder, a new voucher file) ends its live signature ("Generated again") in the database (Template Hub 013, a trigger on `banking_generated_documents`); the screen's own call is a second line. An edit of a quotation or letter ends it through the 011 trigger, and a change of a quotation's line items through 013 (it also moves the quotation's change stamp). An approver signs again. These rules never block filing or editing. A new version (revision, replacement letter) starts unsigned; the earlier version keeps its signature, which matches its own files.
+- Banking documents are downloaded and sent by hand, so there is no signed-mail option.
+
 ## Tests
 
 - `Database Module/Banking Base/tests/run-local.sh`: 109 checks of business rules and row-level security as signed-in users, on a throwaway Postgres.

@@ -16,6 +16,11 @@ export default function MessengerPanel({ profile, rows, reload, onMessage, visib
     try { await chatApi.setChatFlags(row.id, change); await reload(); } catch { /* the button stays as it was */ }
   };
 
+  // An archived chat leaves the list but stays open here, so the person sees it went and can restore it.
+  const archive = async (archived) => {
+    try { await chatApi.setArchived(row.id, archived); await reload(); } catch { /* the button stays as it was */ }
+  };
+
   // The new chat arrives through reload; selection is by id, so it shows as soon as the row is in the list.
   async function opened(id) {
     await reload();
@@ -31,7 +36,7 @@ export default function MessengerPanel({ profile, rows, reload, onMessage, visib
           <Conversation key={row.id} row={row} profile={profile} visible={visible} connected={connected} onMessage={onMessage} reload={reload}
             draft={drafts[row.id] || ""} onDraft={(text) => setDrafts((d) => ({ ...d, [row.id]: text }))} onClose={onClose}
             onInfo={() => onScreen("info")} attachSlot={(slot) => <AttachPicker {...slot} />}
-            status={row.other_id ? statusOf?.(row.other_id) : undefined} onFlags={flags} />
+            status={row.other_id ? statusOf?.(row.other_id) : undefined} onFlags={flags} onArchive={archive} />
         ) : (
           <section className="msgr-chat-pane" aria-label="Conversation">
             <header className="msgr-pane-head">
@@ -46,7 +51,7 @@ export default function MessengerPanel({ profile, rows, reload, onMessage, visib
       {screen === "settings" && <ChatSettings keepOpen={keepOpen} onKeepOpen={onKeepOpen} onBack={back} onClose={onClose} name={name} isAdmin={isAdmin} />}
       {screen === "info" && row && row.kind === "group" && (
         <GroupInfo key={row.id} row={row} me={profile?.id} reload={reload} onBack={back} onClose={onClose}
-          onLeft={() => { onSelect(null); onScreen(null); }} />
+          onLeft={() => { onSelect(null); onScreen(null); }} onArchive={archive} />
       )}
     </div>
   );

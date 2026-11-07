@@ -1,8 +1,7 @@
 // What the Accounting mail function may send. No network and no Deno-only imports, so it is tested directly.
-import { parseRecipients } from "../ardentax-mail-send/rules.ts";
+import { applyClosing, parseRecipients } from "../ardentax-mail-send/rules.ts";
 
 export const TEMPLATES = ["AB Capital/Accounting Quote", "AB Capital/Accounting Agreement"];
-const AGREEMENT = "AB Capital/Accounting Agreement";
 
 // Document fields, plus mail_subject taken from the child 'mail' row.
 export type AccountingDoc = {
@@ -25,7 +24,6 @@ export function isAccountingPath(id: string | null | undefined, path: string | n
 export function refusal(doc: AccountingDoc, opts: { resend?: boolean }): string | null {
   if (!doc.library_template || !TEMPLATES.includes(doc.library_template)) return "Only an Accounting quote or agreement can be mailed here.";
   if (!doc.storage_path) return "This document has no PDF yet. Generate it first.";
-  if (doc.library_template === AGREEMENT && !doc.approved_at) return "Approve the agreement before it is mailed.";
   if (!isAccountingPath(doc.id, doc.storage_path)) return "This document's file path is not valid.";
   if (!String(doc.mail_subject || "").trim()) return "Enter a subject in the mail draft first.";
   let to: string[];
@@ -46,12 +44,39 @@ export function attachmentFileName(doc: { document_number?: string | null; clien
 export const CLAIM_MINUTES = 5;
 
 // What the claim update may match: unclaimed or stale-claimed rows, and (unless resending) rows never sent. The row must still hold the PDF
-// that was read, and an agreement must still be approved, so an edit between the read and the claim refuses instead of sending stale files.
+// that was read, so an edit between the read and the claim refuses instead of sending stale files. Signing is optional: no approval is asked for.
 export function claimRule(now: Date, opts: { resend?: boolean }, doc: AccountingDoc = {}) {
-  return {
-    staleBefore: new Date(now.getTime() - CLAIM_MINUTES * 60_000).toISOString(), requireUnsent: !opts.resend,
-    storagePath: doc.storage_path ?? null, requireApproved: doc.library_template === AGREEMENT,
-  };
+  return { staleBefore: new Date(now.getTime() - CLAIM_MINUTES * 60_000).toISOString(), requireUnsent: !opts.resend, storagePath: doc.storage_path ?? null };
+}
+
+// ---- Signed or unsigned copy ----
+// signed: true sends the PDF of the document's live signature (document_signatures, Template Hub 011); false or missing sends the unsigned PDF.
+export const NOT_SIGNED = "This document is not signed. Sign it first or send unsigned.";
+
+export type LiveSignature = { id?: string | null; source_table?: string | null; source_id?: string | null; pdf_path?: string | null; superseded_at?: string | null };
+
+// The request's signed flag: only true, false or missing. Anything else is refused rather than guessed.
+export function parseSigned(v: unknown): boolean | { error: string } {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "boolean") return v;
+  return { error: "signed must be true or false." };
+}
+
+// The signed files are read with the service role too, so they must sit directly under Accounting/<id>/signed/ (doc_sign_prefix) as a PDF.
+export function isSignedAccountingPath(id: string | null | undefined, path: string | null | undefined): boolean {
+  if (!id || !path) return false;
+  const prefix = `Accounting/${id}/signed/`;
+  if (!path.startsWith(prefix)) return false;
+  const name = path.slice(prefix.length);
+  return name !== "" && !name.includes("/") && name !== "." && name !== ".." && /^[A-Za-z0-9 _.,&()'-]+\.pdf$/.test(name);
+}
+
+// Which PDF goes out. signatureId is the live signature the claim must still find live, or null for the unsigned copy.
+export function attachmentChoice(doc: AccountingDoc, signed: boolean, live: LiveSignature | null | undefined): { path: string; signatureId: string | null } | { error: string } {
+  if (!signed) return { path: doc.storage_path ?? "", signatureId: null };
+  if (!live || live.superseded_at || !live.id || live.source_table !== "hub_documents" || !doc.id || live.source_id !== doc.id) return { error: NOT_SIGNED };
+  if (!isSignedAccountingPath(doc.id, live.pdf_path)) return { error: "The signed PDF's path is not valid." };
+  return { path: live.pdf_path!, signatureId: live.id };
 }
 
 export const CLAIM_REFUSED = "Another send of this document is already in progress, or it was just sent. Wait a few minutes and check its mail status.";
@@ -79,7 +104,9 @@ export const signatureFits = (signature: { sender_mailbox_address?: string | nul
 // Signature text goes after the draft body with one blank line.
 export const composeText = (body: string, signature: { body_text?: string | null } | null | undefined): string => {
   const sig = String(signature?.body_text ?? "").trim();
-  return sig ? `${String(body ?? "").trimEnd()}\n\n${sig}` : String(body ?? "");
+  // The draft's marked closing goes when a signature is chosen; the mark never stays. Bold asterisks stay here (HTML needs them).
+  const text = applyClosing(String(body ?? ""), !!sig);
+  return sig ? `${text.trimEnd()}\n\n${sig}` : text;
 };
 
 const escapeHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -88,3 +115,8 @@ export const signatureHtml = (signature: { body_text?: string | null; logo_url?:
   signature?.logo_url ? `<p><img src="${escapeHtml(signature.logo_url)}" alt="" style="max-width:480px;height:auto"></p>` : "";
 
 export const senderName = (mailbox: { display_name?: string | null } | null | undefined): string => String(mailbox?.display_name ?? "").trim() || DEFAULT_SENDER_NAME;
+
+// The mail server accepted the message but the sent mark could not be written. The claim is kept (it lapses on its own), so a retry
+// within the claim window is refused instead of sending a second copy.
+export const sentNotRecorded = (message: string): string =>
+  `The mail was sent, but the CRM could not record it (${message}). Do not send it again; check the recipient's inbox and the Sent folder.`;

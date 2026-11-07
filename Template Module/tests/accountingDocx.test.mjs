@@ -75,10 +75,11 @@ test("quote one and two options", async () => {
   assert.doesNotMatch(text(x2), /10,000/);
 });
 
-test("agreement draft", async () => {
+test("agreement unsigned: sendable, so no draft mark, an empty signatory line", async () => {
   const { z, xml } = await open(await renderAccountingDoc(AGR_T, agreementContext(agrDoc(), settings, false), null, deps));
   assert.doesNotMatch(xml, /[{}]/);
-  assert.match(text(xml), /Draft, not approved/);
+  assert.doesNotMatch(text(xml), /Draft, not approved/);
+  assert.match(text(xml), /Authorized Signatory/);
   assert.match(text(xml), /_{10,}/);
   assert.doesNotMatch(xml, /<w:drawing/);
   assert.equal(Object.keys(z.files).filter((n) => n.startsWith("word/media/")).some((n) => /signature/i.test(n)), false);
@@ -101,6 +102,30 @@ test("agreement signed", async () => {
   assert.ok(Math.abs(Number(ext[1]) / Number(ext[2]) - 3) < 0.01, "aspect ratio kept");
   assert.equal(count(xml, "<w:drawing"), 1);
   assert.match(await z.file("[Content_Types].xml").async("string"), /Extension="png"/);
+});
+
+test("quote unsigned: an empty Authorized Signatory block, no picture", async () => {
+  const doc = quoteDoc([opt("Only Plan", [svc("Test Service", "month", 1000)])]);
+  const { z, xml } = await open(await renderAccountingDoc(QUOTE_T, { ...quoteContext(doc, settings), has_signature: false }, null, deps));
+  assert.doesNotMatch(xml, /[{}]/);
+  assert.match(text(xml), /For AB CAPITAL SERVICES \(FZE\)/);
+  assert.match(text(xml), /Authorized Signatory/);
+  assert.match(text(xml), /_{10,}/);
+  assert.doesNotMatch(xml, /<w:drawing/);
+  assert.equal(Object.keys(z.files).some((n) => /^word\/media\/signature/i.test(n)), false);
+  assert.ok(text(xml).indexOf("Authorized Signatory") > text(xml).indexOf("Website:"), "the block comes after the contact details");
+});
+
+test("quote signed: the picture sits in the signatory block, the rest is as unsigned", async () => {
+  const doc = quoteDoc([opt("Only Plan", [svc("Test Service", "month", 1000)])]);
+  const plainX = (await open(await renderAccountingDoc(QUOTE_T, { ...quoteContext(doc, settings), has_signature: false }, null, deps))).xml;
+  const { z, xml } = await open(await renderAccountingDoc(QUOTE_T, { ...quoteContext(doc, settings), has_signature: true }, sig, deps));
+  assert.doesNotMatch(xml, /[{}]/);
+  assert.equal(count(xml, "<w:drawing"), 1);
+  assert.equal(Object.keys(z.files).filter((n) => /^word\/media\/signature/i.test(n)).length, 1);
+  const words = (x) => text(x).replace(/\n+/g, "\n");
+  assert.equal(words(xml), words(plainX), "same words; only the picture paragraph is added");
+  assert.ok(xml.indexOf("<w:drawing") > xml.indexOf("For AB CAPITAL SERVICES (FZE)") && xml.indexOf("<w:drawing") < xml.indexOf("Authorized Signatory"));
 });
 
 test("signed but null image", async () => {

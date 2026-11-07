@@ -1,6 +1,10 @@
 // Fills the Business Formation Proposal Word template. docxtemplater's free version has no image module,
 // so logos and timelines go in as raw XML tags and this file adds the media files, relationships and content types.
 // deps = { PizZip, Docxtemplater } is passed in so this stays testable outside the browser.
+// signature = { bytes, type, width, height } | null: the AB Capital signature (shared signing), placed on the Authorized Signatory
+// line through signDocx.js. Without it the line prints blank and nothing else in the file changes.
+import { IMAGE_TYPES, addSignature, signatureXml } from "./signDocx.js";
+
 const EMU = 914400;
 const LOGO_BOX = { w: 2.2, h: 1.0 };       // inches
 const TIMELINE_BOX = { w: 7.2, h: 5.0 };
@@ -26,8 +30,12 @@ function drawingParagraph(rid, docPrId, name, size) {
     `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
 }
 
-export async function renderProposal(templateBuffer, context, images, deps) {
+export async function renderProposal(templateBuffer, context, images, deps, signature = null) {
   const { PizZip, Docxtemplater } = deps;
+  if (signature) {
+    if (!(signature.bytes?.length > 0 && signature.width > 0 && signature.height > 0)) throw new Error("Signature image is missing");
+    if (!IMAGE_TYPES[String(signature.type || "").toLowerCase()]) throw new Error("Signature image type must be png or jpg");
+  }
   const known = images || {};
   const media = new Map();   // token -> { rid, file, type, bytes }
   let drawingId = 1000;
@@ -48,6 +56,7 @@ export async function renderProposal(templateBuffer, context, images, deps) {
 
   const data = {
     ...context,
+    signature_xml: signature ? signatureXml(signature) : "",
     options: (context.options || []).map((o) => ({
       ...o,
       logo_xml: imageXml(o.logo_token, LOGO_BOX, "Logo"),
@@ -72,6 +81,7 @@ export async function renderProposal(templateBuffer, context, images, deps) {
     out.file("[Content_Types].xml", types);
   }
 
+  if (signature) addSignature(out, null, signature);
   const bytes = out.generate({ type: "uint8array", compression: "DEFLATE" });
   return new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }

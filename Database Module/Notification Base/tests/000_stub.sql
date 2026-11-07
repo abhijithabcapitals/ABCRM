@@ -50,7 +50,11 @@ create table public.business_setup_kyc_partners (id uuid primary key default gen
   full_name text not null, nationality text, share_percent numeric(5,2), is_shareholder boolean not null default true, is_ubo boolean not null default false,
   passport_number text, passport_expiry date, emirates_id text, details jsonb not null default '{}', deleted_at timestamptz);
 create table public.business_setup_visas (id uuid primary key default gen_random_uuid(), client_id text not null, person_name text not null, occupation text, expiry_date date, status text);
-create table public.business_setup_services (id uuid primary key default gen_random_uuid(), client_id text not null, name text not null, status text not null, due_date date, owner_id uuid, historical boolean not null, expiry_date date);
+create table public.business_setup_services (id uuid primary key default gen_random_uuid(), client_id text not null, name text not null, status text not null, due_date date, owner_id uuid, historical boolean not null, expiry_date date, started_at timestamptz, expected_completion date);
+create table public.business_setup_service_checkpoints (id uuid primary key default gen_random_uuid(), service_id uuid not null references public.business_setup_services(id), sort_order int not null, label text not null, stage text, requirement text not null, status text not null default 'Not Started', reason text, assigned_to uuid, due_date date, started_at timestamptz, completed_at timestamptz, completed_by uuid, verified_at timestamptz, verified_by uuid, updated_at timestamptz not null default now());
+create table public.business_setup_cases (id uuid primary key default gen_random_uuid(), case_number text, client_id text, stage text, owner_id uuid, updated_at timestamptz not null default now());
+create table public.stub_progress (service_id uuid primary key, done int);
+create function public.business_setup_service_progress(p_service uuid) returns int language sql stable as $$ select coalesce((select done from public.stub_progress where service_id = p_service), 0) $$;
 create table public.business_setup_tasks (id uuid primary key default gen_random_uuid(), client_id text not null, title text, owner_id uuid, due_date date, status text);
 create table public.banking_clients (id uuid primary key default gen_random_uuid(), client_master_id character varying, display_name text not null);
 create table public.banking_kyc_profiles (id uuid primary key default gen_random_uuid(), client_id uuid not null unique references public.banking_clients (id),

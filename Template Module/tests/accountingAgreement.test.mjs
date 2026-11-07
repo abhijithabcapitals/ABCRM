@@ -83,7 +83,7 @@ test("agreementContext", () => {
   const doc = { document_number: "D1", created_at: "2026-11-05T10:00:00Z", client_name: "Test Client", field_values: { agreement: { ...good(), scope_notes: ["", "  "], billing: "quarterly", effective_months: 6, notice_days: 45 } } };
   const settings = { accounting_proposal_defaults: defaults, company: { bank: { iban: "TESTIBAN" } } };
   const d = agreementContext(doc, settings, false);
-  assert.equal(d.draft_mark, true);
+  assert.equal(d.draft_mark, false, "an unsigned agreement can be sent, so it no longer prints Draft, not approved");
   assert.equal(d.has_signature, false);
   assert.equal(agreementContext(doc, settings, true).draft_mark, false);
   assert.equal(agreementContext(doc, settings, true).has_signature, true);

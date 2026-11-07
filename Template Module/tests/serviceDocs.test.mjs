@@ -104,7 +104,10 @@ test("Business Setup on the desk has no VAT choice and exclusive totals; other d
   assert.deepEqual(deskTotals("Accounting", [{ amount: 105 }], "inclusive"), serviceTotals([{ amount: 105 }], "inclusive", 5));
   const desk = readFileSync(fileURLToPath(new URL("../components/ServiceDesk.jsx", import.meta.url)), "utf8");
   assert.match(desk, /!fixedVat\(dept\) && <div className="bk-field"><label htmlFor="d-vat">/);
-  assert.match(desk, /withLineVat\(doc, /); assert.match(desk, /vat_mode: deskVatMode\(dept, form\.vat_mode\)/);
+  // The desk's render, with line VAT for Business Setup, is in logic/deskSigning.js (shared with signing).
+  const render = readFileSync(fileURLToPath(new URL("../logic/deskSigning.js", import.meta.url)), "utf8");
+  assert.match(desk, /deskDocumentBlob\(/); assert.match(render, /doc\.department === "Business Setup" \? withLineVat\(doc, base\) : base/);
+  assert.match(desk, /vat_mode: deskVatMode\(dept, form\.vat_mode\)/);
 });
 
 test("the letter's scope prints each Business Setup line's scope, falling back to its name; other departments are unchanged", () => {

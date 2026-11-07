@@ -1,18 +1,14 @@
 // Settings for the Accounting quote and agreement: saved packages, standard wording and contact (Hub admins),
-// and the approver list and signature image (CRM administrators only). The server checks every right again.
-import { useEffect, useState } from "react";
-import { supabase } from "@app/supabase";
-import { profiles } from "@banking/services/bankingApi";
-import { Badge, Button, DataTable, ErrorNote, FilePick, Modal, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
-import { BUCKET, isHubAdmin, loadHubSettings } from "../services/hubApi";
-import { loadPackages, saveAdmin, saveDefaults, savePackage } from "../services/accountingApi";
+// The approver list and signature image now live in Settings > Signing. The server checks every right again.
+import { useState } from "react";
+import { Badge, Button, DataTable, ErrorNote, Modal, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
+import { isHubAdmin, loadHubSettings } from "../services/hubApi";
+import { loadPackages, saveDefaults, savePackage } from "../services/accountingApi";
 import { BASES } from "../logic/accountingQuote";
 import { cleanLines, fromLines, moveRow, toLines } from "../logic/accountingUi";
 
 const KEY = "accounting_proposal_defaults";
 const isPriced = (basis) => !!BASES.find((b) => b.key === basis)?.priced;
-const SIGNATURE_TYPES = { "image/png": "png", "image/jpeg": "jpg" };
-const SIGNATURE_MAX = 2 * 1024 * 1024;
 
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 const blankPackage = () => ({ package_key: "", name: "", description: "", active: true, services: [], notes: [], schedule1: [], isNew: true });
@@ -197,78 +193,10 @@ function Standard({ value, onSaved }) {
   );
 }
 
-// Approvers and the signature image. Only a CRM administrator sees this; the server refuses anyone else.
-function AdminPart({ value, onSaved }) {
-  const staff = useLoad(profiles, []);
-  const [picked, setPicked] = useState(() => new Set((value?.approvers || []).map((x) => String(x).toLowerCase())));
-  const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
-  const [busy, setBusy] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const path = value?.signature_path || null;
-
-  // The preview is a short-lived link to the private file. Neither the link nor the path is logged.
-  useEffect(() => {
-    let live = true;
-    setPreview(null);
-    if (!path) return undefined;
-    supabase.storage.from(BUCKET).createSignedUrl(path, 300).then(({ data }) => { if (live) setPreview(data?.signedUrl || false); }, () => { if (live) setPreview(false); });
-    return () => { live = false; };
-  }, [path]);
-
-  const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const saveApprovers = async () => {
-    setBusy("approvers"); setError(null); setNotice(null);
-    try { await saveAdmin({ approvers: [...picked] }); await onSaved(); setNotice("Approvers saved."); } catch (e) { setError(e.message); }
-    setBusy(null);
-  };
-  const upload = async (file) => {
-    setError(null); setNotice(null);
-    const ext = SIGNATURE_TYPES[file.type];
-    if (!ext) { setError("The signature must be a PNG or JPEG image."); return; }
-    if (file.size > SIGNATURE_MAX) { setError("The signature image must be under 2 MB."); return; }
-    setBusy("signature");
-    const stored = `accounting-signature/${crypto.randomUUID()}.${ext}`;
-    try {
-      const up = await supabase.storage.from(BUCKET).upload(stored, file, { contentType: file.type });
-      if (up.error) throw new Error(up.error.message);
-      try { await saveAdmin({ signature_path: stored }); }
-      catch (e) { await supabase.storage.from(BUCKET).remove([stored]).catch(() => {}); throw e; }
-      await onSaved();
-      setNotice("Signature saved.");
-    } catch (e) { setError(e.message); }
-    setBusy(null);
-  };
-
-  return (
-    <Panel title="Accounting approvers and signature" sub="Only CRM administrators can change these. While the approver list is empty, any CRM administrator can approve an agreement.">
-      <ErrorNote message={error || staff.error} onClose={() => setError(null)} />
-      {notice && <div className="bk-alert">{notice}</div>}
-      <h4>Approvers</h4>
-      {staff.loading && !staff.data ? <Spinner /> : (
-        <div className="bk-grid">
-          {(staff.data || []).map((u) => (
-            <label key={u.id} className="bk-check"><input type="checkbox" checked={picked.has(String(u.id).toLowerCase())} onChange={() => toggle(String(u.id).toLowerCase())} /> {u.full_name || "Unnamed user"}</label>
-          ))}
-        </div>
-      )}
-      <div className="bk-actions bk-mt"><Button variant="primary" busy={busy === "approvers"} onClick={saveApprovers}>Save approvers</Button></div>
-
-      <h4 className="bk-mt">Signature image</h4>
-      <p className="bk-note">PNG or JPEG, under 2 MB. It prints on approved agreements only.</p>
-      {path && value?.signature_uploaded_at && <p className="bk-note">Uploaded {fmtDate(value.signature_uploaded_at)}.</p>}
-      {path && preview && <img src={preview} alt="Current signature" style={{ maxWidth: 240, maxHeight: 120, background: "#fff", border: "1px solid #ddd", padding: 4 }} />}
-      {path && preview === false && <p className="bk-note">The preview is not available to you.</p>}
-      {!path && <p className="bk-note">No signature uploaded yet.</p>}
-      <div className="bk-actions bk-mt"><FilePick label={path ? "Replace signature" : "Upload signature"} accept="image/png,image/jpeg" busy={busy === "signature"} onFile={upload} /></div>
-    </Panel>
-  );
-}
-
-export default function AccountingSettings({ profile }) {
+export default function AccountingSettings() {
   const admin = useLoad(isHubAdmin, []);
   const settings = useLoad(loadHubSettings, []);
-    if (!admin.data) return null;   // the server checks again on every save
+  if (!admin.data) return null;   // the server checks again on every save
   if (settings.loading && !settings.data) return <Spinner />;
   const value = settings.data?.[KEY] || {};
   return (
@@ -276,7 +204,7 @@ export default function AccountingSettings({ profile }) {
       <ErrorNote message={settings.error} />
       <Packages />
       <Standard value={value} onSaved={settings.reload} />
-      {profile?.role === "admin" && <AdminPart value={value} onSaved={settings.reload} />}
+      <p className="bk-note">The approvers and the signature image are set in Settings &gt; Signing.</p>
     </div>
   );
 }

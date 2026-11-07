@@ -12,6 +12,7 @@ The CRM's **Business Setup** tab: from a client's form to a finished service han
 | `components/ZohoInvoicePanel.jsx` | Reserved for the Zoho invoice step. Also used by Banking |
 | `logic/` | Pure rules (`nav.js`, `caseWorkspace.js`, `loginSecret.js`, ...), tested with `node --test "Business Setup Module/tests/"` |
 | `services/` | `businessSetupApi.js` for database calls, `documents.js` for Word files |
+| `logic/caseSigning.js` | AB Capital signing on case quotes and letters (shared signing, Template Hub 011). Optional: Create file, Open and download work unsigned. Sign shows only for AB Capital approvers (`doc_sign_can`), on a filed, current built-in quote or letter (not proposals or Company Templates documents, which sign where they are made). The signed copy is the stored row drawn again (its number, `created_at` date, lines) with the signature, under `Business Setup/<id>/signed/` (Word and PDF); the row keeps its unsigned file ("Unsigned copy"). A new file ends the signature in the database (011 trigger on `storage_path`), and `documents.js` also calls `doc_sign_supersede` after Create file as a second line that never blocks the save. A revised or rejected quote keeps its signed copy, as Banking and Ardentax do. The client's own copy is now called "Client-signed copy" |
 | `scripts/fix_templates.py` | Makes corrected copies of the quote templates |
 | `Resources/` | Git-ignored. Client data, prices and templates. Never commit it |
 

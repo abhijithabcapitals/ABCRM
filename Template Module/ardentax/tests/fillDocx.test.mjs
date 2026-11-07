@@ -280,3 +280,65 @@ for (const name of [QUOTE, LETTER]) {
     }
   });
 }
+
+// ---- Company signature (shared signing step) ----
+// Invented image bytes; the real Ardentax image is set in Settings > Signing.
+const SIG = { bytes: new Uint8Array([137, 80, 78, 71, 1, 2, 3]), type: "png", width: 300, height: 120 };
+const signedFill = async (d, name, signature) => {
+  const out = await fillDocx(templateBytes(name), d, computeQuote(d), REF, deps, signature);
+  const zip = await JSZip.loadAsync(out);
+  const xml = await zip.file("word/document.xml").async("string");
+  return { zip, xml, doc: deps.parse(xml) };
+};
+// The Ardentax cell of the signatory table: the first cell with a "Signature:" line (the client's is the second).
+const ardentaxCell = (doc) => tag(doc, "w:tc").filter((c) => textOf(c).includes("Signature:"))[0];
+const kidsOf = (el, name) => list(el.childNodes).filter((c) => c.nodeType === 1 && c.nodeName === name);
+
+for (const name of [QUOTE, LETTER]) {
+  test(`${name}: the template holds the signature tag in the Ardentax cell, above its Signature line`, async () => {
+    const zip = await JSZip.loadAsync(templateBytes(name));
+    const doc = deps.parse(await zip.file("word/document.xml").async("string"));
+    const tagged = tag(doc, "w:p").filter((p) => textOf(p) === "{{SIGNATURE}}");
+    assert.equal(tagged.length, 1);
+    const cell = tagged[0].parentNode;
+    assert.equal(cell.nodeName, "w:tc");
+    const paras = kidsOf(cell, "w:p");
+    assert.equal(textOf(paras[paras.indexOf(tagged[0]) + 1]), "Signature: ____________________");
+    assert.equal(kidsOf(cell.parentNode, "w:tc")[0], cell, "the left cell: Ardentax's side, not the client's");
+  });
+
+  test(`${name}: unsigned, the signature line is blank and there is no image`, async () => {
+    const { zip, xml, doc } = await signedFill(details(), name, null);
+    assert.ok(!xml.includes("{{SIGNATURE}}"));
+    assert.ok(!xml.includes("rIdAccountingSignature"));
+    assert.equal(zip.file("word/media/signature.png"), null);
+    const paras = kidsOf(ardentaxCell(doc), "w:p");
+    const line = paras.findIndex((p) => textOf(p).startsWith("Signature:"));
+    assert.equal(textOf(paras[line - 1]), "", "a blank line where the signature goes");
+    assert.equal(tag(ardentaxCell(doc), "w:drawing").length, 0);
+  });
+
+  test(`${name}: signed, the image sits in the Ardentax cell with its relationship and content type`, async () => {
+    const { zip, xml, doc } = await signedFill(details(), name, SIG);
+    assert.ok(!xml.includes("{{SIGNATURE}}"));
+    const cell = ardentaxCell(doc);
+    assert.equal(tag(cell, "w:drawing").length, 1);
+    assert.equal((xml.match(/r:embed="rIdAccountingSignature"/g) || []).length, 1);
+    assert.deepEqual([...(await zip.file("word/media/signature.png").async("uint8array"))], [...SIG.bytes]);
+    const rels = await zip.file("word/_rels/document.xml.rels").async("string");
+    assert.ok(rels.includes('Id="rIdAccountingSignature"') && rels.includes('Target="media/signature.png"'));
+    assert.ok(rels.includes("mailto:pat@sample.example"), "the mail link fix is kept");
+    assert.match(await zip.file("[Content_Types].xml").async("string"), /Extension="png"/i);
+    assert.equal(tag(kidsOf(cell.parentNode, "w:tc")[1], "w:drawing").length, 0, "the client's side stays empty");
+  });
+}
+
+test("a template without the signature tag refuses a signature, and still fills unsigned", async () => {
+  const zip = await JSZip.loadAsync(templateBytes(QUOTE));
+  const x = await zip.file("word/document.xml").async("string");
+  zip.file("word/document.xml", x.replace("{{SIGNATURE}}", ""));
+  const bytes = await zip.generateAsync({ type: "uint8array" });
+  const d = details();
+  await assert.rejects(fillDocx(bytes, d, computeQuote(d), REF, deps, SIG), /no place for the signature/);
+  await fillDocx(bytes, d, computeQuote(d), REF, deps, null);
+});

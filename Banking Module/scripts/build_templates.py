@@ -1,7 +1,9 @@
 """Builds the reusable Word templates and the logo. Standard library plus pypdf (CRM .venv).
 Writes to Banking Module/templates (used by the CRM) and Resources/Banking (the master copy for staff).
 Placeholders use docxtemplater syntax: {name}, {#loop}...{/loop}.
-The old agreement's signature and stamp are deliberately not copied: a person signs each letter.
+The old agreement's signature and stamp are deliberately not copied. The voucher's {@signature_xml} place stays blank until an
+AB Capital approver signs it through the shared signing (Template Hub 011).
+The quotation and engagement letter are built by Template Module/scripts/build_ab_capital_templates.py.
     .venv\\Scripts\\python.exe "Banking Module\\scripts\\build_templates.py"
 """
 import io
@@ -110,6 +112,10 @@ LETTER = LETTERHEAD + table([[cell("To", 1200, True), cell("{client_name}", 3800
     [cell("Date:", 4500), cell("Date:", 4500)],
 ], [4500, 4500])
 
+# The AB Capital Authorized Signatory place, alone in its paragraph (a docxtemplater raw tag). logic/documents.js fills it with a blank
+# space for a hand signature when unsigned, and with the signature picture (Template Module/logic/signDocx.js) once an approver signs.
+SIGN_TAG = "<w:p><w:r><w:t>{@signature_xml}</w:t></w:r></w:p>"
+
 RECEIPT = LETTERHEAD + para("Fee Receipt Voucher", bold=True, size=32, color="13363D", after=120) + table([
     [cell("Voucher no.", 2600, True, fill="EEF2F3"), cell("{receipt_number}", 6400)],
     [cell("Date", 2600, True, fill="EEF2F3"), cell("{payment_date}", 6400)],
@@ -120,7 +126,7 @@ RECEIPT = LETTERHEAD + para("Fee Receipt Voucher", bold=True, size=32, color="13
     [cell("Reference", 2600, True, fill="EEF2F3"), cell("{reference}", 6400)],
     [cell("Payment ref", 2600, True, fill="EEF2F3"), cell("{payment_ref}", 6400)],
     [cell("Description", 2600, True, fill="EEF2F3"), cell("{description}", 6400)],
-], [2600, 6400]) + para("\u00a0", after=500) + para("Received by, for {company_short}", after=40) + para("Authorized Signatory")
+], [2600, 6400]) + para("\u00a0", after=200) + para("Received by, for {company_short}", after=40, keep=True) + SIGN_TAG + para("____________________________", after=0, keep=True) + para("Authorized Signatory")
 
 NS = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
       'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"')
@@ -140,7 +146,7 @@ def build(path, body, logo):
 
 logo = logo_bytes()
 # The quotation and engagement letter come from Template Module/scripts/build_ab_capital_templates.py.
-for name, body in (("Fee_Receipt_Voucher_Template.docx", RECEIPT)):
+for name, body in (("Fee_Receipt_Voucher_Template.docx", RECEIPT),):
     build(OUT / name, body, logo)
     if MASTER.exists():
         shutil.copy(OUT / name, MASTER / name)

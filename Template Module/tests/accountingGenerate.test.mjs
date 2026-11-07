@@ -1,7 +1,7 @@
 // node --test "Template Module/tests/accountingGenerate.test.mjs"
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateQuote, generateAgreement, retryDocument, approveAgreement, editAgreement, saveToOneDrive } from "../services/accountingGenerate.js";
+import { generateQuote, generateAgreement, retryDocument, signAccounting, rebuildDocument, editAgreement, saveToOneDrive, mailText } from "../services/accountingGenerate.js";
 
 const form = { client_name: "Sample Client", contact_name: "Sam", contact_email: "s@example.com", contact_phone: "050" };
 const quote = {
@@ -29,9 +29,9 @@ function fakes(over = {}) {
     return v;
   };
   const base = {
-    check: null, create: quoteDoc, loadTemplate: "TPL", loadSignature: sig, render: "WORD", toPdf: "PDF",
+    check: null, create: quoteDoc, loadTemplate: "TPL", render: "WORD", toPdf: "PDF",
     upload: (doc, blob, ext) => `Accounting/${doc.id}/x.${ext}`, remove: { ok: 1 }, attach: (id) => ({ ...quoteDoc, id, storage_path: "a.pdf", word_path: "a.docx" }),
-    approve: (id) => ({ ...agrDoc, id, approved_at: "now" }), update: { ...agrDoc }, saveLocal: "C:\\OneDrive\\Proposals", markSaved: { ok: 1 }, createMail: { id: "m1" },
+    sign: async ({ doc, rebuild }) => ({ signature: { id: "sig1", source_id: doc.id }, wordBlob: await rebuild(doc, sig), pdfBlob: "SPDF" }), update: { ...agrDoc }, saveLocal: "C:\\OneDrive\\Proposals", markSaved: { ok: 1 }, createMail: { id: "m1" },
   };
   const deps = { settings: { accounting_proposal_defaults: {}, company: {} } };
   for (const [k, v] of Object.entries({ ...base, ...over })) deps[k] = note(k, v);
@@ -51,7 +51,7 @@ test("quote order", async () => {
   assert.equal(r.wordBlob, "WORD");
   assert.equal(r.pdfBlob, "PDF");
   assert.equal(r.error, undefined);
-  assert.equal(calls.some((c) => c.name === "loadSignature"), false);
+  assert.equal(calls.some((c) => c.name === "sign"), false);
 });
 
 test("check fails calls no create", async () => {
@@ -81,7 +81,7 @@ test("pdf fails after number, retry rebuilds from field_values and takes no numb
   const again = await retryDocument(r.doc, second.deps);
   assert.equal(again.error, undefined);
   assert.equal(names(second.calls).includes("create"), false);
-  assert.equal(names(second.calls).includes("loadSignature"), false);
+  assert.equal(names(second.calls).includes("sign"), false);
   assert.deepEqual(names(second.calls).slice(0, 3), ["loadTemplate", "render", "toPdf"]);
 });
 
@@ -113,60 +113,57 @@ test("agreement draft never loads the signature", async () => {
   const { calls, deps } = fakes({ create: agrDoc, attach: (id) => ({ ...agrDoc, id }) });
   const r = await generateAgreement({ quoteId: "d1", agreement }, deps);
   assert.equal(r.error, undefined);
-  assert.equal(names(calls).includes("loadSignature"), false);
+  assert.equal(names(calls).includes("sign"), false);
   assert.deepEqual(calls.find((c) => c.name === "create").args[0], { quote_id: "d1", agreement });
   const renders = calls.filter((c) => c.name === "render");
   assert.equal(renders.at(-1).args[1].has_signature, false);
-  assert.equal(renders.at(-1).args[1].draft_mark, true);
+  assert.equal(renders.at(-1).args[1].draft_mark, false);
   assert.equal(renders.at(-1).args[2], null);
 });
 
-test("approve order", async () => {
+test("sign goes through the shared step with the row's change stamp, then copies the signed files to OneDrive", async () => {
   const { calls, deps } = fakes();
-  const r = await approveAgreement(agrDoc, deps);
-  assert.deepEqual(names(calls), ["loadTemplate", "loadSignature", "render", "toPdf", "upload", "upload", "approve", "saveLocal", "markSaved"]);
-  assert.deepEqual(calls.find((c) => c.name === "approve").args, ["d2", "Accounting/d2/x.pdf", "Accounting/d2/x.docx", "2026-11-05T08:00:00.123Z"]);
-  const render = calls.find((c) => c.name === "render");
-  assert.equal(render.args[1].has_signature, true);
-  assert.equal(render.args[2], sig);
-  assert.equal(r.doc.approved_at, "now");
+  const doc = { ...agrDoc, content_changed_at: "2026-11-05T09:00:00.456789+00:00" };
+  const r = await signAccounting(doc, deps);
+  assert.deepEqual(names(calls), ["sign", "loadTemplate", "render", "saveLocal", "markSaved"]);
+  const args = calls.find((c) => c.name === "sign").args[0];
+  assert.equal(args.table, "hub_documents");
+  assert.equal(args.doc, doc);
+  assert.equal(args.seen, "2026-11-05T09:00:00.456789+00:00");
+  assert.equal(typeof args.rebuild, "function");
+  assert.equal(r.signature.id, "sig1");
+  assert.equal(r.wordBlob, "WORD");
+  assert.equal(r.pdfBlob, "SPDF");
+  assert.equal(r.onedrive, "C:\\OneDrive\\Proposals");
+  assert.deepEqual(calls.find((c) => c.name === "saveLocal").args.slice(1), ["WORD", "SPDF"]);
 });
 
-test("approve: failed load or render never calls approve", async () => {
-  const a = fakes({ loadSignature: new Error("Signature image is missing") });
-  assert.equal((await approveAgreement(agrDoc, a.deps)).error, "Signature image is missing");
-  assert.equal(names(a.calls).includes("approve"), false);
-  const b = fakes({ render: new Error("render broke") });
-  assert.equal((await approveAgreement(agrDoc, b.deps)).error, "render broke");
-  assert.equal(names(b.calls).includes("approve"), false);
+test("sign: the rebuild renders the stored document with the signature, for quotes and agreements", async () => {
+  for (const [doc, kind] of [[agrDoc, "agreement"], [quoteDoc, "quote"]]) {
+    const { calls, deps } = fakes();
+    assert.equal(await rebuildDocument(doc, sig, deps), "WORD");
+    assert.deepEqual(calls.find((c) => c.name === "loadTemplate").args, [kind]);
+    const render = calls.find((c) => c.name === "render");
+    assert.equal(render.args[0], "TPL");
+    assert.equal(render.args[1].has_signature, true);
+    assert.equal(render.args[1].document_number, doc.document_number);
+    assert.equal(render.args[2], sig);
+  }
 });
 
-test("approve: failed approve returns error and keeps the draft, no local copy", async () => {
-  const { calls, deps } = fakes({ approve: new Error("Agreement changed") });
-  const r = await approveAgreement(agrDoc, deps);
-  assert.deepEqual(r, { error: "Agreement changed" });
+test("sign: a refusal returns the error and copies nothing", async () => {
+  const { calls, deps } = fakes({ sign: { error: "The document changed. Open it again and sign." } });
+  assert.deepEqual(await signAccounting(agrDoc, deps), { error: "The document changed. Open it again and sign." });
   assert.equal(names(calls).includes("saveLocal"), false);
-  assert.equal(names(calls).includes("attach"), false);
+  const thrown = fakes({ sign: new Error("network down") });
+  assert.deepEqual(await signAccounting(agrDoc, thrown.deps), { error: "network down" });
 });
 
-test("approve: a refused approval removes both signed uploads", async () => {
-  const { calls, deps } = fakes({ approve: new Error("Agreement changed") });
-  await approveAgreement(agrDoc, deps);
-  assert.deepEqual(names(calls), ["loadTemplate", "loadSignature", "render", "toPdf", "upload", "upload", "approve", "remove"]);
-  assert.deepEqual(calls.find((c) => c.name === "remove").args, [["Accounting/d2/x.pdf", "Accounting/d2/x.docx"]]);
-});
-
-test("approve: a failed removal never masks the refusal", async () => {
-  const thrown = fakes({ approve: new Error("Agreement changed"), remove: new Error("storage down") });
-  assert.deepEqual(await approveAgreement(agrDoc, thrown.deps), { error: "Agreement changed" });
-  const rejected = fakes({ approve: new Error("Agreement changed"), remove: () => Promise.reject(new Error("storage down")) });
-  assert.deepEqual(await approveAgreement(agrDoc, rejected.deps), { error: "Agreement changed" });
-});
-
-test("approve: a successful approval removes nothing", async () => {
-  const { calls, deps } = fakes();
-  await approveAgreement(agrDoc, deps);
-  assert.equal(names(calls).includes("remove"), false);
+test("sign never calls the retired approval", async () => {
+  const { deps } = fakes();
+  assert.equal("approve" in deps, false);
+  const src = (await import("node:fs")).readFileSync(new URL("../services/accountingGenerate.js", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /approve\(|approveAgreement|loadSignature/);
 });
 
 test("edit: update then rebuild unsigned then attach", async () => {
@@ -175,7 +172,7 @@ test("edit: update then rebuild unsigned then attach", async () => {
   assert.equal(r.error, undefined);
   assert.deepEqual(names(calls), ["check", "loadTemplate", "update", "render", "toPdf", "upload", "upload", "attach"]);
   assert.equal(calls.find((c) => c.name === "render").args[1].has_signature, false);
-  assert.equal(names(calls).includes("loadSignature"), false);
+  assert.equal(names(calls).includes("sign"), false);
 });
 
 test("mail draft: Ref, option names and totals, no sums", async () => {
@@ -212,4 +209,14 @@ test("retry with mail false creates no second mail draft", async () => {
   const third = fakes();
   await retryDocument(r.doc, third.deps);
   assert.equal(names(third.calls).includes("createMail"), true);
+});
+
+test("mail drafts place the closing mark above the closing block", () => {
+  const agreement = mailText({ document_number: "ABA001", client_name: "C", contact_name: "Sam", library_template: "AB Capital/Accounting Agreement" }, {});
+  assert.match(agreement.body, /\n\n-- closing --\nKind regards,\nAB Capital Services FZE$/);
+  assert.equal(agreement.body.split("-- closing --").length, 2);
+});
+test("quote drafts also carry the closing mark", () => {
+  const q = mailText({ document_number: "ABA002", client_name: "C", contact_name: "Sam", field_values: { quote } }, {});
+  assert.match(q.body, /\n\n-- closing --\nKind regards,\nAB Capital Services FZE$/);
 });

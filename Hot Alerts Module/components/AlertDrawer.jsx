@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { alertDetail, alertMarkRead, alertAssign, alertEscalate, alertResolve, clientContactLog, clientDocumentRequest } from "../services/alertsApi";
+import { alertDetail, alertMarkRead, alertAssign, alertEscalate, alertResolve, clientContactLog, clientDocumentRequest, checklistItemDone } from "../services/alertsApi";
 import { BACKLOG_STYLE, PRIORITY_STYLES, TAG_STYLES, resolvePlaceholder, tagFor, daysLabel } from "../logic/alertLogic";
 
 const btn = { padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid #d4d4d4", background: "#fff", cursor: "pointer" };
@@ -112,6 +112,7 @@ export default function AlertDrawer({ supabase, alertId, today, fmtDate, access,
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "14px 0" }}>
               {a.client_id && onOpenClient && <button type="button" style={btn} onClick={() => onOpenClient(a.client_id)}>Open Client</button>}
+              {open && a.source_table === "business_setup_service_checkpoints" && <button type="button" style={btn} disabled={busy} onClick={() => run(() => checklistItemDone(supabase, a.source_id))}>Mark item done</button>}
               {open && a.client_id && <button type="button" style={btn} onClick={() => setMode("contact")}>Contact Client</button>}
               {open && a.client_id && <button type="button" style={btn} onClick={() => setMode("request")}>Request Documents</button>}
               {open && canManage && <button type="button" style={btn} onClick={() => setMode("assign")}>Assign Employee</button>}

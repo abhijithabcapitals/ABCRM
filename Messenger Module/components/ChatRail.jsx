@@ -1,4 +1,5 @@
-import { badgeText, chatTitle, initials, railTitle, sortChats } from "../logic/chat.js";
+import { useState } from "react";
+import { badgeText, chatsIn, chatTitle, initials, railTitle, sortChats } from "../logic/chat.js";
 
 const Icon = ({ children }) => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
@@ -11,6 +12,7 @@ const MAIL = <Icon><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3
 const ACTIVITY = <Icon><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8" /><path d="M10 20a2 2 0 0 0 4 0" /></Icon>;
 const TEAMS = <Icon><circle cx="9" cy="8" r="3.5" /><path d="M3 20a6 6 0 0 1 12 0" /><path d="M16 5a3.5 3.5 0 0 1 0 6.5M18 14.5a6 6 0 0 1 3 5.5" /></Icon>;
 const CALLS = <Icon><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1z" /></Icon>;
+const ARCHIVE = <Icon><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" /></Icon>;
 const FILES = <Icon><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></Icon>;
 
 // One round button, with its unread count, for a section or channel. It lights up while that one is open.
@@ -27,6 +29,9 @@ function RailButton({ label, icon, on, count, onClick }) {
 // The narrow strip that stays on the right of every page: settings and new chat, the sections, the chats, then the other channels.
 export default function ChatRail({ rows, myId, selectedId, open, error, section, inboxChannel, screen, counts = {}, onSettings, onNew, onSelect, onRetry, onSection, onInbox }) {
   const inboxOn = (channel) => section === "inbox" && inboxChannel === channel;
+  const [archived, setArchived] = useState(false); // shows the archived chats in place of the others
+  const archivedCount = chatsIn(rows, true).length;
+  const showArchived = archived && archivedCount > 0;
   return (
     <nav className="msgr-rail" aria-label="Team chat">
       <div className="msgr-rail-group">
@@ -41,7 +46,8 @@ export default function ChatRail({ rows, myId, selectedId, open, error, section,
       </div>
       <div className="msgr-rail-group msgr-rail-chats">
         {error && <button type="button" className="msgr-rail-btn msgr-rail-error" title={`${error} Click to try again.`} aria-label="Chats did not load. Try again" onClick={onRetry}>!</button>}
-        {sortChats(rows).map((r) => {
+        {(archivedCount > 0 || showArchived) && <RailButton label={showArchived ? "Back to chats" : `Archived chats (${archivedCount})`} icon={ARCHIVE} on={showArchived} onClick={() => setArchived(!showArchived)} />}
+        {sortChats(chatsIn(rows, showArchived)).map((r) => {
           const count = badgeText(r.unread);
           return (
             <button key={r.id} type="button" className={`msgr-rail-chat${open && r.id === selectedId ? " msgr-rail-chat-on" : ""}`} title={railTitle(r, myId)}

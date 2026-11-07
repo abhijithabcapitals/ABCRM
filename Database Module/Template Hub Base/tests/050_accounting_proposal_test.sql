@@ -1,4 +1,4 @@
--- LOCAL TEST ONLY. Accounting quote and agreement: numbers, totals, rejects, acceptance, approval, signature protection. All amounts are invented.
+-- LOCAL TEST ONLY. Accounting quote and agreement: numbers, totals, rejects, acceptance, approvals made before 012, signature protection. All amounts are invented.
 \set ON_ERROR_STOP on
 \set plain '00000000-0000-0000-0000-0000000000c1'
 \set admin '00000000-0000-0000-0000-0000000000c2'
@@ -164,21 +164,20 @@ select at_check('and on an accepted quote that has no agreement yet',
 select at_check('the refused letters took no ACE number', (select count(*) = 0 from hub_documents where doc_type = 'letter' and parent_id in (:'new1'::uuid, :'q_acc'::uuid)));
 select at_check('letters on old Accounting quotes still work', (select doc_type = 'letter' and library_template is null and document_number = :'old_letter_no' from hub_documents where id = :'old_letter'));
 
--- ── can send, before approval ────────────────────────────────────────
+-- ── can send: signing is optional (012) ──────────────────────────────
 select at_check('quote without a PDF cannot be sent', not hub_acct_can_send(:'new1'));
 select at_check('unknown id cannot be sent', not hub_acct_can_send(gen_random_uuid()));
 select at_check('attach records the PDF and the Word path', (select storage_path = 'hub-documents/q1.pdf' and word_path = 'hub-documents/q1.docx' from hub_acct_attach(:'new1', 'hub-documents/q1.pdf', 'hub-documents/q1.docx')));
 select at_check('quote with a PDF can be sent', hub_acct_can_send(:'new1'));
 select hub_acct_attach(:'ag1', 'Accounting/ag1-draft.pdf', 'Accounting/ag1-draft.docx') is not null as attached \gset
-select at_check('unapproved agreement with a PDF cannot be sent', (select storage_path = 'Accounting/ag1-draft.pdf' from hub_documents where id = :'ag1') and not hub_acct_can_send(:'ag1'));
+select at_check('an unsigned, unapproved agreement with a PDF can be sent', (select storage_path = 'Accounting/ag1-draft.pdf' from hub_documents where id = :'ag1') and hub_acct_can_send(:'ag1'));
 select at_check('OneDrive and signed records are kept',
   (select onedrive_path = 'Proposals/Test' and onedrive_saved_at is not null from hub_acct_saved(:'new1', 'Proposals/Test'))
-  and (select signed_at = date '2026-11-06' and signed_path = 'Accounting/signed/q1.pdf' from hub_acct_signed(:'new1', date '2026-11-06', 'Accounting/signed/q1.pdf'))
+  and (select signed_at = date '2026-11-06' and signed_path = 'Accounting/' || :'new1' || '/q1.pdf' from hub_acct_signed(:'new1', date '2026-11-06', 'Accounting/' || :'new1' || '/q1.pdf'))
   and at_refused(format($f$select hub_acct_signed(%L, null, 'x')$f$, :'new1'), 'date'));
-select at_check('an unapproved agreement cannot record a signed copy',
-  at_refused(format($f$select hub_acct_signed(%L, date '2026-11-06', 'Accounting/signed/ag1.pdf')$f$, :'ag1'), 'is not approved, so no signed copy can be recorded')
-  and (select signed_at is null and signed_path is null from hub_documents where id = :'ag1'));
-select at_check('a quote still needs no approval to record its signed copy', (select signed_path = 'Accounting/signed/q1.pdf' from hub_documents where id = :'new1'));
+select at_check('an unapproved agreement records the client''s signed copy too',
+  (select signed_at = date '2026-11-06' and signed_path = 'Accounting/' || :'ag1' || '/ag1.pdf' from hub_acct_signed(:'ag1', date '2026-11-06', 'Accounting/' || :'ag1' || '/ag1.pdf')));
+select at_check('a quote still needs no approval to record its signed copy', (select signed_path = 'Accounting/' || :'new1' || '/q1.pdf' from hub_documents where id = :'new1'));
 
 -- ── mail drafts: any staff member may change them ────────────────────
 select id as mail1 from hub_document_create(jsonb_build_object('doc_type', 'mail', 'parent_id', :'new1', 'department', 'Accounting', 'client_name', 'Acct Test Client LLC',
@@ -200,12 +199,13 @@ select at_as(null);
 select at_check('a signed-out caller cannot change a mail draft', at_refused(format($f$select hub_acct_mail_update(%L, 's', 'b')$f$, :'mail1'), 'Sign in'));
 select at_as(:'plain');
 
--- ── approve rights ───────────────────────────────────────────────────
+-- ── approve rights: hub_acct_can_approve reads the AB Capital signing list (011) ──
 select at_as(:'admin');
 select at_check('empty list: a CRM administrator can approve', hub_acct_can_approve());
 select at_as(:'hubmgr');
 select at_check('empty list: a manager who is a Hub admin cannot approve', hub_is_admin() and not hub_acct_can_approve());
-select at_check('a Hub-admin manager cannot approve an agreement', at_refused(format($f$select hub_acct_approve(%L, 'a.pdf', 'a.docx', now())$f$, :'ag1'), 'not an approver'));
+select at_check('hub_acct_approve is kept for history, and no signed-in user may call it (012)',
+  at_refused(format($f$select hub_acct_approve(%L, 'a.pdf', 'a.docx', now())$f$, :'ag1'), 'permission denied'));
 select at_as(:'plain');
 select at_check('empty list: a plain user cannot approve', not hub_acct_can_approve());
 select at_as(null);
@@ -230,21 +230,17 @@ select at_check('a CRM administrator passes on hub_acct_admin_save and bad appro
   and at_refused($f$select hub_acct_admin_save('{"signature_path": "somewhere/else.png"}')$f$, 'accounting-signature/')
   and (hub_acct_admin_save(jsonb_build_object('approvers', jsonb_build_array(:'admin'))) -> 'approvers') = jsonb_build_array(:'admin'));
 
--- ── no image ─────────────────────────────────────────────────────────
-select at_check('approve with no signature_path raises Upload the signature first',
-  at_refused(format($f$select hub_acct_approve(%L, 'a.pdf', 'a.docx', now())$f$, :'ag1'), 'Upload the signature first'));
+-- ── the image path ───────────────────────────────────────────────────
 select hub_acct_admin_save(jsonb_build_object('approvers', jsonb_build_array(:'appr1', :'appr2'), 'signature_path', 'accounting-signature/test-sig.png')) is not null as x3 \gset
 select at_check('the signature record keeps the date and the uploader',
   (select value ->> 'signature_path' = 'accounting-signature/test-sig.png' and value ->> 'signature_uploaded_by' = :'admin' and value ->> 'signature_uploaded_at' is not null
      from hub_settings where key = 'accounting_proposal_defaults'));
 
--- ── list members, non-members, self approval ─────────────────────────
+-- ── list members and non-members ─────────────────────────────────────
 select at_as(:'plain');
 select at_check('list in place: a non-member cannot approve, even the creator', not hub_acct_can_approve());
 select at_as(:'admin');
 select at_check('list in place: an administrator not on the list cannot approve', not hub_acct_can_approve());
-select at_as(:'plain');
-select at_check('a non-member is refused on approve', at_refused(format($f$select hub_acct_approve(%L, 'a.pdf', 'a.docx', now())$f$, :'ag1'), 'not an approver'));
 
 -- An agreement created by approver one, on a new quote.
 select at_as(:'appr1');
@@ -252,88 +248,47 @@ select id as q_self from hub_acct_quote_create(at_acq()) \gset
 select hub_acct_accept(:'q_self', 0) is not null as x1 \gset
 select id as ag_self, agreement_changed_at as ag_self_changed from hub_acct_agreement_create(jsonb_build_object('quote_id', :'q_self', 'agreement', at_aga())) \gset
 select at_check('list member passes can_approve', hub_acct_can_approve());
-select at_check('self approval: the creator fails when another approver exists',
-  at_refused(format($f$select hub_acct_approve(%L, 'a.pdf', 'a.docx', %L::timestamptz)$f$, :'ag_self', :'ag_self_changed'), 'cannot approve an agreement they created'));
-select at_check('and nothing was recorded', (select approved_by is null and approved_at is null from hub_documents where id = :'ag_self'));
 
--- ── stale approval ───────────────────────────────────────────────────
-select at_as(:'appr2');
-select at_check('stale approval: a p_seen older than agreement_changed_at raises',
-  at_refused(format($f$select hub_acct_approve(%L, 'a.pdf', 'a.docx', %L::timestamptz - interval '1 second')$f$, :'ag_self', :'ag_self_changed'), 'The agreement changed')
-  and at_refused(format($f$select hub_acct_approve(%L, 'a.pdf', 'a.docx', null)$f$, :'ag_self'), 'The agreement changed'));
-select at_check('and nothing is recorded', (select approved_by is null and approved_at is null and storage_path is null from hub_documents where id = :'ag_self'));
-select at_check('approve needs both files', at_refused(format($f$select hub_acct_approve(%L, '', 'a.docx', %L::timestamptz)$f$, :'ag_self', :'ag_self_changed'), 'files are needed'));
-
--- ── approve, and the files swap ──────────────────────────────────────
+-- ── agreements approved before 012 keep their approved files ─────────
+-- Live rows approved with hub_acct_approve hold the approved files. Nothing writes an approval any more, so it is set here as the owner.
 select hub_acct_attach(:'ag_self', 'Accounting/self-draft.pdf', 'Accounting/self-draft.docx') is not null as x2 \gset
-select at_check('another approver approves: approval and the file swap are recorded together, the draft goes to file_history',
-  (select approved_by = :'appr2'::uuid and approved_at is not null and storage_path = 'Accounting/self-signed.pdf' and word_path = 'Accounting/self-signed.docx'
-      and field_values #>> '{file_history,0,storage_path}' = 'Accounting/self-draft.pdf' and field_values #>> '{file_history,0,word_path}' = 'Accounting/self-draft.docx'
-      from hub_acct_approve(:'ag_self', 'Accounting/self-signed.pdf', 'Accounting/self-signed.docx', :'ag_self_changed')));
-select at_check('an approved agreement can be sent', hub_acct_can_send(:'ag_self'));
-select at_check('approving twice raises and approved files cannot be replaced',
-  at_refused(format($f$select hub_acct_approve(%L, 'x.pdf', 'x.docx', now())$f$, :'ag_self'), 'already approved')
-  and at_refused(format($f$select hub_acct_attach(%L, 'x.pdf', 'x.docx')$f$, :'ag_self'), 'cannot be replaced'));
-
--- ── edit clears ──────────────────────────────────────────────────────
-select at_as(:'plain');
-select at_check('editing clears the approval, sets agreement_changed_at, and pushes the old paths to file_history',
-  (select approved_by is null and approved_at is null and storage_path is null and word_path is null and agreement_changed_at > :'ag_self_changed'::timestamptz
-      and field_values #>> '{agreement,signatory_name}' = 'Pat Changed' and field_values #>> '{agreement,accepted_option}' = '0'
-      and jsonb_array_length(field_values -> 'file_history') = 2 and field_values #>> '{file_history,1,storage_path}' = 'Accounting/self-signed.pdf'
-      and field_values #>> '{file_history,1,approved_by}' = :'appr2' from hub_acct_agreement_update(:'ag_self', at_aga('{"signatory_name": "Pat Changed", "accepted_option": 5}'))));
-select at_check('an edited agreement cannot be sent', not hub_acct_can_send(:'ag_self'));
-select at_check('editing needs valid details', at_refused(format($f$select hub_acct_agreement_update(%L, at_aga('{"address": []}'))$f$, :'ag_self'), 'address'));
-
--- ── sole approver ────────────────────────────────────────────────────
-select at_as(:'admin');
-select hub_acct_admin_save(jsonb_build_object('approvers', jsonb_build_array(:'appr1'))) is not null as x4 \gset
+select at_as(null);
+update hub_documents set storage_path = 'Accounting/self-signed.pdf', word_path = 'Accounting/self-signed.docx', approved_by = :'appr2', approved_at = now() where id = :'ag_self';
 select at_as(:'appr1');
-select at_check('self approval: the creator passes when sole approver',
-  (select approved_by = :'appr1'::uuid and storage_path = 'Accounting/self2.pdf' from hub_acct_approve(:'ag_self'::uuid, 'Accounting/self2.pdf', 'Accounting/self2.docx', (select date_trunc('milliseconds', agreement_changed_at) from hub_documents where id = :'ag_self'))));
-
--- ── empty list: the creator administrator is refused while another administrator exists ──
-select at_as(:'admin');
-select hub_acct_admin_save('{"approvers": []}') is not null as x5 \gset
-select id as q_adm from hub_acct_quote_create(at_acq()) \gset
-select hub_acct_accept(:'q_adm', 0) is not null as x6 \gset
-select id as ag_adm, agreement_changed_at as ag_adm_changed from hub_acct_agreement_create(jsonb_build_object('quote_id', :'q_adm', 'agreement', at_aga())) \gset
-select at_check('empty list: an administrator cannot approve the agreement they created while another administrator exists',
-  at_refused(format($f$select hub_acct_approve(%L, 'p.pdf', 'p.docx', %L::timestamptz)$f$, :'ag_adm', :'ag_adm_changed'), 'cannot approve an agreement they created'));
-select at_as(:'admin2');
-select at_check('empty list: another administrator approves it',
-  (select approved_by = :'admin2'::uuid from hub_acct_approve(:'ag_adm', 'p.pdf', 'p.docx', :'ag_adm_changed')));
-
--- ── approved files stay put ──────────────────────────────────────────
-select at_as(:'admin');
-select at_check('the creator cannot point an approved agreement at another PDF through hub_document_attach',
-  at_refused(format($f$select hub_document_attach(%L, 'Accounting/evil.pdf', null)$f$, :'ag_adm'), 'Approved files cannot be replaced'));
-select at_check('nor through hub_acct_attach',
-  at_refused(format($f$select hub_acct_attach(%L, 'Accounting/evil.pdf', 'Accounting/evil.docx')$f$, :'ag_adm'), 'cannot be replaced'));
-select at_check('and the approved files are unchanged', (select storage_path = 'p.pdf' and word_path = 'p.docx' and approved_at is not null from hub_documents where id = :'ag_adm'));
-select count(*) >= 0 as la from (select hub_document_attach(:'ag_adm', null, 'C:/office/copy.pdf')) x \gset
+select at_check('an agreement approved before 012 can be sent', hub_acct_can_send(:'ag_self'));
+select at_check('its creator cannot point it at another PDF through hub_document_attach or hub_acct_attach',
+  at_refused(format($f$select hub_document_attach(%L, 'Accounting/evil.pdf', null)$f$, :'ag_self'), 'Approved files cannot be replaced')
+  and at_refused(format($f$select hub_acct_attach(%L, 'Accounting/evil.pdf', 'Accounting/evil.docx')$f$, :'ag_self'), 'cannot be replaced')
+  and (select storage_path = 'Accounting/self-signed.pdf' and word_path = 'Accounting/self-signed.docx' from hub_documents where id = :'ag_self'));
+select count(*) >= 0 as la from (select hub_document_attach(:'ag_self', null, 'C:/office/copy.pdf')) x \gset
 select at_check('hub_document_attach may still record the office copy without touching the PDF',
-  (select local_path = 'C:/office/copy.pdf' and storage_path = 'p.pdf' from hub_documents where id = :'ag_adm'));
+  (select local_path = 'C:/office/copy.pdf' and storage_path = 'Accounting/self-signed.pdf' from hub_documents where id = :'ag_self'));
 select at_as(:'plain');
 select count(*) >= 0 as qa from (select hub_document_attach(:'new1', 'hub-documents/q1b.pdf', null)) x \gset
 select at_check('a quote (never approved) can still be re-attached by its creator', (select storage_path = 'hub-documents/q1b.pdf' from hub_documents where id = :'new1'));
-select at_as(:'admin');
-select at_check('an edit still clears the approval and the files in one statement',
-  (select approved_at is null and storage_path is null and word_path is null from hub_acct_agreement_update(:'ag_adm', at_aga())));
-select date_trunc('milliseconds', agreement_changed_at) as ag_adm_changed2 from hub_documents where id = :'ag_adm' \gset
-select hub_acct_attach(:'ag_adm', 'Accounting/adm-draft.pdf', 'Accounting/adm-draft.docx') is not null as x8 \gset
-select at_as(:'admin2');
-select at_check('and approve still swaps the files in',
-  (select approved_by = :'admin2'::uuid and storage_path = 'Accounting/adm2.pdf' and word_path = 'Accounting/adm2.docx'
-     from hub_acct_approve(:'ag_adm', 'Accounting/adm2.pdf', 'Accounting/adm2.docx', :'ag_adm_changed2')));
-select at_check('the approving flag does not outlast the approval', coalesce(current_setting('hub_acct.approving', true), '') <> 'on');
+
+-- ── edit: the approval stays as history, the files go ────────────────
+select at_check('editing keeps approved_by and approved_at, clears the files, sets agreement_changed_at and pushes the old paths to file_history',
+  (select approved_by = :'appr2'::uuid and approved_at is not null and storage_path is null and word_path is null and agreement_changed_at > :'ag_self_changed'::timestamptz
+      and field_values #>> '{agreement,signatory_name}' = 'Pat Changed' and field_values #>> '{agreement,accepted_option}' = '0'
+      and jsonb_array_length(field_values -> 'file_history') = 1 and field_values #>> '{file_history,0,storage_path}' = 'Accounting/self-signed.pdf'
+      and field_values #>> '{file_history,0,approved_by}' = :'appr2' from hub_acct_agreement_update(:'ag_self', at_aga('{"signatory_name": "Pat Changed", "accepted_option": 5}'))));
+select at_check('an edited agreement has no PDF, so it cannot be sent', not hub_acct_can_send(:'ag_self'));
+select at_check('editing needs valid details', at_refused(format($f$select hub_acct_agreement_update(%L, at_aga('{"address": []}'))$f$, :'ag_self'), 'address'));
+select at_check('after the edit the approval no longer locks the files: the rebuilt draft attaches',
+  (select storage_path = 'Accounting/self-new.pdf' from hub_acct_attach(:'ag_self', 'Accounting/self-new.pdf', 'Accounting/self-new.docx')));
+select at_check('and the rebuilt, unapproved agreement can be sent', hub_acct_can_send(:'ag_self'));
+select at_as(:'appr1');
+select count(*) >= 0 as la2 from (select hub_document_attach(:'ag_self', 'Accounting/self-other.pdf', null)) x \gset
+select at_check('and its creator may re-attach it like any unapproved document', (select storage_path = 'Accounting/self-other.pdf' from hub_documents where id = :'ag_self'));
+select at_check('the file flag does not outlast the statement', coalesce(current_setting('hub_acct.files', true), '') <> 'on');
 
 -- ── signed agreements ────────────────────────────────────────────────
-select at_check('an approved agreement records its signed copy',
-  (select signed_at = date '2026-11-06' from hub_acct_signed(:'ag_adm', date '2026-11-06', 'Accounting/signed/adm.pdf')));
+select at_check('an agreement records its client-signed copy',
+  (select signed_at = date '2026-11-06' from hub_acct_signed(:'ag_self', date '2026-11-06', 'Accounting/' || :'ag_self' || '/self.pdf')));
 select at_check('a signed agreement cannot be edited',
-  at_refused(format($f$select hub_acct_agreement_update(%L, at_aga())$f$, :'ag_adm'), 'is signed and cannot be edited')
-  and (select approved_at is not null and storage_path = 'Accounting/adm2.pdf' from hub_documents where id = :'ag_adm'));
+  at_refused(format($f$select hub_acct_agreement_update(%L, at_aga())$f$, :'ag_self'), 'is signed and cannot be edited')
+  and (select storage_path = 'Accounting/self-other.pdf' from hub_documents where id = :'ag_self'));
 
 -- ── signature protection in the bucket ───────────────────────────────
 select at_as(null);
@@ -355,7 +310,7 @@ select at_check('a non-approver reads no row under accounting-signature/, and ot
   (select count(*) = 0 from storage.objects where bucket_id = 'hub-documents' and name like 'accounting-signature/%')
   and (select count(*) = 1 from storage.objects where bucket_id = 'hub-documents' and name = 'Accounting/quotes/other.docx'));
 select at_as(:'admin');
-select at_check('an administrator who is not an approver does not read it', (select count(*) = 0 from storage.objects where name like 'accounting-signature/%'));
+select at_check('an administrator who is not an approver reads it (011 policy; the 008 ones are retired in 012)', (select count(*) = 1 from storage.objects where name like 'accounting-signature/%'));
 select at_as(:'appr2');
 select at_check('an approver reads the row', (select count(*) = 1 from storage.objects where bucket_id = 'hub-documents' and name = 'accounting-signature/test-sig.png'));
 select at_as(:'hubmgr');
@@ -367,8 +322,9 @@ select at_check('a non-admin could not rename a file into the prefix or delete t
   (select count(*) = 1 from storage.objects where name = 'Accounting/quotes/other.docx') and (select count(*) = 1 from storage.objects where name = 'accounting-signature/test-sig.png')
   and (select count(*) = 0 from storage.objects where name = 'accounting-signature/moved.png'));
 select at_as(:'admin');
-select at_check('an administrator is not blocked by the update and delete policies',
-  (select count(*) = 2 from pg_policies where policyname in ('hub_docs_accounting_signature_update', 'hub_docs_accounting_signature_delete') and permissive = 'RESTRICTIVE' and qual like '%admin_is%'));
+select at_check('the 008 accounting-signature policies are gone; the 011 update and delete policies let an administrator through',
+  (select count(*) = 0 from pg_policies where policyname like 'hub\_docs\_accounting\_signature%')
+  and (select count(*) = 2 from pg_policies where policyname in ('doc_sign_image_update', 'doc_sign_image_delete') and permissive = 'RESTRICTIVE' and qual like '%admin_is%'));
 select at_as(:'hubmgr');
 select at_check('a Hub-admin manager who is not an approver does not read it', (select count(*) = 0 from storage.objects where name like 'accounting-signature/%'));
 select at_as(null);

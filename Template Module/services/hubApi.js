@@ -2,6 +2,7 @@ import { supabase } from "@app/supabase";
 import { oldDeskRows } from "../logic/serviceDocs";
 import { templateBuffer } from "@banking/services/masterTemplates";
 import { withoutProposals } from "../logic/proposalModel";
+import { renderSigned } from "../logic/signDocx";
 
 export { openInFolder } from "@banking/services/bankingApi";
 
@@ -92,12 +93,13 @@ export async function openStored(path, bucket = BUCKET) {
   window.open(data.signedUrl, "_blank", "noopener");
 }
 
-export async function renderTemplate(templateFile, data, { builtIn = true } = {}) {
+// signature: null (every normal render; a template with the AB Capital signatory place gets blank lines there) or the company image
+// { bytes, type, width, height } when an approver signs (shared signing, Template Hub 011). See logic/signDocx.js renderSigned.
+export async function renderTemplate(templateFile, data, { builtIn = true, signature = null } = {}) {
   const [{ default: PizZip }, { default: Docxtemplater }] = await Promise.all([import("pizzip"), import("docxtemplater")]);
   const buffer = await templateBuffer(templateFile, builtIn ? new URL(`../templates/${templateFile}`, import.meta.url).href : null);
-  const doc = new Docxtemplater(new PizZip(buffer), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
-  doc.render(data);
-  return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+  return renderSigned({ PizZip, Docxtemplater }, buffer, data, signature, templateFile)
+    .generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }
 
 // ── Company Library: Word templates filled by staff ──

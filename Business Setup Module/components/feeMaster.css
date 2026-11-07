@@ -1,0 +1,14 @@
+/* Services & Fees: one collapsible section per category, groups inside it. */
+.bs-fee-cat { margin-top: 10px; border: 1px solid #e6ebed; border-radius: 10px; background: #fff; }
+.bs-fee-cat > summary { padding: 11px 14px; font-size: 13.5px; font-weight: 700; cursor: pointer; list-style-position: inside; }
+.bs-fee-cat[open] > summary { border-bottom: 1px solid #e6ebed; }
+.bs-fee-grp { padding: 4px 10px 10px; }
+.bs-fee-grp h4 { margin: 10px 4px 6px; font-size: 12.5px; color: #5f7077; }
+.bs-fee-count { display: inline-block; min-width: 20px; margin-left: 6px; padding: 1px 7px; border-radius: 10px; background: #f1f3f4; color: #5f7077; font-size: 11.5px; font-weight: 600; text-align: center; }
+.bs-fee-empty { padding: 14px; color: #5f7077; }
+/* Dragging a category (same look as the CRM's tab drag): grab cursor, faded while moving, amber line where it lands. */
+.bs-fee-handle { cursor: grab; }
+.bs-fee-handle:active { cursor: grabbing; }
+.bs-fee-dragging { opacity: .45; }
+.bs-fee-over-before { box-shadow: 0 -3px 0 #f59e0b; }
+.bs-fee-over-after { box-shadow: 0 3px 0 #f59e0b; }

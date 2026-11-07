@@ -374,6 +374,21 @@ async function syncFolderList(db: Db, account: Row, client: ImapClient) {
     .sort((a: Row, b: Row) => order.indexOf(a.role) - order.indexOf(b.role) || a.name.localeCompare(b.name));
 }
 
+// UIDs of this folder that the email archive job has pruned (email_base.archived_messages).
+// Until that table exists (Email Base migration 009) the query fails and nothing is skipped.
+async function archivedUids(db: Db, mailboxId: string, folderName: string, uidValidity: number): Promise<Set<number>> {
+  const uids = new Set<number>();
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db.from("archived_messages").select("uid")
+      .eq("mailbox_id", mailboxId).eq("folder", folderName).eq("uidvalidity", uidValidity)
+      .order("uid").range(from, from + pageSize - 1);
+    if (error || !data) return uids;
+    for (const r of data) uids.add(Number(r.uid));
+    if (data.length < pageSize) return uids;
+  }
+}
+
 async function syncFolder(db: Db, client: ImapClient, account: Row, folder: Row, budget: Budget, batch: Map<string, string>) {
   const uidValidity = await client.examine(folder.name);
   const total = client.exists;
@@ -444,7 +459,11 @@ async function syncFolder(db: Db, client: ImapClient, account: Row, folder: Row,
   const liveMeta = await client.fetchMeta(liveUids);
   for (const [uid, value] of liveMeta) meta.set(uid, value);
 
+  const archived = await archivedUids(db, account.id, folder.name, uidValidity);
+
   const importUid = async (uid: number): Promise<boolean> => {
+    // Mail moved to the SharePoint archive (email_base.archived_messages) is not imported again.
+    if (archived.has(uid)) return true;
     if (budget.count <= 0 || Date.now() > budget.deadline) return false;
     const size = meta.get(uid)?.size || 0;
     const reason = previousMarker === importingMarker(uid)

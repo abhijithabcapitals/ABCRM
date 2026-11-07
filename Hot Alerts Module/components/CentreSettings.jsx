@@ -56,7 +56,7 @@ export default function CentreSettings({ supabase, access, onChanged }) {
   async function loadAll() {
     try {
       const [r, m, c] = await Promise.all([alertRuleList(supabase), alertManagerList(supabase), alertCoverage(supabase)]);
-      setRules((r || []).filter((x) => !/^(regulatory|manual)_/.test(x.code)));  // Raised by people and workflows, not by the scan.
+      setRules((r || []).filter((x) => !/^(regulatory|manual)_/.test(x.code) && !["service_assigned", "service_completed", "milestone_reached"].includes(x.code)));  // Raised by people and workflows, not by the scan; the three service notices are raised by Business Setup saves.
       setManagers(m); setScan(c);
     } catch (e) {
       setError(e.message);

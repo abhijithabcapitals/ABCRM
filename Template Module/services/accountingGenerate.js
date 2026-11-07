@@ -1,16 +1,19 @@
-// Makes, approves, edits and retries the Accounting quote and agreement files. Everything that touches the server or the browser is passed in as deps:
-// { settings, check(kind, a, b), create(p), loadTemplate(kind), loadSignature(), render(buffer, context, signature), toPdf(wordBlob),
-//   upload(doc, blob, ext), remove(paths), attach(id, pdf, word), approve(id, pdf, word, seen), update(id, agreement), saveLocal(doc, wordBlob, pdfBlob),
-//   markSaved(id, path), createMail(doc, { subject, body }), loadBlobs(doc) for Save now }.
+// Makes, signs, edits and retries the Accounting quote and agreement files. Everything that touches the server or the browser is passed in as deps:
+// { settings, check(kind, a, b), create(p), loadTemplate(kind), render(buffer, context, signature), toPdf(wordBlob),
+//   upload(doc, blob, ext), remove(paths), attach(id, pdf, word), update(id, agreement), saveLocal(doc, wordBlob, pdfBlob),
+//   markSaved(id, path), createMail(doc, { subject, body }), loadBlobs(doc) for Save now,
+//   sign({ table, doc, rebuild, seen }) = the shared signing step (signing.js signDocument with its deps) }.
 // A document that cannot render uses no number. A failure after the number keeps the row and Ref, and Retry rebuilds from field_values.
-// Only approveAgreement loads the signature image. Nothing here adds one option or fee basis to another.
+// Signing is optional and goes through the shared step only: the signed files are its own, under Accounting/<id>/signed/, and the row keeps
+// its unsigned files. Nothing here adds one option or fee basis to another.
 import { quoteContext, toQuotePayload, isAccountingAgreement } from "../logic/accountingQuote.js";
 import { agreementContext } from "../logic/accountingAgreement.js";
+import { signStamp } from "../logic/accountingUi.js";
 
 // The PDF is drawn in the browser by the existing converter, loaded only when needed.
 export const toPdf = async (wordBlob) => (await import("../ardentax/logic/docxToPdf.js")).docxToPdf(wordBlob);
 
-const contextFor = (kind, doc, settings, signed) => (kind === "agreement" ? agreementContext(doc, settings, signed) : quoteContext(doc, settings));
+const contextFor = (kind, doc, settings, signed) => (kind === "agreement" ? agreementContext(doc, settings, signed) : { ...quoteContext(doc, settings), has_signature: !!signed });
 const kindOf = (doc) => (isAccountingAgreement(doc) ? "agreement" : "quote");
 
 // Subject and body of the mail draft. Each option shows its own totals; nothing is summed across options or bases.
@@ -18,13 +21,13 @@ export function mailText(doc, settings) {
   const ref = doc.document_number;
   const who = doc.contact_name || doc.client_name;
   if (kindOf(doc) === "agreement") {
-    return { subject: `Service Agreement ${ref}`, body: `Dear ${who},\n\nPlease find attached our Service Agreement ${ref}.\n\nKind regards,\nAB Capital Services FZE` };
+    return { subject: `Service Agreement ${ref}`, body: `Dear ${who},\n\nPlease find attached our Service Agreement ${ref}.\n\n-- closing --\nKind regards,\nAB Capital Services FZE` };
   }
   const ctx = quoteContext(doc, settings);
   const blocks = ctx.options.map((o) => `Option ${o.number}: ${o.name}\n${o.totals.length ? o.totals.map((t) => `- ${t.text}`).join("\n") : "- No fixed fee"}`);
   return {
     subject: `Quotation ${ref}`,
-    body: `Dear ${who},\n\nThank you for your interest in AB Capital. Please find attached our Quotation ${ref}.\n\n${blocks.join("\n\n")}\n\nPlease let us know which option you would like to proceed with.\n\nKind regards,\nAB Capital Services FZE`,
+    body: `Dear ${who},\n\nThank you for your interest in AB Capital. Please find attached our Quotation ${ref}.\n\n${blocks.join("\n\n")}\n\nPlease let us know which option you would like to proceed with.\n\n-- closing --\nKind regards,\nAB Capital Services FZE`,
   };
 }
 
@@ -114,30 +117,28 @@ export async function retryDocument(doc, deps, { mail = true } = {}) {
   return buildDraft(doc, deps, buffer, { mail });
 }
 
-// An approver releases the agreement: the signed files are built first and the server records approval only after that.
-export async function approveAgreement(doc, deps) {
-  let files;
-  try {
-    const buffer = await deps.loadTemplate("agreement");
-    const signature = await deps.loadSignature();
-    files = await makeFiles(doc, "agreement", true, signature, deps, buffer);
-  } catch (e) {
-    return { error: e.message };
-  }
-  let approved;
-  try {
-    approved = await deps.approve(doc.id, files.pdfPath, files.wordPath, doc.agreement_changed_at);
-  } catch (e) {
-    // The signed files were uploaded for an approval that did not happen: remove them, best effort, and report the refusal itself.
-    try { await deps.remove?.([files.pdfPath, files.wordPath]); } catch { /* the refusal below matters more than the leftover files */ }
-    return { error: e.message };
-  }
-  const row = approved && typeof approved === "object" ? approved : doc;
-  const onedrive = await copyLocal(row, files, deps);
-  return { doc: row, wordBlob: files.wordBlob, pdfBlob: files.pdfBlob, onedrive };
+// The stored document rendered again with the signature: the family's rebuild for the shared signing step.
+export async function rebuildDocument(doc, signature, deps) {
+  const kind = kindOf(doc);
+  const buffer = await deps.loadTemplate(kind);
+  return deps.render(buffer, contextFor(kind, doc, deps.settings, true), signature);
 }
 
-// Saves the edited agreement (which clears approval and the files on the server), then rebuilds the unsigned draft.
+// An approver signs a quote or agreement. The stamp is the one on the row being rendered, so a change made in another tab is refused by
+// the server ("The document changed"). On success the signed files are copied to the client folder, as Approve did.
+export async function signAccounting(doc, deps) {
+  let r;
+  try {
+    r = await deps.sign({ table: "hub_documents", doc, seen: signStamp(doc), rebuild: (d, signature) => rebuildDocument(d, signature, deps) });
+  } catch (e) {
+    return { error: e.message };
+  }
+  if (!r || r.error) return { error: r?.error || "Signing failed" };
+  const onedrive = await copyLocal(doc, r, deps);
+  return { doc, signature: r.signature, wordBlob: r.wordBlob, pdfBlob: r.pdfBlob, onedrive };
+}
+
+// Saves the edited agreement (which clears the files and ends the signature on the server), then rebuilds the unsigned draft.
 export async function editAgreement(doc, agreement, deps) {
   let buffer;
   let row;

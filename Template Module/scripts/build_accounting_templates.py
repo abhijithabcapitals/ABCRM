@@ -8,6 +8,8 @@ never go into a template: they come from the data at generation time. Stops if t
 logo is small; a signature or stamp is not) or if its shape is not what this script expects.
 
 Raw tags used (filled by renderAccountingDoc, each alone in its paragraph): {@signature_xml} and {@page_break}.
+Both templates end their signing part with the AB Capital "Authorized Signatory" block: {@signature_xml} stays empty until an approver
+signs through the shared signing step (Template Hub 011/012). Rebuilding keeps the block.
 """
 import re
 import sys
@@ -160,10 +162,11 @@ def offer_group(title, items):
 
 
 def signature_block():
-    left = (para(run("Yours sincerely,"), after=40, jc="left") + para(run("For AB CAPITAL SERVICES (FZE)", b=True), after=60, jc="left")
-            + block("draft_mark", para(run("Draft, not approved", b=True, color="C00000"), jc="left", after=0))
+    # keepNext from the heading to the signature line, so the block never splits at a page end.
+    left = (para(run("Yours sincerely,"), after=40, jc="left", keep=True) + para(run("For AB CAPITAL SERVICES (FZE)", b=True), after=60, jc="left", keep=True)
+            + block("draft_mark", para(run("Draft, not approved", b=True, color="C00000"), jc="left", after=0, keep=True))
             + para(run("{@signature_xml}"), jc="left", after=0)
-            + para(run("______________________________"), jc="left", before=240, after=0) + para(run("Authorized Signatory"), jc="left", after=0))
+            + para(run("______________________________"), jc="left", before=240, after=0, keep=True) + para(run("Authorized Signatory"), jc="left", after=0))
     right = (para(run("We hereby confirm the above assignment."), after=40, jc="left") + para(run("Accepted by", b=True), after=60, jc="left")
              + para(run(""), jc="left", after=0, before=480)
              + para(run("______________________________"), jc="left", before=240, after=0)
@@ -224,6 +227,12 @@ def agreement_body():
 
 # --- Quote -------------------------------------------------------------------------------------------------------------------
 
+def quote_signature_block():
+    return (para(run("For AB CAPITAL SERVICES (FZE)", b=True), jc="left", before=240, after=60, keep=True)
+            + para(run("{@signature_xml}"), jc="left", after=0)
+            + para(run("______________________________"), jc="left", before=240, after=0, keep=True) + para(run("Authorized Signatory"), jc="left", after=0))
+
+
 def quote_body():
     w = [5400, 2400, 1750]
     right = ["left", "left", "right"]
@@ -250,6 +259,7 @@ def quote_body():
     b.append(heading("Contact", num=False))
     b.append(para(run("{contact.name}"), jc="left", after=0) + para(run("Mobile: {contact.phone}"), jc="left", after=0)
              + para(run("Email: {contact.email}"), jc="left", after=0) + para(run("Website: {contact.website}"), jc="left", after=0))
+    b.append(quote_signature_block())
     return "".join(b)
 
 

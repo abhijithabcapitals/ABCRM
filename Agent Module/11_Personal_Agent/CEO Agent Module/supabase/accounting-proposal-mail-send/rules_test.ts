@@ -12,7 +12,7 @@ Deno.test("no PDF means nothing to attach", () => assertEquals(attachmentsFor({ 
 
 Deno.test("a quote needs no approval", () => assertEquals(refusal(quote, { resend: false }), null));
 Deno.test("an approved agreement may be sent", () => assertEquals(refusal(agreement, { resend: false }), null));
-Deno.test("an unapproved agreement is refused", () => assert(/approv/i.test(refusal({ ...agreement, approved_at: null }, { resend: false })!)));
+Deno.test("an unapproved, unsigned agreement may be sent too: signing is optional", () => assertEquals(refusal({ ...agreement, approved_at: null }, { resend: false }), null));
 Deno.test("another template is refused", () => {
   assert(refusal({ ...quote, library_template: "AB Capital/Other" }, { resend: false }));
   assert(refusal({ ...quote, library_template: null }, { resend: false }));
@@ -45,19 +45,64 @@ Deno.test("the file name is built from number and client, and is safe", () => {
 
 Deno.test("the claim matches only unclaimed or stale rows, and never-sent rows unless resending", () => {
   const now = new Date("2026-11-05T12:00:00.000Z");
-  assertEquals(claimRule(now, { resend: false }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: null, requireApproved: false });
-  assertEquals(claimRule(now, { resend: true }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: null, requireApproved: false });
+  assertEquals(claimRule(now, { resend: false }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: null });
+  assertEquals(claimRule(now, { resend: true }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: null });
   assert(/in progress/i.test(CLAIM_REFUSED));
 });
 
-Deno.test("the claim must still match the PDF that was read, and an agreement must still be approved", () => {
+Deno.test("the claim must still match the PDF that was read; no approval is asked for", () => {
   const now = new Date("2026-11-05T12:00:00.000Z");
-  assertEquals(claimRule(now, { resend: false }, quote), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: PDF, requireApproved: false });
-  assertEquals(claimRule(now, { resend: true }, agreement), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: PDF, requireApproved: true });
+  assertEquals(claimRule(now, { resend: false }, quote), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: true, storagePath: PDF });
+  assertEquals(claimRule(now, { resend: true }, { ...agreement, approved_at: null }), { staleBefore: "2026-11-05T11:55:00.000Z", requireUnsent: false, storagePath: PDF });
+});
+
+// ---- Signed or unsigned copy (Review Focus 4) ----
+import { attachmentChoice, isSignedAccountingPath, NOT_SIGNED, parseSigned } from "./rules.ts";
+const SIGNED = `Accounting/${ID}/signed/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.pdf`;
+const live = { id: "s1", source_table: "hub_documents", source_id: ID, pdf_path: SIGNED, superseded_at: null };
+
+Deno.test("signed missing, null or false sends the unsigned PDF exactly as before", () => {
+  for (const v of [undefined, null, false]) assertEquals(attachmentChoice(quote, parseSigned(v) as boolean, live), { path: PDF, signatureId: null });
+  assertEquals(attachmentChoice({ ...agreement, approved_at: null }, false, null), { path: PDF, signatureId: null });
+});
+Deno.test("signed true sends the live signature's PDF", () => assertEquals(attachmentChoice(agreement, true, live), { path: SIGNED, signatureId: "s1" }));
+Deno.test("signed true with no live signature is refused, and the unsigned send still works", () => {
+  assertEquals(attachmentChoice(agreement, true, null), { error: NOT_SIGNED });
+  assertEquals(NOT_SIGNED, "This document is not signed. Sign it first or send unsigned.");
+  assertEquals(attachmentChoice(agreement, false, null), { path: PDF, signatureId: null });
+});
+Deno.test("signed true with a superseded signature is refused, and the unsigned send still works", () => {
+  assertEquals(attachmentChoice(agreement, true, { ...live, superseded_at: "2026-11-06T10:00:00Z" }), { error: NOT_SIGNED });
+  assertEquals(attachmentChoice(agreement, false, { ...live, superseded_at: "2026-11-06T10:00:00Z" }), { path: PDF, signatureId: null });
+});
+Deno.test("a signature of another document is refused", () => {
+  assertEquals(attachmentChoice(agreement, true, { ...live, source_id: "99999999-2222-3333-4444-555555555555" }), { error: NOT_SIGNED });
+  assertEquals(attachmentChoice(agreement, true, { ...live, source_table: "ardentax_documents" }), { error: NOT_SIGNED });
+});
+Deno.test("a signed PDF outside Accounting/<id>/signed/ is refused", () => {
+  for (const p of [PDF, `Accounting/${ID}/signed/x.docx`, `Accounting/${ID}/signed/a/x.pdf`, `Accounting/99999999-2222-3333-4444-555555555555/signed/x.pdf`,
+                   `Accounting/${ID}/signed/../x.pdf`, `Accounting/${ID}/signed/`, `ArdentTax (ASP)/${ID}/signed/x.pdf`, null]) {
+    assert(!isSignedAccountingPath(ID, p), String(p));
+    assert("error" in attachmentChoice(agreement, true, { ...live, pdf_path: p }), String(p));
+  }
+  assert(isSignedAccountingPath(ID, SIGNED));
+});
+Deno.test("signed must be true, false or missing", () => {
+  assertEquals(parseSigned(true), true);
+  assertEquals(parseSigned(false), false);
+  assertEquals(parseSigned(undefined), false);
+  assertEquals(parseSigned(null), false);
+  for (const v of ["true", 1, "yes", {}]) assert(typeof parseSigned(v) === "object");
+});
+Deno.test("the mail function no longer asks for approval anywhere", async () => {
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  assert(!/approved_at|requireApproved/.test(src));
+  assert(src.includes("attachmentChoice("));
+  assert(/document_signatures/.test(src));
 });
 
 // ---- From mailbox and signature ----
-import { htmlBody } from "../ardentax-mail-send/rules.ts";
+import { htmlBody, plainText } from "../ardentax-mail-send/rules.ts";
 import { chooseSender, composeText, DEFAULT_SENDER, DEFAULT_SENDER_NAME, senderName, signatureFits, signatureHtml } from "./rules.ts";
 
 Deno.test("no from means info@abcapital.ae", () => assertEquals(chooseSender({ from: undefined, owned: false }), { address: DEFAULT_SENDER, needsOwnership: false }));
@@ -91,4 +136,31 @@ Deno.test("sender name is the display name, else the company", () => {
   assertEquals(senderName({ display_name: "Info Desk" }), "Info Desk");
   assertEquals(senderName({ display_name: " " }), DEFAULT_SENDER_NAME);
   assertEquals(senderName(null), DEFAULT_SENDER_NAME);
+});
+Deno.test("marked closing is dropped under a signature and the asterisks vanish from plain text", () => {
+  const body = "Dear X\n\n-- closing --\nKind regards,\nAB Capital Services FZE";
+  const sig = { body_text: "*Regards,*\nBharat Bajaj" };
+  const text = composeText(body, sig);
+  assertEquals(text, "Dear X\n\n*Regards,*\nBharat Bajaj");
+  assertEquals(plainText(text), "Dear X\n\nRegards,\nBharat Bajaj");
+  assert(htmlBody(text, "").includes("<b>Regards,</b>"));
+});
+Deno.test("no signature keeps the closing and drops only the mark", () => {
+  assertEquals(composeText("Dear X\n\n-- closing --\nKind regards,\nAB", null), "Dear X\n\nKind regards,\nAB");
+});
+Deno.test("a saved draft without the mark sends as before", () => {
+  assertEquals(composeText("Hello\nKind regards", { body_text: "Sig" }), "Hello\nKind regards\n\nSig");
+});
+
+import { sentNotRecorded } from "./rules.ts";
+
+// SMTP accepted, sent mark failed: the claim is kept (released before the mark is written) and the reply is an error that says the mail went out.
+Deno.test("a sent mail whose mark fails keeps the claim and says it went out", async () => {
+  const msg = sentNotRecorded("timeout");
+  if (!/was sent/i.test(msg) || !/not record/i.test(msg) || !/timeout/.test(msg) || !/Do not send it again/.test(msg)) throw new Error(msg);
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  const smtp = src.indexOf(".send(login.user"), keep = src.indexOf("released = true", smtp), mark = src.indexOf("mail_sent_at: sentAt", smtp);
+  if (!(smtp > 0 && keep > smtp && mark > keep)) throw new Error("the claim must be kept once SMTP accepted the mail, before the sent mark");
+  if ((src.match(/released = true/g) || []).length !== 1) throw new Error("only the accepted send keeps the claim");
+  if (!/if \(notRecorded\) return json\(\{ error: notRecorded/.test(src)) throw new Error("a failed mark must reply with an error");
 });

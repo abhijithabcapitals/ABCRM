@@ -42,14 +42,20 @@ export function createFakeApi() {
     upload: async (path, blob) => { if (api.failUpload) throw new Error("Storage is not available (test)."); files.set(path, blob); },
     failSend: false,
     sent: [],
-    sendMail: async (id) => {
+    sendMail: async (id, _resend, { signed = false } = {}) => {
       if (api.failSend) throw new Error("The mail was not sent: server down (test).");
       const d = docs.find((x) => x.id === id);
-      api.sent.push({ to: d.mail_to, subject: d.mail_subject });
+      api.sent.push({ to: d.mail_to, subject: d.mail_subject, signed });
       d.mail_sent_at = new Date().toISOString();
       return { ok: true, sent_at: d.mail_sent_at, warnings: [] };
     },
     signedUrl: async (path) => URL.createObjectURL(files.get(path)),
+    // Signing is not tried on the development page: nobody is an approver, so the Sign controls stay hidden.
+    canSign: async () => false,
+    signatures: async () => [],
+    changedAt: async (id) => docs.find((d) => d.id === id)?.created_at || null,
+    supersede: async () => false,
+    sign: async () => ({ error: "Signing is not available on the development page." }),
   };
   return api;
 }

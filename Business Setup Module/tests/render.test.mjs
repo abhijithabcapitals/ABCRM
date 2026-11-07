@@ -107,7 +107,7 @@ test("a case with no client lists its quote and letter read-only and offers no i
   const bare = await html("ClientOnboarding.jsx", "CaseDocs", { c, onBack() {} });
   assert.match(bare, /Read-only until a client is linked/); assert.match(bare, /No quote or letter for this case yet/);
   assert.match(bare, /\+ Record payment/); assert.match(bare, /first creates the client from the lead details/);
-  assert.doesNotMatch(bare, /New quote/); assert.doesNotMatch(bare, /Add signed copy/); assert.doesNotMatch(bare, /Create engagement letter/); assert.doesNotMatch(bare, /Waive payment/);
+  assert.doesNotMatch(bare, /New quote/); assert.doesNotMatch(bare, /Add client-signed copy/); assert.doesNotMatch(bare, /Create engagement letter/); assert.doesNotMatch(bare, /Waive payment/);
 });
 
 test("the payments panel of a case has no quote picker, and the ledger shows advances", { skip }, async () => {
@@ -186,11 +186,20 @@ test("service page: buttons follow the server's rights, and the checklist shows 
 
 test("Completion and the list editor render; the referrer button is for admins only", { skip }, async () => {
   assert.match(await html("Completion.jsx", "default", {}), /Completion/);
-  assert.match(await html("FeeMaster.jsx", "default", {}), /Service checklists/);
+  assert.match(await html("FeeMaster.jsx", "default", {}), /Fee list/);
   const ed = await html("ChecklistLists.jsx", "ListEditor", { list: { id: "l1", name: "Ejari Renewal", category: "Tenancy", department: "Business Setup", active: true, steps: [{ label: "Collect", requirement: "Mandatory" }, { label: "Pay (if any)", requirement: "Optional" }] }, onClose() {}, onSaved() {} });
   assert.match(ed, /Ejari Renewal/); assert.match(ed, /\+ Step/); assert.match(ed, /Optional/);
   const mod = await server.ssrLoadModule("/../Business Setup Module/components/ChecklistLists.jsx");
   assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [] }), "A list needs at least one step.");
   assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [{ label: " " }] }), "Every step needs a label.");
   assert.equal(mod.listProblem({ name: "X", category: "Y", steps: [{ label: "a" }] }), null);
+});
+
+test("case quotes render with the AB Capital signature status, and no Sign until the approver check answers", { skip }, async () => {
+  const q = { id: "q1", doc_type: "quote", department: "Business Setup", case_id: "c1", document_number: "TEST/Q/1", status: "issued", client_name: "TEST CLIENT - DO NOT USE",
+    created_at: "2026-11-05T08:00:00Z", total_amount: 1050, lines: [{ description: "Formation", amount: 1000 }], storage_path: "Business Setup/q1/a.docx", balance: {} };
+  const w = { quotes: [q], letters: [], services: [], payments: [] };
+  const out = await html("workspace/Quotes.jsx", "default", { w, clientId: "CL000001", reload() {}, caseId: "c1" });
+  assert.match(out, /TEST\/Q\/1/); assert.match(out, /Not signed/); assert.match(out, /Open quote/);
+  assert.doesNotMatch(out, />Sign</); assert.doesNotMatch(out, /Signed copy \(/); assert.match(out, /Client-signed copy/);
 });

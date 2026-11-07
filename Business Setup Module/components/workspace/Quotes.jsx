@@ -10,7 +10,8 @@ import NewServiceFlow from "../NewServiceFlow";
 import { addStaffSignedCopy, caseDocuments, caseList, caseNew, handoverState, serviceLines, listDecisions, listSigned, rejectQuote, sendToAccounts, signLetter, signedDecide, uploadFile } from "../../services/businessSetupApi";
 import { currentLetter, lastDecision, letterHistory } from "../../logic/caseWorkspace";
 import { openCase, quoteRows } from "../../logic/serviceLines";
-import { fileLetter, fileQuote } from "../../services/documents";
+import { canSignCase, fileLetter, fileQuote, loadCaseSignatures, signCase } from "../../services/documents";
+import { caseSignState, caseSignStatus } from "../../logic/caseSigning";
 import { quoteTone, zohoProps } from "../../logic/statuses";
 import { money } from "@app/money";
 import { supabase } from "@app/supabase";
@@ -28,6 +29,11 @@ export default function Quotes({ w, clientId, reload, caseId = null, goTab }) {
   const ids = [...w.quotes.map((q) => q.id), ...w.letters.map((l) => l.id)].join(",");
   const decisions = useLoad(() => listDecisions(ids ? ids.split(",") : []), [ids]);
   const docs = useLoad(() => (caseId ? caseDocuments(caseId) : Promise.resolve([])), [caseId, ids]);
+  // AB Capital signing (optional): whether this user approves for AB Capital, and each quote and letter's signature.
+  const files = [...w.quotes, ...w.letters].map((d) => `${d.id}:${d.storage_path || ""}`).join(",");
+  const approver = useLoad(() => canSignCase(), []);
+  const sigs = useLoad(() => loadCaseSignatures(ids ? ids.split(",") : []), [files]);
+  const signing = { canSign: approver.data === true, byId: sigs.data || {}, reload: sigs.reload };
   // One quote chain per case: while a quote is live (not rejected), the way to change it is Revise. The database refuses a second one with its own sentence.
   const live = w.quotes.some((q) => !["rejected", "superseded"].includes(q.status));
   // The client's workspace (no case given): a quote starts from the Services tab's lines not yet quoted, on the client's open case, or a new one.
@@ -48,9 +54,9 @@ export default function Quotes({ w, clientId, reload, caseId = null, goTab }) {
       {!caseId && can("setup.quotes.manage") && (open.length
         ? <div className="bk-actions bk-mb"><Button variant="primary" busy={starting} onClick={startFromLines}>New quote from services ({open.length})</Button></div>
         : <p className="bk-note">To issue a quote, add the services and their fees on the {goTab ? <button type="button" className="bk-link" onClick={() => goTab("services")}>Services</button> : "Services"} tab first.</p>)}
-      <ErrorNote message={decisions.error || docs.error || lines.error || startError} />
+      <ErrorNote message={decisions.error || docs.error || lines.error || startError || sigs.error} />
       {!w.quotes.length && <p className="bk-note">{caseId ? "No quote yet for this case." : "No quotes yet."}</p>}
-      {w.quotes.map((q) => <Quote key={q.id} q={q} w={w} clientId={clientId} reload={reload} can={can} decisions={decisions.data} onRevise={() => setRevising(q)} onCopy={() => setCopying(q)} />)}
+      {w.quotes.map((q) => <Quote key={q.id} q={q} w={w} clientId={clientId} reload={reload} can={can} decisions={decisions.data} signing={signing} onRevise={() => setRevising(q)} onCopy={() => setCopying(q)} />)}
       {caseId && letterHistory(docs.data).length > 0 && <LetterHistory rows={letterHistory(docs.data)} decisions={decisions.data} />}
       {fromLines && <NewServiceFlow w={w} clientId={clientId} caseId={fromLines} startRows={open} onClose={() => setFromLines(null)} onDone={async () => { setFromLines(null); await reload(); await lines.reload(); }} />}
       {adding && <NewServiceFlow w={w} clientId={clientId} caseId={caseId} onClose={() => setAdding(false)} onDone={async () => { setAdding(false); await reload(); }} />}
@@ -79,7 +85,7 @@ function LetterHistory({ rows, decisions }) {
   );
 }
 
-function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
+function Quote({ q, w, clientId, reload, can, decisions, signing, onRevise, onCopy }) {
   const letter = currentLetter(w.letters, q.id);
   const rejectedLetter = (w.letters || []).find((l) => l.parent_id === q.id && l.status === "rejected");
   const quotes = can("setup.quotes.manage");
@@ -100,17 +106,19 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
       <ul className="bk-list">{(q.lines || []).map((l, i) => <li key={i}>{l.description}: AED {money(l.amount)}{l.scope && <div className="bk-muted">Scope: {l.scope}</div>}</li>)}</ul>
       {isUndecidedProposal(q) ? (quotes && q.status === "issued" && <p className="bk-note">Record the client&apos;s choice in Service Documents</p>) : <SignedCopy q={q} clientId={clientId} manage={quotes} after={after} setError={setError} />}
       <div className="bk-actions bk-wrap">
-        {q.storage_path ? <Button onClick={() => openStored(q.storage_path).catch((e) => setError(e.message))}>Open quote</Button>
+        {q.storage_path ? <Button onClick={() => openStored(q.storage_path).catch((e) => setError(e.message))}>{caseSignState(q, signState(signing, q), "Open quote").openLabel}</Button>
           : quotes && !q.library_template && <Button busy={busy} onClick={() => act(() => fileQuote(q))}>Create file</Button>}
+        <CaseSign doc={q} signing={signing} setError={setError} />
         {quotes && q.status === "issued" && <>
           <Button onClick={() => setDialog("reject")}>Mark rejected</Button>
           {!q.library_template && <Button onClick={onRevise}>Revise</Button>}
         </>}
         {quotes && q.status === "rejected" && !isProposal(q) && <Button onClick={onCopy}>Revise</Button>}
         {quotes && q.status === "accepted" && !letter && (isProposal(q) ? <span className="bk-muted">Create the letter from Service Documents</span> : <Button busy={busy} onClick={() => act(async () => { const doc = await createDocument({ doc_type: "letter", parent_id: q.id }); await fileLetter(doc); })}>Create engagement letter</Button>)}
-        {letter?.storage_path && <Button onClick={() => openStored(letter.storage_path).catch((e) => setError(e.message))}>Open letter {letter.document_number}</Button>}
+        {letter?.storage_path && <Button onClick={() => openStored(letter.storage_path).catch((e) => setError(e.message))}>{caseSignState(letter, signState(signing, letter)).copies.length ? `Unsigned letter ${letter.document_number}` : `Open letter ${letter.document_number}`}</Button>}
+        {letter && <CaseSign doc={letter} signing={signing} setError={setError} label={`Letter ${letter.document_number}`} />}
         {quotes && letter && !letter.signed_at && <Button onClick={() => setDialog("sign")}>Record signing</Button>}
-        {letter?.signed_at && <span className="bk-muted">Signed {fmtDate(letter.signed_at)}</span>}
+        {letter?.signed_at && <span className="bk-muted">Client signed {fmtDate(letter.signed_at)}</span>}
       </div>
       {letter && <Decision rows={decisions} doc={letter} label="the letter" />}
       {rejectedLetter && <div className="bk-note bk-overdue">Letter {rejectedLetter.document_number} was rejected by the client. Create a new engagement letter to replace it.<Decision rows={decisions} doc={rejectedLetter} label="the letter" /></div>}
@@ -136,6 +144,31 @@ function Quote({ q, w, clientId, reload, can, decisions, onRevise, onCopy }) {
   );
 }
 
+const signState = (signing, doc) => ({ canSign: signing.canSign, signing: signing.byId[doc.id] || null });
+
+// AB Capital's own signature on a quote or letter: the status, the signed copies, and Sign for AB Capital approvers only. Optional:
+// the unsigned file opens and downloads as before. The rules are in ../../logic/caseSigning.js.
+function CaseSign({ doc, signing, setError, label = null }) {
+  const [busy, setBusy] = useState(false);
+  const state = caseSignState(doc, signState(signing, doc));
+  if (!state.showStatus) return null;
+  const status = caseSignStatus(signState(signing, doc).signing, fmtDate);
+  const sign = async () => {
+    setBusy(true); setError(null);
+    try {
+      const r = await signCase(doc);
+      if (r.error) setError(r.error); else await signing.reload();
+    } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <Badge tone={status.tone}>{label ? `${label}: ${status.label}` : status.label}</Badge>
+      {state.copies.map((c) => <Button key={c.label} onClick={() => openStored(c.path).catch((e) => setError(e.message))}>{label ? `${c.label.replace("Signed copy", "Signed letter")}` : c.label}</Button>)}
+      {state.sign && <Button variant="primary" busy={busy} onClick={sign}>{label ? "Sign letter" : "Sign"}</Button>}
+    </>
+  );
+}
+
 // The client signs the quote and uploads it in the portal (or staff add the file for them). Confirming it accepts the quote.
 function SignedCopy({ q, clientId, manage, after, setError }) {
   const list = useLoad(() => listSigned(q.id), [q.id, q.status]);
@@ -152,7 +185,7 @@ function SignedCopy({ q, clientId, manage, after, setError }) {
   if (!rows.length && !(manage && q.status === "issued")) return null;
   return (
     <div className="bk-mt">
-      <strong>Signed copy</strong>
+      <strong>Client-signed copy</strong>
       <ErrorNote message={list.error || error} onClose={error ? () => setActionError(null) : undefined} />
       {!rows.length && <p className="bk-note">None yet. The client can accept in the portal, or add a signed file here.</p>}
       <ul className="bk-list">{rows.map((s) => (
@@ -160,7 +193,7 @@ function SignedCopy({ q, clientId, manage, after, setError }) {
           {s.note && <> · {s.note}</>} {s.storage_path && manage && <Button onClick={() => open(s)}>Open</Button>}
           {manage && s.status === "Uploaded" && <> <Button variant="primary" busy={busy} onClick={() => confirm(s)}>Confirm and accept</Button> <Button onClick={() => setRefusing(s)}>Refuse</Button></>}</li>
       ))}</ul>
-      {manage && q.status === "issued" && !waiting && <FilePick label="Add signed copy" accept=".pdf,image/*" busy={busy} onFile={(f) => act(() => addStaffSignedCopy(q.id, clientId, f))} />}
+      {manage && q.status === "issued" && !waiting && <FilePick label="Add client-signed copy" accept=".pdf,image/*" busy={busy} onFile={(f) => act(() => addStaffSignedCopy(q.id, clientId, f))} />}
       {refusing && <FormModal title="Refuse the signed copy" submitLabel="Refuse" note="The client sees this note in the portal and can upload again." fields={[{ name: "note", label: "Note for the client", type: "textarea", required: true, full: true }]}
         onClose={() => setRefusing(null)} onSubmit={async (v) => { await signedDecide(refusing.id, false, v.note); await list.reload(); await after(); }} />}
     </div>
