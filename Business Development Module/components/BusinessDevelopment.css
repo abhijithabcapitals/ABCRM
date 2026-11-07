@@ -26,6 +26,13 @@
 .bd-header h1 { margin: 5px 0 4px; color: #13363d; font-size: clamp(24px, 3vw, 32px); letter-spacing: -.04em; }
 .bd-header p, .bd-section-heading p, .bd-panel-heading p, .bd-welcome p { margin: 0; color: #7b8990; font-size: 13px; }
 .bd-header-actions { gap: 9px; flex-shrink: 0; }
+.bd-myleads-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.bd-myleads-steps div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid #e3e9eb; border-radius: 8px; background: #fff; }
+.bd-myleads-steps b { color: #13363d; font-size: 18px; }
+.bd-myleads-steps span { color: #7b8990; font-size: 11px; }
+.bd-myleads-steps .bd-myleads-closed { background: #f7f8fa; }
+.bd-myleads-progress { min-width: 150px; }
+.bd-myleads-progress .bd-progress-track { margin-top: 5px; }
 .bd-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 37px; padding: 0 14px; border: 1px solid transparent; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: .15s ease; }
 .bd-button:disabled { opacity: .6; cursor: wait; }
 .bd-button-primary { color: #fff; background: #0d7d82; box-shadow: 0 3px 8px #0d7d822e; }
@@ -36,6 +43,9 @@
 .bd-nav button { flex: 0 0 auto; padding: 9px 11px; border: 0; border-radius: 7px; color: #718087; background: transparent; font-size: 11px; font-weight: 650; white-space: nowrap; cursor: pointer; }
 .bd-nav button:hover { color: #0d7d82; background: #f5fafa; }
 .bd-nav button.active { color: #0d7277; background: #e8f6f6; }
+.bd-nav:has(+ .bd-nav-mywork) { margin-bottom: 10px; }
+.bd-nav-mywork { align-items: center; border-color: #d3e8e8; background: #fbfefe; }
+.bd-nav-label { padding: 0 10px 0 6px; color: #7b8b92; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .bd-content { min-width: 0; }
 .bd-alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding: 11px 14px; border: 1px solid; border-radius: 9px; font-size: 12px; }
 .bd-alert button { border: 0; color: inherit; background: transparent; font-size: 20px; cursor: pointer; }
@@ -164,7 +174,7 @@
 .bd-calendar-date b { color: #4a6066; font-size: 10px; }
 .bd-calendar-date span { color: #273f46; font-size: 17px; font-weight: 750; }
 .bd-calendar-date small { color: #91a0a5; font-size: 9px; }
-.bd-calendar-event { margin-top: 8px; padding: 8px; border: 1px solid #e5eeee; border-left: 3px solid #2886ed; border-radius: 7px; background: #f9fcfc; }
+.bd-calendar-event { margin-top: 8px; padding: 8px; border: 1px solid #d6e6f6; border-radius: 7px; background: #f4f9fe; }
 .bd-calendar-open { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .bd-calendar-open b { color: #40575d; font-size: 9px; }
 .bd-calendar-open small, .bd-calendar-open span { color: #819096; font-size: 8px; line-height: 1.4; }
@@ -191,16 +201,16 @@
 .bd-detail-actions select { width: auto; max-width: 240px; font-size: 11px; }
 .bd-detail-summary { justify-content: flex-start; gap: clamp(14px, 3vw, 38px); margin-top: 20px; padding: 15px 0; border-top: 1px solid #edf0f1; border-bottom: 1px solid #edf0f1; }
 .bd-detail-summary > div { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
-.bd-detail-summary small, .bd-overview-grid small, .bd-service-card small, .bd-description-block small { color: #8b989d; font-size: 9px; }
-.bd-detail-summary b { max-width: 210px; overflow: hidden; color: #3e5359; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.bd-detail-summary small, .bd-overview-grid small, .bd-service-card small, .bd-description-block small { color: #6c7d82; font-size: 12px; }
+.bd-detail-summary b { max-width: min(240px, 100%); overflow: hidden; color: #3e5359; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
 .bd-progress-wrap { padding-top: 13px; }
-.bd-progress-label { color: #62757b; font-size: 10px; }
+.bd-progress-label { color: #4f6369; font-size: 13px; }
 .bd-progress-label b { color: #0d7d82; }
 .bd-status-note { color: #a36316 !important; text-transform: capitalize; }
 .bd-progress-track { height: 6px; margin-top: 8px; overflow: hidden; border-radius: 6px; background: #edf1f2; }
 .bd-progress-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #168f94, #4cb5a7); }
 .bd-progress-steps { display: flex; justify-content: space-between; gap: 4px; margin-top: 7px; }
-.bd-progress-steps span { color: #9aa5a9; font-size: 8px; }
+.bd-progress-steps span { color: #6c7d82; font-size: 11.5px; }
 .bd-progress-steps span.reached { color: #117a7e; font-weight: 700; }
 .bd-detail-tabs { display: flex; gap: 3px; overflow-x: auto; margin: 14px 0; border-bottom: 1px solid #e4eaec; }
 .bd-detail-tabs button { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; color: #78878d; background: transparent; font-size: 11px; white-space: nowrap; cursor: pointer; }
@@ -210,7 +220,7 @@
 .bd-detail-main { min-height: 300px; }
 .bd-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .bd-overview-grid > div { display: flex; flex-direction: column; gap: 5px; }
-.bd-overview-grid b { color: #41565c; font-size: 11px; }
+.bd-overview-grid b { color: #41565c; font-size: 13.5px; }
 .bd-description-block { margin-top: 19px; padding-top: 14px; border-top: 1px solid #eef1f2; }
 .bd-description-block p { margin: 6px 0 0; color: #54676d; font-size: 11px; line-height: 1.65; white-space: pre-wrap; }
 .bd-inline-actions { display: flex; gap: 8px; margin-top: 18px; }
@@ -261,6 +271,24 @@
 .bd-form-grid .bd-form-wide { grid-column: 1 / -1; }
 .bd-modal-actions { justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 13px; border-top: 1px solid #edf0f1; }
 .bd-inline-error { margin: 0 0 13px; padding: 9px 11px; border-radius: 7px; color: #a53d36; background: #fff1ef; font-size: 10px; line-height: 1.5; }
+/* New Lead step 1: drop documents to fill the form */
+.bd-drop { display: flex; width: 100%; flex-direction: column; align-items: center; gap: 6px; padding: 38px 20px; border: 1.5px dashed #b9cfd2; border-radius: 12px; color: #1d3c42; background: #f7fbfb; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+.bd-drop:hover, .bd-drop.is-dragging { border-color: #168f94; background: #eef8f7; }
+.bd-drop:disabled { cursor: progress; opacity: .7; }
+.bd-drop strong { font-size: 13px; }
+.bd-drop span { max-width: 460px; color: #6c7a7e; font-size: 10px; line-height: 1.5; }
+.bd-file-input { display: none; }
+.bd-file-list { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
+.bd-file-list li { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border: 1px solid #e5ebed; border-radius: 8px; font-size: 11px; }
+.bd-file-list li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-file-list li small { color: #9aa4a8; }
+.bd-read-progress { margin-top: 12px; color: #4f6064; font-size: 10px; }
+.bd-read-progress span { display: block; margin-top: 6px; }
+.bd-doc-summary { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-bottom: 13px; padding: 10px 12px; border: 1px solid #cfe6e3; border-radius: 8px; color: #24494d; background: #f1faf8; font-size: 10px; line-height: 1.5; }
+.bd-doc-summary p { margin: 0; }
+.bd-doc-list { display: flex; flex-direction: column; gap: 6px; }
+.bd-doc-list div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 1px solid #e5ebed; border-radius: 8px; font-size: 11px; }
+.bd-doc-list small { color: #9aa4a8; }
 .bd-duplicate-warning { display: flex; flex-direction: column; gap: 5px; margin-bottom: 13px; padding: 10px 12px; border: 1px solid #f1d59f; border-radius: 8px; color: #845b19; background: #fff9eb; font-size: 10px; }
 .bd-duplicate-warning label { display: flex; align-items: center; gap: 7px; margin-top: 3px; font-weight: 650; }
 .bd-duplicate-warning input { width: auto; }
@@ -285,7 +313,9 @@
   .bd-detail-actions { flex-wrap: wrap; margin-top: 13px; }
   .bd-detail-actions select { max-width: 100%; }
   .bd-detail-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
-  .bd-progress-steps span { max-width: 42px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Narrow screens: stage names sit in a 4-column grid in full instead of being cut to "Pro…". */
+  .bd-progress-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 4px; }
+  .bd-progress-steps span { font-size: 11px; }
   .bd-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bd-service-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bd-service-card > div:first-child { grid-column: 1 / -1; }
@@ -494,7 +524,9 @@
 .bd-agent-input textarea { resize: vertical; min-height: 64px; }
 .bd-agent-send { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .bd-agent-send small { color: #8a979c; font-size: 11px; }
-.bd-agent-tab { position: fixed; top: 50%; right: 0; z-index: 20; padding: 12px 8px; border: 0; border-radius: 8px 0 0 8px; color: #fff; background: #0d7d82; font-size: 11.5px; font-weight: 700; writing-mode: vertical-rl; transform: translateY(-50%) rotate(180deg); cursor: pointer; box-shadow: 0 4px 14px rgba(13, 125, 130, .25); }
+.bd-agent-tab { position: fixed; top: 50%; right: 0; z-index: 20; padding: 12px 8px; border: 0; border-radius: 8px 0 0 8px; color: #fff; background: #0d7d82; font-size: 11.5px; font-weight: 700; writing-mode: vertical-rl; transform: translateY(-50%) rotate(180deg); cursor: grab; box-shadow: 0 4px 14px rgba(13, 125, 130, .25); touch-action: none; user-select: none; }
+.bd-agent-tab:active { cursor: grabbing; }
+.bd-agent-tab-grip { margin-inline-end: 6px; opacity: .65; letter-spacing: -2px; }
 @media (max-width: 1100px) {
   .bd-shell-agent { grid-template-columns: minmax(0, 1fr); }
   .bd-agent { position: fixed; top: 0; right: 0; bottom: 0; z-index: 30; width: min(380px, 100vw); height: auto; box-shadow: -10px 0 30px rgba(23, 47, 53, .15); }
@@ -542,7 +574,7 @@
 .bd-button-small { padding: 6px 10px; font-size: 11px; }
 .bd-row-static { cursor: default; }
 .bd-row-selected td { background: #eef8f8; }
-.bd-owner-select { max-width: 100%; padding: 4px 6px; border: 1px solid #dfe7e9; border-radius: 6px; font-size: 12px; font-weight: 650; }
+.bd-owner-select { max-width: 100%; padding: 4px 6px; border: 1px solid #dfe7e9; border-radius: 6px; font-size: 13.5px; font-weight: 650; }
 .bd-subsection-title { margin: 22px 0 4px; font-size: 16px; }
 .bd-source-analytics { margin-bottom: 26px; }
 .bd-workflow-block { display: grid; gap: 10px; margin: 14px 0; padding: 12px 14px; border: 1px solid #e4ecee; border-radius: 9px; background: #fbfdfd; }
@@ -558,3 +590,22 @@
 .bd-check { display: flex !important; flex-direction: row !important; align-items: center; gap: 7px; font-weight: 650; }
 .bd-check input { width: auto !important; }
 @media (max-width: 720px) { .bd-convert-service, .bd-convert-dept { grid-template-columns: 1fr; } }
+
+/* All Leads: fixed columns that fit the box; long text wraps instead of scrolling sideways */
+.bd-fit-table { table-layout: fixed; }
+.bd-fit-table th, .bd-fit-table td { white-space: normal; overflow-wrap: anywhere; }
+.bd-fit-table td:first-child { min-width: 0; }
+.bd-fit-table td.bd-row-action { width: auto; white-space: normal; text-align: right; }
+.bd-fit-table .bd-row-action .bd-button { max-width: 100%; white-space: nowrap; }
+.bd-fit-table .bd-stage-badge, .bd-fit-table .bd-pool-badge, .bd-fit-table .bd-source-tag { white-space: normal; }
+/* Small columns have fixed widths; Lead takes the rest. Tighter cells so the action button always fits. */
+.bd-fit-table th, .bd-fit-table td { padding-left: 10px; padding-right: 10px; }
+.bd-fit-table td.bd-row-action { padding-left: 4px; padding-right: 10px; }
+.bd-fit-table .bd-row-action .bd-button { padding: 5px 8px; min-height: 32px; white-space: normal; line-height: 1.2; text-align: center; }
+/* Columns are percentages so the table scales with the box at any zoom; the button wraps rather than being cut off. */
+/* Words break only between words; headers stay on one line and end in "…" when tight. Below 820px the table keeps
+   that width and scrolls sideways instead of squeezing columns until text stacks one letter per line. */
+.bd-fit-table { min-width: 820px; }
+.bd-fit-table th, .bd-fit-table td { overflow-wrap: break-word; }
+.bd-fit-table th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-fit-wrap { overflow-x: auto; }

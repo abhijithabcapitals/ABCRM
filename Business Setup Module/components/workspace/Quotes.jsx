@@ -7,8 +7,9 @@ import { isProposal, isUndecidedProposal } from "@template-hub/logic/proposalMod
 import { useSetup } from "../SetupContext";
 import ZohoPanel from "@integrations/components/ZohoPanel";
 import NewServiceFlow from "../NewServiceFlow";
-import { addStaffSignedCopy, caseDocuments, handoverState, listDecisions, listSigned, rejectQuote, sendToAccounts, signLetter, signedDecide, uploadFile } from "../../services/businessSetupApi";
+import { addStaffSignedCopy, caseDocuments, caseList, caseNew, handoverState, serviceLines, listDecisions, listSigned, rejectQuote, sendToAccounts, signLetter, signedDecide, uploadFile } from "../../services/businessSetupApi";
 import { currentLetter, lastDecision, letterHistory } from "../../logic/caseWorkspace";
+import { openCase, quoteRows } from "../../logic/serviceLines";
 import { canSignCase, fileLetter, fileQuote, loadCaseSignatures, signCase } from "../../services/documents";
 import { caseSignState, caseSignStatus } from "../../logic/caseSigning";
 import { quoteTone, zohoProps } from "../../logic/statuses";
@@ -16,8 +17,11 @@ import { money } from "@app/money";
 import { supabase } from "@app/supabase";
 
 
-export default function Quotes({ w, clientId, reload, caseId = null }) {
+export default function Quotes({ w, clientId, reload, caseId = null, goTab }) {
   const { can } = useSetup();
+  const [fromLines, setFromLines] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState(null);
   const [revising, setRevising] = useState(null);
   const [copying, setCopying] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -32,13 +36,29 @@ export default function Quotes({ w, clientId, reload, caseId = null }) {
   const signing = { canSign: approver.data === true, byId: sigs.data || {}, reload: sigs.reload };
   // One quote chain per case: while a quote is live (not rejected), the way to change it is Revise. The database refuses a second one with its own sentence.
   const live = w.quotes.some((q) => !["rejected", "superseded"].includes(q.status));
+  // The client's workspace (no case given): a quote starts from the Services tab's lines not yet quoted, on the client's open case, or a new one.
+  const lines = useLoad(() => (caseId ? Promise.resolve([]) : serviceLines(clientId)), [caseId, clientId, ids]);
+  const open = quoteRows(lines.data);
+  const startFromLines = async () => {
+    setStarting(true); setStartError(null);
+    try {
+      const c = openCase(await caseList("all"), clientId, w.quotes);
+      const id = c?.id || await caseNew({ lead_name: w.client.legal_name, client_id: clientId });
+      setFromLines(id);
+    } catch (e) { setStartError(e.message); }
+    setStarting(false);
+  };
   return (
     <div>
       {caseId && can("setup.quotes.manage") && !live && <div className="bk-actions bk-mb"><Button variant="primary" onClick={() => setAdding(true)}>New quote</Button></div>}
-      <ErrorNote message={decisions.error || docs.error || sigs.error} />
-      {!w.quotes.length && <p className="bk-note">{caseId ? "No quote yet for this case." : "No quotes yet. Open a case to issue one."}</p>}
+      {!caseId && can("setup.quotes.manage") && (open.length
+        ? <div className="bk-actions bk-mb"><Button variant="primary" busy={starting} onClick={startFromLines}>New quote from services ({open.length})</Button></div>
+        : <p className="bk-note">To issue a quote, add the services and their fees on the {goTab ? <button type="button" className="bk-link" onClick={() => goTab("services")}>Services</button> : "Services"} tab first.</p>)}
+      <ErrorNote message={decisions.error || docs.error || lines.error || startError || sigs.error} />
+      {!w.quotes.length && <p className="bk-note">{caseId ? "No quote yet for this case." : "No quotes yet."}</p>}
       {w.quotes.map((q) => <Quote key={q.id} q={q} w={w} clientId={clientId} reload={reload} can={can} decisions={decisions.data} signing={signing} onRevise={() => setRevising(q)} onCopy={() => setCopying(q)} />)}
       {caseId && letterHistory(docs.data).length > 0 && <LetterHistory rows={letterHistory(docs.data)} decisions={decisions.data} />}
+      {fromLines && <NewServiceFlow w={w} clientId={clientId} caseId={fromLines} startRows={open} onClose={() => setFromLines(null)} onDone={async () => { setFromLines(null); await reload(); await lines.reload(); }} />}
       {adding && <NewServiceFlow w={w} clientId={clientId} caseId={caseId} onClose={() => setAdding(false)} onDone={async () => { setAdding(false); await reload(); }} />}
       {revising && <NewServiceFlow w={w} clientId={clientId} caseId={caseId} revises={revising} onClose={() => setRevising(null)} onDone={async () => { setRevising(null); await reload(); }} />}
       {copying && <NewServiceFlow w={w} clientId={clientId} caseId={caseId} from={copying} onClose={() => setCopying(null)} onDone={async () => { setCopying(null); await reload(); }} />}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import chatApi from "../services/chatClient.js";
-import { badgeText, chatTitle, initials, previewText, sortChats } from "../logic/chat.js";
+import { badgeText, chatsIn, chatTitle, initials, previewText, sortChats } from "../logic/chat.js";
 import { filterChats, rowTime } from "../logic/app.js";
 import { presenceLabel } from "../logic/parity.js";
 
@@ -51,7 +51,7 @@ function MessageResults({ query, rows, onOpenResult }) {
   );
 }
 
-function Body({ rows, shown, myId, loaded, error, query, selected, onSelect, onRetry, stateOf }) {
+function Body({ rows, shown, archived, myId, loaded, error, query, selected, onSelect, onRetry, stateOf }) {
   if (error) {
     return (
       <div className="abm-list-note" role="alert">
@@ -61,7 +61,7 @@ function Body({ rows, shown, myId, loaded, error, query, selected, onSelect, onR
     );
   }
   if (!loaded) return <div aria-label="Loading chats" role="status">{SKELETONS.map((n) => <div key={n} className="abm-skeleton" />)}</div>;
-  if (!rows.length) return <p className="abm-list-note">No conversations yet. Use New chat to message a colleague.</p>;
+  if (!rows.length) return <p className="abm-list-note">{archived ? "No archived chats." : "No conversations yet. Use New chat to message a colleague."}</p>;
   if (!shown.length) return <p className="abm-list-note">No chat is called &ldquo;{query.trim()}&rdquo;.</p>;
   const stateFor = (r) => (r.other_id && stateOf ? stateOf(r.other_id) : null);
   return (
@@ -95,6 +95,9 @@ function Body({ rows, shown, myId, loaded, error, query, selected, onSelect, onR
 
 // The left pane of the Chats section. The rows are the dock's, so both look alike.
 export default function PageChatList({ rows, myId, loaded, error, query, selected, onSelect, onNew, onRetry, stateOf, onOpenResult }) {
+  const [archived, setArchived] = useState(false);
+  const archivedCount = chatsIn(rows, true).length;
+  const list = chatsIn(rows, archived);
   return (
     <section className="abm-side" aria-label="Your chats">
       <header className="abm-side-head">
@@ -102,7 +105,10 @@ export default function PageChatList({ rows, myId, loaded, error, query, selecte
         <button type="button" className="abm-btn" onClick={onNew}>New chat</button>
       </header>
       <div className="abm-side-body">
-        <Body rows={rows} shown={filterChats(rows, query)} myId={myId} loaded={loaded} error={error} query={query}
+        {(archived || archivedCount > 0) && (
+          <label className="abm-picker-row"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /><span>Show archived ({archivedCount})</span></label>
+        )}
+        <Body rows={list} shown={filterChats(list, query)} archived={archived} myId={myId} loaded={loaded} error={error} query={query}
           selected={selected} onSelect={onSelect} onRetry={onRetry} stateOf={stateOf} />
         {loaded && !error && <MessageResults query={query} rows={rows} onOpenResult={onOpenResult} />}
       </div>

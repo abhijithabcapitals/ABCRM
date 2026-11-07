@@ -34,8 +34,8 @@ BASE=("$B"/001_*.sql "$PRIVATE_ROOT/Banking Base/private"/002_*.sql "$B"/003_*.s
 # and only once business_setup_fee_items exists.
 MINE_OLD=(); MINE_NEW=()
 for n in 01 02 03 04 05 06 07 08 09 10 11 12; do MINE_OLD+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
-# Run order 13 14 20 21 15 16 17 18 19 22, then 23 (bd_transfer, not written yet: its glob is empty until then), 24 (portal file names, on top of 022) and 25 (fee categories).
-for n in 13 14 20 21 15 16 17 18 19 22 23 24 25; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
+# Run order 13 14 20 21 15 16 17 18 19 22, then 23 (bd_transfer, not written yet: its glob is empty until then), 24 (portal file names, on top of 022), 25 (fee categories), 26 (client service lines), 27 (third-party referrers), 28 (a form started by a drop) and 29 (a manager moves a case to Pipeline).
+for n in 13 14 20 21 15 16 17 18 19 22 23 24 25 26 27 28 29 30; do MINE_NEW+=("$DB/Business Setup Base/migrations"/0${n}_*.sql); done
 MINE=("${MINE_OLD[@]}" "${MINE_NEW[@]}")
 SEED7=("$PRIVATE_ROOT/Business Setup Base/private"/007_*.sql)
 

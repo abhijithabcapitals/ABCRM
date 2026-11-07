@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import ClientDocumentsBox from "@doc-intelligence/components/ClientDocumentsBox";
 import { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
-import TeamsPanel from "@messenger/components/TeamsPanel";
+import RecordChatPanel from "@messenger/components/RecordChatPanel";
 import "@banking/components/banking.css";
 import { Badge, Button, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, useLoad } from "@banking/components/shared";
 import { readDocuments, rpc, run, table } from "@banking/services/bankingApi";
@@ -137,7 +137,7 @@ function ClientForm({ row, canEdit, onClose }) {
           </div>
         </Panel>
       )}
-      {row.client_id && <TeamsPanel recordType="client" recordId={row.client_id} displayId={row.client_id} label={plain(rec["Client Legal Name"])} />}
+      {row.client_id && <RecordChatPanel recordType="client" recordId={row.client_id} displayId={row.client_id} label={plain(rec["Client Legal Name"])} />}
       {row.client_id && <ClientAccess clientMasterId={row.client_id} />}
       {row.client_id && <ClientDocumentsBox clientId={row.client_id} />}
       {row.client_id && (

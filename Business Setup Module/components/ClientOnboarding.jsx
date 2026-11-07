@@ -14,9 +14,11 @@ import Invoices from "./workspace/Invoices";
 import FieldsPanel, { FORM_TONE } from "./onboarding/FieldsPanel";
 import LoginPanel from "./onboarding/LoginPanel";
 import Claims from "./onboarding/Claims";
-import { caseDocuments, caseLinkClient, caseList, caseSetReferrer, workspace } from "../services/businessSetupApi";
+import ReferrerDialog from "./onboarding/ReferrerDialog";
+import { caseDocuments, caseLinkClient, caseList, caseMoveToPipeline, workspace } from "../services/businessSetupApi";
 import { caseRowFor, caseWorkspace } from "../logic/caseWorkspace";
 import { CHECKLIST, itemState, itemTone } from "../logic/checklist";
+import { referrerName } from "../logic/referrer";
 
 export default function ClientOnboarding() {
   const [view, setView] = useState("cases");
@@ -55,7 +57,7 @@ export default function ClientOnboarding() {
 }
 
 export function CaseDocs({ c, moved = false, onBack, onChanged }) {
-  const { goTo, can, profile, personOptions } = useSetup();
+  const { goTo, can, profile } = useSetup();
   const [dialog, setDialog] = useState(null);
   const [fileError, setFileError] = useState(null);
   const [form, setForm] = useState(null);
@@ -71,11 +73,12 @@ export function CaseDocs({ c, moved = false, onBack, onChanged }) {
     <div>
       <PageHead title={`${c.case_number || "Case"} · ${c.client_name || c.lead_name || ""}`} sub={`${c.stage || ""}${c.owner_name ? ` · ${c.owner_name}` : ""}`}>
         <Button onClick={onBack}>Back</Button>
+        {!moved && c.stage === "Onboarding" && can("setup.cases.approve") && <Button variant="primary" onClick={() => setDialog("pipeline")}>Move to Pipeline</Button>}
         {!moved && can("setup.leads.manage") && !["Completed", "Cancelled", "Lost"].includes(c.stage) && <Button onClick={() => setDialog("lost")}>Mark lost</Button>}
         {c.client_id && <Button onClick={() => goTo("clients", { client: c.client_id })}>Open client</Button>}
         {profile?.role === "admin" && <Button onClick={() => setDialog("referrer")}>Change referrer</Button>}
       </PageHead>
-      {c.referred_by_name && <p className="bk-muted">Referred by {c.referred_by_name}</p>}
+      {referrerName(c) && <p className="bk-muted">Referred by {referrerName(c)}</p>}
       <ErrorNote message={ws.error} />
       {moved && <div className="bk-alert bk-alert-ok bk-row"><span>This case has moved to Pipeline.</span><Button variant="primary" onClick={onBack}>Back to the list</Button></div>}
       {!moved && <div className="bk-mb"><ReassignActions c={c} onChanged={onBack} /></div>}
@@ -101,9 +104,10 @@ export function CaseDocs({ c, moved = false, onBack, onChanged }) {
         <Panel title="Invoices"><Invoices caseId={c.id} caseRow={c} onChanged={onChanged} /></Panel>
       </>}
       {dialog === "lost" && <LostDialog c={c} onClose={() => setDialog(null)} onDone={onBack} />}
-      {dialog === "referrer" && <FormModal title={`Referrer of ${c.case_number}`} submitLabel="Save" note="Admins only. The change and its reason are logged." onClose={() => setDialog(null)} initial={{ to: c.referred_by || "" }}
-        fields={[{ name: "to", label: "Referred by", type: "select", options: personOptions }, { name: "reason", label: "Reason", type: "textarea", required: true, full: true }]}
-        onSubmit={async (v) => { await caseSetReferrer(c.id, v.to, v.reason); await changed(); }} />}
+      {dialog === "pipeline" && <FormModal title={`Move ${c.case_number} to Pipeline`} submitLabel="Move to Pipeline" onClose={() => setDialog(null)}
+        note={c.client_id ? "The case moves to Pipeline now, even if some onboarding items are still open. The reason is kept in the case history." : "Link a client to this case first."}
+        fields={[{ name: "reason", label: "Reason", type: "textarea", required: true, full: true }]} onSubmit={async (v) => { await caseMoveToPipeline(c.id, v.reason); await onBack(); }} />}
+      {dialog === "referrer" && <ReferrerDialog c={c} onClose={() => setDialog(null)} onSaved={changed} />}
       {dialog === "link" && <FormModal title={`Link a client to ${c.case_number}`} submitLabel="Link client" onClose={() => setDialog(null)}
         note="Leave the client ID empty to create the client from the lead details. The case's quote and letter then use that client."
         fields={[{ name: "client", label: "Existing client", type: "clientCode" }]} onSubmit={async (v) => { await caseLinkClient(c.id, (v.client || "").trim() || null); await onBack(); }} />}

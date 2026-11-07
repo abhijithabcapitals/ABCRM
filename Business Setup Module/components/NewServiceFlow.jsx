@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Button, ErrorNote, Modal, useLoad } from "@banking/components/shared";
 import { createDocument } from "@template-hub/services/hubApi";
-import { issueLogin, listFees, listQuoteTemplates } from "../services/businessSetupApi";
+import { issueLogin, listFees, listQuoteTemplates, serviceLinesQuoted } from "../services/businessSetupApi";
 import { fileQuote } from "../services/documents";
 import { ACTIONS, buildLines, lineError, lineTotals, withRates } from "../logic/lines";
 import { issueNotice } from "../logic/issueLogin";
@@ -16,13 +16,14 @@ const money = (n) => Number(n || 0).toLocaleString("en-AE", { maximumFractionDig
 
 // revises: an issued (or accepted, before any service starts) quote this one replaces. from: a rejected quote whose lines and template a new quote starts from;
 // the database revises only a quote that can still be accepted, so a rejected one is not replaced but copied.
-export default function NewServiceFlow({ w, clientId, caseId = null, revises, from = null, onClose, onDone }) {
+// startRows: rows to start from (the client's service lines not yet quoted); a row's line_id ties that line to the quote once issued.
+export default function NewServiceFlow({ w, clientId, caseId = null, revises, from = null, startRows = null, onClose, onDone }) {
   const base = revises || from;
   const fees = useLoad(() => listFees(), []);
   const templates = useLoad(() => listQuoteTemplates(), []);
   const [picked, setPicked] = useState(null);
   const template = picked ?? defaultTemplate(templates.data, base?.template_key);
-  const [rows, setRows] = useState(base?.lines?.length ? base.lines.map((l) => ({ ...l, action: l.action || "New", service_name: l.service_name || l.description })) : [empty()]);
+  const [rows, setRows] = useState(base?.lines?.length ? base.lines.map((l) => ({ ...l, action: l.action || "New", service_name: l.service_name || l.description })) : startRows?.length ? startRows : [empty()]);
   const [validUntil, setValidUntil] = useState(inDays(15));
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -31,7 +32,8 @@ export default function NewServiceFlow({ w, clientId, caseId = null, revises, fr
   const set = (i, patch) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const pickName = (i, name) => {
     const f = items.find((x) => x.name === name);
-    set(i, { service_name: name, fee_item_id: f?.id || null, stored_amount: f?.default_amount ?? null, vat_rate: f ? Number(f.vat_rate) : 5 });
+    // A different service is no longer the client's saved line, which then stays unquoted.
+    set(i, { service_name: name, fee_item_id: f?.id || null, stored_amount: f?.default_amount ?? null, vat_rate: f ? Number(f.vat_rate) : 5, line_id: null });
   };
   const totals = lineTotals(withRates(rows, fees.data));
   // Asks the server to issue (or, with resend, re-send) the client's login. A refusal is shown in its own words; the quote is already saved.
@@ -47,6 +49,9 @@ export default function NewServiceFlow({ w, clientId, caseId = null, revises, fr
     try {
       const doc = await createDocument({ doc_type: "quote", department: "Business Setup", client_id: clientId, client_name: w.client.legal_name, contact_name: w.client.data?.["Primary Contact"]?.split(";")[0] || w.client.legal_name,
         contact_email: w.client.email, contact_phone: w.client.phone, client_address: w.client.data?.["Registered Address"] || null, services: lines.map((l) => l.service_name), lines, valid_until: validUntil, template_key: template, revises_id: revises?.id || null, case_id: caseId || revises?.case_id || null, notes: w.kyc?.business_activity || null });
+      const lineIds = rows.map((r) => r.line_id).filter(Boolean);
+      // The quote stands even if this fails; the lines then stay "Not quoted" on the Services tab.
+      if (lineIds.length) await serviceLinesQuoted(doc.id, lineIds).catch(() => null);
       try { await fileQuote(doc); } catch (e) { setError(`Quote ${doc.document_number} is saved, but its file was not created: ${e.message}. The client's login has not been issued yet. Close this window, then use Create file on the quote and Issue login in the Login panel.`); setBusy(false); return null; }
       const forCase = caseId || revises?.case_id;
       if (!forCase) { await onDone(); return null; }

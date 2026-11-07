@@ -162,6 +162,8 @@ export function createChatApi(client) {
     editMessage: (id, body) => call("messenger_edit_message", { p_message: id, p_body: body }, "Could not save your change. Please try again."),
     deleteMessage: (id) => call("messenger_delete_message", { p_message: id }, "Could not delete this message. Please try again."),
     toggleReaction: (id, emoji) => call("messenger_toggle_reaction", { p_message: id, p_emoji: emoji }, "Could not add your reaction. Please try again."),
+    setArchived: (conversationId, archived) => call("messenger_set_archived", { p_conversation: conversationId, p_archived: archived }, archived ? "Could not archive this chat. Please try again." : "Could not restore this chat. Please try again."),
+    deleteGroup: (conversationId) => teamCall("messenger_delete_group", { p_conversation: conversationId }, "Could not delete the group. Please try again."),
     setChatFlags: (conversationId, { muted = null, pinned = null }) => call("messenger_set_chat_flags", { p_conversation: conversationId, p_muted: muted, p_pinned: pinned }, "Could not change this chat. Please try again."),
     search: (query) => call("messenger_search", { p_query: query }, "Could not search your messages. Please try again."),
     activity: () => call("messenger_activity_list", undefined, "Could not load your activity. Please try again."),

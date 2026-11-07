@@ -8,6 +8,7 @@ import useTeams from "./useTeams.js";
 import inboxApi from "../services/inboxClient.js";
 import { shouldCollapse } from "../logic/chat.js";
 import { routeResult, saveSection } from "../logic/app.js";
+import { OPEN_CHAT_EVENT } from "../logic/recordChat.js";
 import { teamsUnread } from "../logic/teams.js";
 import "./chat.css";
 
@@ -107,6 +108,21 @@ function Inner({ profile, onOpenPage }) {
     if (to.target) setTarget(to.target); else setSelected(to.conversationId);
     show(to.section);
   };
+  // A record page asked to show a chat, such as the group its Messenger panel just made. Reload first so the new group is listed.
+  useEffect(() => {
+    const onOpenChat = async (e) => {
+      const id = e.detail?.conversationId;
+      if (!id) return;
+      await Promise.resolve(reload()).catch(() => {});
+      setSelected(id);
+      setSection("chats");
+      setScreen(null);
+      setOpened(true);
+      setOpen(true);
+    };
+    window.addEventListener(OPEN_CHAT_EVENT, onOpenChat);
+    return () => window.removeEventListener(OPEN_CHAT_EVENT, onOpenChat);
+  }, [reload]);
   const openPage = onOpenPage ? () => { saveSection(section); onOpenPage(); } : undefined;
 
   const chat = {

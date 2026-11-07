@@ -138,6 +138,22 @@ export async function businessDevelopmentReceiptUrl(path) {
   return supabase.storage.from("hub-documents").createSignedUrl(path, 300);
 }
 
+// Uploads a document dropped on the New Lead form and records it against the lead (bd_add_lead_document).
+export async function uploadBusinessDevelopmentLeadDocument(leadId, file) {
+  const safe = file.name.replace(/[^\w.\- ]+/g, "_").slice(-120);
+  const path = `Business Development/leads/${leadId}/${Date.now()}-${safe}`;
+  const { error: uploadError } = await supabase.storage.from("hub-documents").upload(path, file, { contentType: file.type || undefined });
+  if (uploadError) return { data: null, error: uploadError };
+  return supabase.rpc("bd_add_lead_document", {
+    p_lead_id: leadId, p_file_path: path, p_file_name: file.name, p_content_type: file.type || null, p_size_bytes: file.size ?? null,
+  });
+}
+
+export async function fetchBusinessDevelopmentLeadDocuments(leadId) {
+  return supabase.from("bd_lead_documents").select("id, file_path, file_name, content_type, size_bytes, uploaded_by, created_at")
+    .eq("lead_id", leadId).order("created_at", { ascending: false });
+}
+
 // Records the receipt, marks the lead converted and creates the department leads/jobs.
 export async function convertBusinessDevelopmentLead(leadId, conversion) {
   return supabase.rpc("bd_convert_lead", { p_lead_id: leadId, p: conversion });
