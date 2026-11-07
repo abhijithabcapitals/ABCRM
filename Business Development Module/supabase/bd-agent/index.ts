@@ -146,13 +146,22 @@ async function leadEmails(db: any, email: string | null, domain: string | null) 
     ...(email ? [`from_address.ilike.${email}`, `to_addresses.cs.{${email}}`, `cc_addresses.cs.{${email}}`] : []),
     ...(domain ? [`from_address.ilike.*@${domain}`] : []),
   ];
-  const { data, error } = await db.schema("email_base").from("messages")
-    .select("message_id, folder, direction, from_address, from_name, to_addresses, subject, sent_at, body_text")
-    .or(filters.join(",")).order("sent_at", { ascending: false }).limit(40);
+  const [{ data, error }, archived] = await Promise.all([
+    db.schema("email_base").from("messages")
+      .select("message_id, folder, direction, from_address, from_name, to_addresses, subject, sent_at, body_text")
+      .or(filters.join(",")).order("sent_at", { ascending: false }).limit(40),
+    // Older emails of a conversation are moved to SharePoint; their headers and link stay in archived_messages.
+    db.schema("email_base").from("archived_messages")
+      .select("message_id, folder, direction, from_address, from_name, to_addresses, subject, sent_at, eml_web_url")
+      .or(filters.join(",")).order("sent_at", { ascending: false }).limit(40),
+  ]);
   if (error) return { searched: `Email Base could not be read: ${error.message}`, messages: [] };
   const seen = new Set<string>();
+  const all = [...(data || []), ...(archived.error ? [] : archived.data || [])]
+    // deno-lint-ignore no-explicit-any
+    .sort((a: any, b: any) => String(b.sent_at || "").localeCompare(String(a.sent_at || "")));
   // deno-lint-ignore no-explicit-any
-  const messages = (data || []).filter((m: any) => {
+  const messages = all.filter((m: any) => {
     const key = m.message_id || `${m.subject}|${m.sent_at}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -160,7 +169,10 @@ async function leadEmails(db: any, email: string | null, domain: string | null) 
   }).slice(0, 12).map((m: Record<string, unknown>) => ({
     sent_at: m.sent_at, direction: m.direction, from: m.from_name ? `${m.from_name} <${m.from_address}>` : m.from_address,
     to: m.to_addresses, subject: m.subject,
-    body: String(m.body_text || "").replace(/\n{3,}/g, "\n\n").slice(0, 800),
+    body: "eml_web_url" in m
+      ? "(older email: text kept in SharePoint only)"
+      : String(m.body_text || "").replace(/\n{3,}/g, "\n\n").slice(0, 800),
+    ...("eml_web_url" in m && m.eml_web_url ? { sharepoint_url: m.eml_web_url } : {}),
   }));
   return { searched: [email, domain && `@${domain}`].filter(Boolean).join(", "), messages };
 }
@@ -170,13 +182,17 @@ async function leadEmails(db: any, email: string | null, domain: string | null) 
 async function lastInbound(db: any, emails: string[]) {
   const list = [...new Set(emails)].slice(0, 200);
   if (!list.length) return new Map<string, string>();
-  const { data } = await db.schema("email_base").from("messages").select("from_address, sent_at")
-    .eq("direction", "inbound").in("from_address", list)
-    .gte("sent_at", new Date(Date.now() - 60 * 86400000).toISOString()).order("sent_at", { ascending: false }).limit(1000);
+  const since = new Date(Date.now() - 60 * 86400000).toISOString();
+  // Stored emails plus the headers of older ones moved to SharePoint (archived_messages).
+  const [{ data }, { data: archived }] = await Promise.all(["messages", "archived_messages"].map((table) =>
+    db.schema("email_base").from(table).select("from_address, sent_at")
+      .eq("direction", "inbound").in("from_address", list)
+      .gte("sent_at", since).order("sent_at", { ascending: false }).limit(1000)));
   const latest = new Map<string, string>();
-  for (const m of data || []) {
+  for (const m of [...(data || []), ...(archived || [])]) {
     const key = String(m.from_address || "").toLowerCase();
-    if (!latest.has(key)) latest.set(key, m.sent_at);
+    const prev = latest.get(key);
+    if (!prev || String(m.sent_at) > prev) latest.set(key, m.sent_at);
   }
   return latest;
 }

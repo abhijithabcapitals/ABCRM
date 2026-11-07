@@ -12,6 +12,11 @@ The shared CRM email store. For now it syncs `info@abcapital.ae` and
 - `reply_drafts` stores replies written in the CEO Inbox (recipients, subject, text, signature, status). `reply_send_confirmations` holds the hashed one-time send codes and is readable by the server only. Migration 006 also adds `display_name`, `smtp_host` and `smtp_port` to `mailboxes`.
 - `bd_reply_drafts` stores unsent Business Development replies to Explee prospects. Drafts remain in the CRM Email Base when the mailbox pane is closed and are restored when the conversation is opened again.
 
+Files in the `email-base` bucket are archived to a SharePoint site by the `email-archive` Edge Function
+(migration 009). Each file is removed from Supabase Storage only after its SharePoint copy is verified, and
+only once deletion is switched on. `email_base.archive_items` holds each file's SharePoint `drive_item_id`
+and `web_url`. See [ARCHIVE.md](ARCHIVE.md) for setup, the copy report and the deletion steps.
+
 The CRM brings in and shows mail from the last 15 days only (`MAIL_WINDOW_DAYS`). Older mail stays on
 the mail server and is read there directly.
 

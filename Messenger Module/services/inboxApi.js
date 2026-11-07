@@ -89,10 +89,20 @@ export function createInboxApi(client) {
     async setStatus(threadId, status) {
       rows(await mail("threads").update({ status }).eq("id", threadId), "Could not update this conversation. Please try again.");
     },
+    // Earlier emails of a conversation that were moved to SharePoint: headers and links, no body.
+    async archivedMessages(threadId) {
+      const { data, error } = await mail("archived_messages")
+        .select("id, direction, from_address, from_name, subject, sent_at, eml_web_url, attachments")
+        .eq("thread_id", threadId).order("sent_at", { ascending: true });
+      return error ? [] : data || []; // before migration 010 the table does not exist
+    },
     async attachmentLink(path, filename) {
       const { data, error } = await client.storage.from(BUCKET).createSignedUrl(path, LINK_SECONDS, { download: filename || true });
-      if (error || !data?.signedUrl) throw new Error("Could not open this attachment. Please try again.");
-      return data.signedUrl;
+      if (!error && data?.signedUrl) return data.signedUrl;
+      // Files of older conversations live only in SharePoint.
+      const { data: copy } = await mail("archive_items").select("web_url").eq("storage_path", path).maybeSingle();
+      if (/^https:\/\//.test(copy?.web_url || "")) return copy.web_url;
+      throw new Error("Could not open this attachment. Please try again.");
     },
   };
 }
