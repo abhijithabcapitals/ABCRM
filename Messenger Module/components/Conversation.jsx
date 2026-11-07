@@ -274,7 +274,7 @@ export default function Conversation({ row, profile, visible, connected, onMessa
         {onFlags && !noPin && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.pinned} onClick={() => onFlags({ pinned: !row.pinned })}>{row.pinned ? "Unpin" : "Pin"}</button>}
         {onFlags && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.muted} onClick={() => onFlags({ muted: !row.muted })}>{row.muted ? "Unmute" : "Mute"}</button>}
         {onArchive && !channel && !thread && <button type="button" className="msgr-link msgr-flag" aria-pressed={!!row.archived} onClick={() => onArchive(!row.archived)}>{row.archived ? "Restore" : "Archive"}</button>}
-        {group && onInfo && <button type="button" className="msgr-icon-btn" onClick={onInfo} aria-label="Group info">ⓘ</button>}
+        {group && onInfo && <button type="button" className="msgr-link msgr-flag" onClick={onInfo} title="Rename, add or remove people, leave or delete the group">Manage group</button>}
         <button type="button" className="msgr-close" onClick={onClose} aria-label={thread ? "Close thread" : channel ? "Close channel" : "Close chat"}>×</button>
       </header>
       {error && <p className="msgr-note">{error} <button type="button" className="msgr-link" onClick={() => refresh(!loaded)}>Retry</button></p>}
