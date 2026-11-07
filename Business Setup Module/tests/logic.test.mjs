@@ -129,7 +129,7 @@ test("Zoho panel: a held quote is read-only, and the invoice needs a ready accep
 
 // ── Phase 1 review fixes ──
 import { readdirSync } from "node:fs";
-import { DOC_KINDS, FIELDS, SERVICES_FIELD, changedAnswers, formValues } from "../logic/staffForm.js";
+import { DOC_KINDS, FIELDS, ID_FIELDS, SERVICES_FIELD, changedAnswers, formValues, newPartner, partnerProblem, shareTotal } from "../logic/staffForm.js";
 import { CHECKLIST, itemState, itemTone } from "../logic/checklist.js";
 const onboardingSql = readFileSync(fileURLToPath(new URL("../../Database Module/Business Setup Base/migrations/009_onboarding.sql", import.meta.url)), "utf8");
 
@@ -147,15 +147,41 @@ test("staff can complete every answer the form requires", () => {
   for (const k of keys) assert.ok(covered.has(k), `form answer ${k} cannot be completed by staff`);
 });
 
-test("changed answers keep services and the first partner in their stored shape", () => {
-  const a = { client_name: "A", services: ["Visa"], partners: [{ name: "P", nationality: "IN", share: 50 }, { name: "Q", nationality: "AE" }] };
+test("changed answers keep services and every shareholder in their stored shape", () => {
+  const a = { client_name: "A", services: ["Visa"], partners: [{ name: "P", nationality: "IN", share: 50, ubo: true }, { name: "Q", nationality: "AE" }] };
   const v = formValues(a);
   assert.equal(v[SERVICES_FIELD], "Visa");
   assert.deepEqual(changedAnswers(v, a), {});
   assert.deepEqual(changedAnswers({ ...v, [SERVICES_FIELD]: "Visa, Ejari ", licence_expiry: "2027-01-01" }, a), { services: ["Visa", "Ejari"], licence_expiry: "2027-01-01" });
-  const p = changedAnswers({ ...v, partner_nationality: "UK" }, a);
-  assert.deepEqual(p.partners, [{ name: "P", nationality: "UK", share: 50 }, { name: "Q", nationality: "AE" }]);
+  const edited = v.partners.map((p, i) => (i === 0 ? { ...p, nationality: "UK", emirates_id: " 784-1990-1234567-1 " } : { ...p, share: "50" }));
+  assert.deepEqual(changedAnswers({ ...v, partners: edited }, a).partners, [
+    { name: "P", nationality: "UK", share: 50, ubo: true, emirates_id: "784-1990-1234567-1" }, { name: "Q", nationality: "AE", share: 50, ubo: false }]);
+  // A new shareholder is added; a blank row is dropped.
+  const added = changedAnswers({ ...v, partners: [...v.partners, { ...newPartner(), name: "R", share: "10" }, newPartner()] }, a).partners;
+  assert.deepEqual(added.map((p) => p.name), ["P", "Q", "R"]);
   assert.equal(changedAnswers(formValues({}), {}).partners, undefined);
+});
+
+test("staff can fill the client's Emirates ID and other details; cleared values save as null", () => {
+  const a = { emirates_id: "784-1" };
+  const v = formValues(a);
+  for (const [k] of ID_FIELDS) assert.ok(k in v, k);
+  assert.deepEqual(changedAnswers({ ...v, emirates_id: "", passport_number: "N123", address: "Dubai" }, a), { emirates_id: null, passport_number: "N123", address: "Dubai" });
+});
+
+test("shareholder checks: names required, each share 0-100, total at most 100", () => {
+  assert.equal(partnerProblem([newPartner()]), null);
+  assert.match(partnerProblem([{ ...newPartner(), share: "40" }]), /needs a name/);
+  assert.match(partnerProblem([{ ...newPartner(), name: "A", share: "140" }]), /from 0 to 100/);
+  assert.match(partnerProblem([{ ...newPartner(), name: "A", share: "60" }, { ...newPartner(), name: "B", share: "50" }]), /110%/);
+  assert.equal(partnerProblem([{ ...newPartner(), name: "A", share: "60" }, { ...newPartner(), name: "B", share: "40" }]), null);
+  assert.equal(shareTotal([{ share: "33.33" }, { share: "66.67" }, { share: "" }]), 100);
+});
+
+test("migration 030 carries shareholder and client ID numbers into KYC on validation", () => {
+  const sql = readFileSync(fileURLToPath(new URL("../../Database Module/Business Setup Base/migrations/030_form_id_details.sql", import.meta.url)), "utf8");
+  for (const k of ["'emirates_id', nullif(btrim(coalesce(e ->> 'emirates_id'", "'passport_number', nullif(btrim(coalesce(e ->> 'passport_number'"]) assert.ok(sql.includes(k), k);
+  for (const [k] of ID_FIELDS) assert.ok(sql.includes(`a ->> '${k}'`), k);
 });
 
 test("the checklist shows the real state of the invoice: Done on an invoice or the override, else Open", () => {

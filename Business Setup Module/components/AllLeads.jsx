@@ -9,6 +9,7 @@ import { caseList, caseMoveToOnboarding, caseNew, caseTake, listForms, reassignR
 import { caseWorkspace } from "../logic/caseWorkspace";
 import { ageDays, duplicateClient, leadActions } from "../logic/leads";
 import { STAGE_TONE } from "../logic/statuses";
+import { referrerName } from "../logic/referrer";
 import IntakeDetail from "./IntakeDetail";
 
 const SECTIONS = [["assigned", "Assigned to me", true], ["leads", "All Leads", false], ["inputs", "Client Inputs pending review", false]];
@@ -96,7 +97,7 @@ export function LeadList({ rows, onDialog, onChanged, onRow, empty = "No leads h
         { key: "case_number", label: "Case" },
         { key: "lead_name", label: "Name", render: (c) => c.lead_name || c.client_name || "–" },
         { key: "source", label: "Source", render: (c) => c.source || "–" },
-        { key: "referred_by_name", label: "Referrer", render: (c) => c.referred_by_name || "–" },
+        { key: "referred_by_name", label: "Referrer", render: (c) => referrerName(c) || "–" },
         { key: "owner_name", label: "Owner", render: (c) => c.owner_name || "–" },
         { key: "created_at", label: "Age", render: (c) => { const d = ageDays(c.created_at); return d === null ? "–" : `${d} d`; } },
         { key: "stage", label: "Stage", render: (c) => <Badge tone={STAGE_TONE[c.stage]}>{c.stage}</Badge> },

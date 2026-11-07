@@ -87,6 +87,11 @@ export const validateForm = (id, contact, version) => rpc("business_setup_form_v
 export const loginName = (client) => rpc("business_setup_portal_login_name", { p_client: client });
 export const loginState = (client) => rpc("business_setup_portal_login_state", { p_client: client });
 export const loginSave = (client, username, password) => rpc("business_setup_portal_login_save", { p_client: client, p_username: username, p_password: password });
+// Saves the login staff typed on the Client Login tab, then emails it to the client (client-portal setup_login_save). Returns { emailed, email, email_error }.
+export async function loginSaveAndEmail(client, username, password, reset = false) {
+  const token = (await supabase.auth.getSession()).data.session?.access_token;
+  return staffPost(token, "setup_login_save", { client_id: client, username, password, reset });
+}
 export const loginStatus = (client, active) => rpc("business_setup_portal_login_status", { p_client: client, p_active: active });
 
 // Cases and leads
@@ -98,6 +103,8 @@ export const caseLinkClientForPayment = (id, client = null, allowDuplicate = fal
 export const caseLinkClient = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 // The owner (or a manager) moves a Lead or Review case to Client Onboarding. The checked client step runs first; returns the client id.
 export const caseMoveToOnboarding = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_move_to_onboarding", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
+// A manager moves an Onboarding case to Pipeline before every item is met, with a reason.
+export const caseMoveToPipeline = (id, reason) => rpc("business_setup_case_move_to_pipeline", { p_case: id, p_reason: reason });
 export const caseShared = (id) => rpc("business_setup_case_shared", { p_case: id });
 export const caseLost = (id, reason) => rpc("business_setup_case_lost", { p_case: id, p_reason: reason });
 export const caseConfirm = (id) => rpc("business_setup_case_confirm", { p_case: id });
@@ -107,6 +114,8 @@ export const reassignRespond = (id, approve, note) => rpc("business_setup_reassi
 
 // A reviewer completes the client's form. Staff files go to staff/<client_id>/ in the bucket the client portal uses.
 export const formStaffSave = (id, answers) => rpc("business_setup_form_staff_save", { p_id: id, p_answers: answers });
+// The case's form for a drag and drop: the one it has, the client's open one, or a new one In review with no login (028). Returns its id.
+export const caseFormStart = (caseId) => rpc("business_setup_case_form_start", { p_case: caseId });
 export const formDocAdd = (id, kind, path) => rpc("business_setup_form_doc_add", { p_id: id, p_kind: kind, p_path: path });
 export async function addStaffFormDocument(formId, clientId, kind, file) {
   const path = `staff/${clientId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
@@ -178,3 +187,12 @@ export async function checkpointFileAdd(item, service, clientId, file) {
   return rpc("business_setup_checkpoint_file_link", { p_id: item, p_document: docId });
 }
 export const caseSetReferrer = (id, user, reason) => rpc("business_setup_case_set_referrer", { p_case: id, p_user: user || null, p_reason: reason });
+// A third party typed by name (027). The name is saved, so it is offered next time.
+export const caseSetReferrerOther = (id, name, reason) => rpc("business_setup_case_set_referrer_other", { p_case: id, p_name: name, p_reason: reason });
+export const otherReferrers = () => rpc("business_setup_other_referrer_list");
+
+// A client's service lines (Services tab): one per service from the fee list, with the fee for this client. A quote starts from the lines not yet quoted.
+export const serviceLines = (client) => rpc("business_setup_service_line_list", { p_client: client });
+export const serviceLineSave = (p) => rpc("business_setup_service_line_save", { p });
+export const serviceLineDelete = (id) => rpc("business_setup_service_line_delete", { p_id: id });
+export const serviceLinesQuoted = (quote, ids) => rpc("business_setup_service_line_quoted", { p_quote: quote, p_ids: ids });
