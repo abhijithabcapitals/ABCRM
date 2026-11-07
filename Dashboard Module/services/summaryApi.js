@@ -27,7 +27,7 @@ export const summaryApi = {
   accounting: async () => accountingFigures(await allRows(() => supabase.from("accounting_job_list").select("work_status, balance, follow_up_due, needs_invoice").order("id"))),
   hr: async () => hrFigures(check(await supabase.rpc("hr_dashboard"))),
   tax: async () => {
-    const rows = await allRows(() => supabase.from("client_master").select("data").order("client_id"));
+    const rows = await allRows(() => supabase.from("client_master").select("data").eq("status", "active").order("client_id"));
     return taxFigures(compliance(rows.map((r) => r.data)));
   },
   // A missing alert_tiles (migration not applied) reads as { missing: true }, not an error.

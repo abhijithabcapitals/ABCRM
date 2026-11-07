@@ -1,5 +1,5 @@
 // The CRM's Clients page: all converted clients across business lines, the Client Master,
-// documents sent through the portal (Client Inputs) and, for admins only, the Client Portal.
+// the Migration tab (old clients waiting to be sent to the Client Master), documents sent through the portal (Client Inputs) and, for admins only, the Client Portal.
 import { useEffect, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
@@ -15,7 +15,7 @@ const LINES = ["Business Banking", "Business Setup", "Accounting"];
 export default function ClientsHub({ profile, openClientId, onClientShown }) {
   const [view, setView] = useState("all");
   const isAdmin = profile?.role === "admin";
-  const tabs = [["all", "All Clients"], ["master", "Client Master"], ["inputs", "Client Inputs"], ...(isAdmin ? [["portal", "Client Portal"]] : [])];
+  const tabs = [["all", "All Clients"], ["master", "Client Master"], ["migration", "Migration"], ["inputs", "Client Inputs"], ...(isAdmin ? [["portal", "Client Portal"]] : [])];
   return (
     <div>
       <div className="bk-root bk-hub-tabs">
@@ -24,7 +24,8 @@ export default function ClientsHub({ profile, openClientId, onClientShown }) {
         </nav>
       </div>
       {view === "all" && <AllClients isAdmin={isAdmin} openClientId={openClientId} onClientShown={onClientShown} />}
-      {view === "master" && <ClientMaster />}
+      {view === "master" && <ClientMaster key="active" mode="active" />}
+      {view === "migration" && <ClientMaster key="migration" mode="migration" />}
       {view === "inputs" && <ClientInputs />}
       {view === "portal" && isAdmin && <ClientPortalAdmin />}
     </div>

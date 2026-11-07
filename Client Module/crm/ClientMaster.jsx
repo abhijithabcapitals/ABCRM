@@ -18,10 +18,17 @@ const shown = (v) => (empties.includes(v) ? "" : plain(v));
 const iso = (v) => { const d = parseUaeDate(v); return d ? d.toISOString().slice(0, 10) : ""; };
 const uae = (v) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
 
-export default function ClientMaster() {
+// mode "active" is the Client Master; mode "migration" holds the clients brought over from the old records until
+// someone checks each one and sends it to the active Client Master.
+export default function ClientMaster({ mode = "active" }) {
+  const migration = mode === "migration";
   const access = useLoad(() => rpc("banking_my_access"), []);
-  const list = useLoad(() => run(table("client_master").select("*").order("updated_at", { ascending: false }).limit(5000)), []);
+  const list = useLoad(() => run(table("client_master").select("*").eq("status", mode).order("updated_at", { ascending: false }).limit(5000)), [mode]);
   const [open, setOpen] = useState(null);
+  const [picked, setPicked] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [note, setNote] = useState(null);
   const perms = access.data?.permissions || [];
   const canEdit = perms.includes("kyc.manage");
   const rows = list.data || [];
@@ -29,19 +36,40 @@ export default function ClientMaster() {
     const XLSX = await import("xlsx");
     const ws = XLSX.utils.aoa_to_sheet([COLUMNS, ...rows.map((r) => COLUMNS.map((c) => String(r.data[c] ?? "")))]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Client Master");
-    XLSX.writeFile(wb, "Client_Master.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, migration ? "Migration" : "Client Master");
+    XLSX.writeFile(wb, migration ? "Client_Migration.xlsx" : "Client_Master.xlsx");
   };
-  if (open) return <ClientForm key={open.client_id || "new"} row={open} canEdit={canEdit} onClose={async () => { setOpen(null); await list.reload(); }} />;
+  const toggle = (id) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allPicked = rows.length > 0 && rows.every((r) => picked.has(r.client_id));
+  const send = async (ids) => {
+    setBusy(true); setError(null); setNote(null);
+    try {
+      const r = await rpc("client_master_set_status", { p_ids: ids, p_status: "active" });
+      setNote(`${r.changed} client(s) sent to the active Client Master.`);
+      setPicked(new Set());
+      await list.reload();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+  if (open) return <ClientForm key={open.client_id || "new"} row={open} canEdit={canEdit} migration={migration} onSend={async () => { await rpc("client_master_set_status", { p_ids: [open.client_id], p_status: "active" }); setNote(`${open.client_id} sent to the active Client Master.`); }} onClose={async () => { setOpen(null); await list.reload(); }} />;
+  const pickColumn = { key: "pick", label: "Select", render: (r) => <input type="checkbox" aria-label={`Select ${r.client_id}`} checked={picked.has(r.client_id)} onClick={(e) => e.stopPropagation()} onChange={() => toggle(r.client_id)} /> };
   return (
     <div className="bk-root">
-      <PageHead title="Client Master" sub="One record per client, shared across the CRM.">
+      <PageHead title={migration ? "Migration" : "Client Master"} sub={migration ? "Clients brought over from the old records. Check each one, then send it to the active Client Master." : "Active clients, one record per client, shared across the CRM."}>
         {rows.length > 0 && <Button onClick={exportXlsx}>Export Excel</Button>}
-        {canEdit && <Button variant="primary" onClick={() => setOpen({})}>+ New client</Button>}
+        {!migration && canEdit && <Button variant="primary" onClick={() => setOpen({})}>+ New client</Button>}
       </PageHead>
-      <ErrorNote message={list.error || access.error} />
+      <ErrorNote message={error || list.error || access.error} onClose={error ? () => setError(null) : undefined} />
+      {note && <div className="bk-alert bk-alert-ok">{note}</div>}
+      {migration && canEdit && rows.length > 0 && (
+        <div className="bk-actions">
+          <Button onClick={() => setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.client_id)))}>{allPicked ? "Clear selection" : `Select all (${rows.length})`}</Button>
+          <Button variant="primary" busy={busy} disabled={!picked.size} onClick={() => send([...picked])}>Send to Client Master{picked.size ? ` (${picked.size})` : ""}</Button>
+        </div>
+      )}
       {list.loading && !list.data ? <Spinner /> : (
-        <DataTable search="Search client, licence, TRN…" rows={rows.map((r) => ({ ...r, licence: r.data["Trade License Number"], trn: r.data.TRN, status: r.data["Onboarding Status"], score: r.data["Onboarding Completion %"], risk: r.data["Risk Level"], expiry: r.data["License Expiry Date"], changed: r.data["Last Updated"] }))} onRow={setOpen} empty="No clients in the Client Master yet." columns={[
+        <DataTable search="Search client, licence, TRN…" rows={rows.map((r) => ({ ...r, licence: r.data["Trade License Number"], trn: r.data.TRN, status: r.data["Onboarding Status"], score: r.data["Onboarding Completion %"], risk: r.data["Risk Level"], expiry: r.data["License Expiry Date"], changed: r.data["Last Updated"] }))} onRow={setOpen} empty={migration ? "No clients waiting for migration." : "No clients in the Client Master yet."} columns={[
+          ...(migration && canEdit ? [pickColumn] : []),
           { key: "client_id", label: "ID" }, { key: "legal_name", label: "Client" }, { key: "licence", label: "Licence", render: (r) => shown(r.licence) }, { key: "trn", label: "TRN", render: (r) => shown(r.trn) },
           { key: "status", label: "Onboarding", render: (r) => shown(r.status) }, { key: "score", label: "Complete", right: true }, { key: "risk", label: "Risk", render: (r) => shown(r.risk) }, { key: "expiry", label: "Licence expiry", render: (r) => shown(r.expiry) }, { key: "changed", label: "Updated" },
         ]} />
@@ -50,7 +78,7 @@ export default function ClientMaster() {
   );
 }
 
-function ClientForm({ row, canEdit, onClose }) {
+function ClientForm({ row, canEdit, migration, onSend, onClose }) {
   const existing = row.data || null;
   const [values, setValues] = useState(existing || {});
   const [stage, setStage] = useState(0);
@@ -104,9 +132,14 @@ function ClientForm({ row, canEdit, onClose }) {
     } catch (e) { setError(e.message); setBusy(null); }
   };
 
+  const sendOn = async () => {
+    setBusy("send"); setError(null);
+    try { await onSend(); await onClose(); } catch (e) { setError(e.message); setBusy(null); }
+  };
+
   return (
     <div className="bk-root">
-      <PageHead title={plain(rec["Client Legal Name"]) && rec["Client Legal Name"] !== "Not Provided" ? plain(rec["Client Legal Name"]) : "New client"} sub={`${row.client_id ? `${row.client_id} · ` : ""}${result.score}% complete · ${result.band}`}><Button onClick={onClose}>Back</Button></PageHead>
+      <PageHead title={plain(rec["Client Legal Name"]) && rec["Client Legal Name"] !== "Not Provided" ? plain(rec["Client Legal Name"]) : "New client"} sub={`${row.client_id ? `${row.client_id} · ` : ""}${result.score}% complete · ${result.band}`}>{migration && canEdit && row.client_id && <Button variant="primary" busy={busy === "send"} onClick={sendOn}>Send to Client Master</Button>}<Button onClick={onClose}>Back</Button></PageHead>
       <ErrorNote message={error} onClose={error ? () => setError(null) : undefined} />
       {note && <div className="bk-alert bk-alert-ok">{note}</div>}
       {conflicts.length > 0 && <div className="bk-alert bk-alert-warn"><strong>Different readings, left for you to decide:</strong><ul>{conflicts.map((c) => <li key={c}>{c}</li>)}</ul></div>}

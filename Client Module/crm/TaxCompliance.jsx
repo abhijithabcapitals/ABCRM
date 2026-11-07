@@ -9,13 +9,13 @@ const LABEL = { overdue: "Overdue", due_14: "Due ≤ 14 days", due_30: "Due ≤ 
 const TONE = { overdue: "bad", due_14: "bad", due_30: "warn", due_60: "warn", review: "warn", done: "good" };
 
 export default function TaxCompliance() {
-  const list = useLoad(() => run(table("client_master").select("data").limit(5000)), []);
+  const list = useLoad(() => run(table("client_master").select("data").eq("status", "active").limit(5000)), []);
   const [status, setStatus] = useState("");
   const data = useMemo(() => compliance((list.data || []).map((r) => r.data)), [list.data]);
   const rows = data.items.filter((i) => (status ? i.status === status : i.status !== "done"));
   return (
     <div className="bk-root">
-      <PageHead title="Tax Compliance" sub={`${data.clientsChecked} client(s) from the Client Master, as of ${data.asOf}. Computed dates are estimates from the recorded inputs: confirm before relying on them.`} />
+      <PageHead title="Tax Compliance" sub={`${data.clientsChecked} active client(s) from the Client Master, as of ${data.asOf}. Computed dates are estimates from the recorded inputs: confirm before relying on them.`} />
       <div className="bk-filter">{STATUSES.map((s) => <button type="button" key={s} aria-pressed={status === s} className={`bk-chip ${status === s ? "active" : ""}`} onClick={() => setStatus(status === s ? "" : s)}>{LABEL[s]} ({data.summary[s]})</button>)}</div>
       <ErrorNote message={list.error} />
       {list.loading && !list.data ? <Spinner /> : (
