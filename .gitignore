@@ -54,7 +54,7 @@ Database Module/Business Setup Base/data/
 .next/
 .open-next/
 .wrangler/
-supabase/.temp/
+**/supabase/.temp/
 *.tsbuildinfo
 graphify-out/
 
