@@ -1,12 +1,13 @@
 # Router Agent (Bruno)
 
-Bruno is the chat agent every CRM staff user has. A small pet sits in the corner of every page and opens a chat panel. Bruno sends a question to an agent the person has access to and shows that agent's reply word for word. When no agent gives information, the reply is exactly `Opps! I dont Know`.
+Bruno is the chat agent every CRM staff user has. Bruno docks on the right of every page, beside the Messenger dock; closed, it leaves a draggable tab on the right edge. Bruno sends a question to an agent the person has access to and shows that agent's reply word for word. When no agent gives information, the reply is exactly `Opps! I dont Know`.
 
 Design: `docs/2026-11-04-router-agent-design.md`. Plan: `docs/2026-11-04-router-agent-plan.md`. Database: `Database Module/Router Base`.
 
 | Path | Purpose |
 |---|---|
-| `components/BrunoPet.jsx` | Pet button, loads with the app |
+| `components/BrunoPet.jsx` | Right-edge tab and dock, loads with the app |
+| `components/BrunoExtra.jsx` | Lets a page show its own content at the top of the open dock (BD mini calendar) |
 | `components/BrunoPanel.jsx` | Chat panel, loads on first open |
 | `components/AgentNameField.jsx` | Rename field on the Profile page |
 | `logic/` | Name and chat rules for the screens |

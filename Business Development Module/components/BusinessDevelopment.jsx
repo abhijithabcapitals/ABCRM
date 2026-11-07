@@ -27,8 +27,8 @@ import {
 import { LEAD_DOC_LABELS, addLeadFiles, fillLeadForm, leadFromDocai } from "../logic/leadDocuments.js";
 import { readFiles } from "@business-setup/services/ocrRead";
 import { CONVERTED_STAGE, DEPARTMENTS, QUOTE_STAGE, departmentForService, departmentLabel, isOpen, isUnassigned, nextStep } from "../logic/leadRules.js";
-import BdAgentPanel from "./BdAgentPanel";
-import BdAgentTab from "./BdAgentTab";
+import BdMiniCalendar from "./BdMiniCalendar";
+import { BrunoExtra } from "@router-agent";
 import BdCalendarView from "./BdCalendarView";
 import LeadGenerationView, { prospectLeadValues, prospectSourceName } from "./LeadGenerationView";
 import RecordChatPanel from "@messenger/components/RecordChatPanel";
@@ -226,7 +226,6 @@ export default function BusinessDevelopment({ profile }) {
   const [busy, setBusy] = useState(false);
   const [leadPrefill, setLeadPrefill] = useState(null); // { prospectId, values } when adding a platform prospect
   const [prospectsVersion, setProspectsVersion] = useState(0);
-  const [agentOpen, setAgentOpen] = useState(() => window.matchMedia?.("(min-width: 1100px)").matches ?? true);
   const currentUserId = profile?.id;
 
   const load = useCallback(async () => {
@@ -459,16 +458,15 @@ export default function BusinessDevelopment({ profile }) {
   function openLead(lead) { setSelectedLead(lead); setError(""); }
   const profilesById = useMemo(() => Object.fromEntries(profiles.map((person) => [person.id, person])), [profiles]);
 
-  // The BD Agent sits to the right of whichever page is showing; closed, it leaves a tab on the edge.
+  // The CRM-wide Bruno dock sits to the right of every page; on BD pages it also shows the follow-up mini calendar.
   const withAgent = (content) => (
-    <div className={`bd-shell${agentOpen ? " bd-shell-agent" : ""}`}>
-      <div className="bd-shell-main">{content}</div>
-      {agentOpen
-        ? <BdAgentPanel lead={selectedLead} page={selectedLead ? "Lead workspace" : page} onClose={() => setAgentOpen(false)}
-          followups={dueFollowups} onOpenLead={openLead}
+    <>
+      {content}
+      <BrunoExtra>
+        <BdMiniCalendar followups={dueFollowups} onOpenLead={openLead}
           onOpenCalendar={() => { setSelectedLead(null); setModal(""); setPage("Lead Calendar"); }} />
-        : <BdAgentTab onOpen={() => setAgentOpen(true)} />}
-    </div>
+      </BrunoExtra>
+    </>
   );
 
   if (selectedLead) {

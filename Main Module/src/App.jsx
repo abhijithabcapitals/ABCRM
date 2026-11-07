@@ -461,7 +461,6 @@ export default function App() {
     <div className="app-layout">
       <GlobalAttention />
       <ReadingWidget owner={profile?.id} onOpen={(v) => { setView(v); localStorage.setItem("abc_view", v); }} />
-      {profile && <BrunoPet key={profile.id} supabase={supabase} />}
       <Sidebar
         allowedTabs={tabs}
         spaces={spaces}
@@ -572,6 +571,7 @@ export default function App() {
       <BrandFooter />
       </div>
       <CallHost profile={profile} />
+      {profile && <BrunoPet key={profile.id} supabase={supabase} />}
       {view !== "team-messenger" && <MessengerDock profile={profile} onOpenPage={() => handleNavigate("team-messenger")} />}
     </div>
   );

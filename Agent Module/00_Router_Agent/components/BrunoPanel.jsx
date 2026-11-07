@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { canSend, CONNECTION_ERROR, inputAfterSend } from "../logic/chat.js";
-import { PetFace } from "./BrunoPet.jsx";
+import { setDockSlot } from "../logic/dockSlot.js";
 
 // The chat. Replies are shown as plain text, word for word; the agent's name is a separate label.
 export default function BrunoPanel({ supabase, name, onCollapse }) {
@@ -65,13 +65,14 @@ export default function BrunoPanel({ supabase, name, onCollapse }) {
   }
 
   return (
-    <section className="bruno-panel" aria-label={name}>
+    <aside className="bruno-panel" aria-label={name}>
       <header className="bruno-head">
-        <PetFace size={32} />
         <strong className="bruno-title">{name}</strong>
         <button type="button" className="bruno-link" onClick={clear} disabled={busy || !messages.length}>Clear</button>
-        <button type="button" className="bruno-icon" aria-label={`Collapse ${name}`} onClick={onCollapse}>−</button>
+        <button type="button" className="bruno-icon" aria-label={`Close ${name}`} onClick={onCollapse}>×</button>
       </header>
+
+      <div className="bruno-extra" ref={setDockSlot} />
 
       <div className="bruno-list" aria-live="polite">
         {messages.map((m) => (
@@ -105,6 +106,6 @@ export default function BrunoPanel({ supabase, name, onCollapse }) {
         />
         <button type="submit" className="bruno-send" disabled={!canSend(input, busy)}>Send</button>
       </form>
-    </section>
+    </aside>
   );
 }

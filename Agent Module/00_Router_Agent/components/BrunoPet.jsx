@@ -1,10 +1,10 @@
-import { Component, lazy, Suspense, useEffect, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { DEFAULT_NAME, NAME_CHANGED } from "../logic/agentName.js";
 import "./Bruno.css";
 
 const BrunoPanel = lazy(() => import("./BrunoPanel.jsx"));
 
-// After a release, a tab left open can fail to load the panel's file. The pet collapses and the page keeps working.
+// After a release, a tab left open can fail to load the panel's file. The dock closes and the page keeps working.
 class PanelBoundary extends Component {
   state = { failed: false };
   static getDerivedStateFromError() {
@@ -19,6 +19,11 @@ class PanelBoundary extends Component {
 }
 
 const OPEN_KEY = "bruno_open";
+const TOP_KEY = "bruno-tab-top";
+const MIN = 8;
+const MAX = 92;
+const clamp = (value) => Math.min(MAX, Math.max(MIN, value));
+
 function readOpen() {
   try {
     return localStorage.getItem(OPEN_KEY) === "1";
@@ -31,23 +36,76 @@ function saveOpen(open) {
     localStorage.setItem(OPEN_KEY, open ? "1" : "0");
   } catch { /* being remembered is only a convenience */ }
 }
+function readTop() {
+  try {
+    const value = Number(localStorage.getItem(TOP_KEY));
+    return Number.isFinite(value) && value > 0 ? clamp(value) : 50;
+  } catch {
+    return 50;
+  }
+}
+function saveTop(value) {
+  try {
+    localStorage.setItem(TOP_KEY, String(value));
+  } catch { /* storage off: the spot lasts until reload */ }
+}
 
-export function PetFace({ size = 44 }) {
+// The closed tab on the right edge. Drag it up or down to move it; a click without dragging opens the dock.
+// Arrow keys move it too. The spot is kept in this browser as a share of the window height.
+function BrunoTab({ name, onOpen }) {
+  const [top, setTop] = useState(readTop);
+  const drag = useRef(null);
+
+  const onPointerDown = (event) => {
+    if (event.button !== 0) return;
+    drag.current = { startY: event.clientY, startTop: top, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event) => {
+    const d = drag.current;
+    if (!d) return;
+    const dy = event.clientY - d.startY;
+    if (!d.moved && Math.abs(dy) < 5) return;
+    d.moved = true;
+    setTop(clamp(d.startTop + (dy / window.innerHeight) * 100));
+  };
+  const onPointerUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    if (d.moved) saveTop(top);
+    else onOpen();
+  };
+  const onKeyDown = (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const next = clamp(top + (event.key === "ArrowUp" ? -4 : 4));
+    setTop(next);
+    saveTop(next);
+  };
+
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <path d="M10 12c-5 1-7 9-5 16 1 3 5 3 6-1l2-11z" fill="#7a4f2b" />
-      <path d="M38 12c5 1 7 9 5 16-1 3-5 3-6-1l-2-11z" fill="#7a4f2b" />
-      <circle cx="24" cy="25" r="16" fill="#c98f58" />
-      <ellipse cx="24" cy="32" rx="9" ry="7" fill="#f3e2cd" />
-      <circle cx="18" cy="22" r="2.4" fill="#2b1d12" />
-      <circle cx="30" cy="22" r="2.4" fill="#2b1d12" />
-      <ellipse cx="24" cy="29" rx="3" ry="2.2" fill="#2b1d12" />
-      <path d="M24 31v3m-4 0c1 2 7 2 8 0" stroke="#2b1d12" strokeWidth="1.4" fill="none" strokeLinecap="round" />
-    </svg>
+    <button
+      type="button"
+      className="bruno-tab"
+      style={{ top: `${top}%` }}
+      title="Click to open. Drag up or down to move."
+      aria-label={`Open ${name}. Use the up and down arrow keys to move this tab.`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => { drag.current = null; }}
+      onKeyDown={onKeyDown}
+      onClick={(event) => { if (event.detail === 0) onOpen(); }}
+    >
+      <span aria-hidden="true" className="bruno-tab-grip">⋮⋮</span>
+      {name}
+    </button>
   );
 }
 
-// The person's agent: a small pet in the corner on every page. The chat panel loads the first time it opens.
+// The person's agent, docked on the right of every page. Closed, it leaves a tab on the edge.
+// The chat panel loads the first time it opens.
 export default function BrunoPet({ supabase }) {
   const [open, setOpen] = useState(readOpen);
   const [name, setName] = useState(DEFAULT_NAME);
@@ -79,10 +137,5 @@ export default function BrunoPet({ supabase }) {
       </PanelBoundary>
     );
   }
-  return (
-    <button type="button" className="bruno-pet" aria-label={`Open ${name}`} onClick={() => toggle(true)}>
-      <PetFace />
-      <span className="bruno-pet-name">{name}</span>
-    </button>
-  );
+  return <BrunoTab name={name} onOpen={() => toggle(true)} />;
 }
