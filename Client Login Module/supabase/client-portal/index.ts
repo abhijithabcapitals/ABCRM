@@ -22,7 +22,11 @@
 //     it (a payment and a receipt) or refuse it with a note, and the client sees the claim's status (and the refusal note, only when Refused) in setup_view.
 //   submit_change { field, value } -> { id }       asks staff to change one company detail
 //   gallery_url { source, id } -> { url }          source is kyc or generated; link lasts 120 seconds
+//   link_login { link } -> { token }               no session needed: a request link (Accounting Base 006) becomes a 12-hour session
+//   requests -> { requests }, request_shared { id }   the client's own requests, and "I have sent everything" on one
 // Staff actions (Authorization: staff JWT; the SQL checks who may):
+//   accounting_request_send { client_id, job_id?, items, other_note?, message? } -> { id, link, emailed, email, email_error }   accounts.review:
+//     records the request, mails the client a sign-in link valid 7 days (CRM_SITE_URL, else the live site) and returns the link once for staff to copy
 //   admin_preview { account_id }   admins and setup.portal.manage, read-only copy of what the client sees
 //   admin_grant_access { banking_client_id, client_master_id, username, password, email, reset }   admins only: saves the login, mails the password
 //   staff_url { id, filed? }, staff_review { id, status, note? }
@@ -37,7 +41,8 @@
 // Deploy: supabase functions deploy client-portal --no-verify-jwt --project-ref pnnakrhfzyxudjaghoxx --use-api
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { emailCredentials, emailNotice } from "../_shared/credentialMail.ts";
+import { emailCredentials, emailNotice, emailRequest } from "../_shared/credentialMail.ts";
+import { SIGN_IN_URL } from "../_shared/credentialText.ts";
 import { generatePassword, usernameCandidates } from "../_shared/loginSecret.ts";
 
 const cors = {
@@ -90,6 +95,42 @@ Deno.serve(async (req) => {
       if (error) throw new Error(error.message);
       if (!data?.ok) return json({ error: "Wrong username or password, or too many attempts. Try again in 15 minutes, or contact AB Capital Services FZE." }, 401);
       return json({ token: data.token });
+    }
+
+    // A request link: the token in the link is exchanged for a normal 12-hour session. No password.
+    if (action === "link_login") {
+      const { data, error } = await admin.rpc("client_portal_link_login", { p_token: String(body.link || "").slice(0, 100) });
+      if (error) throw new Error(error.message);
+      if (!data?.ok) return json({ error: "This link has expired or was ended. Sign in with your username and password, or ask AB Capital Services FZE for a new link." }, 401);
+      return json({ token: data.token });
+    }
+
+    if (action === "accounting_request_send") {
+      // Runs as the signed-in staff member: the SQL checks accounts.review and that the client has an active login, and returns the link token once.
+      const staff = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+      });
+      const items = Array.isArray(body.items) ? body.items.map((i: unknown) => String(i).slice(0, 60)).slice(0, 10) : [];
+      const { data: made, error: makeErr } = await staff.rpc("accounting_client_request_create", { p: {
+        client_id: String(body.client_id || "").slice(0, 40), job_id: UUID.test(String(body.job_id || "")) ? body.job_id : null,
+        items, other_note: String(body.other_note || "").slice(0, 1000), message: String(body.message || "").slice(0, 2000),
+      } });
+      if (makeErr) {
+        if (/permission|not allowed|access/i.test(makeErr.message)) return json({ error: makeErr.message }, 403);
+        if (makeErr.code === "P0001") throw new InputError(makeErr.message);
+        throw new Error(makeErr.message);
+      }
+      const site = (Deno.env.get("CRM_SITE_URL") || SIGN_IN_URL).replace(/\/+$/, "");
+      const link = `${site}/?client_link=${made.token}`;
+      const expiresOn = new Date(made.expires_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Dubai" });
+      const { data: who } = await staff.auth.getUser();
+      const actor: string | null = who?.user?.id ?? null;
+      const to = String(made.email || "").trim();
+      const sent = EMAIL.test(to)
+        ? await emailRequest(admin, actor, to, made.id, { name: made.display_name || "", items: made.items || [], otherNote: made.other_note, message: made.message, link, expiresOn })
+        : { emailed: false, email_error: "The client has no email in Client Master." };
+      await admin.rpc("accounting_client_request_mailed", { p_id: made.id, p_emailed: sent.emailed, p_error: sent.email_error });
+      return json({ ok: true, id: made.id, link, expires_at: made.expires_at, email: EMAIL.test(to) ? to : null, ...sent });
     }
 
     if (action === "admin_preview" || action === "admin_grant_access" || action === "staff_url" || action === "staff_review" || action === "staff_signed_url" || action === "setup_issue_login" || action === "setup_login_save") {
@@ -269,6 +310,22 @@ Deno.serve(async (req) => {
       case "logout":
         await admin.rpc("client_portal_logout", { p_token: token });
         return json({ ok: true });
+      case "requests": {
+        const { data, error } = await admin.rpc("client_portal_requests", { p_account: accountId });
+        if (error) throw new Error(error.message);
+        return json({ requests: data || [] });
+      }
+      case "request_shared": {
+        const id = String(body.id || "");
+        if (!UUID.test(id)) throw new InputError("Request not found.");
+        // The account is the one of the live session; the database refuses a request that is not theirs or is already closed.
+        const { error } = await admin.rpc("client_portal_request_shared", { p_account: accountId, p_id: id });
+        if (error) {
+          if (error.code === "P0001") throw new InputError(error.message);
+          throw new Error(error.message);
+        }
+        return json({ ok: true });
+      }
       case "upload_start": {
         const name = displayName(String(body.file_name || ""));
         const ext = name.split(".").pop()?.toLowerCase() || "";

@@ -303,6 +303,11 @@
 .bk-closed summary { padding: 10px 14px; color: #5f7077; font-size: 12.5px; font-weight: 700; cursor: pointer; }
 .bk-closed-body { padding: 0 10px 10px; opacity: .65; filter: grayscale(1); }
 .bk-closed-body:hover { opacity: .85; }
+/* Drag to reorder: a handle arms the row block, the drop target shows a line above it. */
+.bk-drag-handle { display: inline-block; padding: 0 4px; color: #8a979c; cursor: grab; user-select: none; border-radius: 4px; }
+.bk-drag-handle:hover, .bk-drag-handle:focus-visible { color: #1f5f63; background: #e6ebed; }
+tbody.bk-dragging { opacity: .45; }
+tbody.bk-drop-target tr:first-child td { box-shadow: inset 0 2px 0 #1f5f63; }
 .bk-inbox { margin-bottom: 12px; padding: 10px 14px; border: 1px solid #b7d4d5; border-radius: 10px; background: #f0fafa; }
 .bk-inbox strong { color: #0d7277; }
 .bk-desk { display: grid; grid-template-columns: minmax(280px, 2fr) minmax(0, 3fr); gap: 14px; align-items: start; }
@@ -341,7 +346,7 @@
 .bk-oneline .bk-table { table-layout: fixed; }
 .bk-oneline .bk-table td, .bk-oneline .bk-table th { overflow: hidden; padding-inline: 7px; white-space: nowrap; text-overflow: ellipsis; }
 .bk-clip { display: block; overflow: hidden; text-overflow: ellipsis; }
-/* Too narrow for one line: rows wrap instead, still with no sideways scroll. */
+/* Too narrow for one line: rows wrap instead, still with no sideways scroll. */
 @media (max-width: 1200px) {
   .bk-oneline .bk-table { table-layout: auto; }
   .bk-oneline .bk-table td { overflow: visible; white-space: normal; overflow-wrap: anywhere; }

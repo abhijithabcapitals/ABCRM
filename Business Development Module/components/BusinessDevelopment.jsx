@@ -906,6 +906,30 @@ function MyLeadsView({ leads, profiles, search, onSearch, sourceFilter, onSource
     .sort((a, b) => (b.progress.step - a.progress.step) || new Date(b.lead.updated_at || b.lead.created_at || 0) - new Date(a.lead.updated_at || a.lead.created_at || 0));
   const stepCounts = PROGRESS_STEPS.map((_, index) => rows.filter((row) => row.progress.step === index).length);
   const closed = rows.filter((row) => row.progress.percent === null).length;
+  // Converted, lost and disqualified leads fold under the open ones; on-hold leads stay open.
+  const isDone = (lead) => ["won", "lost", "disqualified"].includes(lead.status);
+  const openRows = rows.filter((row) => !isDone(row.lead));
+  const closedRows = rows.filter((row) => isDone(row.lead));
+  const leadsTable = (list) => <div className="bd-table-wrap"><table className="bd-table">
+      <thead><tr><th>Lead</th><th>Stage / Status</th><th>Progress</th><th>Next Follow-up</th><th>Transferred to</th><th>Potential</th></tr></thead>
+      <tbody>{list.map(({ lead, progress }) => {
+        const value = currencyTotals(leadPotentialEntries(lead));
+        const transfers = lead.bd_department_transfers || [];
+        return (
+          <tr key={lead.id} onClick={() => onOpen(lead)}>
+            <td><strong>{lead.name}</strong><small>{lead.lead_id} · {lead.source || "No source"}</small></td>
+            <td><span className={`bd-stage-badge bd-stage-${stageClass(lead.stage)}`}>{lead.status === "active" ? lead.stage : lead.status === "won" ? (progress.transferred ? "Transferred" : "Converted") : lead.status}</span></td>
+            <td className="bd-myleads-progress">{progress.percent === null ? <span className="bd-status-note">{lead.status === "on_hold" ? "On hold" : lead.status}</span> : <>
+              <div className="bd-progress-label"><span>{PROGRESS_STEPS[progress.step]}</span><b>{progress.percent}%</b></div>
+              <div className="bd-progress-track"><i style={{ width: `${progress.percent}%` }} /></div>
+            </>}</td>
+            <td><span className={lead.status === "active" && isLate(lead.next_followup_at) ? "bd-overdue-text" : ""}>{lead.status === "active" ? dateOnly(lead.next_followup_at) : "—"}</span></td>
+            <td>{transfers.length ? <div className="bd-transfer-chips">{transfers.map((t) => <span key={t.id}>{departmentLabel(t.department)} · {t.target_ref}{t.owner ? ` · ${fullName(profiles[t.owner])}` : ""}</span>)}</div> : "—"}</td>
+            <td>{value === money(0) ? "—" : value}</td>
+          </tr>
+        );
+      })}</tbody>
+    </table></div>;
   return (
     <section>
       <div className="bd-section-heading"><div><h2>My Leads</h2><p>Every lead assigned to you, from first contact to converted and transferred.</p></div><span className="bd-count-pill">{leads.length} leads</span></div>
@@ -914,26 +938,8 @@ function MyLeadsView({ leads, profiles, search, onSearch, sourceFilter, onSource
         <div className="bd-myleads-closed"><b>{closed}</b><span>Lost / on hold</span></div>
       </div>
       <div className="bd-list-tools"><input aria-label="Search leads" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search name, lead ID, phone, email…" /><select aria-label="Filter by source" value={sourceFilter} onChange={(event) => onSourceFilter(event.target.value)}><option value="">All sources</option>{BD_SOURCES.map((source) => <option key={source}>{source}</option>)}</select></div>
-      {rows.length ? <div className="bd-table-wrap"><table className="bd-table">
-        <thead><tr><th>Lead</th><th>Stage / Status</th><th>Progress</th><th>Next Follow-up</th><th>Transferred to</th><th>Potential</th></tr></thead>
-        <tbody>{rows.map(({ lead, progress }) => {
-          const value = currencyTotals(leadPotentialEntries(lead));
-          const transfers = lead.bd_department_transfers || [];
-          return (
-            <tr key={lead.id} onClick={() => onOpen(lead)}>
-              <td><strong>{lead.name}</strong><small>{lead.lead_id} · {lead.source || "No source"}</small></td>
-              <td><span className={`bd-stage-badge bd-stage-${stageClass(lead.stage)}`}>{lead.status === "active" ? lead.stage : lead.status === "won" ? (progress.transferred ? "Transferred" : "Converted") : lead.status}</span></td>
-              <td className="bd-myleads-progress">{progress.percent === null ? <span className="bd-status-note">{lead.status === "on_hold" ? "On hold" : lead.status}</span> : <>
-                <div className="bd-progress-label"><span>{PROGRESS_STEPS[progress.step]}</span><b>{progress.percent}%</b></div>
-                <div className="bd-progress-track"><i style={{ width: `${progress.percent}%` }} /></div>
-              </>}</td>
-              <td><span className={lead.status === "active" && isLate(lead.next_followup_at) ? "bd-overdue-text" : ""}>{lead.status === "active" ? dateOnly(lead.next_followup_at) : "—"}</span></td>
-              <td>{transfers.length ? <div className="bd-transfer-chips">{transfers.map((t) => <span key={t.id}>{departmentLabel(t.department)} · {t.target_ref}{t.owner ? ` · ${fullName(profiles[t.owner])}` : ""}</span>)}</div> : "—"}</td>
-              <td>{value === money(0) ? "—" : value}</td>
-            </tr>
-          );
-        })}</tbody>
-      </table></div> : <Empty title="No leads assigned to you" body="Assign yourself a lead from All Leads or create a new one." />}
+      {openRows.length ? leadsTable(openRows) : <Empty title={rows.length ? "No open leads" : "No leads assigned to you"} body="Assign yourself a lead from All Leads or create a new one." />}
+      {closedRows.length > 0 && <details className="bd-closed"><summary>Completed and cancelled ({closedRows.length})</summary><div className="bd-closed-body">{leadsTable(closedRows)}</div></details>}
     </section>
   );
 }

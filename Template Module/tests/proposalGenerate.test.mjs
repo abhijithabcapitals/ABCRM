@@ -153,9 +153,40 @@ test("saveToOneDrive reloads the stored files and records the path", async () =>
 test("mail draft marks its closing, so the sender can drop it under a mail signature", () => {
   const contact = { name: "Sam Signer", phone: "+971-500000000", email: "sam@example.com", website: "" };
   const body = proposalMail(created, { proposal_defaults: { contact }, company: { short_name: "Example Co FZE" } }).body;
-  assert.match(body, /forward\.\n\n-- closing --\nKind regards\nSam Signer\nExample Co FZE\n\+971-500000000\nsam@example\.com$/);
+  assert.match(body, /forward\.\n\nYou can also view this proposal and your documents in the AB Capital client portal: https:\/\/crm-abcapital\.pages\.dev\/\n\n-- closing --\nKind regards\nSam Signer\nExample Co FZE\n\+971-500000000\nsam@example\.com$/);
   assert.equal(body.split("-- closing --").length - 1, 1);
   assert.match(proposalMail(created).body, /\n-- closing --\nKind regards$/);
+});
+
+test("generate mails the PDF at once, after the draft is saved", async () => {
+  const { calls, deps } = fakes({ send: { ok: true, sent_at: "2026-11-07T10:00:00Z" } });
+  const out = await generateProposal(input(), deps);
+  assert.deepEqual(names(calls).slice(-2), ["createMail", "send"]);
+  assert.deepEqual(calls.find((c) => c.name === "send").args, ["d1"]);
+  assert.equal(out.sent.ok, true);
+  assert.equal(out.sendError, null);
+  assert.ok(!out.error);
+});
+
+test("a refused send keeps the files and reports why", async () => {
+  for (const send of [new Error("No password is saved"), { ok: false, error: "Mailbox refused" }]) {
+    const { deps } = fakes({ send });
+    const out = await generateProposal(input(), deps);
+    assert.ok(!out.error);
+    assert.ok(out.pdfBlob);
+    assert.equal(out.sent, null);
+    assert.match(out.sendError, /No password is saved|Mailbox refused/);
+  }
+});
+
+test("a proposal already mailed is not mailed again on Retry", async () => {
+  const { calls, deps } = fakes({ send: { ok: true }, attach: { ...created, storage_path: "p.pdf", word_path: "p.docx", mail_sent_at: "2026-11-06T09:00:00Z" } });
+  await retryProposal(created, deps, { company: {} });
+  assert.ok(!names(calls).includes("send"));
+});
+
+test("the mail carries the client portal link", () => {
+  assert.match(proposalMail(created).body, /client portal: https:\/\/crm-abcapital\.pages\.dev\//);
 });
 
 // ---- Signing (shared step, services/signing.js) ----

@@ -2,7 +2,7 @@
 // No copy goes to the Sent folder: the CRM syncs that mailbox, which would leave the password readable there.
 // Paths are as deployed: this file sits in supabase/functions/_shared, next to ceo-mail-reply.
 import { buildMessage, SmtpClient } from "../ceo-mail-reply/smtp.ts";
-import { type CredentialMail, credentialEmail, type NoticeMail, noticeEmail } from "./credentialText.ts";
+import { type CredentialMail, credentialEmail, type NoticeMail, noticeEmail, type RequestMail, requestEmail } from "./credentialText.ts";
 
 const FROM = "info@abcapital.ae";
 const PASSWORD_SECRET = "MAIL_PASSWORD_INFO_ABCAPITAL_AE";
@@ -33,6 +33,22 @@ export async function emailNotice(admin: any, actor: string | null, to: string, 
     const reason = String((e as Error)?.message || e).slice(0, 300);
     console.error("notice email", reason);
     await admin.from("admin_audit").insert({ actor, action: "quote_notice_email_failed", target: mail.username, detail: { to, reason } });
+    return { emailed: false, email_error: reason };
+  }
+}
+
+// A client request with its sign-in link. The request already exists when this runs, so a failed email is reported, never thrown.
+// The audit row holds no link: the link is a sign-in.
+// deno-lint-ignore no-explicit-any
+export async function emailRequest(admin: any, actor: string | null, to: string, requestId: string, mail: RequestMail) {
+  try {
+    await sendText(admin, to, requestEmail(mail));
+    await admin.from("admin_audit").insert({ actor, action: "client_request_emailed", target: requestId, detail: { to } });
+    return { emailed: true, email_error: null };
+  } catch (e) {
+    const reason = String((e as Error)?.message || e).split(mail.link).join("[hidden]").slice(0, 300);
+    console.error("request email", reason);
+    await admin.from("admin_audit").insert({ actor, action: "client_request_email_failed", target: requestId, detail: { to, reason } });
     return { emailed: false, email_error: reason };
   }
 }

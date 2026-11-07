@@ -1,6 +1,6 @@
 // The CRM's Clients page: all converted clients across business lines, the Client Master,
 // documents sent through the portal (Client Inputs) and, for admins only, the Client Portal.
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "@banking/components/banking.css";
 import { Badge, DataTable, ErrorNote, KeyVals, PageHead, Panel, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { rpc } from "@banking/services/bankingApi";
@@ -10,15 +10,12 @@ import ClientInputs from "./ClientInputs";
 import { findListedClient } from "./masterLogic";
 import ClientPortalAdmin, { ClientAccess } from "@client-login/admin/ClientPortalAdmin";
 
-// The Client Module running on this PC, shown in a frame.
-const LocalClientModule = lazy(() => import("@app/components/Clients"));
-
 const LINES = ["Business Banking", "Business Setup", "Accounting"];
 
 export default function ClientsHub({ profile, openClientId, onClientShown }) {
   const [view, setView] = useState("all");
   const isAdmin = profile?.role === "admin";
-  const tabs = [["all", "All Clients"], ["master", "Client Master"], ["inputs", "Client Inputs"], ...(isAdmin ? [["local", "Local Client Module"], ["portal", "Client Portal"]] : [])];
+  const tabs = [["all", "All Clients"], ["master", "Client Master"], ["inputs", "Client Inputs"], ...(isAdmin ? [["portal", "Client Portal"]] : [])];
   return (
     <div>
       <div className="bk-root bk-hub-tabs">
@@ -29,7 +26,6 @@ export default function ClientsHub({ profile, openClientId, onClientShown }) {
       {view === "all" && <AllClients isAdmin={isAdmin} openClientId={openClientId} onClientShown={onClientShown} />}
       {view === "master" && <ClientMaster />}
       {view === "inputs" && <ClientInputs />}
-      {view === "local" && isAdmin && <Suspense fallback={<Spinner />}><LocalClientModule profile={profile} /></Suspense>}
       {view === "portal" && isAdmin && <ClientPortalAdmin />}
     </div>
   );

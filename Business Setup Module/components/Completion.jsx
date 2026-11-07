@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, Modal, PageHead, Spinner, fmtDate, useLoad } from "@banking/components/shared";
 import { useSetup } from "./SetupContext";
+import ClosedCases from "./ClosedCases";
 import { caseDocuments, caseList, handoverState, sendToAccounts } from "../services/businessSetupApi";
 import { STAGE_TONE } from "../logic/statuses";
 import { caseBalance } from "../logic/progress";
@@ -46,7 +47,8 @@ export default function Completion() {
           ) },
         ]} />
       )}
-      {sending && <SendDialog c={sending} onClose={() => setSending(null)} onDone={list.reload} />}
+      <ClosedCases refreshKey={list.data} />
+      {sending &&<SendDialog c={sending} onClose={() => setSending(null)} onDone={list.reload} />}
     </div>
   );
 }

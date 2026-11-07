@@ -1,6 +1,6 @@
 // Cross-case lists. Opening a row goes to that case's workspace, where the actions live.
 import { useState } from "react";
-import { Badge, Button, DataTable, ErrorNote, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useBanking, useLoad } from "./shared";
+import { Badge, Button, ClosedSection, DataTable, ErrorNote, PageHead, Panel, Spinner, fmtDate, fmtDateTime, today, useBanking, useLoad } from "./shared";
 import { loadSettings, openInFolder, run, saveGenerated, table } from "../services/bankingApi";
 import { printReceipt, receiptDocx } from "../logic/documents";
 import { money } from "../logic/pricing";
@@ -10,15 +10,25 @@ import { APP_STATUSES } from "../logic/constants";
 const CASE = "banking_cases(case_ref, banking_clients(display_name))";
 const cl = (r) => r.banking_cases?.banking_clients?.display_name;
 const ref = (r) => r.banking_cases?.case_ref;
+const APP_CLOSED = ["Account Opened", "Rejected", "Cancelled"];
+const TASK_CLOSED = ["Completed", "Cancelled"];
 
-function CaseList({ title, sub, source, columns, tab, filter }) {
+// closed: statuses that fold under "Completed and cancelled" below the main table.
+function CaseList({ title, sub, source, columns, tab, filter, closed }) {
   const { openCase } = useBanking();
   const list = useLoad(source, []);
+  const all = filter?.apply ? (list.data || []).filter(filter.apply) : list.data || [];
+  const isClosed = (r) => (closed || []).includes(r.status);
+  const cols = [{ key: "ref", label: "Case", render: ref }, { key: "cl", label: "Client", render: cl }, ...columns];
+  const done = all.filter(isClosed);
   return (
     <div>
       {title ? <PageHead title={title} sub={sub}>{filter?.control}</PageHead> : null}
       <ErrorNote message={list.error} />
-      {list.loading && !list.data ? <Spinner /> : <DataTable search="Search…" rows={filter?.apply ? (list.data || []).filter(filter.apply) : list.data || []} onRow={(r) => openCase(r.case_id, tab)} columns={[{ key: "ref", label: "Case", render: ref }, { key: "cl", label: "Client", render: cl }, ...columns]} />}
+      {list.loading && !list.data ? <Spinner /> : <>
+        <DataTable search="Search…" rows={all.filter((r) => !isClosed(r))} onRow={(r) => openCase(r.case_id, tab)} columns={cols} />
+        <ClosedSection count={done.length} label="Completed and cancelled"><DataTable search="Search…" rows={done} onRow={(r) => openCase(r.case_id, tab)} columns={cols} /></ClosedSection>
+      </>}
     </div>
   );
 }
@@ -98,14 +108,14 @@ export const AgreementsList = () => (
 export function ApplicationsPage() {
   const [status, setStatus] = useState("");
   return (
-    <CaseList title="Applications" tab="application"
+    <CaseList title="Applications" tab="application" closed={APP_CLOSED}
       filter={{ control: <select aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All statuses</option>{APP_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>, apply: (a) => !status || a.status === status }}
       source={() => run(table("banking_applications").select(`*, ${CASE}, banking_partners(bank_name)`).order("created_at", { ascending: false }).limit(2000))}
       columns={[{ key: "application_ref", label: "Application" }, { key: "b", label: "Bank", render: (a) => a.banking_partners?.bank_name }, { key: "submission_date", label: "Submitted", render: (a) => fmtDate(a.submission_date) }, { key: "status", label: "Status", render: (a) => <Badge>{a.status}</Badge> }, { key: "status_date", label: "Since", render: (a) => fmtDate(a.status_date) }, { key: "next_follow_up", label: "Next follow-up", render: (a) => fmtDate(a.next_follow_up) }]} />
   );
 }
 export const AppointmentsPage = () => (
-  <CaseList title="Appointments" tab="application"
+  <CaseList title="Appointments" tab="application" closed={["Completed", "Cancelled", "No Show"]}
     source={() => run(table("banking_appointments").select(`*, ${CASE}`).order("appointment_at", { ascending: false }).limit(2000))}
     columns={[{ key: "appointment_at", label: "When", render: (a) => fmtDateTime(a.appointment_at) }, { key: "location", label: "Location" }, { key: "relationship_manager_text", label: "RM" }, { key: "status", label: "Status", render: (a) => <Badge>{a.status}</Badge> }]} />
 );
@@ -120,6 +130,11 @@ export function TasksPage() {
   const open = rows.filter((t) => ["Open", "In Progress"].includes(t.status));
   const load = Object.values(open.reduce((acc, t) => { const k = t.assigned_to || "none"; (acc[k] = acc[k] || { id: k, who: personName(t.assigned_to), open: 0, overdue: 0, done: 0 }).open++; if (t.due_date && t.due_date < today()) acc[k].overdue++; return acc; }, {}));
   for (const t of rows) if (t.status === "Completed") { const row = load.find((l) => l.id === (t.assigned_to || "none")); if (row) row.done++; }
+  const onTask = can("tasks.manage") ? setEdit : (t) => t.case_id && openCase(t.case_id, "tasks");
+  const taskCols = [
+    { key: "task_ref", label: "Ref" }, { key: "cl", label: "Client", render: (t) => t.banking_clients?.display_name || cl(t) || t.title || "Others" }, { key: "task_type", label: "Task" }, { key: "assigned_to", label: "Employee", render: (t) => personName(t.assigned_to) }, { key: "priority", label: "Priority" },
+    { key: "due_date", label: "Date", render: (t) => <span className={t.due_date && t.due_date < today() && ["Open", "In Progress"].includes(t.status) ? "bk-overdue" : ""}>{fmtDate(t.due_date)}</span> }, { key: "status", label: "Status", render: (t) => <Badge>{t.status}</Badge> }, { key: "completed_at", label: "Completed", render: (t) => fmtDate(t.completed_at) },
+  ];
   return (
     <div>
       <PageHead title="Tasks & Follow-ups" sub={`${open.length} open tasks`}>
@@ -127,10 +142,10 @@ export function TasksPage() {
         {can("tasks.manage") && <Button variant="primary" onClick={() => setEdit({})}>New task</Button>}
       </PageHead>
       <ErrorNote message={tasks.error || follow.error} />
-      <DataTable search="Search tasks…" rows={rows} onRow={can("tasks.manage") ? setEdit : (t) => t.case_id && openCase(t.case_id, "tasks")} columns={[
-        { key: "task_ref", label: "Ref" }, { key: "cl", label: "Client", render: (t) => t.banking_clients?.display_name || cl(t) || t.title || "Others" }, { key: "task_type", label: "Task" }, { key: "assigned_to", label: "Employee", render: (t) => personName(t.assigned_to) }, { key: "priority", label: "Priority" },
-        { key: "due_date", label: "Date", render: (t) => <span className={t.due_date && t.due_date < today() && ["Open", "In Progress"].includes(t.status) ? "bk-overdue" : ""}>{fmtDate(t.due_date)}</span> }, { key: "status", label: "Status", render: (t) => <Badge>{t.status}</Badge> }, { key: "completed_at", label: "Completed", render: (t) => fmtDate(t.completed_at) },
-      ]} />
+      <DataTable search="Search tasks…" rows={rows.filter((t) => !TASK_CLOSED.includes(t.status))} onRow={onTask} columns={taskCols} />
+      <ClosedSection count={rows.filter((t) => TASK_CLOSED.includes(t.status)).length} label="Completed and cancelled">
+        <DataTable search="Search tasks…" rows={rows.filter((t) => TASK_CLOSED.includes(t.status))} onRow={onTask} columns={taskCols} />
+      </ClosedSection>
       <div className="bk-two">
         <Panel title="Employee workload">
           <DataTable rows={load} empty="No open tasks." columns={[{ key: "who", label: "Employee" }, { key: "open", label: "Open", right: true }, { key: "overdue", label: "Overdue", right: true }, { key: "done", label: "Completed", right: true }]} />

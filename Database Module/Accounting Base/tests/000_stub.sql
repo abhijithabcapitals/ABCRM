@@ -99,3 +99,14 @@ create table storage.objects (id uuid primary key default gen_random_uuid(), buc
 alter table storage.objects enable row level security;
 grant select on storage.objects to authenticated;
 create policy hub_docs_read on storage.objects for select to authenticated using (bucket_id = 'hub-documents');
+
+-- Client portal tables for 006 (client requests), cut down from Client Base 003 and Client Login Base 001. pgcrypto sits in extensions, as on Supabase.
+create schema if not exists extensions;
+create extension if not exists pgcrypto schema extensions;
+create table public.client_portal_accounts (id uuid primary key default gen_random_uuid(), client_master_id text unique references public.client_master(client_id),
+  display_name text not null, username text not null unique, email text, status text not null default 'active', last_login_at timestamptz);
+create table public.client_portal_sessions (token_hash text primary key, account_id uuid not null references public.client_portal_accounts(id), expires_at timestamptz not null);
+create table public.client_portal_documents (id uuid primary key default gen_random_uuid(), account_id uuid not null references public.client_portal_accounts(id),
+  doc_type text not null, note text, file_name text not null, upload_complete boolean not null default false, status text not null default 'pending', uploaded_at timestamptz not null default now());
+create table public.client_portal_change_requests (id uuid primary key default gen_random_uuid(), account_id uuid not null references public.client_portal_accounts(id),
+  field_key text not null, new_value text not null, status text not null default 'pending', created_at timestamptz not null default now());

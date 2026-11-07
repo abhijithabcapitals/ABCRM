@@ -32,6 +32,33 @@ export function noticeEmail({ name, username }: NoticeMail) {
   };
 }
 
+// A request for information or payment. The link signs the client in without a password until it expires.
+export type RequestMail = { name: string; items: string[]; otherNote: string | null; message: string | null; link: string; expiresOn: string };
+
+export function requestEmail({ name, items, otherNote, message, link, expiresOn }: RequestMail) {
+  const clean = name.replace(/[\r\n]+/g, " ").trim();
+  const lines = items.map((i) => (i === "Other" && otherNote ? `- Other: ${otherNote.replace(/[\r\n]+/g, " ").trim()}` : `- ${i}`));
+  return {
+    subject: "AB Capital Services FZE: information we need from you",
+    text: [
+      `Dear ${clean || "Sir or Madam"},`,
+      "",
+      "To continue our work for you, please send us the following:",
+      ...lines,
+      ...(message ? ["", message.trim()] : []),
+      "",
+      "Open your client portal with this link to upload documents and see what is due:",
+      link,
+      "",
+      `The link signs you in without a password and works until ${expiresOn}. Please do not forward this email. After that date, sign in with your username and password.`,
+      "If you did not expect it, reply to tell us.",
+      "",
+      "*Regards,*",
+      "AB Capital Services FZE",
+    ].join("\n"),
+  };
+}
+
 export function credentialEmail({ audience, reset, name, username, password }: CredentialMail) {
   const place = audience === "client" ? "AB Capital Services FZE client portal" : "AB Capital Services FZE Workspace";
   const clean = name.replace(/[\r\n]+/g, " ").trim();

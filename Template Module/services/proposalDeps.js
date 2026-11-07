@@ -2,7 +2,7 @@
 import { renderProposal } from "../logic/proposalDocx.js";
 import { checkProposal } from "../logic/proposalModel.js";
 import { signHubDocument } from "./signingApi";
-import { attachProposal, createProposal, createProposalMail, loadProposalImages, markProposalSaved, saveProposalFolder, storedBlob, uploadProposalFile } from "./proposalApi";
+import { attachProposal, createProposal, createProposalMail, loadProposalImages, markProposalSaved, saveProposalFolder, sendProposal, storedBlob, uploadProposalFile } from "./proposalApi";
 
 async function loadTemplate() {
   const res = await fetch(new URL("../templates/AB_Capital_Proposal_Template.docx", import.meta.url));
@@ -25,6 +25,7 @@ async function toPdf(wordBlob) {
 export const proposalDeps = {
   checkFirst: checkProposal, create: createProposal, loadTemplate, loadImages: loadProposalImages, render, toPdf,
   upload: uploadProposalFile, attach: attachProposal, saveLocal: saveProposalFolder, markSaved: markProposalSaved, createMail: createProposalMail,
+  send: (id) => sendProposal(id, false, false),
   // The shared signing step: the image comes from Settings > Signing (AB Capital), the files go under Business Setup/<id>/signed/.
   sign: (args) => signHubDocument(args, { toPdf }),
 };

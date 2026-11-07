@@ -4,12 +4,13 @@ import { useState } from "react";
 import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinner, fmtDate, useAction, useLoad } from "@banking/components/shared";
 import { ReassignActions } from "./CaseActions";
 import { useSetup } from "./SetupContext";
-import { caseAssign, caseList, caseTake, workspace } from "../services/businessSetupApi";
+import { caseAssign, caseList, caseMoveToCompletion, caseTake, workspace } from "../services/businessSetupApi";
 import { caseWorkspace } from "../logic/caseWorkspace";
 import { STAGE_TONE } from "../logic/statuses";
 import { caseBalance, nextDue, progressLabel } from "../logic/progress";
 import Services from "./workspace/Services";
 import ServicePage from "./ServicePage";
+import ClosedCases from "./ClosedCases";
 
 const money = (n) => (n == null ? "–" : Number(n).toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
@@ -18,6 +19,7 @@ export default function Cases() {
   const list = useLoad(() => caseList("pipeline"), []);
   const { error, setError, busy, act } = useAction(list.reload);
   const [assigning, setAssigning] = useState(null);
+  const [completing, setCompleting] = useState(null);
   const [open, setOpen] = useState(null);
   const approve = can("setup.cases.approve");
   if (open) return <CaseDetail c={(list.data || []).find((x) => x.id === open) || { id: open }} onBack={() => { setOpen(null); list.reload(); }} />;
@@ -39,13 +41,19 @@ export default function Cases() {
               <ReassignActions c={c} onChanged={list.reload} />
               {c.stage === "Pipeline" && !c.owner_id && can("setup.leads.manage") && <Button busy={busy} onClick={() => act(() => caseTake(c.id))}>Take</Button>}
               {approve && !["Completed", "Cancelled"].includes(c.stage) && <Button onClick={() => setAssigning(c)}>{c.owner_id ? "Reassign" : "Assign"}</Button>}
+              {approve && c.stage === "Pipeline" && c.client_id && <Button variant="primary" onClick={() => setCompleting(c)}>Move to Completion</Button>}
             </span>
           ) },
         ]} />
       )}
-      {assigning && <FormModal title={`Assign ${assigning.case_number}`} submitLabel="Assign" onClose={() => setAssigning(null)} initial={{ to: assigning.owner_id || "" }}
+      <ClosedCases refreshKey={list.data} />
+      {assigning &&<FormModal title={`Assign ${assigning.case_number}`} submitLabel="Assign" onClose={() => setAssigning(null)} initial={{ to: assigning.owner_id || "" }}
         fields={[{ name: "to", label: "Owner", type: "select", options: personOptions, required: true }, { name: "note", label: "Note", type: "textarea", full: true }]}
         onSubmit={async (v) => { await caseAssign(assigning.id, v.to, v.note || null); await list.reload(); }} />}
+      {completing && <FormModal title={`Move ${completing.case_number} to Completion`} submitLabel="Move" onClose={() => setCompleting(null)}
+        note="A case moves to Completion by itself when every service is closed. Moving it by hand keeps your reason in the audit log; open services still block sending it to Accounts."
+        fields={[{ name: "reason", label: "Reason", type: "textarea", required: true, full: true }]}
+        onSubmit={async (v) => { await caseMoveToCompletion(completing.id, v.reason); await list.reload(); }} />}
     </div>
   );
 }

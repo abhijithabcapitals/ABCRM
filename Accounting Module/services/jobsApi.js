@@ -2,6 +2,7 @@
 // write goes through a database function.
 import { rpc, run, table } from "@banking/services/bankingApi";
 import { supabase } from "@app/supabase";
+import { staffPost } from "@client-login/portal/portalApi";
 import { lastContactByJob } from "../logic/jobs";
 
 // updated_at is passed back exactly as received. A JS Date would cut the microseconds and cause a false "reload" error.
@@ -81,4 +82,20 @@ export async function storeReceipt(receiptId, blob, fileName) {
   if (error) throw new Error(error.message);
   await attachReceipt(receiptId, path);
   return path;
+}
+
+// ── Client requests ────────────────────────────────────────────────────
+// Every column but link_hash, which staff may not read (a select of * would be refused).
+const REQUEST_COLUMNS = "id, client_id, job_id, account_id, items, other_note, message, link_expires_at, link_ended_at, link_ended_by, link_uses, link_last_used_at, email_to, emailed, email_error, client_shared_at, received_at, received_by, received_note, created_by, created_at";
+// Sending goes through the client-portal Edge Function: it makes the sign-in link, mails it and returns it once.
+export const listClientRequests = () => pageAll(() => table("accounting_client_requests").select(REQUEST_COLUMNS).order("created_at", { ascending: false }).order("id"));
+export const listJobRequests = (jobId) => run(table("accounting_client_requests").select(REQUEST_COLUMNS).eq("job_id", jobId).order("created_at", { ascending: false }));
+export const clientRequestLogin = (clientId) => rpc("accounting_client_request_login", { p_client: clientId });
+export const clientRequestActivity = (id) => rpc("accounting_client_request_activity", { p_id: id });
+export const endRequestLink = (id) => rpc("accounting_client_request_end_link", { p_id: id });
+export const setRequestReceived = (id, received, note) => rpc("accounting_client_request_set_received", { p_id: id, p_received: received, p_note: note ?? null });
+export const jobsOfClient = (clientId) => run(table("accounting_job_list").select("id, job_number, service_name, period_label").eq("client_id", clientId).order("created_at", { ascending: false }));
+export async function sendClientRequest(body) {
+  const { data } = await supabase.auth.getSession();
+  return staffPost(data?.session?.access_token, "accounting_request_send", body);
 }

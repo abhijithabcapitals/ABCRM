@@ -50,3 +50,11 @@ Once Zoho is live, `ZohoPanel` is added to the job. These additions are not buil
 | Read-back | Saves the Zoho number, date and total on the job. If Zoho's balance differs from the CRM's, the job is flagged and neither value is overwritten |
 
 A job must be linked to a Client Master record before it gets a Zoho draft. Manual invoices have no such need.
+
+## Client requests (Follow-ups)
+
+**Generate request** on the Follow-ups tab asks a client for accounting data, payment for services, legal documents or something else. The client must have an active portal login; if not, the dialog says to open one first. The `client-portal` Edge Function (`accounting_request_send`) records the request, emails the client a sign-in link from `info@abcapital.ae`, and returns the link once so staff can copy it. The link (`?client_link=...`) signs the client in without a password for 7 days, until staff press **End link**, or until the login is revoked. Only its SHA-256 is stored.
+
+Open requests are listed under Follow-ups; opening one shows when it was requested, when the link was used, what the client uploaded or changed since, and when they pressed "I have sent everything" in the portal. **Move to Received** puts it in the collapsible Received section below; it can be moved back.
+
+Release: apply `Database Module/Accounting Base/migrations/006_client_requests.sql` (after Client Base 003 and Client Login Base 001), deploy `client-portal` (see the Client Login Module README), then the site. Optional secret `CRM_SITE_URL` sets the link's site; it defaults to the live site. Undo: `rollback/006_rollback.sql`, which deletes every request and ends every link.

@@ -176,3 +176,33 @@ test("zohoReadyNote explains an unfinished job", () => {
   assert.equal(zohoReadyNote({ work_status: "Pending" }), "The job must be completed first.");
   assert.equal(zohoReadyNote({ work_status: "Completed" }), null);
 });
+
+// ── Client requests ────────────────────────────────────────────────────
+import { REQUEST_ITEMS, requestFormError, requestItemsText, requestLinkState, splitRequests } from "../logic/jobs.js";
+
+test("request form needs a client, an item, and a note with Other", () => {
+  assert.equal(requestFormError({ items: ["Accounting data"] }), "Choose a client.");
+  assert.equal(requestFormError({ client_id: "C1", items: [] }), "Tick at least one thing to request.");
+  assert.equal(requestFormError({ client_id: "C1", items: ["Cake"] }), "Unknown request item.");
+  assert.equal(requestFormError({ client_id: "C1", items: ["Other"], other_note: "  " }), "Say what else you need under Other.");
+  assert.equal(requestFormError({ client_id: "C1", items: ["Other"], other_note: "Lease" }), null);
+  assert.deepEqual(REQUEST_ITEMS, ["Accounting data", "Payment for services", "Legal documents", "Other"]);
+});
+
+test("request link state and item text", () => {
+  const now = new Date("2026-11-07T10:00:00Z");
+  assert.equal(requestLinkState({ link_expires_at: "2026-11-10T00:00:00Z", link_uses: 0 }, now), "Active");
+  assert.equal(requestLinkState({ link_expires_at: "2026-11-10T00:00:00Z", link_uses: 2 }, now), "Active, used");
+  assert.equal(requestLinkState({ link_expires_at: "2026-11-01T00:00:00Z", link_uses: 0 }, now), "Expired");
+  assert.equal(requestLinkState({ link_expires_at: "2026-11-10T00:00:00Z", link_ended_at: "2026-11-05T00:00:00Z" }, now), "Ended");
+  assert.equal(requestItemsText({ items: ["Accounting data", "Other"], other_note: "Lease" }), "Accounting data, Other: Lease");
+});
+
+test("requests split into open and received, newest first", () => {
+  const { open, received } = splitRequests([
+    { id: 1, created_at: "2026-11-01" }, { id: 2, created_at: "2026-11-03" },
+    { id: 3, created_at: "2026-10-01", received_at: "2026-11-02" }, { id: 4, created_at: "2026-10-02", received_at: "2026-11-04" },
+  ]);
+  assert.deepEqual(open.map((r) => r.id), [2, 1]);
+  assert.deepEqual(received.map((r) => r.id), [4, 3]);
+});

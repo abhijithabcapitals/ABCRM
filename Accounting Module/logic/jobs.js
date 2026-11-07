@@ -168,3 +168,30 @@ export const canCreateZohoInvoice = (job) => job?.work_status === "Completed";
 
 // Why Create is not offered yet, or null when it is.
 export const zohoReadyNote = (job) => (canCreateZohoInvoice(job) ? null : "The job must be completed first.");
+
+// ── Client requests (Accounting Base 006) ──────────────────────────────
+// What staff can ask a client for. Same words as the database check.
+export const REQUEST_ITEMS = ["Accounting data", "Payment for services", "Legal documents", "Other"];
+
+export function requestFormError({ client_id, items, other_note } = {}) {
+  if (!client_id) return "Choose a client.";
+  if (!items?.length) return "Tick at least one thing to request.";
+  if (items.some((i) => !REQUEST_ITEMS.includes(i))) return "Unknown request item.";
+  if (items.includes("Other") && !String(other_note || "").trim()) return "Say what else you need under Other.";
+  return null;
+}
+
+// The state of a request's sign-in link, as words for the table.
+export function requestLinkState(r, now = new Date()) {
+  if (r.link_ended_at) return "Ended";
+  if (new Date(r.link_expires_at) <= now) return "Expired";
+  return r.link_uses > 0 ? "Active, used" : "Active";
+}
+
+export const requestItemsText = (r) => (r.items || []).map((i) => (i === "Other" && r.other_note ? `Other: ${r.other_note}` : i)).join(", ");
+
+// Open requests stay in Follow-ups; ones staff marked received go to Received, newest first in both.
+export function splitRequests(rows = []) {
+  const byNew = (a, b) => String(b.created_at).localeCompare(String(a.created_at));
+  return { open: rows.filter((r) => !r.received_at).sort(byNew), received: rows.filter((r) => r.received_at).sort((a, b) => String(b.received_at).localeCompare(String(a.received_at))) };
+}

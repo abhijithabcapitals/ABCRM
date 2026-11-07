@@ -6,6 +6,7 @@ import { Badge, Button, DataTable, ErrorNote, FormModal, PageHead, Panel, Spinne
 import { openStored } from "@template-hub/services/hubApi";
 import { LostDialog, ReassignActions } from "./CaseActions";
 import { useSetup } from "./SetupContext";
+import ClosedCases from "./ClosedCases";
 import Documents from "./Documents";
 import { Review } from "./Onboarding";
 import Quotes from "./workspace/Quotes";
@@ -51,6 +52,7 @@ export default function ClientOnboarding() {
             { key: "x", label: "", render: (c) => <ReassignActions c={c} onChanged={list.reload} /> },
           ]} />
         )}
+        <ClosedCases refreshKey={list.data} />
       </>}
     </div>
   );

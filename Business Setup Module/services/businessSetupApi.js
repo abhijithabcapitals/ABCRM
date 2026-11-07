@@ -105,7 +105,9 @@ export const caseLinkClient = (id, client = null, allowDuplicate = false) => rpc
 export const caseMoveToOnboarding = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_move_to_onboarding", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 // A manager moves an Onboarding case to Pipeline before every item is met, with a reason.
 export const caseMoveToPipeline = (id, reason) => rpc("business_setup_case_move_to_pipeline", { p_case: id, p_reason: reason });
-export const caseShared = (id) => rpc("business_setup_case_shared", { p_case: id });
+// A manager moves a Pipeline case to Completion before every service is closed, with a reason (031).
+export const caseMoveToCompletion = (id, reason) => rpc("business_setup_case_move_to_completion", { p_case: id, p_reason: reason });
+export const caseShared =(id) => rpc("business_setup_case_shared", { p_case: id });
 export const caseLost = (id, reason) => rpc("business_setup_case_lost", { p_case: id, p_reason: reason });
 export const caseConfirm = (id) => rpc("business_setup_case_confirm", { p_case: id });
 export const caseAssign = (id, to, note) => rpc("business_setup_case_assign", { p_case: id, p_to: to, p_note: note });

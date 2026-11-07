@@ -95,3 +95,8 @@ test("linking a quotation always changes the fee: no keep option, and closing li
   const api = readFileSync(join(here, "services/jobsApi.js"), "utf8");
   assert.match(api, /accounting_quote_vat_mode/);
 });
+
+test("client requests are read with a column list: staff may not read link_hash, so a select of * is refused", () => {
+  assert.doesNotMatch(src, /table\("accounting_client_requests"\)\.select\("\*"\)/);
+  assert.doesNotMatch(src.match(/const REQUEST_COLUMNS = "([^"]*)"/)[1], /link_hash/);
+});

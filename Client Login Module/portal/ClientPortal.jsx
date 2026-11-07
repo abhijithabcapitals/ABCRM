@@ -10,6 +10,7 @@ import DocumentsTab from "./DocumentsTab";
 import InformationTab from "./InformationTab";
 import SetupView from "./SetupView";
 import TermsGate from "./TermsGate";
+import RequestsPanel from "./RequestsPanel";
 
 // Kept here because Client Inputs imports it from this file.
 export { fmtSize } from "./format";
@@ -34,6 +35,7 @@ function PortalScreen({ api, readOnly }) {
       <PageHead title={me.data?.display_name || "Client Portal"} sub={readOnly ? "Preview of what this client sees. Nothing can be changed here." : "Your record with AB Capital Services FZE, and a safe place to send us documents."} />
       {!readOnly && <div className="bk-actions bk-mb"><Button onClick={() => api.logout()}>Sign out</Button></div>}
       <ErrorNote message={me.error} />
+      {!readOnly && <RequestsPanel api={api} />}
       {!readOnly && <SetupView api={api} />}
       {me.loading && !me.data ? <Spinner /> : me.data && <>
         <div className="bk-tabs" role="tablist" aria-label="Your portal">

@@ -6,7 +6,7 @@ import ClientPicker from "@banking/components/ClientPicker";
 import { ClientLists, useClientLookup } from "@banking/components/ClientLookup";
 import { applyClient, findClient, pickClient } from "@banking/logic/clientLookup";
 import { flagMissing } from "@banking/components/Attention";
-import { loadHubSettings } from "../services/hubApi";
+import { loadHubSettings, openStored } from "../services/hubApi";
 import { loadAuthorities } from "../services/proposalApi";
 import { generateProposal, retryProposal } from "../services/proposalGenerate";
 import { pdfName, proposalDeps } from "../services/proposalDeps";
@@ -44,7 +44,7 @@ export default function ProposalDesk({ profile }) {
   const [sharedBase, setSharedBase] = useState(JSON.stringify(EMPTY_SHARED));
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
-  const [result, setResult] = useState(null); // { doc, onedrive, error } of the last run
+  const [result, setResult] = useState(null); // { doc, onedrive, sent, sendError, error } of the last run
   const [refresh, setRefresh] = useState(0);
   const guard = useRef({ busy: false });
 
@@ -82,7 +82,7 @@ export default function ProposalDesk({ profile }) {
     if (out.error && !out.doc) { setError(out.error); const ids = fieldFor(out.error); if (ids.length) flagMissing(ids); return; }
     setRefresh((n) => n + 1);
     if (out.error) { setResult({ doc: out.doc, error: out.error }); setError(out.error); return; }
-    setResult({ doc: out.doc, onedrive: out.onedrive });
+    setResult({ doc: out.doc, onedrive: out.onedrive, sent: out.sent, sendError: out.sendError });
     const { saveAs } = await import("file-saver");
     saveAs(out.pdfBlob, pdfName(out.doc));
     if (cleared) clear();
@@ -112,7 +112,11 @@ export default function ProposalDesk({ profile }) {
         <div className={`bk-alert ${result.error ? "bk-alert-warn" : "bk-alert-ok"}`}>
           {result.error
             ? <>Proposal {result.doc.document_number} was numbered but not finished: {result.error} The Ref is kept. <Button variant="primary" busy={busy === "retry"} onClick={retry}>Retry</Button></>
-            : <>Proposal <strong>{result.doc.document_number}</strong> created and the PDF downloaded. {result.onedrive ? `Saved to OneDrive: ${result.onedrive}` : "Not in OneDrive: this PC could not reach the Client Module. Use Save now in the list below on a PC where it runs."}</>}
+            : <>Proposal <strong>{result.doc.document_number}</strong> created and the PDF downloaded.{" "}
+              {result.sendError ? <strong>The mail was not sent: {result.sendError} Use the mail icon in the list below to send it.</strong>
+                : result.sent ? <>Mailed to {result.doc.contact_email} with the PDF and the client portal link.</> : null}{" "}
+              {result.onedrive ? `Saved to OneDrive: ${result.onedrive}` : "Not in OneDrive: this PC could not reach the Client Module. Use Save now in the list below on a PC where it runs."}{" "}
+              {result.doc.storage_path && <Button onClick={() => openStored(result.doc.storage_path).catch((e) => setError(e.message))}>View</Button>}</>}
         </div>
       )}
       <Panel title="1. Client" sub="Not printed. Choose a client to fill in the rest, or type a new one.">
@@ -145,7 +149,7 @@ export default function ProposalDesk({ profile }) {
           {LISTS.map(([k, label]) => <div className="bk-field bk-full" key={k}><label htmlFor={`p-sh-${k}`}>{label}</label><textarea id={`p-sh-${k}`} rows={4} value={shared[k].join("\n")} onChange={(e) => setShared((s) => ({ ...s, [k]: e.target.value.split("\n") }))} /><small>One item per line.</small></div>)}
         </div>
       </Panel>
-      <Panel title="4. Generate" sub="Creates the Ref, the Word and PDF files and a mail draft. The PDF downloads when done.">
+      <Panel title="4. Generate" sub="Creates the Ref and the Word and PDF files, then mails the PDF to the client with the client portal link. The PDF downloads when done.">
         {stuck
           ? <div className="bk-actions"><Button variant="primary" busy={busy === "retry"} disabled={!!busy} onClick={retry}>Retry {result.doc.document_number}</Button><Button disabled={!!busy} onClick={startNew}>Start a new proposal</Button></div>
           : <div className="bk-actions"><Button variant="primary" busy={busy === "generate"} disabled={!!busy || !!blocked} onClick={generate}>Generate Proposal + Mail</Button></div>}

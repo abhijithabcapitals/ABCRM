@@ -100,7 +100,7 @@ test("the dashboard stage cards and the review link follow the tab and right rul
 test("only a manager or admin sends a case to Accounting, on both screens", () => {
   for (const f of ["components/Completion.jsx", "components/workspace/Quotes.jsx"]) {
     const text = readFileSync(join(here, f), "utf8");
-    assert.match(text, /can\("setup\.cases\.approve"\)[^\n]*Send to Accounts|can\("setup\.cases\.approve"\) && <Button variant="primary" onClick=\{\(\) => setDialog\("send"\)\}>/, f);
+    assert.match(text, /can\("setup\.cases\.approve"\)[^\n]*(Send to Accounts|SEND_LABEL)|can\("setup\.cases\.approve"\) && <Button variant="primary" onClick=\{\(\) => setDialog\("send"\)\}>/, f);
     assert.doesNotMatch(text, /can\("setup\.services\.manage"\) && <Button variant="primary" onClick=\{\(\) => (setSending|setDialog\("send"\))/, f);
   }
 });

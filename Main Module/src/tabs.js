@@ -30,9 +30,11 @@ const tabOf = (view) => (KEYS.has(view) ? view : "spaces");
 
 // The page a person actually sees. Admins go anywhere; members only where they were given access.
 // The full Messenger page needs no grant, as every member already has the chat dock.
+// The Improvement page needs no grant either: every member can share ideas with the admin.
+export const OPEN_TO_ALL = new Set(["profile", "team-messenger", "improvements"]);
 export function resolveView(requested, isAdmin, tabs) {
   const view = requested === "ardentax" ? "quotations" : requested;
-  if (isAdmin || view === "profile" || view === "team-messenger") return view;
+  if (isAdmin || OPEN_TO_ALL.has(view)) return view;
   if (!ADMIN_ONLY.has(view) && (tabs || []).includes(tabOf(view))) return view;
   return (tabs || []).find((t) => t !== "spaces" && t !== "ardentax") || "profile";
 }

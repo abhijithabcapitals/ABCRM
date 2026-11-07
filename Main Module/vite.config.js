@@ -43,6 +43,8 @@ export default defineConfig({
       '@business-setup': fileURLToPath(new URL('../Business Setup Module', import.meta.url)),
       '@doc-intelligence': fileURLToPath(new URL('../Document Intelligence Module', import.meta.url)),
       '@knowledge': fileURLToPath(new URL('../Knowledge Module', import.meta.url)),
+      // The folder name keeps its original spelling.
+      '@improvements': fileURLToPath(new URL('../Impovements Module', import.meta.url)),
       '@messenger': fileURLToPath(new URL('../Messenger Module', import.meta.url)),
       '@router-agent': fileURLToPath(new URL('../Agent Module/00_Router_Agent', import.meta.url)),
       // The Template Hub lives outside this app folder, so resolve its

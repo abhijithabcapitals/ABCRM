@@ -25,6 +25,12 @@ export async function portalLogin(username, password) {
   sessionStorage.setItem(KEY, token);
 }
 
+// A request link (?client_link=...): exchanged for the same kind of session as a password sign-in. Replaces any session in this tab.
+export async function portalLinkLogin(link) {
+  const { token } = await post({ action: "link_login", link });
+  sessionStorage.setItem(KEY, token);
+}
+
 function signOutLocally() {
   try { sessionStorage.removeItem(KEY); } catch { /* storage blocked: nothing to clear */ }
   window.location.reload();
@@ -49,6 +55,8 @@ export const portalApi = {
   submitChange: (field, value) => call("submit_change", { field, value }),
   galleryUrl: async (source, id) => (await call("gallery_url", { source, id })).url,
   setupView: () => call("setup_view"),
+  requests: async () => (await call("requests")).requests,
+  requestShared: (id) => call("request_shared", { id }),
   formSave: (answers) => call("form_save", { answers }),
   formSubmit: () => call("form_submit"),
   setupDecide: (document_id, decision, note) => call("setup_decide", { document_id, decision, note }),

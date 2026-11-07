@@ -2,7 +2,7 @@
 // touches the server is passed in as deps:
 // { checkFirst(form, proposal), create(payload), loadTemplate(), loadImages(proposal), render(buffer, context, images),
 //   toPdf(wordBlob), upload(doc, blob, ext), attach(id, pdfPath, wordPath), saveLocal(doc, wordBlob, pdfBlob),
-//   markSaved(id, path), createMail(doc, { subject, body }),
+//   markSaved(id, path), createMail(doc, { subject, body }), send(id) = mails the draft with the PDF (proposal-mail-send),
 //   sign({ table, doc, rebuild, seen }) = the shared signing step (signing.js signDocument with its deps) }.
 // render takes a fourth argument, the signature, only when signing.
 // The template and a trial render come before the number is taken, so a bad template uses no number. A failure after
@@ -12,6 +12,8 @@
 import { optionTotal, proposalContext, toPayload } from "../logic/proposalModel.js";
 import { signStamp } from "../logic/accountingUi.js";
 
+// The client portal, as in the Client Login credential mail (credentialText.ts SIGN_IN_URL).
+export const PORTAL_URL = "https://crm-abcapital.pages.dev/";
 const plain = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
 const message = (e) => e?.message || String(e);
 
@@ -29,7 +31,8 @@ export function proposalMail(doc, settings) {
       `Dear ${doc.contact_name || "Sir/Madam"},`, "",
       `Please find attached our Business Formation Proposal, Ref ${doc.document_number}.`, "",
       ...(lines.length ? ["The options are:", ...lines, "", "Each option is an alternative; the fees of one option are not added to another.", ""] : []),
-      "Please let us know which option you would like to take forward.", "", "-- closing --", "Kind regards", ...signature,
+      "Please let us know which option you would like to take forward.", "",
+      `You can also view this proposal and your documents in the AB Capital client portal: ${PORTAL_URL}`, "", "-- closing --", "Kind regards", ...signature,
     ].join("\n"),
   };
 }
@@ -48,7 +51,15 @@ async function makeFiles(doc, template, images, settings, deps) {
       try { await deps.markSaved(doc.id, onedrive); } catch { /* the folder has the files; View still works */ }
     }
     await deps.createMail(saved, proposalMail(saved, settings));
-    return { doc: saved, wordBlob, pdfBlob, onedrive };
+    // The mail goes at once with the PDF. The files are made either way: a refused send is reported and Send stays on the row.
+    let sent = null, sendError = null;
+    if (deps.send && !saved.mail_sent_at) {
+      try {
+        const r = await deps.send(saved.id);
+        if (r && r.ok === false) sendError = r.error || "The mail was not sent."; else sent = r || { ok: true };
+      } catch (e) { sendError = message(e); }
+    }
+    return { doc: saved, wordBlob, pdfBlob, onedrive, sent, sendError };
   } catch (e) {
     return { doc, error: message(e) };
   }

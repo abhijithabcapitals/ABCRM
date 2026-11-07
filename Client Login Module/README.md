@@ -39,3 +39,7 @@ To undo the database part, run `Database Module/Client Login Base/rollback/001_0
 Checks before release: `bash "Database Module/Client Login Base/tests/run-local.sh"`, `node --test "Client Login Module/tests/logic.test.mjs"`, and `npm run build` in `Main Module`.
 
 The app reaches this folder through the `@client-login` alias. Staff screens that use it (`ClientsHub.jsx`, `ClientInputs.jsx`) stay in the Client Module.
+
+## Request links
+
+A request from Accounting > Follow-ups mails the client a link (`?client_link=...`). `Main Module/src/Root.jsx` sends it to `portal/LinkSignIn.jsx`, which removes it from the address bar and exchanges it (`link_login`) for a normal 12-hour session. `portal/RequestsPanel.jsx` shows the client what was asked and lets them say they have sent everything. The database part is `Database Module/Accounting Base/migrations/006_client_requests.sql`.
