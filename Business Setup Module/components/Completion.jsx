@@ -7,6 +7,18 @@ import { caseDocuments, caseList, handoverState, sendToAccounts } from "../servi
 import { STAGE_TONE } from "../logic/statuses";
 import { caseBalance } from "../logic/progress";
 import { aedMoney as money } from "@app/money";
+import { supabase } from "@app/supabase";
+import { callZoho } from "@integrations/logic/zohoPanel";
+
+const SEND_LABEL = "Invoice and send to Accounts";
+
+// Creates the Zoho invoice for the accepted quote. Zoho returns the existing one when it was already made, so a retry never duplicates it.
+async function createInvoice(quoteId) {
+  const out = await callZoho(supabase, { action: "document_create", source_table: "hub_documents", source_id: quoteId, kind: "invoice" });
+  if (out?.needs_contact) throw new Error("Link this client's Zoho contact first: Open client, Quotes & Agreements, Show Zoho details. Then try again.");
+  if (out?.state && out.state !== "created") throw new Error("Zoho did not confirm the invoice. Wait 2 minutes, then try again.");
+  return out;
+}
 
 export default function Completion() {
   const { can, goTo } = useSetup();
@@ -29,7 +41,7 @@ export default function Completion() {
           { key: "x", label: "", render: (c) => (
             <span className="bk-actions bk-wrap">
               {c.client_id && <Button onClick={() => goTo("clients", { client: c.client_id })}>Open client</Button>}
-              {c.stage === "Completion" && can("setup.cases.approve") && <Button variant="primary" onClick={() => setSending(c)}>Send to Accounts</Button>}
+              {c.stage === "Completion" && can("setup.cases.approve") && <Button variant="primary" onClick={() => setSending(c)}>{SEND_LABEL}</Button>}
             </span>
           ) },
         ]} />
@@ -39,7 +51,8 @@ export default function Completion() {
   );
 }
 
-// Finds the case's accepted quote, shows what still blocks the handover, and sends it with remarks.
+// Finds the case's accepted quote, shows what still blocks the handover, creates the Zoho invoice, then sends it with remarks.
+// The invoice comes first: if Zoho refuses, nothing is sent and the case stays at Completion.
 function SendDialog({ c, onClose, onDone }) {
   const found = useLoad(async () => {
     const quote = (await caseDocuments(c.id)).find((d) => d.doc_type === "quote" && d.status === "accepted");
@@ -47,20 +60,20 @@ function SendDialog({ c, onClose, onDone }) {
     return { quote, state: await handoverState(quote.id) };
   }, [c.id]);
   const h = found.data?.state;
-  if (found.loading && !found.data) return <Modal title={`Send ${c.case_number} to Accounts`} onClose={onClose}><Spinner /></Modal>;
+  if (found.loading && !found.data) return <Modal title={`Invoice and send ${c.case_number} to Accounts`} onClose={onClose}><Spinner /></Modal>;
   if (!found.data || !h?.ready) {
     return (
-      <Modal title={`Send ${c.case_number} to Accounts`} onClose={onClose}>
+      <Modal title={`Invoice and send ${c.case_number} to Accounts`} onClose={onClose}>
         <ErrorNote message={found.error} />
-        {h && <p className="bk-note">To send to Accounts: {(h.blockers || []).join(", ") || "not ready"}.</p>}
+        {h && <p className="bk-note">To invoice and send to Accounts: {(h.blockers || []).join(", ") || "not ready"}.</p>}
         <div className="bk-modal-actions"><Button onClick={onClose}>Close</Button></div>
       </Modal>
     );
   }
   return (
-    <FormModal title={`Send ${c.case_number} to Accounts`} submitLabel="Send"
-      note={`Net paid ${money(h.net_paid)}. This case, its services and payments cannot change while Accounts holds it.`}
+    <FormModal title={`Invoice and send ${c.case_number} to Accounts`} submitLabel="Invoice and send"
+      note={`Net paid ${money(h.net_paid)}. A Zoho invoice is created for the accepted quote first. This case, its services and payments cannot change while Accounts holds it.`}
       fields={[{ name: "remarks", label: "Remarks for Accounts", type: "textarea", full: true }]} onClose={onClose}
-      onSubmit={async (v) => { await sendToAccounts(found.data.quote.id, v.remarks); await onDone(); }} />
+      onSubmit={async (v) => { await createInvoice(found.data.quote.id); await sendToAccounts(found.data.quote.id, v.remarks); await onDone(); }} />
   );
 }

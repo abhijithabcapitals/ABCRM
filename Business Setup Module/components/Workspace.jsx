@@ -5,21 +5,25 @@ import { useSetup } from "./SetupContext";
 import { workspace } from "../services/businessSetupApi";
 import Overview from "./workspace/Overview";
 import Kyc from "./workspace/Kyc";
-import ClientServices from "./workspace/ClientServices";
-import Visas from "./workspace/Visas";
+import Scope, { SCOPE_TABS } from "./workspace/Scope";
 import Quotes from "./workspace/Quotes";
 import Payments from "./workspace/Payments";
 import Files from "./workspace/Files";
 import Activity from "./workspace/Activity";
 import ClientLogin from "./workspace/ClientLogin";
 
-const TABS = [["overview", "Overview", Overview, "setup.access"], ["kyc", "KYC", Kyc, "setup.access"], ["services", "Services", ClientServices, "setup.access"], ["visas", "Visas", Visas, "setup.access"], ["quotes", "Quotes & Agreements", Quotes, "setup.access"],
+const TABS = [["overview", "Overview", Overview, "setup.access"], ["kyc", "KYC", Kyc, "setup.access"], ["scope", "Scope", Scope, "setup.access"], ["quotes", "Quotes & Agreements", Quotes, "setup.access"],
   ["payments", "Payments", Payments, "setup.access"], ["documents", "Documents", Files, "setup.access"], ["activity", "Tasks & Activity", Activity, "setup.access"], ["login", "Client Login", ClientLogin, "setup.portal.manage"]];
 
 export default function Workspace({ clientId, onBack }) {
   const { can } = useSetup();
   const data = useLoad(() => workspace(clientId), [clientId]);
   const [tab, setTab] = useState("overview");
+  const [scopeTab, setScopeTab] = useState("services");
+  // Services and Visas live under Scope; a link to either opens Scope on that sub-tab.
+  const goTab = (k) => {
+    if (SCOPE_TABS.some(([s]) => s === k)) { setScopeTab(k); setTab("scope"); } else setTab(k);
+  };
   const tabs = TABS.filter(([, , , perm]) => can(perm));
   const Current = tabs.find(([k]) => k === tab)?.[2] || Overview;
   return (
@@ -29,7 +33,7 @@ export default function Workspace({ clientId, onBack }) {
       <div className="bk-tabs" role="tablist" aria-label="Client">
         {tabs.map(([k, label]) => <button type="button" role="tab" aria-selected={tab === k} key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>)}
       </div>
-      {data.loading && !data.data ? <Spinner /> : data.data && <Current w={data.data} clientId={clientId} reload={data.reload} goTab={setTab} />}
+      {data.loading && !data.data ? <Spinner /> : data.data && <Current w={data.data} clientId={clientId} reload={data.reload} goTab={goTab} sub={scopeTab} setSub={setScopeTab} />}
     </div>
   );
 }
