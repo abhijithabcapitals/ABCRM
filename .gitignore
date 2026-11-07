@@ -49,3 +49,14 @@ Database Module/Business Setup Base/data/
 
 # Temporary Edge Function deploy folder (Main Module/scripts/stage-edge-functions.mjs)
 .edge-deploy/
+
+# Build and tool caches
+.next/
+.open-next/
+.wrangler/
+**/supabase/.temp/
+*.tsbuildinfo
+graphify-out/
+
+# Loose env files such as "1.env"
+*.env

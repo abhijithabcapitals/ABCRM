@@ -103,6 +103,8 @@ export const caseLinkClientForPayment = (id, client = null, allowDuplicate = fal
 export const caseLinkClient = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_link_client", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
 // The owner (or a manager) moves a Lead or Review case to Client Onboarding. The checked client step runs first; returns the client id.
 export const caseMoveToOnboarding = (id, client = null, allowDuplicate = false) => rpc("business_setup_case_move_to_onboarding", { p_case: id, p_client: client, p_allow_duplicate: allowDuplicate });
+// A manager moves an Onboarding case to Pipeline before every item is met, with a reason.
+export const caseMoveToPipeline = (id, reason) => rpc("business_setup_case_move_to_pipeline", { p_case: id, p_reason: reason });
 export const caseShared = (id) => rpc("business_setup_case_shared", { p_case: id });
 export const caseLost = (id, reason) => rpc("business_setup_case_lost", { p_case: id, p_reason: reason });
 export const caseConfirm = (id) => rpc("business_setup_case_confirm", { p_case: id });
@@ -188,3 +190,9 @@ export const caseSetReferrer = (id, user, reason) => rpc("business_setup_case_se
 // A third party typed by name (027). The name is saved, so it is offered next time.
 export const caseSetReferrerOther = (id, name, reason) => rpc("business_setup_case_set_referrer_other", { p_case: id, p_name: name, p_reason: reason });
 export const otherReferrers = () => rpc("business_setup_other_referrer_list");
+
+// A client's service lines (Services tab): one per service from the fee list, with the fee for this client. A quote starts from the lines not yet quoted.
+export const serviceLines = (client) => rpc("business_setup_service_line_list", { p_client: client });
+export const serviceLineSave = (p) => rpc("business_setup_service_line_save", { p });
+export const serviceLineDelete = (id) => rpc("business_setup_service_line_delete", { p_id: id });
+export const serviceLinesQuoted = (quote, ids) => rpc("business_setup_service_line_quoted", { p_quote: quote, p_ids: ids });

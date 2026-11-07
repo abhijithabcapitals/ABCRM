@@ -7,7 +7,7 @@ The CRM's **Business Setup** tab: from a client's form to a finished service han
 | `components/BusinessSetup.jsx` | Shell, permissions, navigation |
 | `components/{Dashboard,AllLeads,ClientOnboarding,Cases,Completion,Clients,FeeMaster,Tasks,Settings}.jsx` | Tabs: Dashboard, All Leads (with the Move to Client Onboarding dialog and the Review screen from `Onboarding.jsx`), Client Onboarding (temporarily `DocumentationPage.jsx`), Pipeline (`Cases.jsx`), Completion, Clients, Services & Fees, Tasks, Settings |
 | `components/Documents.jsx`, `components/Import.jsx` | The document register (second view of Documentation) and the old CRM import (inside Settings) |
-| `components/Workspace.jsx`, `components/workspace/` | One client, one file per tab. `ClientCases.jsx` is the Cases tab with + New Case |
+| `components/Workspace.jsx`, `components/workspace/` | One client, one file per tab. `ClientServices.jsx` is the Services tab: service lines from the fee list with their fees (saved per client), then the service tracker. Quotes & Agreements issues a quote from the lines not yet quoted |
 | `components/NewServiceFlow.jsx` | Services, fees and template, then a quote. Takes a `caseId` and passes `case_id` to `createDocument` |
 | `components/ZohoInvoicePanel.jsx` | Reserved for the Zoho invoice step. Also used by Banking |
 | `logic/` | Pure rules (`nav.js`, `caseWorkspace.js`, `loginSecret.js`, ...), tested with `node --test "Business Setup Module/tests/"` |

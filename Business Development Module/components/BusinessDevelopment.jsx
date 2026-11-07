@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BD_SOURCES,
   BD_STAGES,
@@ -11,6 +11,7 @@ import {
   createBusinessDevelopmentLead,
   createBusinessDevelopmentService,
   completeBusinessDevelopmentFollowup,
+  fetchBusinessDevelopmentLeadDocuments,
   fetchBusinessDevelopmentLeads,
   fetchBusinessDevelopmentProfiles,
   fetchBusinessDevelopmentRole,
@@ -20,8 +21,11 @@ import {
   updateBusinessDevelopmentStage,
   updateBusinessDevelopmentService,
   updatePlatformProspect,
+  uploadBusinessDevelopmentLeadDocument,
   uploadBusinessDevelopmentReceipt,
 } from "../logic/businessDevelopmentData";
+import { LEAD_DOC_LABELS, addLeadFiles, fillLeadForm, leadFromDocai } from "../logic/leadDocuments.js";
+import { readFiles } from "@business-setup/services/ocrRead";
 import { CONVERTED_STAGE, DEPARTMENTS, QUOTE_STAGE, departmentForService, departmentLabel, isOpen, isUnassigned, nextStep } from "../logic/leadRules.js";
 import BdAgentPanel from "./BdAgentPanel";
 import BdAgentTab from "./BdAgentTab";
@@ -249,11 +253,20 @@ export default function BusinessDevelopment({ profile }) {
     window.setTimeout(() => setNotice(""), 4500);
   }
 
-  async function submitLead(lead, activity, followup) {
+  async function submitLead(lead, activity, followup, files = []) {
     setBusy(true);
     const { data: created, error: saveError } = await createBusinessDevelopmentLead(lead, activity, followup);
+    if (saveError) { setBusy(false); setError(errorText(saveError)); return false; }
+    // The lead is saved first; a file that fails to upload is reported but does not undo the lead.
+    const failed = [];
+    if (created?.id) {
+      for (const file of files) {
+        const { error: uploadError } = await uploadBusinessDevelopmentLeadDocument(created.id, file);
+        if (uploadError) failed.push(`${file.name} (${errorText(uploadError)})`);
+      }
+    } else if (files.length) failed.push(...files.map((file) => file.name));
     setBusy(false);
-    if (saveError) { setError(errorText(saveError)); return false; }
+    if (failed.length) setError(`Lead created, but these documents were not attached: ${failed.join(", ")}. Attach them from the lead's Documents tab.`);
     if (leadPrefill?.prospectId) {
       await updatePlatformProspect(leadPrefill.prospectId, {
         status: "added", lead_id: created?.id ?? null, handled_by: currentUserId, handled_at: new Date().toISOString(),
@@ -262,7 +275,7 @@ export default function BusinessDevelopment({ profile }) {
       setProspectsVersion((v) => v + 1);
     }
     setModal("");
-    setStatus("Lead created and initial discussion recorded.");
+    setStatus(files.length && !failed.length ? `Lead created with ${files.length} document${files.length === 1 ? "" : "s"} attached.` : "Lead created and initial discussion recorded.");
     await load();
     return true;
   }
@@ -996,7 +1009,39 @@ function LeadForm({ profiles, currentUserId, leads, busy, onClose, onSubmit, ini
   });
   const [duplicateAllowed, setDuplicateAllowed] = useState(false);
   const [validation, setValidation] = useState("");
+  const [step, setStep] = useState("documents");
+  const [files, setFiles] = useState([]);
+  const [dragging, setDragging] = useState(false);
+  const [reading, setReading] = useState(null);
+  const [filled, setFilled] = useState([]);
+  const [readNote, setReadNote] = useState("");
+  const fileInput = useRef(null);
   const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
+
+  // Copy the list now: clearing the file input right after empties the browser's live FileList.
+  function pick(list) {
+    const { files: next, rejected } = addLeadFiles(files, [...list]);
+    setFiles(next);
+    setValidation(rejected.length ? `Not added: ${rejected.join("; ")}.` : "");
+  }
+
+  // Reads the documents in this browser (DOC OCR Module), fills only the empty fields, then moves to the details step.
+  async function readAndContinue() {
+    if (!files.length) { setStep("details"); return; }
+    setValidation(""); setReading(0);
+    try {
+      const docs = await readFiles(files, null, (p) => setReading((now) => Math.max(now ?? 0, Math.min(99, Math.floor(p)))));
+      const { values } = leadFromDocai(docs);
+      const result = fillLeadForm(form, values);
+      setForm(result.form);
+      setFilled(result.filled);
+      setReadNote(result.filled.length ? "" : "Nothing new could be read from these documents. Fill the details by hand; the documents are still attached.");
+    } catch (readError) {
+      setReadNote(`The documents could not be read (${readError?.message || "unknown error"}). Fill the details by hand; the documents are still attached.`);
+    }
+    setReading(null);
+    setStep("details");
+  }
   const matches = leads.filter((lead) =>
     (form.mobile && normalized(form.mobile) === normalized(lead.mobile)) ||
     (form.email && normalized(form.email) === normalized(lead.email)) ||
@@ -1032,14 +1077,51 @@ function LeadForm({ profiles, currentUserId, leads, busy, onClose, onSubmit, ini
       planned_at: uaeInputToIso(form.next_followup_at), channel: form.contact_channel,
       objective: "Follow up on initial discussion", status: "scheduled",
     };
-    await onSubmit(lead, activity, followup);
+    await onSubmit(lead, activity, followup, files);
+  }
+
+  const scrimClose = (event) => event.target === event.currentTarget && reading === null && onClose();
+  const heading = (
+    <div className="bd-modal-heading"><div><span className="bd-eyebrow">QUICK CAPTURE · STEP {step === "documents" ? "1" : "2"} OF 2</span><h2 id="bd-lead-form-title">Create a new lead</h2><p>{step === "documents" ? "Drop the prospect's documents to fill the form for you, or skip if you have none." : "Capture the essentials. You can complete more details later."}</p></div><button type="button" className="bd-close" onClick={onClose} disabled={reading !== null} aria-label="Close">×</button></div>
+  );
+
+  if (step === "documents") {
+    return (
+      <div className="bd-modal-scrim" role="presentation" onMouseDown={scrimClose}>
+        <div className="bd-modal" role="dialog" aria-labelledby="bd-lead-form-title">
+          {heading}
+          {validation && <div className="bd-inline-error">{validation}</div>}
+          <button type="button" className={`bd-drop${dragging ? " is-dragging" : ""}`} disabled={reading !== null}
+            onClick={() => fileInput.current?.click()}
+            onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(event) => { event.preventDefault(); setDragging(false); pick(event.dataTransfer.files); }}>
+            <strong>Drag and drop documents here, or click to choose</strong>
+            <span>Trade licence, passport, Emirates ID, business card or any PDF / image. Read in this browser; nothing is sent to a third party.</span>
+          </button>
+          <input ref={fileInput} className="bd-file-input" type="file" multiple accept=".pdf,image/*" onChange={(event) => { pick(event.target.files); event.target.value = ""; }} />
+          {files.length > 0 && <ul className="bd-file-list">{files.map((file) => <li key={file.name}><span>{file.name}</span><small>{Math.max(1, Math.round(file.size / 1024))} KB</small>{reading === null && <button type="button" className="bd-text-button" onClick={() => setFiles((list) => list.filter((item) => item.name !== file.name))}>Remove</button>}</li>)}</ul>}
+          {reading !== null && <div className="bd-read-progress" role="status"><div className="bd-progress-track"><i style={{ width: `${reading}%` }} /></div><span>Reading documents… {reading}%. Keep this window open.</span></div>}
+          <div className="bd-modal-actions">
+            <button type="button" className="bd-button bd-button-secondary" onClick={() => setStep("details")} disabled={reading !== null}>{files.length ? "Skip reading, attach only" : "No documents, continue"}</button>
+            <button type="button" className="bd-button bd-button-primary" onClick={readAndContinue} disabled={!files.length || reading !== null}>{reading !== null ? "Reading…" : "Read documents & continue"}</button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="bd-modal-scrim" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="bd-modal-scrim" role="presentation" onMouseDown={scrimClose}>
       <form className="bd-modal" onSubmit={submit} aria-labelledby="bd-lead-form-title">
-        <div className="bd-modal-heading"><div><span className="bd-eyebrow">QUICK CAPTURE</span><h2 id="bd-lead-form-title">Create a new lead</h2><p>Capture the essentials. You can complete more details later.</p></div><button type="button" className="bd-close" onClick={onClose} aria-label="Close">×</button></div>
+        {heading}
         {validation && <div className="bd-inline-error">{validation}</div>}
+        {(files.length > 0 || readNote) && <div className="bd-doc-summary">
+          {filled.length > 0 && <p><b>Filled from documents:</b> {[...new Set(filled)].map((key) => LEAD_DOC_LABELS[key]).join(", ")}. Check them before saving.</p>}
+          {readNote && <p>{readNote}</p>}
+          {files.length > 0 && <p><b>{files.length} document{files.length === 1 ? "" : "s"} will be attached:</b> {files.map((file) => file.name).join(", ")}</p>}
+          <button type="button" className="bd-text-button" onClick={() => setStep("documents")}>← Change documents</button>
+        </div>}
         {matches.length > 0 && <div className="bd-duplicate-warning"><b>Possible duplicate lead</b>{matches.slice(0, 3).map((lead) => <span key={lead.id}>{lead.lead_id} · {lead.name} · {lead.mobile || lead.email}</span>)}<label><input type="checkbox" checked={duplicateAllowed} onChange={(event) => setDuplicateAllowed(event.target.checked)} /> I reviewed the match; allow this separate lead record.</label></div>}
         <div className="bd-form-grid">
           <label>Lead type<select value={form.lead_type} onChange={(event) => set("lead_type", event.target.value)}><option value="company">Company</option><option value="individual">Individual</option></select></label>
@@ -1074,7 +1156,30 @@ function LeadWorkspace({ lead, profiles, currentUserId, isManager, onBack, onAct
   const services = lead.bd_lead_services || [];
   const owner = profiles.find((person) => person.id === lead.current_owner);
   const stageIndex = BD_STAGES.indexOf(lead.stage);
-  const tabs = ["Overview", "Services & Budgets", "Discussion History", "Follow-ups & Activities"];
+  const tabs = ["Overview", "Services & Budgets", "Documents", "Discussion History", "Follow-ups & Activities"];
+  const [documents, setDocuments] = useState([]);
+  const [docBusy, setDocBusy] = useState(false);
+  const [docError, setDocError] = useState("");
+  const docInput = useRef(null);
+  const loadDocuments = useCallback(async () => {
+    const { data, error: loadError } = await fetchBusinessDevelopmentLeadDocuments(lead.id);
+    if (loadError) setDocError(errorText(loadError)); else setDocuments(data || []);
+  }, [lead.id]);
+  useEffect(() => { loadDocuments(); }, [loadDocuments]);
+  async function attachDocuments(list) {
+    const { files, rejected } = addLeadFiles([], [...list]);
+    setDocError(rejected.length ? `Not added: ${rejected.join("; ")}.` : "");
+    if (!files.length) return;
+    setDocBusy(true);
+    const failed = [];
+    for (const file of files) {
+      const { error: uploadError } = await uploadBusinessDevelopmentLeadDocument(lead.id, file);
+      if (uploadError) failed.push(`${file.name} (${errorText(uploadError)})`);
+    }
+    setDocBusy(false);
+    if (failed.length) setDocError(`Not attached: ${failed.join(", ")}.`);
+    await loadDocuments();
+  }
   const transferred = (lead.bd_department_transfers || []).length > 0;
   const progressStage = lead.status === "won" ? (transferred ? "Onboarding Completed" : CONVERTED_STAGE) : lead.stage;
   const stagePercent = ["lost", "disqualified", "on_hold"].includes(lead.status)
@@ -1119,11 +1224,15 @@ function LeadWorkspace({ lead, profiles, currentUserId, isManager, onBack, onAct
         </div>
         <div className="bd-progress-wrap"><div className="bd-progress-label"><span>Pipeline progress</span>{stagePercent === null ? <b className="bd-status-note">{lead.status === "on_hold" ? "On hold" : lead.status}</b> : <b>{stagePercent}%</b>}</div>{stagePercent !== null && <><div className="bd-progress-track"><i style={{ width: `${stagePercent}%` }} /></div><div className="bd-progress-steps">{PROGRESS_STEPS.map((item, index) => <span key={item} className={index <= Math.floor(stagePercent / 14.28) ? "reached" : ""}>{item}</span>)}</div></>}</div>
       </section>
-      <nav className="bd-detail-tabs">{tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}{item === "Discussion History" && <span>{history.length}</span>}</button>)}</nav>
+      <nav className="bd-detail-tabs">{tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}{item === "Discussion History" && <span>{history.length}</span>}{item === "Documents" && documents.length > 0 && <span>{documents.length}</span>}</button>)}</nav>
       <div className="bd-detail-grid">
         <main className="bd-panel bd-detail-main">
           {tab === "Overview" && <><div className="bd-panel-heading"><div><h3>Lead overview</h3><p>Qualification information and next steps.</p></div></div><div className="bd-overview-grid"><div><small>Lead type</small><b>{lead.lead_type}</b></div><div><small>Acquired by</small><b>{fullName(profiles.find((person) => person.id === lead.acquired_by))}</b></div><div><small>Acquired on</small><b>{dateOnly(lead.acquired_at)}</b></div><div><small>Priority</small><b>{lead.priority}</b></div><div><small>Lead age</small><b>{Math.max(0, Math.floor((Date.now() - new Date(lead.created_at).getTime()) / 86400000))} days</b></div><div><small>Source detail</small><b>{lead.source_detail || "—"}</b></div></div><div className="bd-description-block"><small>Initial discussion summary</small><p>{lead.initial_summary}</p></div><div className="bd-description-block"><small>Internal notes</small><p>{lead.notes || "No internal notes recorded."}</p></div>{(lead.quote_sent_at || receipts.length > 0 || transfers.length > 0) && <div className="bd-workflow-block">{lead.quote_sent_at && <div><small>Quote & engagement</small><b>{lead.quote_reference} · {lead.engagement_reference}</b><span>Sent to {lead.quote_sent_to} on {when(lead.quote_sent_at)}</span></div>}{receipts.map((receipt) => <div key={receipt.id}><small>Payment receipt</small><b>{receipt.amount != null ? money(receipt.amount, receipt.currency) : "Amount hidden"} · {dateOnly(receipt.received_on)}</b><span>{receipt.reference || "No reference"} · <button type="button" className="bd-text-button" onClick={() => openReceipt(receipt.file_path)}>{receipt.file_name || "View receipt"}</button></span></div>)}{transfers.length > 0 && <div><small>Transferred to</small><div className="bd-transfer-chips">{transfers.map((t) => <span key={t.id}>{departmentLabel(t.department)} · {t.target_ref}{t.owner ? ` · ${fullName(profiles.find((person) => person.id === t.owner))}` : ""}{t.services?.length ? ` · ${t.services.join(", ")}` : ""}</span>)}</div></div>}</div>}{lead.status === "active" && <div className="bd-inline-actions"><button className="bd-button bd-button-secondary" onClick={() => onService()}>＋ Add service</button><button className="bd-button bd-button-secondary" onClick={onActivity}>＋ Log discussion</button><button className="bd-button bd-button-secondary" onClick={onFollowup}>＋ Schedule follow-up</button></div>}</>}
           {tab === "Services & Budgets" && <><div className="bd-panel-heading"><div><h3>Services & budgets</h3><p>Each service has its own price, scope, and commercial outcome.</p></div>{lead.status === "active" && <button className="bd-button bd-button-secondary" onClick={() => onService()}>＋ Add service</button>}</div>{services.length ? <div className="bd-service-list">{services.map((service) => <article className="bd-service-card" key={service.id}><div><strong>{service.service_name}</strong><span>{service.status} · {service.billing_frequency || "Frequency not set"}</span>{lead.status === "active" && <button className="bd-text-button bd-service-edit" onClick={() => onService(service)}>Edit service</button>}</div><div><small>Client budget</small><b>{service.client_budget ? money(service.client_budget, service.currency) : "—"}</b></div><div><small>Proposed fee</small><b>{service.proposed_fee ? money(service.proposed_fee, service.currency) : "—"}</b></div><div><small>Agreed fee</small><b>{service.final_agreed_fee ? money(service.final_agreed_fee, service.currency) : "—"}</b></div></article>)}</div> : <Empty title="No services added" body="Add the prospect’s requirements and quote each service independently." />}</>}
+          {tab === "Documents" && <><div className="bd-panel-heading"><div><h3>Documents</h3><p>Files attached when the lead was captured or added since.</p></div><button className="bd-button bd-button-secondary" disabled={docBusy} onClick={() => docInput.current?.click()}>{docBusy ? "Uploading…" : "＋ Attach documents"}</button></div>
+            <input ref={docInput} className="bd-file-input" type="file" multiple accept=".pdf,image/*" onChange={(event) => { attachDocuments(event.target.files); event.target.value = ""; }} />
+            {docError && <div className="bd-inline-error">{docError}</div>}
+            {documents.length ? <div className="bd-doc-list">{documents.map((doc) => <div key={doc.id}><button type="button" className="bd-text-button" onClick={() => openReceipt(doc.file_path)}>{doc.file_name}</button><small>{fullName(profiles.find((person) => person.id === doc.uploaded_by))} · {when(doc.created_at)}</small></div>)}</div> : <Empty title="No documents yet" body="Attach the prospect's licence, passport or other files." />}</>}
           {tab === "Discussion History" && <Timeline activities={history} />}
           {tab === "Follow-ups & Activities" && <FollowupHistory items={followups} activities={history} />}
         </main>

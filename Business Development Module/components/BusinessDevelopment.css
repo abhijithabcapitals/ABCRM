@@ -271,6 +271,24 @@
 .bd-form-grid .bd-form-wide { grid-column: 1 / -1; }
 .bd-modal-actions { justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 13px; border-top: 1px solid #edf0f1; }
 .bd-inline-error { margin: 0 0 13px; padding: 9px 11px; border-radius: 7px; color: #a53d36; background: #fff1ef; font-size: 10px; line-height: 1.5; }
+/* New Lead step 1: drop documents to fill the form */
+.bd-drop { display: flex; width: 100%; flex-direction: column; align-items: center; gap: 6px; padding: 38px 20px; border: 1.5px dashed #b9cfd2; border-radius: 12px; color: #1d3c42; background: #f7fbfb; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+.bd-drop:hover, .bd-drop.is-dragging { border-color: #168f94; background: #eef8f7; }
+.bd-drop:disabled { cursor: progress; opacity: .7; }
+.bd-drop strong { font-size: 13px; }
+.bd-drop span { max-width: 460px; color: #6c7a7e; font-size: 10px; line-height: 1.5; }
+.bd-file-input { display: none; }
+.bd-file-list { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
+.bd-file-list li { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border: 1px solid #e5ebed; border-radius: 8px; font-size: 11px; }
+.bd-file-list li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-file-list li small { color: #9aa4a8; }
+.bd-read-progress { margin-top: 12px; color: #4f6064; font-size: 10px; }
+.bd-read-progress span { display: block; margin-top: 6px; }
+.bd-doc-summary { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-bottom: 13px; padding: 10px 12px; border: 1px solid #cfe6e3; border-radius: 8px; color: #24494d; background: #f1faf8; font-size: 10px; line-height: 1.5; }
+.bd-doc-summary p { margin: 0; }
+.bd-doc-list { display: flex; flex-direction: column; gap: 6px; }
+.bd-doc-list div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 1px solid #e5ebed; border-radius: 8px; font-size: 11px; }
+.bd-doc-list small { color: #9aa4a8; }
 .bd-duplicate-warning { display: flex; flex-direction: column; gap: 5px; margin-bottom: 13px; padding: 10px 12px; border: 1px solid #f1d59f; border-radius: 8px; color: #845b19; background: #fff9eb; font-size: 10px; }
 .bd-duplicate-warning label { display: flex; align-items: center; gap: 7px; margin-top: 3px; font-weight: 650; }
 .bd-duplicate-warning input { width: auto; }
